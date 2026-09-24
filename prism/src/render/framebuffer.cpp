@@ -461,7 +461,7 @@ void FrameBuffer::DrawTextSimple(int x, int y, const std::string& text, uint32_t
     }
 }
 
-void FrameBuffer::DrawTopMenuBar(const std::string& active_app, const std::string& time_str) {
+void FrameBuffer::DrawTopMenuBar(const std::string& active_app, const std::string& time_str, bool draw_legacy_text) {
     int bar_h = (height_ >= 38) ? 34 : height_;
     ApplyKawaseBlur(0, 0, width_, bar_h, 20.0f, 3);
     DrawRect(0, 0, width_, bar_h, 0xB0121622); // Luxury dark frosted glass tint
@@ -474,6 +474,10 @@ void FrameBuffer::DrawTopMenuBar(const std::string& active_app, const std::strin
         DrawRect(0, bar_h + 1, width_, 1, 0x20000000);
         DrawRect(0, bar_h + 2, width_, 1, 0x10000000);
         DrawRect(0, bar_h + 3, width_, 1, 0x05000000);
+    }
+
+    if (!draw_legacy_text) {
+        return;
     }
 
     auto DrawShadowedText = [this](int tx, int ty, const std::string& str, uint32_t col, int sc = 1) {
@@ -521,7 +525,7 @@ void FrameBuffer::DrawTopMenuBar(const std::string& active_app, const std::strin
     }
 }
 
-void FrameBuffer::DrawMacDock(const std::vector<std::string>& app_names, int active_index) {
+void FrameBuffer::DrawMacDock(const std::vector<std::string>& app_names, int active_index, bool draw_legacy_icons) {
     int count = static_cast<int>(app_names.size());
     if (count == 0) return;
 
@@ -551,6 +555,10 @@ void FrameBuffer::DrawMacDock(const std::vector<std::string>& app_names, int act
     DrawBorder(dock_x, dock_y, dock_w, dock_h, 22.0f, 1.0f, 0x38FFFFFF);
     DrawRoundedRect(dock_x + 22, dock_y, dock_w - 44, 1, 1.0f, 0x48FFFFFF);
     DrawRoundedRect(dock_x + 22, dock_y + dock_h - 2, dock_w - 44, 1, 1.0f, 0x22000000);
+
+    if (!draw_legacy_icons) {
+        return;
+    }
 
     int cur_x = dock_x + pad_h;
     int card_y = dock_y + (dock_h - icon_size) / 2;

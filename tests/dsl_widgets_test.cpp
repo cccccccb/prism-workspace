@@ -392,6 +392,63 @@ Card {
     std::cout << "  -> SDK Dynamic Hot-Reload Preserving Runtime State PASSED\n";
 }
 
+#include "prism/gui/imgui_dsl_engine.hpp"
+
+void TestImGuiDslEngineIntegration() {
+    std::cout << "[TEST] 6. Declarative-to-Immediate ImGui DSL Deep Binding Engine...\n";
+
+    std::string dsl_code = R"(
+Dock(height: 72.0) {
+    HStack(spacing: 12.0) {
+        Button("田", "dock:launcher")
+        Spacer(4.0)
+        Button("Files", "app:launch:files")
+        Button("Terminal", "app:launch:terminal")
+        Button("Browser", "app:launch:browser")
+        Spacer(4.0)
+        Badge("● 3 Active", $running_badge)
+    }
+}.acrylic(blur: 28.0, passes: 4, tint: #181c26e6)
+)";
+
+    compiler::Lexer lexer(dsl_code);
+    auto tokens = lexer.Tokenize();
+    compiler::Parser parser(tokens);
+    auto ast = parser.Parse();
+    assert(ast != nullptr);
+
+    gui::ImGuiDslEngine engine;
+    assert(engine.Initialize(480, 72));
+
+    // Test reactive slot binding
+    engine.SetState("running_badge", "● 5 Active (Vector TTF)");
+    assert(engine.GetState("running_badge") == "● 5 Active (Vector TTF)");
+
+    std::string dispatched_action;
+    engine.SetActionCallback([&](const std::string& act) {
+        dispatched_action = act;
+    });
+
+    render::FrameBuffer fb(480, 72);
+    fb.Clear(0x00000000);
+
+    engine.RenderTree(ast, fb, 0.016f);
+
+    // Verify non-empty rasterized pixel output (text and buttons drawn)
+    bool has_pixels = false;
+    for (int i = 0; i < 480 * 72; ++i) {
+        if (fb.GetPixels()[i] != 0) {
+            has_pixels = true;
+            break;
+        }
+    }
+    assert(has_pixels);
+
+    engine.Shutdown();
+    assert(!engine.IsInitialized());
+    std::cout << "  -> ImGui DSL Deep Binding Engine PASSED!\n";
+}
+
 int main() {
     std::cout << "========================================================\n";
     std::cout << "  Project Prism - Native DSL Widgets & Effects Test Suite\n";
@@ -402,6 +459,7 @@ int main() {
     TestReactiveStateAndWindowBinding();
     TestCanvasVisualRasterization();
     TestSdkHotReloadPreservingState();
+    TestImGuiDslEngineIntegration();
 
     std::cout << "========================================================\n";
     std::cout << "  ALL NATIVE DSL WIDGET & EFFECT TESTS PASSED SUCCESSFULLY!\n";

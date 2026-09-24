@@ -27,8 +27,8 @@ public:
     void DrawTextSimple(int x, int y, const std::string& text, uint32_t color, int scale = 1);
 
     // macOS Desktop Chrome & Shell components
-    void DrawTopMenuBar(const std::string& active_app, const std::string& time_str);
-    void DrawMacDock(const std::vector<std::string>& app_names, int active_index);
+    void DrawTopMenuBar(const std::string& active_app, const std::string& time_str, bool draw_legacy_text = true);
+    void DrawMacDock(const std::vector<std::string>& app_names, int active_index, bool draw_legacy_icons = true);
     void DrawSplitDivider(int x, int y, int h, bool is_dragged);
     void DrawCursor(int x, int y);
     void DrawMissionControlSpaces(float progress);

@@ -40,6 +40,14 @@ namespace prism::ipc {
 class IpcServer;
 }
 
+namespace prism::gui {
+class ImGuiDslEngine;
+}
+
+namespace prism::compiler {
+struct AstNode;
+}
+
 namespace prism::wm {
 
 struct OutputModeInfo {
@@ -220,6 +228,11 @@ private:
     uint64_t frame_count_{0};
 
     std::unique_ptr<ipc::IpcServer> ipc_server_;
+
+    std::unique_ptr<gui::ImGuiDslEngine> topbar_engine_;
+    std::unique_ptr<gui::ImGuiDslEngine> dock_engine_;
+    std::shared_ptr<compiler::AstNode> topbar_ast_;
+    std::shared_ptr<compiler::AstNode> dock_ast_;
 };
 
 } // namespace prism::wm

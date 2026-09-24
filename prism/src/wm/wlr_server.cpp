@@ -8,6 +8,10 @@
 #include "prism/decoration/tiling_window_decorator.hpp"
 #include "prism/decoration/tiling_drag_manager.hpp"
 #include "prism/compiler/binary_loader.hpp"
+#include "prism/gui/imgui_dsl_engine.hpp"
+#include "prism/compiler/lexer.hpp"
+#include "prism/compiler/parser.hpp"
+#include <fstream>
 
 extern "C" {
 #include <wayland-server-core.h>
@@ -1035,7 +1039,100 @@ void WlrServer::InitSceneGraph() {
     drag_manager_ = std::make_unique<decoration::TilingDragManager>(decoration_spec_);
     drag_manager_->AttachToScene(chrome_tree_);
 
-    PRISM_LOG_INFO("WLR-SCENE", "Native GPU Scene-graph hierarchy initialized successfully");
+    // 6. Initialize ImGui Declarative DSL Engine for TopBar and Dock
+    auto load_dsl = [](const std::string& rel_path, const std::string& alt_path) -> std::shared_ptr<compiler::AstNode> {
+        std::string path = rel_path;
+        if (!std::filesystem::exists(path) && std::filesystem::exists(alt_path)) {
+            path = alt_path;
+        }
+        if (!std::filesystem::exists(path)) {
+            path = "/usr/share/prism/ui/" + std::filesystem::path(rel_path).filename().string();
+        }
+        if (std::filesystem::exists(path)) {
+            std::ifstream in(path);
+            std::string dsl((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            compiler::Lexer lexer(dsl);
+            auto tokens = lexer.Tokenize();
+            compiler::Parser parser(tokens);
+            return parser.Parse();
+        }
+        return nullptr;
+    };
+
+    topbar_ast_ = load_dsl("prism-topbar/ui/topbar.prism", "../prism-topbar/ui/topbar.prism");
+    dock_ast_   = load_dsl("prism-dock/ui/dock.prism", "../prism-dock/ui/dock.prism");
+
+    if (!topbar_ast_) {
+        auto bar = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::TopBar, "TopBar");
+        auto hstack = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::HStack, "HStack");
+        hstack->spacing = 8.0f;
+        auto badge_prism = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Badge, "Badge");
+        badge_prism->text_value = "PRISM";
+        badge_prism->slot_binding = "sys_badge";
+        auto btn_apps = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Button, "Button");
+        btn_apps->text_value = "Apps";
+        btn_apps->action_value = "launcher:toggle";
+        auto sp1 = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Spacer, "Spacer");
+        auto clock = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Badge, "Badge");
+        clock->text_value = "12:00:00";
+        clock->slot_binding = "clock_time";
+        auto sp2 = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Spacer, "Spacer");
+        auto wifi = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Badge, "Badge");
+        wifi->text_value = "Wi-Fi 5G";
+        wifi->slot_binding = "net_status";
+        auto bat = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Badge, "Badge");
+        bat->text_value = "100%";
+        bat->slot_binding = "bat_status";
+        auto notif = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Button, "Button");
+        notif->text_value = "[*]";
+        notif->action_value = "notifications:toggle";
+
+        hstack->children = {badge_prism, btn_apps, sp1, clock, sp2, wifi, bat, notif};
+        bar->children = {hstack};
+        topbar_ast_ = bar;
+    }
+
+    if (!dock_ast_) {
+        auto dock = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Dock, "Dock");
+        auto hstack = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::HStack, "HStack");
+        hstack->spacing = 10.0f;
+        auto btn_launch = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Button, "Button");
+        btn_launch->text_value = "田";
+        btn_launch->action_value = "dock:launcher";
+        auto sp1 = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Spacer, "Spacer");
+        sp1->numeric_value = 4.0f;
+
+        std::vector<std::pair<std::string, std::string>> apps = {
+            {"Files", "app:launch:files"},
+            {"Term", "app:launch:terminal"},
+            {"Web", "app:launch:browser"},
+            {"Code", "app:launch:editor"},
+            {"Music", "app:launch:music"},
+            {"Pref", "app:launch:settings"}
+        };
+        hstack->children.push_back(btn_launch);
+        hstack->children.push_back(sp1);
+        for (const auto& [label, act] : apps) {
+            auto b = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Button, "Button");
+            b->text_value = label;
+            b->action_value = act;
+            hstack->children.push_back(b);
+        }
+        auto sp2 = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Spacer, "Spacer");
+        sp2->numeric_value = 4.0f;
+        auto badge_active = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Badge, "Badge");
+        badge_active->text_value = "● 3 Active";
+        badge_active->slot_binding = "running_badge";
+        hstack->children.push_back(sp2);
+        hstack->children.push_back(badge_active);
+        dock->children = {hstack};
+        dock_ast_ = dock;
+    }
+
+    topbar_engine_ = std::make_unique<gui::ImGuiDslEngine>();
+    dock_engine_   = std::make_unique<gui::ImGuiDslEngine>();
+
+    PRISM_LOG_INFO("WLR-SCENE", "Native GPU Scene-graph hierarchy and ImGui DSL engines initialized successfully");
 }
 
 void WlrServer::UpdateSceneGraph(int width, int height, float dt) {
@@ -1102,7 +1199,18 @@ void WlrServer::UpdateSceneGraph(int width, int height, float dt) {
         if (wallpaper_fb_) {
             top_fb.CopyRegion(*wallpaper_fb_, 0, 0, 0, 0, width, 34);
         }
-        top_fb.DrawTopMenuBar("PRISM", time_str);
+        top_fb.DrawTopMenuBar("PRISM", time_str, false);
+
+        if (topbar_engine_ && topbar_ast_) {
+            if (!topbar_engine_->IsInitialized() || topbar_engine_->GetWidth() != width || topbar_engine_->GetHeight() != top_h) {
+                topbar_engine_->Initialize(width, top_h);
+            }
+            topbar_engine_->SetState("clock_time", time_str);
+            topbar_engine_->SetState("sys_badge", "PRISM");
+            topbar_engine_->SetState("net_status", "Wi-Fi 5G");
+            topbar_engine_->SetState("bat_status", "100%");
+            topbar_engine_->RenderTree(topbar_ast_, top_fb);
+        }
 
         struct wlr_buffer* w_buf = CreateWlrBufferFromFb(std::move(top_fb));
         wlr_scene_buffer_set_buffer(top_bar_scene_buf_, w_buf);
@@ -1112,7 +1220,7 @@ void WlrServer::UpdateSceneGraph(int width, int height, float dt) {
     }
 
     // 3. Floating Mac Dock (True Backdrop Blur, Specular Inner/Outer Shadows)
-    int dock_w = 480;
+    int dock_w = 580;
     int dock_h = 72;
     int pad = 16;
     int buf_w = dock_w + 2 * pad;
@@ -1132,7 +1240,17 @@ void WlrServer::UpdateSceneGraph(int width, int height, float dt) {
             dock_fb.CopyRegion(*wallpaper_fb_, dock_x, dock_y, pad, pad, dock_w, dock_h);
         }
         std::vector<std::string> apps = {"Files", "Term", "Web", "Music", "Pref"};
-        dock_fb.DrawMacDock(apps, cur_focus);
+        dock_fb.DrawMacDock(apps, cur_focus, false);
+
+        if (dock_engine_ && dock_ast_) {
+            if (!dock_engine_->IsInitialized() || dock_engine_->GetWidth() != buf_w || dock_engine_->GetHeight() != buf_h) {
+                dock_engine_->Initialize(buf_w, buf_h);
+            }
+            size_t app_count = compositor_ ? compositor_->GetWindows().size() : 3;
+            dock_engine_->SetState("running_badge", "● " + std::to_string(app_count) + " Active");
+            dock_engine_->SetActiveAppIndex(cur_focus);
+            dock_engine_->RenderTree(dock_ast_, dock_fb);
+        }
 
         struct wlr_buffer* w_buf = CreateWlrBufferFromFb(std::move(dock_fb));
         wlr_scene_buffer_set_buffer(dock_scene_buf_, w_buf);

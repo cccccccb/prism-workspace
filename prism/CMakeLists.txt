@@ -43,12 +43,19 @@ add_library(prism_core
     src/tree/tree_container.cpp
     src/tree/tree_workspace.cpp
     src/tree/tree_engine.cpp
+    src/gui/imgui_dsl_engine.cpp
+    third_party/imgui/imgui.cpp
+    third_party/imgui/imgui_draw.cpp
+    third_party/imgui/imgui_tables.cpp
+    third_party/imgui/imgui_widgets.cpp
+    third_party/imgui/imgui_sw.cpp
 )
 link_directories(${WLROOTS_LIBRARY_DIRS})
 target_link_directories(prism_core PUBLIC ${WLROOTS_LIBRARY_DIRS})
 
 target_include_directories(prism_core PUBLIC 
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui
     ${WLROOTS_INCLUDE_DIRS}
     ${WAYLAND_SERVER_INCLUDE_DIRS}
     ${DRM_INCLUDE_DIRS}
