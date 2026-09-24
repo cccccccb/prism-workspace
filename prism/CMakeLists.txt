@@ -27,6 +27,7 @@ add_library(prism_core
     src/wm/window.cpp
     src/wm/compositor.cpp
     src/wm/wlr_server.cpp
+    src/wm/layer_manager.cpp
     src/compiler/lexer.cpp
     src/compiler/parser.cpp
     src/compiler/binary_generator.cpp

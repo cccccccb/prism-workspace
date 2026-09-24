@@ -598,5 +598,84 @@ Prism 采用装饰器模式 (`ModifierChain`) 链式修饰控件，所有参数�
    - 毫秒级重载新布局 AST 树并重构组件层级；
    - 自动将暂存的运行时状态精确回填入新布局中，实现**界面任意调整而业务逻辑与用户操作状态零丢失**的极致开发体验。
 
+---
+
+## 14. 四层窗口管理层级引擎、单例仲裁与 DSL 原生修饰系统 (4-Layer Shell Hierarchy, Singleton Arbitration & DSL Layer Decoration)
+
+### 14.1 整体分层拓扑与空间堆叠 (Spatial Topology & Layer Stacking)
+
+在 PrismWM 架构中，全系统桌面客户端与窗口被划分为清晰且职责隔离的 4 个物理与逻辑分层。从 Z 轴最底层至最高层依次为：
+
+```text
+  Z-Order (Top to Bottom)
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │ [Layer 2: TopBar / 顶栏标题层]   Z: 300  (Singleton)                   │
+  │   - 全局状态/时间/菜单/通知胶囊，占据屏幕顶部，声明 exclusive_margin      │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │ [Layer 3: Dock / Dock 坞层]      Z: 200  (Singleton)                   │
+  │   - 底部应用启动坞与常驻托盘，占据屏幕底部，声明 exclusive_margin      │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │ [Layer 4: AppGroup / 应用组层]   Z: 100  (Singleton Engine Root)       │
+  │   - 承载多工作区与多层级递归 BSP 平铺容器树的核心引擎根组            │
+  │   - 窗口受内/外边距与安全可用区动态协商约束，支持平铺、浮动与标签页组    │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │ [Layer 1: Desktop / 桌面层]      Z: 0    (Singleton)                   │
+  │   - 壁纸、桌面小部件、星云着色器画布，占据全屏底层                      │
+  └────────────────────────────────────────────────────────────────────────┘
+```
+
+### 14.2 严苛单例排他锁与租约机制 (Strict Singleton Lease & Arbitration)
+
+为杜绝桌面桌面层冲突、重复顶栏或多个 Dock 抢占事件冲突，PrismWM 的 `LayerManager` 与 `Compositor` 实施严苛的**排他单例租约**控制：
+1. **单例约束范围**：
+   - `LayerType::Desktop`、`LayerType::TopBar`、`LayerType::Dock`、`LayerType::AppGroup` 在全局运行期**分别且严格仅能存在 1 个活跃实例**；
+   - `LayerType::App`（常规应用窗口）允许多实例并行运行。
+2. **仲裁冲突策略**：
+   - 当已有某类型的单例客户端运行时，后续任何进程若尝试 `CreateWindow(..., layer)` 或调用 `RegisterWindow(win, layer)`，系统将直接记录警告并**立即拒绝返回 `nullptr` / `LayerRegisterResult::AlreadyExists`**，确保系统壳层结构绝对稳固。
+3. **租约转移与安全释放**：
+   - 当持有单例的客户端进程退出或被 `DestroyWindow` 销毁时，`LayerManager` 立即释放对应层的租约所有权；
+   - 新的壳层客户端即可无缝承接该分层角色（例如热替换或重启顶栏/Dock）。
+
+### 14.3 动态工作区安全可用区协商 (Dynamic Usable Area Negotiation)
+
+避免将顶栏高度或 Dock 边距硬编码在平铺算法中，`LayerManager` 负责向 `TreeEngine` 动态提供**安全平铺矩形 (Usable Area)**：
+- **顶部剔除**：读取当前已挂载 `TopBar` 的 `exclusive_margin`（缺省 30px）；
+- **底部剔除**：读取当前已挂载 `Dock` 的 `exclusive_margin`（缺省 70px）；
+- **实时重排**：BSP 树引擎内的所有工作区与平铺容器自动适应协商后的安全工作区范围，窗口最大化、平铺拆分绝不遮挡系统 TopBar 与悬浮 Dock。
+
+### 14.4 全层级 Prism DSL 原生修饰与渲染 (DSL Decoration Across All Layers)
+
+无论是系统壳层（Desktop、TopBar、Dock）还是 App 窗口，均能直接通过自研 `.prism` DSL 进行声明、样式修饰与 GPU 视觉渲染：
+1. **TopBar 声明式定义**：
+   ```swift
+   TopBar(height: 38.0) {
+       HStack(spacing: 8.0) {
+           Badge("PRISM-OS", $os_badge)
+           Spacer(16.0)
+           Text("Workspace: Main", $ws_title)
+           Spacer(20.0)
+           Text("10:42 AM", $time_label)
+       }
+   }.acrylic(blur: 24.0, passes: 4, tint: #141822E6)
+   ```
+2. **Dock 声明式定义与悬停弹簧特效**：
+   ```swift
+   Dock(height: 72.0) {
+       HStack(spacing: 14.0) {
+           Button("Files", "shell:files")
+           Button("Terminal", "shell:term")
+           Button("Editor", "shell:editor")
+       }
+   }.acrylic(blur: 30.0, passes: 4, tint: #0f121ae6).springOnHover(scale: 1.15, damping: 0.85)
+   ```
+3. **系统渲染管线融合**：
+   `LayerManager::RenderLayer` 与 `CanvasRenderVisitor` 能够解析所有顶层分层节点（`TopBarNode`、`DockNode`、`DesktopNode`、`AppGroupNode`），结合透明度混色、多通道高斯毛玻璃 (`.acrylic`) 与悬停弹簧物理形变，实现一整套浑然一体的高级现代桌面质感。
+
+### 14.5 系统壳层与 BSP 平铺树解耦 (Shell Decoupling from Tree Engine)
+
+- 仅有 `LayerType::App` 类型的窗口才会接入 `TreeEngine` 参与 BSP 拆分、全屏互斥、焦点方向导航（`MoveFocus`）与多工作区迁移；
+- `Desktop`、`TopBar`、`Dock` 独立挂载于 `LayerManager`，不受平铺分屏扰动，不参与键盘焦点轮转，确保平铺窗口管理体验纯粹、严密且高效。
+
+
 
 

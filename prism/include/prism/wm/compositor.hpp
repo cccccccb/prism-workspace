@@ -1,6 +1,8 @@
 #pragma once
 
 #include "prism/wm/window.hpp"
+#include "prism/wm/layer_type.hpp"
+#include "prism/wm/layer_manager.hpp"
 #include "prism/layout/layout_strategy.hpp"
 #include "prism/core/types.hpp"
 #include "prism/tree/tree_engine.hpp"
@@ -18,12 +20,13 @@ public:
 
     bool Initialize();
 
-    // Factory method for creating and managing a new Prism window
+    // Factory method for creating and managing a new Prism window on a specified Layer
     std::shared_ptr<Window> CreateWindow(
         const std::string& app_id,
         const std::string& title,
         core::Rect bounds,
-        const std::string& channel_name
+        const std::string& channel_name,
+        LayerType layer = LayerType::App
     );
 
     // Swap layout strategy dynamically (Strategy Pattern)
@@ -87,12 +90,17 @@ public:
     float GetLastFps() const { return last_fps_; }
     float GetLastDt() const { return last_dt_; }
 
+    // Layer Manager for Shell Hierarchy (Desktop, TopBar, Dock, AppGroup)
+    LayerManager& GetLayerManager() { return layer_manager_; }
+    const LayerManager& GetLayerManager() const { return layer_manager_; }
+
     void SetScreenSize(int w, int h) { screen_width_ = w; screen_height_ = h; }
     int GetScreenWidth() const { return screen_width_; }
     int GetScreenHeight() const { return screen_height_; }
 
 private:
     std::vector<std::shared_ptr<Window>> windows_;
+    LayerManager layer_manager_;
     std::unique_ptr<layout::LayoutStrategy> layout_strategy_;
     tree::TreeEngine tree_engine_;
     std::shared_ptr<decoration::TilingDecorationSpec> decoration_spec_;

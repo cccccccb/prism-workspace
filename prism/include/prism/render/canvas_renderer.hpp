@@ -18,6 +18,10 @@ public:
     void Visit(scene::HStackNode& node) override;
     void Visit(scene::ZStackNode& node) override;
     void Visit(scene::CardNode& node) override;
+    void Visit(scene::DesktopNode& node) override;
+    void Visit(scene::TopBarNode& node) override;
+    void Visit(scene::DockNode& node) override;
+    void Visit(scene::AppGroupNode& node) override;
     void Visit(scene::TextNode& node) override;
     void Visit(scene::ButtonNode& node) override;
     void Visit(scene::SliderNode& node) override;

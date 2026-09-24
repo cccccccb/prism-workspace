@@ -86,4 +86,54 @@ public:
     }
 };
 
+class DesktopNode : public ContainerNode {
+public:
+    explicit DesktopNode(std::string name = "Desktop")
+        : ContainerNode(std::move(name)) {}
+
+    void Accept(SceneVisitor& visitor) override {
+        visitor.Visit(*this);
+    }
+};
+
+class TopBarNode : public ContainerNode {
+public:
+    explicit TopBarNode(float spacing = 8.0f, std::string name = "TopBar")
+        : ContainerNode(std::move(name)), spacing_(spacing) {}
+
+    void Accept(SceneVisitor& visitor) override {
+        visitor.Visit(*this);
+    }
+
+    float GetSpacing() const { return spacing_; }
+
+private:
+    float spacing_{8.0f};
+};
+
+class DockNode : public ContainerNode {
+public:
+    explicit DockNode(float spacing = 10.0f, std::string name = "Dock")
+        : ContainerNode(std::move(name)), spacing_(spacing) {}
+
+    void Accept(SceneVisitor& visitor) override {
+        visitor.Visit(*this);
+    }
+
+    float GetSpacing() const { return spacing_; }
+
+private:
+    float spacing_{10.0f};
+};
+
+class AppGroupNode : public ContainerNode {
+public:
+    explicit AppGroupNode(std::string name = "AppGroup")
+        : ContainerNode(std::move(name)) {}
+
+    void Accept(SceneVisitor& visitor) override {
+        visitor.Visit(*this);
+    }
+};
+
 } // namespace prism::scene

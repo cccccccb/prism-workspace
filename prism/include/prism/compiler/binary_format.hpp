@@ -34,7 +34,11 @@ enum class BinaryNodeType : uint16_t {
     Card             = 22,
     Spacer           = 23,
     Badge            = 24,
-    ZStack           = 25
+    ZStack           = 25,
+    Desktop          = 26,
+    TopBar           = 27,
+    Dock             = 28,
+    AppGroup         = 29
 };
 
 #pragma pack(push, 1)

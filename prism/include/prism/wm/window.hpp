@@ -4,6 +4,7 @@
 #include "prism/scene/node.hpp"
 #include "prism/lifecycle/window_state.hpp"
 #include "prism/ipc/channel.hpp"
+#include "prism/wm/layer_type.hpp"
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -44,6 +45,12 @@ public:
     void SetFocused(bool focused);
     bool IsFocused() const { return is_focused_; }
 
+    void SetLayerType(LayerType type) { layer_type_ = type; }
+    LayerType GetLayerType() const { return layer_type_; }
+
+    void SetExclusiveMargin(float margin) { exclusive_margin_ = margin; }
+    float GetExclusiveMargin() const { return exclusive_margin_; }
+
     void SetDecorator(std::unique_ptr<decoration::TilingWindowDecorator> decorator);
     decoration::TilingWindowDecorator* GetDecorator() const { return decorator_.get(); }
 
@@ -68,6 +75,9 @@ private:
     core::Rect bounds_;
     std::shared_ptr<ipc::Channel> channel_;
     std::unique_ptr<lifecycle::WindowState> current_state_;
+
+    LayerType layer_type_{LayerType::App};
+    float exclusive_margin_{0.0f};
 
     std::shared_ptr<scene::SceneNode> preview_tree_;
     std::shared_ptr<scene::SceneNode> master_tree_;

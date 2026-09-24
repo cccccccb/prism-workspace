@@ -1,4 +1,5 @@
 #include "prism/wm/compositor.hpp"
+#include "prism/decoration/tiling_window_decorator.hpp"
 #include "prism/layout/fluid_split_strategy.hpp"
 #include "prism/layout/mission_control_strategy.hpp"
 #include "prism/render/framebuffer.hpp"
@@ -85,8 +86,18 @@ std::shared_ptr<Window> Compositor::CreateWindow(
     const std::string& app_id,
     const std::string& title,
     core::Rect bounds,
-    const std::string& channel_name
+    const std::string& channel_name,
+    LayerType layer
 ) {
+    // 1. Check singleton lease with LayerManager first
+    if (layer != LayerType::App) {
+        if (layer_manager_.IsLayerOccupied(layer)) {
+            PRISM_LOG_ERROR("WM", "CreateWindow rejected: Layer '%s' already occupied! (Singleton violated for '%s')",
+                            LayerTypeToString(layer), app_id.c_str());
+            return nullptr;
+        }
+    }
+
     auto channel = ipc::Channel::CreateHost(channel_name);
     if (!channel) {
         PRISM_LOG_ERROR("WM", "Failed to create IPC host for window: %s", app_id.c_str());
@@ -94,12 +105,35 @@ std::shared_ptr<Window> Compositor::CreateWindow(
     }
 
     auto win = std::make_shared<Window>(app_id, title, bounds, std::move(channel));
+
+    // 2. Register to LayerManager
+    auto res = layer_manager_.RegisterWindow(win, layer);
+    if (res != LayerRegisterResult::Success) {
+        PRISM_LOG_ERROR("WM", "Failed to register window '%s' on Layer '%s'", app_id.c_str(), LayerTypeToString(layer));
+        return nullptr;
+    }
+
     windows_.push_back(win);
 
-    // Insert into Multi-Level Recursive BSP Tree Engine
-    tree_engine_.InsertWindow(win, tree::Direction::Right);
+    // 3. Setup Layer geometry
+    if (layer == LayerType::Desktop) {
+        win->SetBounds(core::Rect{0.0f, 0.0f, static_cast<float>(screen_width_), static_cast<float>(screen_height_)});
+    } else if (layer == LayerType::TopBar) {
+        float h = bounds.height > 0.0f ? bounds.height : 32.0f;
+        win->SetBounds(core::Rect{0.0f, 0.0f, static_cast<float>(screen_width_), h});
+        win->SetExclusiveMargin(h);
+    } else if (layer == LayerType::Dock) {
+        float h = bounds.height > 0.0f ? bounds.height : 68.0f;
+        float w = bounds.width > 0.0f ? bounds.width : 600.0f;
+        win->SetBounds(core::Rect{(screen_width_ - w) / 2.0f, screen_height_ - h - 10.0f, w, h});
+        win->SetExclusiveMargin(h + 10.0f);
+    } else if (layer == LayerType::App) {
+        // Only standard App windows enter the BSP Tree Engine!
+        tree_engine_.InsertWindow(win, tree::Direction::Right);
+    }
 
-    PRISM_LOG_INFO("WM", "Registered managed window '%s' on channel '%s' in TreeEngine", app_id.c_str(), channel_name.c_str());
+    PRISM_LOG_INFO("WM", "Registered managed window '%s' on Layer '%s' in Compositor (channel '%s')",
+                   app_id.c_str(), LayerTypeToString(layer), channel_name.c_str());
     return win;
 }
 
@@ -109,8 +143,12 @@ void Compositor::DestroyWindow(const std::shared_ptr<Window>& win) {
     if (it != windows_.end()) {
         windows_.erase(it);
     }
-    tree_engine_.RemoveWindow(win);
-    PRISM_LOG_INFO("WM", "Destroyed managed window '%s' from TreeEngine", win->GetAppId().c_str());
+    layer_manager_.UnregisterWindow(win);
+    if (win->GetLayerType() == LayerType::App) {
+        tree_engine_.RemoveWindow(win);
+    }
+    PRISM_LOG_INFO("WM", "Destroyed managed window '%s' on Layer '%s'",
+                   win->GetAppId().c_str(), LayerTypeToString(win->GetLayerType()));
 }
 
 void Compositor::SetLayoutStrategy(std::unique_ptr<layout::LayoutStrategy> strategy) {
@@ -135,12 +173,12 @@ void Compositor::Tick(float dt) {
             }
         }
     } else {
-        // Multi-Level Recursive BSP Tree Layout arrangement
+        // Multi-Level Recursive BSP Tree Layout arrangement inside dynamically negotiated safe area
         if (!decoration_spec_) {
             decoration_spec_ = decoration::TilingDecorationSpec::CreateDefault();
         }
-        core::Rect screen{0.0f, 30.0f, static_cast<float>(screen_width_), static_cast<float>(screen_height_ - 30)};
-        tree_engine_.Arrange(screen, *decoration_spec_);
+        core::Rect usable_area = layer_manager_.CalculateUsableArea(screen_width_, screen_height_);
+        tree_engine_.Arrange(usable_area, *decoration_spec_);
         auto layout = tree_engine_.GetCalculatedLayout();
         for (const auto& [win, rect] : layout) {
             if (win) {
@@ -164,7 +202,7 @@ void Compositor::Tick(float dt) {
                     break;
 
                 case ipc::DiffOp::SetString:
-                    win->UpdateSlot(diff.slot_id, diff.value.str);
+                    win->UpdateSlot(diff.slot_id, std::string(diff.value.str));
                     break;
 
                 case ipc::DiffOp::SetInt64:
@@ -294,13 +332,17 @@ bool Compositor::SwapFocusDirection(tree::Direction dir) {
 }
 
 void Compositor::RenderToFrameBuffer(render::FrameBuffer& fb) {
-    // 1. macOS Dynamic Dark Nebula wallpaper (Cached static buffer matched to current output dimensions)
-    static render::FrameBuffer s_wallpaper(0, 0);
-    if (s_wallpaper.GetWidth() != fb.GetWidth() || s_wallpaper.GetHeight() != fb.GetHeight()) {
-        s_wallpaper = render::FrameBuffer(fb.GetWidth(), fb.GetHeight());
-        s_wallpaper.DrawDesktopGradient();
+    // 1. [Layer 1: Desktop] (Custom DSL client or default Dark Nebula wallpaper)
+    if (layer_manager_.GetDesktop()) {
+        layer_manager_.RenderLayer(LayerType::Desktop, fb);
+    } else {
+        static render::FrameBuffer s_wallpaper(0, 0);
+        if (s_wallpaper.GetWidth() != fb.GetWidth() || s_wallpaper.GetHeight() != fb.GetHeight()) {
+            s_wallpaper = render::FrameBuffer(fb.GetWidth(), fb.GetHeight());
+            s_wallpaper.DrawDesktopGradient();
+        }
+        std::memcpy(fb.GetPixelsMutable(), s_wallpaper.GetPixels(), fb.GetWidth() * fb.GetHeight() * sizeof(uint32_t));
     }
-    std::memcpy(fb.GetPixelsMutable(), s_wallpaper.GetPixels(), fb.GetWidth() * fb.GetHeight() * sizeof(uint32_t));
 
     // 2. Check layout mode (Split vs Mission Control Overview)
     float mc_progress = 0.0f;
@@ -312,11 +354,13 @@ void Compositor::RenderToFrameBuffer(render::FrameBuffer& fb) {
         split_strat = dynamic_cast<layout::MacFluidSplitStrategy*>(layout_strategy_.get());
     }
 
-    // 3. Render Windows (Wayland Client Surface Buffer or Preview/Master AST)
+    // 3. [Layer 4: AppGroup] (Render regular tiled application windows in active workspace)
     for (size_t i = 0; i < windows_.size(); ++i) {
         const auto& win = windows_[i];
+        if (win->GetLayerType() != LayerType::App) continue; // Layers 1, 2, 3 rendered in their own Z-planes
+        auto b = win->GetBounds();
+
         if (win->GetSurface()) {
-            auto b = win->GetBounds();
             fb.DrawShadow(static_cast<int>(b.x), static_cast<int>(b.y),
                           static_cast<int>(b.width), static_cast<int>(b.height),
                           16.0f, 24.0f, 0x99000000);
@@ -330,6 +374,22 @@ void Compositor::RenderToFrameBuffer(render::FrameBuffer& fb) {
             if (tree) {
                 render::CanvasRenderVisitor visitor(fb, win->GetBounds());
                 tree->Accept(visitor);
+            }
+        }
+
+        // Decorator
+        if (win->GetDecorator() && win->GetDecorator()->GetSpec()) {
+            const auto& spec = *win->GetDecorator()->GetSpec();
+            if (spec.header.show_header) {
+                auto hb = win->GetDecorator()->GetHeaderBounds();
+                fb.DrawRoundedRect(hb.x, hb.y, hb.width, hb.height, 4.0f,
+                                   win->IsFocused() ? spec.header.bg_focused.ToHex() : spec.header.bg_unfocused.ToHex());
+                fb.DrawTextSimple(hb.x + 8, hb.y + 6, win->GetTitle(),
+                                  win->IsFocused() ? spec.header.title_focused.ToHex() : spec.header.title_unfocused.ToHex());
+            }
+            if (spec.border.width > 0) {
+                fb.DrawBorder(b.x, b.y, b.width, b.height, spec.border.corner_radius, spec.border.width,
+                              win->IsFocused() ? spec.border.color_focused.ToHex() : spec.border.color_unfocused.ToHex());
             }
         }
 
@@ -354,23 +414,31 @@ void Compositor::RenderToFrameBuffer(render::FrameBuffer& fb) {
         fb.DrawMissionControlSpaces(mc_progress);
     }
 
-    // 6. macOS Frosted Glass Top Menu Bar (height 30px)
-    std::string active_title = "Prism Music Studio";
-    if (focused_window_index_ == 1 && windows_.size() > 1) {
-        active_title = "System Preferences";
+    // 6. [Layer 3: Dock] (Custom DSL client or default built-in dock)
+    if (layer_manager_.GetDock()) {
+        layer_manager_.RenderLayer(LayerType::Dock, fb);
+    } else {
+        std::vector<std::string> dock_apps = {"Music", "Settings", "Terminal", "Files", "Browser"};
+        fb.DrawMacDock(dock_apps, focused_window_index_);
     }
-    fb.DrawTopMenuBar(active_title, "16:30");
 
-    // 7. macOS Floating Glass Dock at bottom
-    std::vector<std::string> dock_apps = {"Music", "Settings", "Terminal", "Files", "Browser"};
-    fb.DrawMacDock(dock_apps, focused_window_index_);
+    // 7. [Layer 2: TopBar] (Custom DSL client or default built-in top bar)
+    if (layer_manager_.GetTopBar()) {
+        layer_manager_.RenderLayer(LayerType::TopBar, fb);
+    } else {
+        std::string active_title = "Prism Music Studio";
+        if (focused_window_index_ == 1 && windows_.size() > 1) {
+            active_title = "System Preferences";
+        }
+        fb.DrawTopMenuBar(active_title, "16:30");
+    }
 
-    // 8. macOS Software Cursor (disabled by default in live wlroots compositor to prevent lag & double cursor; enabled for offline PPM snapshot generation)
+    // 8. macOS Software Cursor
     if (draw_software_cursor_) {
         fb.DrawCursor(static_cast<int>(cursor_x_), static_cast<int>(cursor_y_));
     }
 
-    // 9. On-screen Debug Performance HUD (FPS, ms/frame, resolution, cursor coordinates)
+    // 9. On-screen Debug Performance HUD
     if (debug_hud_enabled_) {
         std::string mode_str = std::to_string(fb.GetWidth()) + "x" + std::to_string(fb.GetHeight()) + " (Native)";
         fb.DrawDebugHud(last_fps_, last_dt_ * 1000.0f, static_cast<int>(frame_count_), mode_str,

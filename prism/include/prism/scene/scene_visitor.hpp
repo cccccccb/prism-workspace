@@ -18,6 +18,10 @@ class TextInputNode;
 class ProgressBarNode;
 class BadgeNode;
 class SpacerNode;
+class DesktopNode;
+class TopBarNode;
+class DockNode;
+class AppGroupNode;
 
 /**
  * @brief Visitor Pattern: Decouples rendering and tree inspection from the scene graph node classes
@@ -30,6 +34,10 @@ public:
     virtual void Visit(HStackNode& node) = 0;
     virtual void Visit(ZStackNode& node) = 0;
     virtual void Visit(CardNode& node) = 0;
+    virtual void Visit(DesktopNode& node) = 0;
+    virtual void Visit(TopBarNode& node) = 0;
+    virtual void Visit(DockNode& node) = 0;
+    virtual void Visit(AppGroupNode& node) = 0;
     virtual void Visit(TextNode& node) = 0;
     virtual void Visit(ButtonNode& node) = 0;
     virtual void Visit(SliderNode& node) = 0;

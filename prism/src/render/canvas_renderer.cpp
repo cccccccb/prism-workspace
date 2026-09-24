@@ -178,6 +178,81 @@ void CanvasRenderVisitor::Visit(scene::CardNode& node) {
     }
 }
 
+void CanvasRenderVisitor::Visit(scene::DesktopNode& node) {
+    RenderModifiers(node, viewport_);
+    for (const auto& child : node.GetChildren()) {
+        if (!child) continue;
+        CanvasRenderVisitor child_visitor(fb_, viewport_);
+        child->Accept(child_visitor);
+    }
+}
+
+void CanvasRenderVisitor::Visit(scene::TopBarNode& node) {
+    int bx = static_cast<int>(viewport_.x);
+    int by = static_cast<int>(viewport_.y);
+    int bw = static_cast<int>(viewport_.width);
+    int bh = static_cast<int>(viewport_.height);
+
+    if (node.Modifiers().GetAll().empty()) {
+        // macOS Top Menu Bar Glass Default
+        fb_.DrawRoundedRect(bx, by, bw, bh, 0.0f, 0xD4161922);
+        fb_.DrawRect(bx, by + bh - 1, bw, 1, 0x22FFFFFF); // Subtly lit bottom separator
+    } else {
+        RenderModifiers(node, viewport_);
+    }
+
+    float pad = 12.0f;
+    float cur_x = viewport_.x + pad;
+    size_t count = node.GetChildren().size();
+    float item_w = (count > 0) ? (viewport_.width - pad * 2.0f - (count - 1) * node.GetSpacing()) / count : 120.0f;
+
+    for (const auto& child : node.GetChildren()) {
+        if (!child) continue;
+        core::Rect child_vp{cur_x, viewport_.y, item_w, viewport_.height};
+        CanvasRenderVisitor child_visitor(fb_, child_vp);
+        child->Accept(child_visitor);
+        cur_x += item_w + node.GetSpacing();
+    }
+}
+
+void CanvasRenderVisitor::Visit(scene::DockNode& node) {
+    int dx = static_cast<int>(viewport_.x);
+    int dy = static_cast<int>(viewport_.y);
+    int dw = static_cast<int>(viewport_.width);
+    int dh = static_cast<int>(viewport_.height);
+
+    if (node.Modifiers().GetAll().empty()) {
+        // macOS Floating Pill Dock Default
+        fb_.DrawShadow(dx, dy + 2, dw, dh, 18.0f, 20.0f, 0x88000000);
+        fb_.DrawRoundedRect(dx, dy, dw, dh, 18.0f, 0xEE12151E);
+        fb_.DrawBorder(dx, dy, dw, dh, 18.0f, 1.0f, 0x33FFFFFF);
+    } else {
+        RenderModifiers(node, viewport_);
+    }
+
+    float pad = 14.0f;
+    float cur_x = viewport_.x + pad;
+    size_t count = node.GetChildren().size();
+    float item_w = (count > 0) ? (viewport_.width - pad * 2.0f - (count - 1) * node.GetSpacing()) / count : 50.0f;
+
+    for (const auto& child : node.GetChildren()) {
+        if (!child) continue;
+        core::Rect child_vp{cur_x, viewport_.y + 6.0f, item_w, viewport_.height - 12.0f};
+        CanvasRenderVisitor child_visitor(fb_, child_vp);
+        child->Accept(child_visitor);
+        cur_x += item_w + node.GetSpacing();
+    }
+}
+
+void CanvasRenderVisitor::Visit(scene::AppGroupNode& node) {
+    RenderModifiers(node, viewport_);
+    for (const auto& child : node.GetChildren()) {
+        if (!child) continue;
+        CanvasRenderVisitor child_visitor(fb_, viewport_);
+        child->Accept(child_visitor);
+    }
+}
+
 void CanvasRenderVisitor::Visit(scene::ToggleNode& node) {
     int tx = static_cast<int>(viewport_.x);
     int ty = static_cast<int>(viewport_.y + 6);

@@ -63,6 +63,30 @@ public:
         Recurse(node);
     }
 
+    void Visit(scene::DesktopNode& node) override {
+        PrintPrefix(node);
+        std::cout << "[Desktop Layer]\n";
+        Recurse(node);
+    }
+
+    void Visit(scene::TopBarNode& node) override {
+        PrintPrefix(node);
+        std::cout << "[TopBar Layer spacing=" << node.GetSpacing() << "]\n";
+        Recurse(node);
+    }
+
+    void Visit(scene::DockNode& node) override {
+        PrintPrefix(node);
+        std::cout << "[Dock Layer spacing=" << node.GetSpacing() << "]\n";
+        Recurse(node);
+    }
+
+    void Visit(scene::AppGroupNode& node) override {
+        PrintPrefix(node);
+        std::cout << "[AppGroup Layer]\n";
+        Recurse(node);
+    }
+
     void Visit(scene::ToggleNode& node) override {
         PrintPrefix(node);
         std::cout << "[Toggle: state=" << (node.GetState() ? "ON" : "OFF") << " label=\"" << node.GetLabel() << "\" action=" << node.GetAction() << "]\n";

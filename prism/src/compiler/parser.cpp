@@ -47,6 +47,10 @@ BinaryNodeType Parser::ResolveNodeType(const std::string& name) {
     if (name == "HStack")           return BinaryNodeType::HStack;
     if (name == "ZStack")           return BinaryNodeType::ZStack;
     if (name == "Card")             return BinaryNodeType::Card;
+    if (name == "Desktop")          return BinaryNodeType::Desktop;
+    if (name == "TopBar" || name == "Panel") return BinaryNodeType::TopBar;
+    if (name == "Dock")             return BinaryNodeType::Dock;
+    if (name == "AppGroup" || name == "WorkspaceGroup") return BinaryNodeType::AppGroup;
     if (name == "Text")             return BinaryNodeType::Text;
     if (name == "Button")           return BinaryNodeType::Button;
     if (name == "Slider")           return BinaryNodeType::Slider;

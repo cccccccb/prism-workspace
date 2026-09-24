@@ -145,6 +145,18 @@ std::shared_ptr<scene::SceneNode> BinarySceneLoader::LoadFromMemory(const uint8_
             case BinaryNodeType::ZStack:
                 node = std::make_shared<scene::ZStackNode>(name.empty() ? "ZStack" : name);
                 break;
+            case BinaryNodeType::Desktop:
+                node = std::make_shared<scene::DesktopNode>(name.empty() ? "Desktop" : name);
+                break;
+            case BinaryNodeType::TopBar:
+                node = std::make_shared<scene::TopBarNode>(rec.spacing > 0 ? rec.spacing : 8.0f, name.empty() ? "TopBar" : name);
+                break;
+            case BinaryNodeType::Dock:
+                node = std::make_shared<scene::DockNode>(rec.spacing > 0 ? rec.spacing : 10.0f, name.empty() ? "Dock" : name);
+                break;
+            case BinaryNodeType::AppGroup:
+                node = std::make_shared<scene::AppGroupNode>(name.empty() ? "AppGroup" : name);
+                break;
             default:
                 node = std::make_shared<scene::VStackNode>(0.0f, "Unknown");
                 break;
