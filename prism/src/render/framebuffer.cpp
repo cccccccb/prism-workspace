@@ -311,6 +311,26 @@ void FrameBuffer::Blit(const FrameBuffer& src, int dst_x, int dst_y, int dst_w, 
     }
 }
 
+void FrameBuffer::CopyRegion(const FrameBuffer& src, int src_x, int src_y, int dst_x, int dst_y, int w, int h) {
+    if (w <= 0 || h <= 0) return;
+    int sw = src.GetWidth();
+    int sh = src.GetHeight();
+    const uint32_t* src_px = src.GetPixels();
+    if (!src_px || pixels_.empty()) return;
+
+    for (int y = 0; y < h; ++y) {
+        int sy = src_y + y;
+        int dy = dst_y + y;
+        if (sy < 0 || sy >= sh || dy < 0 || dy >= height_) continue;
+        for (int x = 0; x < w; ++x) {
+            int sx = src_x + x;
+            int dx = dst_x + x;
+            if (sx < 0 || sx >= sw || dx < 0 || dx >= width_) continue;
+            pixels_[dy * width_ + dx] = src_px[sy * sw + sx];
+        }
+    }
+}
+
 void FrameBuffer::ApplyKawaseBlur(int x, int y, int w, int h, float blur_radius, int passes) {
     (void)blur_radius;
     int x0 = std::max(0, x);
@@ -442,39 +462,62 @@ void FrameBuffer::DrawTextSimple(int x, int y, const std::string& text, uint32_t
 }
 
 void FrameBuffer::DrawTopMenuBar(const std::string& active_app, const std::string& time_str) {
-    ApplyKawaseBlur(0, 0, width_, height_, 16.0f, 3);
-    DrawRect(0, 0, width_, height_, 0xCC161A24);
-    DrawRect(0, height_ - 1, width_, 1, 0x33FFFFFF);
+    int bar_h = (height_ >= 38) ? 34 : height_;
+    ApplyKawaseBlur(0, 0, width_, bar_h, 20.0f, 3);
+    DrawRect(0, 0, width_, bar_h, 0xB0121622); // Luxury dark frosted glass tint
+    DrawRect(0, 0, width_, 1, 0x38FFFFFF);      // Specular rim at top
+    DrawRect(0, bar_h - 1, width_, 1, 0x25FFFFFF); // Inner separator line
+
+    // Outer soft drop shadow below the TopBar onto windows/desktop
+    if (height_ >= bar_h + 4) {
+        DrawRect(0, bar_h, width_, 1, 0x35000000);
+        DrawRect(0, bar_h + 1, width_, 1, 0x20000000);
+        DrawRect(0, bar_h + 2, width_, 1, 0x10000000);
+        DrawRect(0, bar_h + 3, width_, 1, 0x05000000);
+    }
+
+    auto DrawShadowedText = [this](int tx, int ty, const std::string& str, uint32_t col, int sc = 1) {
+        DrawTextSimple(tx, ty + 1, str, 0x88000000, sc);
+        DrawTextSimple(tx, ty, str, col, sc);
+    };
 
     // 1. Left: Prism circular emblem [●] & Brand text
-    DrawCircle(20, height_ / 2, 8, 0xFFE04040);
-    DrawCircle(20, height_ / 2, 3, 0xFFFFFFFF);
-    DrawTextSimple(34, height_ / 2 - 4, active_app.empty() ? "PRISM" : active_app, 0xFFFFFFFF, 1);
+    int cy = bar_h / 2;
+    DrawCircle(20, cy, 10, 0x30E04040);
+    DrawCircle(20, cy, 7, 0xFFE04040);
+    DrawCircle(20, cy, 3, 0xFFFFFFFF);
+    DrawShadowedText(34, cy - 4, active_app.empty() ? "PRISM" : active_app, 0xFFFFFFFF, 1);
 
     // 2. Center: Mac Dynamic Island Clock Pill with top handle
     std::string display_time = time_str.empty() ? "Oct-11 15:13:24" : time_str;
-    int pill_w = 180;
+    int pill_w = 184;
     int pill_h = 24;
     int pill_x = (width_ - pill_w) / 2;
-    int pill_y = (height_ - pill_h) / 2;
+    int pill_y = (bar_h - pill_h) / 2;
 
-    DrawRoundedRect(pill_x, pill_y, pill_w, pill_h, 12.0f, 0xFF0D1017);
+    DrawShadow(pill_x, pill_y, pill_w, pill_h, 12.0f, 6.0f, 0x77000000);
+    DrawRoundedRect(pill_x, pill_y, pill_w, pill_h, 12.0f, 0xF20B0E14);
     DrawBorder(pill_x, pill_y, pill_w, pill_h, 12.0f, 1.0f, 0x33FFFFFF);
-    DrawRect((width_ - 40) / 2, 2, 40, 2, 0xCCFFFFFF); // Top white handle bar
+    DrawRoundedRect((width_ - 40) / 2, pill_y + 2, 40, 2, 1.0f, 0xCCFFFFFF);
 
     int text_x = pill_x + (pill_w - static_cast<int>(display_time.size()) * 7) / 2;
-    DrawTextSimple(text_x, pill_y + 8, display_time, 0xFFFFFFFF, 1);
+    DrawShadowedText(text_x, pill_y + 9, display_time, 0xFFFFFFFF, 1);
 
     // 3. Right: System control center pills (Wi-Fi, Battery, Bell)
     if (width_ > 500) {
-        DrawTextSimple(width_ - 210, height_ / 2 - 4, "Wi-Fi 5G", 0xCCFFFFFF, 1);
+        DrawRoundedRect(width_ - 216, cy - 9, 74, 18, 5.0f, 0x22FFFFFF);
+        DrawBorder(width_ - 216, cy - 9, 74, 18, 5.0f, 1.0f, 0x20FFFFFF);
+        DrawShadowedText(width_ - 208, cy - 4, "Wi-Fi 5G", 0xEEFFFFFF, 1);
 
-        DrawRoundedRect(width_ - 130, height_ / 2 - 8, 44, 16, 4.0f, 0x33FFFFFF);
-        DrawRoundedRect(width_ - 128, height_ / 2 - 6, 40, 12, 2.0f, 0xFF30D158);
-        DrawTextSimple(width_ - 120, height_ / 2 - 4, "100%", 0xFFFFFFFF, 1);
+        DrawRoundedRect(width_ - 132, cy - 9, 78, 18, 5.0f, 0x22FFFFFF);
+        DrawBorder(width_ - 132, cy - 9, 78, 18, 5.0f, 1.0f, 0x20FFFFFF);
+        DrawRoundedRect(width_ - 126, cy - 6, 24, 12, 3.0f, 0x33FFFFFF);
+        DrawRoundedRect(width_ - 124, cy - 4, 20, 8, 2.0f, 0xFF30D158);
+        DrawShadowedText(width_ - 96, cy - 4, "100%", 0xFFFFFFFF, 1);
 
-        DrawCircle(width_ - 40, height_ / 2, 9, 0x33FFFFFF);
-        DrawTextSimple(width_ - 44, height_ / 2 - 4, "[*]", 0xFFE0E6ED, 1);
+        DrawCircle(width_ - 34, cy, 10, 0x22FFFFFF);
+        DrawBorder(width_ - 44, cy - 10, 20, 20, 10.0f, 1.0f, 0x20FFFFFF);
+        DrawShadowedText(width_ - 38, cy - 4, "[*]", 0xFFE0E6ED, 1);
     }
 }
 
@@ -482,51 +525,78 @@ void FrameBuffer::DrawMacDock(const std::vector<std::string>& app_names, int act
     int count = static_cast<int>(app_names.size());
     if (count == 0) return;
 
+    int pad = (width_ >= 500 && height_ >= 90) ? 16 : 0;
+    int dock_x = pad;
+    int dock_y = pad;
+    int dock_w = width_ - 2 * pad;
+    int dock_h = height_ - 2 * pad;
+
     int icon_size = 46;
     int gap = 12;
     int pad_h = 16;
-    int launcher_card_w = icon_size;
-    int separator_w = 2;
-    int dock_w = launcher_card_w + 12 + separator_w + 12 + count * icon_size + (count - 1) * gap + pad_h * 2;
-    int dock_h = (height_ <= 74) ? height_ : 72;
-    int dock_x = (width_ <= dock_w) ? 0 : (width_ - dock_w) / 2;
-    int dock_y = (height_ <= 74) ? 0 : (height_ - dock_h - 14);
 
-    // 1. Acrylic Frosted Glass Container
-    DrawShadow(dock_x, dock_y, dock_w, dock_h, 22.0f, 20.0f, 0x77000000);
+    // 1. Frosted Glass Backdrop Blur (blurs the underlying wallpaper inside dock body)
     ApplyKawaseBlur(dock_x, dock_y, dock_w, dock_h, 24.0f, 4);
-    DrawRoundedRect(dock_x, dock_y, dock_w, dock_h, 22.0f, 0xCC151924, 0.95f);
-    DrawBorder(dock_x, dock_y, dock_w, dock_h, 22.0f, 1.0f, 0x33FFFFFF);
+
+    // 2. Multi-layer Photorealistic Outer Drop Shadow
+    if (pad > 0) {
+        DrawShadow(dock_x, dock_y + 4, dock_w, dock_h, 22.0f, static_cast<float>(pad), 0x77000000);
+        DrawShadow(dock_x, dock_y + 1, dock_w, dock_h, 22.0f, 8.0f, 0x44000000);
+    }
+
+    // 3. Frosted Acrylic Glass Body
+    DrawRoundedRect(dock_x, dock_y, dock_w, dock_h, 22.0f, 0xB8161A26, 0.95f);
+
+    // 4. Inner Specular Rims & Shadows
+    DrawBorder(dock_x, dock_y, dock_w, dock_h, 22.0f, 1.0f, 0x38FFFFFF);
+    DrawRoundedRect(dock_x + 22, dock_y, dock_w - 44, 1, 1.0f, 0x48FFFFFF);
+    DrawRoundedRect(dock_x + 22, dock_y + dock_h - 2, dock_w - 44, 1, 1.0f, 0x22000000);
 
     int cur_x = dock_x + pad_h;
     int card_y = dock_y + (dock_h - icon_size) / 2;
 
-    // 2. [田] App Launcher Card
-    DrawRoundedRect(cur_x, card_y, icon_size, icon_size, 11.0f, 0x33FFFFFF);
+    // 5. [田] App Launcher Card
+    DrawShadow(cur_x, card_y + 1, icon_size, icon_size, 11.0f, 5.0f, 0x55000000);
+    DrawRoundedRect(cur_x, card_y, icon_size, icon_size, 11.0f, 0x30FFFFFF);
+    DrawBorder(cur_x, card_y, icon_size, icon_size, 11.0f, 1.0f, 0x30FFFFFF);
     DrawRoundedRect(cur_x + 9, card_y + 9, 10, 10, 2.0f, 0xFFFFFFFF);
     DrawRoundedRect(cur_x + 27, card_y + 9, 10, 10, 2.0f, 0xFFFFFFFF);
     DrawRoundedRect(cur_x + 9, card_y + 27, 10, 10, 2.0f, 0xFFFFFFFF);
     DrawRoundedRect(cur_x + 27, card_y + 27, 10, 10, 2.0f, 0xFFFFFFFF);
     cur_x += icon_size + 12;
 
-    // 3. Vertical Separator Line
-    DrawRect(cur_x, dock_y + 18, 2, dock_h - 36, 0x33FFFFFF);
+    // 6. Vertical Glass Separator
+    DrawRect(cur_x, dock_y + 16, 2, dock_h - 32, 0x30FFFFFF);
     cur_x += 2 + 12;
 
-    // 4. Squircle App Icons & Running Dots
+    // 7. Squircle App Icons & Running Dots
     uint32_t colors[6] = {0xFF007AFF, 0xFF2C3240, 0xFF34C759, 0xFFFF9500, 0xFFAF52DE, 0xFFFA2D48};
+
+    auto DrawShadowedText = [this](int tx, int ty, const std::string& str, uint32_t col, int sc = 1) {
+        DrawTextSimple(tx, ty + 1, str, 0x88000000, sc);
+        DrawTextSimple(tx, ty, str, col, sc);
+    };
 
     for (int i = 0; i < count; ++i) {
         uint32_t c = colors[i % 6];
+        // 3D icon drop shadow
+        DrawShadow(cur_x, card_y + 2, icon_size, icon_size, 11.0f, 6.0f, 0x66000000);
+        // Squircle body
         DrawRoundedRect(cur_x, card_y, icon_size, icon_size, 11.0f, c);
+        // Top inner specular sheen
+        DrawRoundedRect(cur_x + 6, card_y + 1, icon_size - 12, 1, 1.0f, 0x40FFFFFF);
+        DrawBorder(cur_x, card_y, icon_size, icon_size, 11.0f, 1.0f, 0x20FFFFFF);
 
         std::string label = (app_names[i].size() > 5) ? app_names[i].substr(0, 4) : app_names[i];
         int lbl_x = cur_x + (icon_size - static_cast<int>(label.size()) * 7) / 2;
-        DrawTextSimple(lbl_x, card_y + 18, label, 0xFFFFFFFF, 1);
+        DrawShadowedText(lbl_x, card_y + 19, label, 0xFFFFFFFF, 1);
 
-        // Running indicator dot / pill beneath active apps
-        if (i == active_index || i < 3) {
+        // Running indicator dot / pill
+        if (i == active_index) {
+            DrawShadow(cur_x + icon_size / 2 - 4, dock_y + dock_h - 6, 8, 4, 2.0f, 3.0f, 0x66007AFF);
             DrawRoundedRect(cur_x + icon_size / 2 - 3, dock_y + dock_h - 6, 6, 3, 1.5f, 0xFFFFFFFF);
+        } else if (i < 3) {
+            DrawRoundedRect(cur_x + icon_size / 2 - 3, dock_y + dock_h - 6, 6, 3, 1.5f, 0xAAFFFFFF);
         }
         cur_x += icon_size + gap;
     }

@@ -206,6 +206,7 @@ private:
     struct wlr_scene_buffer* wallpaper_scene_buf_{nullptr};
     struct wlr_scene_buffer* top_bar_scene_buf_{nullptr};
     struct wlr_scene_buffer* dock_scene_buf_{nullptr};
+    std::unique_ptr<render::FrameBuffer> wallpaper_fb_;
     int last_scene_w_{0};
     int last_scene_h_{0};
     int last_clock_sec_{-1};

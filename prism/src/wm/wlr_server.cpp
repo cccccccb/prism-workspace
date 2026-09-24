@@ -735,6 +735,7 @@ void WlrServer::Stop() {
     wallpaper_scene_buf_ = nullptr;
     top_bar_scene_buf_ = nullptr;
     dock_scene_buf_ = nullptr;
+    wallpaper_fb_.reset();
     last_scene_w_ = 0;
     last_scene_h_ = 0;
     last_clock_sec_ = -1;
@@ -1040,10 +1041,14 @@ void WlrServer::InitSceneGraph() {
 void WlrServer::UpdateSceneGraph(int width, int height, float dt) {
     if (width <= 0 || height <= 0) return;
 
-    // 1. Desktop Wallpaper (Load real high-resolution anime sunset wallpaper)
-    if (wallpaper_scene_buf_ && (width != last_scene_w_ || height != last_scene_h_)) {
-        render::FrameBuffer wp_fb(width, height);
+    // 1. Desktop Wallpaper (Load clean, high-resolution anime girl wallpaper)
+    if (wallpaper_scene_buf_ && (width != last_scene_w_ || height != last_scene_h_ || !wallpaper_fb_)) {
+        wallpaper_fb_ = std::make_unique<render::FrameBuffer>(width, height);
         std::vector<std::string> wp_candidates = {
+            "resources/wallpapers/anime_girl.ppm",
+            "resources/wallpapers/anime_girl.png",
+            "/usr/share/prism/wallpapers/anime_girl.ppm",
+            "/usr/share/prism/wallpapers/anime_girl.png",
             "resources/wallpapers/sunset_anime.ppm",
             "resources/wallpapers/sunset_anime.png",
             "/usr/share/prism/wallpapers/sunset_anime.ppm",
@@ -1054,7 +1059,7 @@ void WlrServer::UpdateSceneGraph(int width, int height, float dt) {
             if (std::filesystem::exists(path)) {
                 render::FrameBuffer src(0, 0);
                 if (src.LoadImage(path)) {
-                    wp_fb.Blit(src, 0, 0, width, height);
+                    wallpaper_fb_->Blit(src, 0, 0, width, height);
                     loaded = true;
                     PRISM_LOG_INFO("WLR-SCENE", "Loaded authentic desktop wallpaper: %s (%dx%d)",
                                    path.c_str(), src.GetWidth(), src.GetHeight());
@@ -1063,21 +1068,25 @@ void WlrServer::UpdateSceneGraph(int width, int height, float dt) {
             }
         }
         if (!loaded) {
-            wp_fb.DrawDesktopGradient();
+            wallpaper_fb_->DrawDesktopGradient();
         }
 
-        struct wlr_buffer* w_buf = CreateWlrBufferFromFb(std::move(wp_fb));
+        render::FrameBuffer wp_copy(width, height);
+        wp_copy.CopyRegion(*wallpaper_fb_, 0, 0, 0, 0, width, height);
+
+        struct wlr_buffer* w_buf = CreateWlrBufferFromFb(std::move(wp_copy));
         wlr_scene_buffer_set_buffer(wallpaper_scene_buf_, w_buf);
         wlr_scene_buffer_set_dest_size(wallpaper_scene_buf_, width, height);
         wlr_scene_node_set_position(&wallpaper_scene_buf_->node, 0, 0);
         wlr_buffer_drop(w_buf);
     }
 
-    // 2. Mac Glassmorphic TopBar (Real Clock, Status Pills, Font text)
+    // 2. Mac Glassmorphic TopBar (True Backdrop Blur, Specular Rim, Outer Drop Shadow)
     time_t t_now = time(nullptr);
     struct tm* tm_val = localtime(&t_now);
     int cur_sec = tm_val ? tm_val->tm_sec : 0;
 
+    int top_h = 38; // 34px bar + 4px bottom drop shadow
     if (top_bar_scene_buf_ && (cur_sec != last_clock_sec_ || width != last_scene_w_ || height != last_scene_h_)) {
         last_clock_sec_ = cur_sec;
 
@@ -1088,19 +1097,26 @@ void WlrServer::UpdateSceneGraph(int width, int height, float dt) {
             snprintf(time_str, sizeof(time_str), "Oct-11 15:13:24");
         }
 
-        render::FrameBuffer top_fb(width, 34);
+        render::FrameBuffer top_fb(width, top_h);
+        top_fb.Clear(0x00000000);
+        if (wallpaper_fb_) {
+            top_fb.CopyRegion(*wallpaper_fb_, 0, 0, 0, 0, width, 34);
+        }
         top_fb.DrawTopMenuBar("PRISM", time_str);
 
         struct wlr_buffer* w_buf = CreateWlrBufferFromFb(std::move(top_fb));
         wlr_scene_buffer_set_buffer(top_bar_scene_buf_, w_buf);
-        wlr_scene_buffer_set_dest_size(top_bar_scene_buf_, width, 34);
+        wlr_scene_buffer_set_dest_size(top_bar_scene_buf_, width, top_h);
         wlr_scene_node_set_position(&top_bar_scene_buf_->node, 0, 0);
         wlr_buffer_drop(w_buf);
     }
 
-    // 3. Floating Mac Dock (Width: 480px, Height: 72px, [田] Launcher, Squircles, Dots, Text)
+    // 3. Floating Mac Dock (True Backdrop Blur, Specular Inner/Outer Shadows)
     int dock_w = 480;
     int dock_h = 72;
+    int pad = 16;
+    int buf_w = dock_w + 2 * pad;
+    int buf_h = dock_h + 2 * pad;
     int dock_x = (width - dock_w) / 2;
     int dock_y = height - dock_h - 14;
 
@@ -1110,14 +1126,18 @@ void WlrServer::UpdateSceneGraph(int width, int height, float dt) {
     if (dock_scene_buf_ && (width != last_scene_w_ || height != last_scene_h_ || cur_focus != s_last_focus)) {
         s_last_focus = cur_focus;
 
-        render::FrameBuffer dock_fb(dock_w, dock_h);
+        render::FrameBuffer dock_fb(buf_w, buf_h);
+        dock_fb.Clear(0x00000000);
+        if (wallpaper_fb_) {
+            dock_fb.CopyRegion(*wallpaper_fb_, dock_x, dock_y, pad, pad, dock_w, dock_h);
+        }
         std::vector<std::string> apps = {"Files", "Term", "Web", "Music", "Pref"};
         dock_fb.DrawMacDock(apps, cur_focus);
 
         struct wlr_buffer* w_buf = CreateWlrBufferFromFb(std::move(dock_fb));
         wlr_scene_buffer_set_buffer(dock_scene_buf_, w_buf);
-        wlr_scene_buffer_set_dest_size(dock_scene_buf_, dock_w, dock_h);
-        wlr_scene_node_set_position(&dock_scene_buf_->node, dock_x, dock_y);
+        wlr_scene_buffer_set_dest_size(dock_scene_buf_, buf_w, buf_h);
+        wlr_scene_node_set_position(&dock_scene_buf_->node, dock_x - pad, dock_y - pad);
         wlr_buffer_drop(w_buf);
     }
 

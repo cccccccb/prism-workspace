@@ -18,7 +18,10 @@ WallpaperManager::WallpaperManager(const std::string& wallpaper_dir)
     }
 
     // Register presets
-    AddWallpaper("sunset_anime", "Sunset Anime Coastline", "Anime", wallpaper_dir_ + "/sunset_anime.png");
+    AddWallpaper("anime_girl", "Pure Anime Girl Aesthetics", "Anime", wallpaper_dir_ + "/anime_girl.png");
+    AddWallpaper("anime_balcony", "Anime Girl Balcony", "Anime", wallpaper_dir_ + "/anime_balcony.png");
+    AddWallpaper("chill_anime", "Chill Lofi Anime Girl", "Anime", wallpaper_dir_ + "/chill_anime.png");
+    AddWallpaper("sunset_anime", "Sunset Anime Aesthetics", "Anime", wallpaper_dir_ + "/sunset_anime.png");
     AddWallpaper("ocean_sunset", "Tropical Sunset Beach", "Sunset", wallpaper_dir_ + "/ocean_sunset.jpg");
     AddWallpaper("deep_space", "Cosmic Purple Nebula", "DeepSpace", wallpaper_dir_ + "/deep_space.jpg");
     AddWallpaper("cyber_night", "Cyberpunk Neon Tokyo", "Cyber", wallpaper_dir_ + "/cyber_night.jpg");

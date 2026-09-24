@@ -21,6 +21,7 @@ public:
     void DrawShadow(int x, int y, int w, int h, float radius, float shadow_radius, uint32_t color);
     void ApplyKawaseBlur(int x, int y, int w, int h, float blur_radius, int passes);
     void Blit(const FrameBuffer& src, int dst_x, int dst_y, int dst_w, int dst_h, float opacity = 1.0f);
+    void CopyRegion(const FrameBuffer& src, int src_x, int src_y, int dst_x, int dst_y, int w, int h);
 
     // Simple bitmap font / icon stamping for visual confirmation
     void DrawTextSimple(int x, int y, const std::string& text, uint32_t color, int scale = 1);
