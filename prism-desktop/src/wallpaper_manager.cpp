@@ -7,11 +7,13 @@ namespace prism::desktop {
 
 WallpaperManager::WallpaperManager(const std::string& wallpaper_dir)
     : wallpaper_dir_(wallpaper_dir) {
-    if (wallpaper_dir_.empty()) {
+    if (wallpaper_dir_.empty() || !std::filesystem::exists(wallpaper_dir_)) {
         if (std::filesystem::exists("resources/wallpapers")) {
             wallpaper_dir_ = "resources/wallpapers";
         } else if (std::filesystem::exists("../resources/wallpapers")) {
             wallpaper_dir_ = "../resources/wallpapers";
+        } else if (std::filesystem::exists("/usr/share/prism/wallpapers")) {
+            wallpaper_dir_ = "/usr/share/prism/wallpapers";
         }
     }
 

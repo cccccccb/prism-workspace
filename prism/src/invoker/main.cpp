@@ -12,9 +12,13 @@ using namespace prism;
 
 bool WaitForWmReady(int timeout_ms = 5000) {
     auto t0 = std::chrono::steady_clock::now();
-    std::string ready_file = "/tmp/prism.ready";
+    std::string runtime_dir = getenv("XDG_RUNTIME_DIR") ? getenv("XDG_RUNTIME_DIR") : "/tmp";
     while (true) {
-        if (std::filesystem::exists(ready_file)) {
+        if (std::filesystem::exists("/tmp/prism.ready") ||
+            std::filesystem::exists(runtime_dir + "/prism.ready") ||
+            std::filesystem::exists(runtime_dir + "/prism-ipc.sock") ||
+            std::filesystem::exists(runtime_dir + "/wayland-prism-0") ||
+            std::filesystem::exists("/tmp/wayland-prism-0")) {
             return true;
         }
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -22,7 +26,7 @@ bool WaitForWmReady(int timeout_ms = 5000) {
         if (elapsed > timeout_ms) {
             return false;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
 }
 

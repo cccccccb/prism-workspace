@@ -32,7 +32,18 @@ int main(int argc, char* argv[]) {
 
     // 1. Prepare AOT compiled binary UI
     std::string prism_file = "prism-topbar/ui/topbar.prism";
-    std::string prismb_file = "prism-topbar/topbar.prismb";
+    if (!std::filesystem::exists(prism_file)) {
+        if (std::filesystem::exists("../prism-topbar/ui/topbar.prism")) {
+            prism_file = "../prism-topbar/ui/topbar.prism";
+        } else if (std::filesystem::exists("/usr/share/prism/ui/topbar.prism")) {
+            prism_file = "/usr/share/prism/ui/topbar.prism";
+        }
+    }
+    std::string runtime_dir = getenv("XDG_RUNTIME_DIR") ? getenv("XDG_RUNTIME_DIR") : "/tmp";
+    std::string prismb_file = std::filesystem::exists("prism-topbar/ui/topbar.prism")
+        ? "prism-topbar/topbar.prismb"
+        : (runtime_dir + "/topbar.prismb");
+
     if (std::filesystem::exists(prism_file)) {
         std::ifstream in(prism_file);
         std::string dsl((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());

@@ -674,6 +674,8 @@ void WlrServer::Stop() {
     outputs_.clear();
     dock_icon_rects_.clear();
 
+    drag_manager_.reset();
+
     if (scene_) {
         wlr_scene_node_destroy(&scene_->tree.node);
         scene_ = nullptr;

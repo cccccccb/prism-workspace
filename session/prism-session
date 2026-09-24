@@ -18,7 +18,7 @@ chmod 700 "$XDG_RUNTIME_DIR"
 echo "[PRISM-SESSION] Initializing Prism Desktop Environment..."
 
 # Clean old state
-rm -f /tmp/prism.ready /tmp/prism_zygote.sock
+rm -f /tmp/prism.ready /tmp/prism_zygote.sock "$XDG_RUNTIME_DIR/prism.ready"
 
 # 1. Start Compositor Window Manager in background
 echo "[PRISM-SESSION] Starting prism-wm..."
@@ -31,7 +31,20 @@ else
 fi
 WM_PID=$!
 
-# 2. Start Zygote Launcher Daemon in background
+# 2. Wait for Compositor Readiness Handshake Probe
+echo "[PRISM-SESSION] Waiting for Compositor readiness..."
+INVOKER_CMD="prism-invoker"
+if ! command -v prism-invoker >/dev/null 2>&1 && [ -x "./build/prism/prism-invoker" ]; then
+    INVOKER_CMD="./build/prism/prism-invoker"
+fi
+
+$INVOKER_CMD --wait-ready 5000 || echo "[PRISM-SESSION] Readiness timeout, proceeding..."
+
+# Export Prism display and IPC socket so Zygote and Shell connect to PrismWM
+export WAYLAND_DISPLAY=wayland-prism-0
+export PRISMSOCK="$XDG_RUNTIME_DIR/prism-ipc.sock"
+
+# 3. Start Zygote Launcher Daemon in background
 echo "[PRISM-SESSION] Starting prism-launcher (Zygote Daemon)..."
 if command -v prism-launcher >/dev/null 2>&1; then
     prism-launcher &
@@ -42,14 +55,8 @@ else
 fi
 LAUNCHER_PID=$!
 
-# 3. Wait for Compositor Readiness Handshake Probe
-echo "[PRISM-SESSION] Waiting for Compositor readiness..."
-INVOKER_CMD="prism-invoker"
-if ! command -v prism-invoker >/dev/null 2>&1 && [ -x "./build/prism/prism-invoker" ]; then
-    INVOKER_CMD="./build/prism/prism-invoker"
-fi
-
-$INVOKER_CMD --wait-ready 5000 || echo "[PRISM-SESSION] Readiness timeout, proceeding..."
+# Brief pause to ensure zygote socket is listening
+sleep 0.05
 
 # 4. Invoke Shell Suite (Desktop, Dock, TopBar) via Zygote
 echo "[PRISM-SESSION] Dispatching Shell Suite (Desktop, Dock, TopBar)..."
@@ -61,7 +68,7 @@ cleanup() {
     kill -TERM "$LAUNCHER_PID" 2>/dev/null || true
     kill -TERM "$WM_PID" 2>/dev/null || true
     wait "$WM_PID" 2>/dev/null || true
-    rm -f /tmp/prism.ready /tmp/prism_zygote.sock
+    rm -f /tmp/prism.ready /tmp/prism_zygote.sock "$XDG_RUNTIME_DIR/prism.ready"
     echo "[PRISM-SESSION] Session terminated cleanly."
     exit 0
 }

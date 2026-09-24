@@ -29,7 +29,18 @@ int main(int argc, char* argv[]) {
 
     // 1. Prepare AOT compiled binary UI
     std::string prism_file = "prism-dock/ui/dock.prism";
-    std::string prismb_file = "prism-dock/dock.prismb";
+    if (!std::filesystem::exists(prism_file)) {
+        if (std::filesystem::exists("../prism-dock/ui/dock.prism")) {
+            prism_file = "../prism-dock/ui/dock.prism";
+        } else if (std::filesystem::exists("/usr/share/prism/ui/dock.prism")) {
+            prism_file = "/usr/share/prism/ui/dock.prism";
+        }
+    }
+    std::string runtime_dir = getenv("XDG_RUNTIME_DIR") ? getenv("XDG_RUNTIME_DIR") : "/tmp";
+    std::string prismb_file = std::filesystem::exists("prism-dock/ui/dock.prism")
+        ? "prism-dock/dock.prismb"
+        : (runtime_dir + "/dock.prismb");
+
     if (std::filesystem::exists(prism_file)) {
         std::ifstream in(prism_file);
         std::string dsl((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
