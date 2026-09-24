@@ -3,45 +3,107 @@
 #include "prism/core/logging.hpp"
 #include "prism/core/types.hpp"
 #include <unistd.h>
+#include <iostream>
+#include <filesystem>
+#include <thread>
+#include <chrono>
 
-int main(int argc, char* argv[]) {
-    PRISM_LOG_INFO("INVOKER-MAIN", "=================================================");
-    PRISM_LOG_INFO("INVOKER-MAIN", "         Prism App Launch Invoker                ");
-    PRISM_LOG_INFO("INVOKER-MAIN", "=================================================");
+using namespace prism;
 
-    std::string app = (argc > 1) ? argv[1] : "demo_player";
-
-    prism::invoker::LaunchContext ctx;
-    if (app.size() >= 9 && app.rfind(".prismpkg") == app.size() - 9) {
-        ctx.package_path = app;
-        ctx.app_name = app.substr(0, app.rfind(".prismpkg"));
-        size_t slash = ctx.app_name.find_last_of('/');
-        if (slash != std::string::npos) ctx.app_name = ctx.app_name.substr(slash + 1);
-    } else {
-        ctx.app_name = app;
+bool WaitForWmReady(int timeout_ms = 5000) {
+    auto t0 = std::chrono::steady_clock::now();
+    std::string ready_file = "/tmp/prism.ready";
+    while (true) {
+        if (std::filesystem::exists(ready_file)) {
+            return true;
+        }
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - t0).count();
+        if (elapsed > timeout_ms) {
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
     }
-    ctx.channel_name = "/prism_" + ctx.app_name + "_" + std::to_string(getpid());
-    ctx.zygote_socket = prism::launcher::DEFAULT_ZYGOTE_SOCKET;
+}
 
-    // Build Chain of Responsibility pipeline
-    auto manifest_step = std::make_shared<prism::invoker::ManifestValidationStep>();
-    auto sandbox_step  = std::make_shared<prism::invoker::SandboxSecurityStep>();
-    auto preview_step  = std::make_shared<prism::invoker::PreviewMountStep>();
-    auto zygote_step   = std::make_shared<prism::invoker::ZygoteDispatchStep>();
+bool LaunchApp(const std::string& app_name, const std::string& channel_name, const std::string& pkg = "") {
+    invoker::LaunchContext ctx;
+    ctx.app_name = app_name;
+    ctx.channel_name = channel_name.empty() ? ("/prism_" + app_name + "_" + std::to_string(getpid())) : channel_name;
+    ctx.package_path = pkg;
+    ctx.zygote_socket = launcher::DEFAULT_ZYGOTE_SOCKET;
+
+    auto manifest_step = std::make_shared<invoker::ManifestValidationStep>();
+    auto sandbox_step  = std::make_shared<invoker::SandboxSecurityStep>();
+    auto preview_step  = std::make_shared<invoker::PreviewMountStep>();
+    auto zygote_step   = std::make_shared<invoker::ZygoteDispatchStep>();
 
     manifest_step->SetNext(sandbox_step)
                  ->SetNext(preview_step)
                  ->SetNext(zygote_step);
 
-    auto t_start = prism::core::CurrentTimeNs();
+    auto t_start = core::CurrentTimeNs();
     bool success = manifest_step->Handle(ctx);
-    auto elapsed_us = (prism::core::CurrentTimeNs() - t_start) / 1000.0;
+    auto elapsed_us = (core::CurrentTimeNs() - t_start) / 1000.0;
 
     if (success) {
-        PRISM_LOG_INFO("INVOKER-MAIN", "Launch pipeline succeeded in %.2f us (%.3f ms)", elapsed_us, elapsed_us / 1000.0);
-        return 0;
+        PRISM_LOG_INFO("INVOKER", "Successfully invoked '%s' in %.2f us (%.3f ms)",
+                       app_name.c_str(), elapsed_us, elapsed_us / 1000.0);
     } else {
-        PRISM_LOG_ERROR("INVOKER-MAIN", "Launch pipeline aborted due to error");
+        PRISM_LOG_ERROR("INVOKER", "Failed to invoke '%s'", app_name.c_str());
+    }
+    return success;
+}
+
+int main(int argc, char* argv[]) {
+    PRISM_LOG_INFO("INVOKER-MAIN", "=================================================");
+    PRISM_LOG_INFO("INVOKER-MAIN", "      Project Prism App & Shell Invoker          ");
+    PRISM_LOG_INFO("INVOKER-MAIN", "=================================================");
+
+    if (argc < 2) {
+        std::cout << "Usage: prism-invoker [--shell | <app_name | app.prismpkg> [channel]]\n";
+        std::cout << "       prism-invoker --wait-ready [timeout_ms]\n";
+        return 0;
+    }
+
+    std::string arg1 = argv[1];
+
+    if (arg1 == "--wait-ready") {
+        int timeout = (argc > 2) ? std::stoi(argv[2]) : 5000;
+        PRISM_LOG_INFO("INVOKER", "Waiting for PrismWM Compositor readiness (timeout: %d ms)...", timeout);
+        if (WaitForWmReady(timeout)) {
+            PRISM_LOG_INFO("INVOKER", "PrismWM Compositor is READY!");
+            return 0;
+        } else {
+            PRISM_LOG_ERROR("INVOKER", "Timed out waiting for PrismWM Compositor!");
+            return 1;
+        }
+    }
+
+    if (arg1 == "--shell" || arg1 == "shell") {
+        PRISM_LOG_INFO("INVOKER", "Bootstrapping System Shell Suite (Desktop, Dock, TopBar)...");
+        if (!WaitForWmReady(5000)) {
+            PRISM_LOG_WARN("INVOKER", "WM readiness flag not found within 5s, proceeding with launch anyway...");
+        }
+
+        bool ok_desk = LaunchApp("prism-desktop", "/prism_desktop_ipc");
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+        bool ok_dock = LaunchApp("prism-dock", "/prism_dock_ipc");
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+        bool ok_top = LaunchApp("prism-topbar", "/prism_topbar_ipc");
+
+        if (ok_desk && ok_dock && ok_top) {
+            PRISM_LOG_INFO("INVOKER", "All 3 Shell Components dispatched successfully!");
+            return 0;
+        }
         return 1;
     }
+
+    std::string channel = (argc > 2) ? argv[2] : "";
+    std::string pkg = (argc > 3) ? argv[3] : "";
+
+    bool ok = LaunchApp(arg1, channel, pkg);
+    return ok ? 0 : 1;
 }

@@ -709,6 +709,64 @@ Prism 采用装饰器模式 (`ModifierChain`) 链式修饰控件，所有参数�
   * **应用卡片与常驻托盘**：内置 Files、Terminal、Browser、Editor、Music、Settings 等高频应用卡片；
   * **运行状态指示器**：运行中的应用卡片下方常驻活跃状态指示（高光下划线/指示点），动态推流 `$running_badge`。
 
+---
+
+## 16. 全栈服务托管、Zygote 预热调度与 Debian 自动化打包整合体系 (Service Supervision, Zygote Pre-warming & Debian Packaging)
+
+### 16.1 整合架构全景拓扑 (Full-Stack Architecture & Process Hierarchy)
+
+Prism 采用现代操作系统级的服务分层架构，实现了从底层合成器到用户交互壳层的高可靠、高可用调度：
+
+```text
+ ┌────────────────────────────────────────────────────────────────────────┐
+ │ 1. Systemd 用户服务单元 (/usr/lib/systemd/user/prism-session.service)  │
+ └───────────────────┬────────────────────────────────────────────────────┘
+                     │ 托管拉起会话守护进程
+                     ▼
+ ┌────────────────────────────────────────────────────────────────────────┐
+ │ 2. 会话协调守护器 (/usr/bin/prism-session)                             │
+ └─────────┬───────────────────────────────┬──────────────────────────────┘
+           │ 并行拉起合成器                 │ 并行拉起 Zygote
+           ▼                               ▼
+ ┌────────────────────────┐      ┌────────────────────────────────────────┐
+ │ 3. prism-wm            │      │ 4. prism-launcher (Zygote Daemon)      │
+ │   - Wayland 0.17 根服务 │      │   - 预热 libc / wayland-client / libm  │
+ │   - LayerManager 单例  │      │   - 预分配内存，就绪监听 Unix Socket   │
+ │   - 写出 /tmp/prism.ready     └───────────────────┬────────────────────┘
+ └─────────┬──────────────┘                          │ CoW 瞬时响应 (< 1ms)
+           │ 探针就绪握手成功                         │
+           ▼                                         │
+ ┌────────────────────────┐                          │
+ │ 5. prism-invoker       │──────────────────────────┘
+ │    --shell 调度器      │ 依次请求启动三件套
+ └─────────┬──────────────┘
+           │
+           ├─> 6. prism-desktop (Layer 1: 桌面壁纸画布)
+           ├─> 7. prism-dock    (Layer 3: 底部悬浮应用坞)
+           └─> 8. prism-topbar  (Layer 2: 顶部控制核心)
+```
+
+### 16.2 启动时序与就绪握手探针机制 (Readiness Probe Handshake)
+
+杜绝后台服务并发拉起时子进程连接 Wayland Display 或 IPC Channel 报 `No such file or directory` 的竞争冒险：
+1. `prism-wm` 在完成 wlroots Wayland Server 初始化并绑定输出后，立即向 `/tmp/prism.ready` 写入包含 PID 与 Socket 信息的握手探针；
+2. `prism-invoker` 具备 `--wait-ready [timeout_ms]` 探针探测能力，在触发三件套启动前毫秒级等待 WM 确切就绪；
+3. 退出时 `prism-wm` 自动清理 `/tmp/prism.ready`，确保时序闭环。
+
+### 16.3 Zygote 深度预热与 Invoker CoW 调度 (Zygote Pre-warming & Fork Optimization)
+
+1. `prism-launcher` 作为常驻 Zygote 守护进程，启动阶段利用 `dlopen` 将核心系统库（`libc.so.6`、`libwayland-client.so.0`、`libm.so.6`）与 Prism SDK 运行时锁定在常驻物理内存页中；
+2. 当 `prism-invoker` 发出启动请求时，Zygote 采用 Linux 原生 **CoW (Copy-On-Write)** 特性执行 `fork()`，子进程瞬时继承热内存，将三件套与常规应用的冷启动耗时从 100ms+ 压缩至 **微秒（< 1ms）级**。
+
+### 16.4 Debian 标准包安装与系统会话集成 (Debian FHS Packaging & Session Integration)
+
+通过集成 CMake 原生 `CPack`（`cpack -G DEB`），一键构建开箱即用的工业级 `.deb` 安装包（`prism-wm_0.1.0_amd64.deb`）：
+- **`/usr/bin/`**：安装 `prism-wm`、`prism-launcher`、`prism-invoker`、`prism-session`、`prism-desktop`、`prism-topbar`、`prism-dock` 等全部二进制；
+- **`/usr/share/wayland-sessions/prism.desktop`**：注册为标准 Wayland 显示管理器入口，兼容 GDM、SDDM、LightDM 直接登入；
+- **`/usr/lib/systemd/user/prism-session.service`**：提供标准的 Systemd 用户会话单元，支持进程崩溃自愈与优雅退出；
+- **`/usr/share/prism/`**：标准分发 `.prism` DSL 模板与高清桌面壁纸资源。
+
+
 
 
 

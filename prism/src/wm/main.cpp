@@ -14,6 +14,7 @@
 #include <signal.h>
 #include <atomic>
 #include <csignal>
+#include <fstream>
 
 using namespace prism;
 
@@ -68,6 +69,13 @@ int main(int argc, char* argv[]) {
         setenv("WAYLAND_DISPLAY", server.GetSocketName().c_str(), 1);
         PRISM_LOG_INFO("WM-MAIN", "Exported WAYLAND_DISPLAY=%s to environment for child processes", server.GetSocketName().c_str());
     }
+
+    // Write readiness probe file for session supervisor & invoker
+    {
+        std::ofstream ready_out("/tmp/prism.ready");
+        ready_out << "READY " << getpid() << " " << server.GetSocketName() << "\n";
+    }
+    PRISM_LOG_INFO("WM-MAIN", "PrismWM readiness flag written to /tmp/prism.ready");
 
     // 4. Create Window A from .prismpkg: Prism Music Studio
     std::string channel_a = "/prism_demo_player";
@@ -194,6 +202,7 @@ int main(int argc, char* argv[]) {
     }
 
     PRISM_LOG_INFO("WM-MAIN", "Received stop signal -> Shutting down Compositor...");
+    unlink("/tmp/prism.ready");
     server.Stop();
 
     // Terminate child backends cleanly

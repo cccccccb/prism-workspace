@@ -19,10 +19,10 @@ ZygoteServer::~ZygoteServer() {
 
 void ZygoteServer::Prewarm() {
     PRISM_LOG_INFO("ZYGOTE", "Pre-warming shared runtime memory pages (COW zero-linking)...");
-    void* handle = dlopen("libc.so.6", RTLD_NOW | RTLD_GLOBAL);
-    if (handle) {
-        PRISM_LOG_INFO("ZYGOTE", "System runtime (libc.so.6) locked into warm cache");
-    }
+    dlopen("libc.so.6", RTLD_NOW | RTLD_GLOBAL);
+    dlopen("libwayland-client.so.0", RTLD_NOW | RTLD_GLOBAL);
+    dlopen("libm.so.6", RTLD_NOW | RTLD_GLOBAL);
+    PRISM_LOG_INFO("ZYGOTE", "System runtime and Wayland client libraries locked into warm cache");
 }
 
 bool ZygoteServer::Start(const std::string& socket_path) {

@@ -39,8 +39,25 @@ bool PreviewMountStep::Execute(LaunchContext& ctx) {
     return true;
 }
 
+static std::string ResolveBinary(const std::string& app_name) {
+    std::vector<std::string> candidates = {
+        "/usr/bin/" + app_name,
+        "/usr/local/bin/" + app_name,
+        "./build/" + app_name + "/" + app_name,
+        "./build/demos/" + app_name,
+        "./build/prism/" + app_name,
+        "./" + app_name
+    };
+    for (const auto& c : candidates) {
+        if (access(c.c_str(), X_OK) == 0) return c;
+    }
+    return app_name;
+}
+
 bool ZygoteDispatchStep::Execute(LaunchContext& ctx) {
     PRISM_LOG_INFO("INVOKER", "[Step 4: Zygote] Requesting fast fork via socket %s", ctx.zygote_socket.c_str());
+
+    std::string bin_path = ResolveBinary(ctx.app_name);
 
     int sock = socket(AF_UNIX, SOCK_STREAM, 0);
     if (sock < 0) {
@@ -58,8 +75,7 @@ bool ZygoteDispatchStep::Execute(LaunchContext& ctx) {
 
         pid_t pid = fork();
         if (pid == 0) {
-            std::string binary = "./build/demos/" + ctx.app_name;
-            execl(binary.c_str(), ctx.app_name.c_str(), ctx.channel_name.c_str(), ctx.package_path.c_str(), nullptr);
+            execl(bin_path.c_str(), ctx.app_name.c_str(), ctx.channel_name.c_str(), ctx.package_path.c_str(), nullptr);
             _exit(1);
         } else if (pid > 0) {
             ctx.spawned_pid = pid;
@@ -69,7 +85,7 @@ bool ZygoteDispatchStep::Execute(LaunchContext& ctx) {
         return false;
     }
 
-    std::string exec_cmd = "./" + ctx.app_name + " " + ctx.channel_name;
+    std::string exec_cmd = bin_path + " " + ctx.channel_name;
     if (!ctx.package_path.empty()) {
         exec_cmd += " " + ctx.package_path;
     }

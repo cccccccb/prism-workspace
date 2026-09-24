@@ -56,3 +56,69 @@ add_subdirectory(tests)
 add_subdirectory(prism-desktop)
 add_subdirectory(prism-topbar)
 add_subdirectory(prism-dock)
+
+# ==============================================================================
+# 5. Installation Rules & Debian Packaging (CPack)
+# ==============================================================================
+include(GNUInstallDirs)
+
+# Install Core & Shell Binaries
+install(TARGETS
+    prism-wm
+    prism-launcher
+    prism-invoker
+    prism-msg
+    prism-pack
+    prism-compiler
+    prism-desktop
+    prism-topbar
+    prism-dock
+    DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+# Install Session Supervisor Script
+install(PROGRAMS session/prism-session
+    DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+# Install Wayland Session Desktop Entry
+install(FILES resources/sessions/prism.desktop
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/wayland-sessions
+)
+
+# Install Systemd User Service
+install(FILES resources/systemd/prism-session.service
+    DESTINATION lib/systemd/user
+)
+
+# Install Wallpapers & Assets
+install(DIRECTORY resources/wallpapers/
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/prism/wallpapers
+)
+
+# Install DSL UI Templates
+install(FILES prism-desktop/ui/desktop.prism
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/prism/ui
+)
+install(FILES prism-topbar/ui/topbar.prism
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/prism/ui
+)
+install(FILES prism-dock/ui/dock.prism
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/prism/ui
+)
+
+# CPack Debian Package Configuration
+set(CPACK_GENERATOR "DEB")
+set(CPACK_PACKAGE_NAME "prism-wm")
+set(CPACK_PACKAGE_VENDOR "Project Prism Team")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Project Prism: Next-Generation Wayland Compositor & Glassmorphism Desktop Shell")
+set(CPACK_PACKAGE_VERSION "0.1.0")
+set(CPACK_PACKAGE_CONTACT "Chen Bin <chenbin@prism.org>")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Chen Bin <chenbin@prism.org>")
+set(CPACK_DEBIAN_PACKAGE_SECTION "x11")
+set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "libwayland-server0, libwayland-client0, libdrm2, libegl1, libgbm1, libinput10, libxkbcommon0, libpixman-1-0")
+set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/chenbin/prism")
+set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
+
+include(CPack)

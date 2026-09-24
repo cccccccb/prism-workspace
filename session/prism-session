@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Project Prism Desktop Session Supervisor
+# Coordinates: prism-wm -> prism-launcher -> prism-invoker --shell
+# ==============================================================================
+
+set -eo pipefail
+
+export XDG_CURRENT_DESKTOP=Prism
+export XDG_SESSION_TYPE=wayland
+export XDG_SESSION_DESKTOP=prism
+
+# Ensure runtime directory exists
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/prism-runtime-$UID}"
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
+
+echo "[PRISM-SESSION] Initializing Prism Desktop Environment..."
+
+# Clean old state
+rm -f /tmp/prism.ready /tmp/prism_zygote.sock
+
+# 1. Start Compositor Window Manager in background
+echo "[PRISM-SESSION] Starting prism-wm..."
+if command -v prism-wm >/dev/null 2>&1; then
+    prism-wm &
+elif [ -x "./build/prism/prism-wm" ]; then
+    ./build/prism/prism-wm &
+else
+    prism-wm &
+fi
+WM_PID=$!
+
+# 2. Start Zygote Launcher Daemon in background
+echo "[PRISM-SESSION] Starting prism-launcher (Zygote Daemon)..."
+if command -v prism-launcher >/dev/null 2>&1; then
+    prism-launcher &
+elif [ -x "./build/prism/prism-launcher" ]; then
+    ./build/prism/prism-launcher &
+else
+    prism-launcher &
+fi
+LAUNCHER_PID=$!
+
+# 3. Wait for Compositor Readiness Handshake Probe
+echo "[PRISM-SESSION] Waiting for Compositor readiness..."
+INVOKER_CMD="prism-invoker"
+if ! command -v prism-invoker >/dev/null 2>&1 && [ -x "./build/prism/prism-invoker" ]; then
+    INVOKER_CMD="./build/prism/prism-invoker"
+fi
+
+$INVOKER_CMD --wait-ready 5000 || echo "[PRISM-SESSION] Readiness timeout, proceeding..."
+
+# 4. Invoke Shell Suite (Desktop, Dock, TopBar) via Zygote
+echo "[PRISM-SESSION] Dispatching Shell Suite (Desktop, Dock, TopBar)..."
+$INVOKER_CMD --shell
+
+# Signal trapping for graceful shutdown
+cleanup() {
+    echo "[PRISM-SESSION] Received teardown signal, cleaning up session processes..."
+    kill -TERM "$LAUNCHER_PID" 2>/dev/null || true
+    kill -TERM "$WM_PID" 2>/dev/null || true
+    wait "$WM_PID" 2>/dev/null || true
+    rm -f /tmp/prism.ready /tmp/prism_zygote.sock
+    echo "[PRISM-SESSION] Session terminated cleanly."
+    exit 0
+}
+
+trap cleanup SIGINT SIGTERM EXIT
+
+# Supervise WM process
+wait "$WM_PID"
