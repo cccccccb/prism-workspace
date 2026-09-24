@@ -237,6 +237,30 @@ std::shared_ptr<decoration::TilingDecorationSpec> BinaryThemeLoader::LoadFromMem
     spec->drop_zone.border_color = core::Color::FromHex(header->drop_border_color);
     spec->drop_zone.border_width = header->drop_border_width;
 
+    // Load Kinetic Motion records
+    auto load_motion = [](const PrismbMotionCurveRecord& rec, decoration::MotionCurveSpec& out) {
+        out.engine = static_cast<decoration::MotionEngine>(rec.engine_type);
+        out.duration_ms = rec.duration_ms;
+        out.clip_content = (rec.flags & 0x01) != 0;
+        out.fade_content = (rec.flags & 0x02) != 0;
+        out.smart_gaps_collapse = (rec.flags & 0x04) != 0;
+
+        if (out.engine == decoration::MotionEngine::Spring) {
+            out.damping = rec.param0;
+            out.stiffness = rec.param1;
+        } else {
+            out.bezier_x1 = rec.param0;
+            out.bezier_y1 = rec.param1;
+            out.bezier_x2 = rec.param2;
+            out.bezier_y2 = rec.param3;
+        }
+    };
+
+    load_motion(header->motion_fold, spec->motion.fold);
+    load_motion(header->motion_fullscreen, spec->motion.fullscreen);
+    load_motion(header->motion_split_move, spec->motion.split_move);
+    load_motion(header->motion_focus, spec->motion.focus);
+
     return spec;
 }
 

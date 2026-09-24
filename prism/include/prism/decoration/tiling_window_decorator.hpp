@@ -2,6 +2,7 @@
 
 #include "prism/core/types.hpp"
 #include "prism/decoration/tiling_decoration_spec.hpp"
+#include "prism/decoration/motion_controller.hpp"
 #include <memory>
 #include <string>
 
@@ -21,6 +22,7 @@ enum class HeaderAction {
     TitlebarDrag,      // User clicked on header blank space -> initiates Drag-to-Split / Reorder
     Close,             // User clicked Close tile button
     ToggleSplit,       // User clicked Toggle Split Orientation button
+    ToggleFold,        // User clicked Fold (Roll-up / Unroll to titlebar) button
     ToggleMonocle      // User clicked Monocle (Maximize/Restore) button
 };
 
@@ -32,8 +34,22 @@ public:
     // Attach scene graph nodes under a wlroots parent scene tree
     void AttachToScene(struct wlr_scene_tree* parent_tree);
 
-    // Apply calculated tile bounds from Tiling Layout Engine
+    // Snap calculated tile bounds instantly
     void ApplyGeometry(const core::Rect& bounds);
+
+    // Smooth Kinetic Transitions (Spring / Bézier from DSL)
+    void AnimateToBounds(const core::Rect& bounds, MotionType type = MotionType::SplitMove);
+    void ToggleFold();
+    void SetFolded(bool folded);
+    bool IsFolded() const;
+
+    void ToggleFullscreen(const core::Rect& screen_bounds);
+    void SetFullscreen(bool fullscreen, const core::Rect& screen_bounds);
+    bool IsFullscreen() const;
+
+    // Advances active kinetic animations (VSync driven). Returns true if still animating.
+    bool StepAnimation(float dt);
+    bool IsAnimating() const;
 
     // Focus state change (alters border colors, title brightness, specular glow)
     void SetFocused(bool focused);
@@ -49,18 +65,24 @@ public:
     // Computed sub-rectangles
     core::Rect GetHeaderBounds() const;
     core::Rect GetContentBounds() const;
+    core::Rect GetVisualBounds() const;
 
     struct wlr_scene_tree* GetRootTree() const { return root_tree_; }
     struct wlr_scene_tree* GetContentTree() const { return content_tree_; }
+    MotionController& GetMotionController() { return motion_ctrl_; }
 
 private:
     void CreateSceneNodes();
     void UpdateColors();
+    void UpdateSceneGeometry(const core::Rect& bounds);
 
     wm::Window* window_{nullptr};
     std::shared_ptr<TilingDecorationSpec> spec_;
     core::Rect current_bounds_{0, 0, 0, 0};
     bool is_focused_{false};
+
+    // Kinetic Motion Physics Engine
+    MotionController motion_ctrl_;
 
     // wlroots scene graph hierarchy
     struct wlr_scene_tree* parent_tree_{nullptr};
@@ -79,6 +101,7 @@ private:
     struct wlr_scene_rect* header_bg_{nullptr};
     struct wlr_scene_rect* btn_close_{nullptr};
     struct wlr_scene_rect* btn_split_{nullptr};
+    struct wlr_scene_rect* btn_fold_{nullptr};
     struct wlr_scene_rect* btn_monocle_{nullptr};
     struct wlr_scene_rect* active_indicator_pill_{nullptr};
 

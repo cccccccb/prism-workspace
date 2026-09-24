@@ -64,20 +64,23 @@ void TilingWindowDecorator::CreateSceneNodes() {
     // Tiling control buttons
     const float col_close[4]   = {0.98f, 0.28f, 0.28f, 1.0f}; // Red: Close
     const float col_split[4]   = {0.98f, 0.78f, 0.20f, 1.0f}; // Yellow: Toggle split H/V
+    const float col_fold[4]    = {0.98f, 0.55f, 0.15f, 1.0f}; // Amber: Fold / Roll-up
     const float col_monocle[4] = {0.20f, 0.80f, 0.35f, 1.0f}; // Green: Monocle / Maximize
     btn_close_   = wlr_scene_rect_create(header_tree_, 12, 12, col_close);
     btn_split_   = wlr_scene_rect_create(header_tree_, 12, 12, col_split);
+    btn_fold_    = wlr_scene_rect_create(header_tree_, 12, 12, col_fold);
     btn_monocle_ = wlr_scene_rect_create(header_tree_, 12, 12, col_monocle);
 
     wlr_scene_node_set_position(&btn_close_->node, 14, 10);
     wlr_scene_node_set_position(&btn_split_->node, 34, 10);
-    wlr_scene_node_set_position(&btn_monocle_->node, 54, 10);
+    wlr_scene_node_set_position(&btn_fold_->node, 54, 10);
+    wlr_scene_node_set_position(&btn_monocle_->node, 74, 10);
 
     // Active status indicator pill (signals focused tile)
     float indicator_col[4];
     ColorToFloat4(spec_->border.color_focused, indicator_col);
     active_indicator_pill_ = wlr_scene_rect_create(header_tree_, 24, 4, indicator_col);
-    wlr_scene_node_set_position(&active_indicator_pill_->node, 76, 14);
+    wlr_scene_node_set_position(&active_indicator_pill_->node, 96, 14);
     wlr_scene_node_set_enabled(&active_indicator_pill_->node, is_focused_);
 
     // Client content subtree
@@ -90,6 +93,65 @@ void TilingWindowDecorator::CreateSceneNodes() {
 
 void TilingWindowDecorator::ApplyGeometry(const core::Rect& bounds) {
     current_bounds_ = bounds;
+    motion_ctrl_.SnapToBounds(bounds);
+    UpdateSceneGeometry(bounds);
+}
+
+void TilingWindowDecorator::AnimateToBounds(const core::Rect& bounds, MotionType type) {
+    current_bounds_ = bounds;
+    if (type == MotionType::None || spec_->motion.split_move.engine == MotionEngine::None) {
+        ApplyGeometry(bounds);
+        return;
+    }
+    motion_ctrl_.AnimateToBounds(bounds, spec_->motion.split_move);
+}
+
+void TilingWindowDecorator::ToggleFold() {
+    SetFolded(!IsFolded());
+}
+
+void TilingWindowDecorator::SetFolded(bool folded) {
+    motion_ctrl_.SetFolded(folded, spec_->motion.fold);
+}
+
+bool TilingWindowDecorator::IsFolded() const {
+    return motion_ctrl_.IsFolded();
+}
+
+void TilingWindowDecorator::ToggleFullscreen(const core::Rect& screen_bounds) {
+    SetFullscreen(!IsFullscreen(), screen_bounds);
+}
+
+void TilingWindowDecorator::SetFullscreen(bool fullscreen, const core::Rect& screen_bounds) {
+    motion_ctrl_.SetFullscreen(fullscreen, screen_bounds, spec_->motion.fullscreen);
+}
+
+bool TilingWindowDecorator::IsFullscreen() const {
+    return motion_ctrl_.IsFullscreen();
+}
+
+bool TilingWindowDecorator::StepAnimation(float dt) {
+    if (!motion_ctrl_.IsAnimating()) return false;
+
+    bool still_animating = motion_ctrl_.Step(dt);
+    core::Rect visual = motion_ctrl_.GetVisualBounds(spec_->header.height, spec_->border.width);
+    UpdateSceneGeometry(visual);
+
+    // If folded and content clipping is enabled, collapse content tree
+    if (content_tree_) {
+        float fold_r = motion_ctrl_.GetFoldRatio();
+        bool show_content = (fold_r < 0.95f);
+        wlr_scene_node_set_enabled(&content_tree_->node, show_content);
+    }
+
+    return still_animating;
+}
+
+bool TilingWindowDecorator::IsAnimating() const {
+    return motion_ctrl_.IsAnimating();
+}
+
+void TilingWindowDecorator::UpdateSceneGeometry(const core::Rect& bounds) {
     if (!root_tree_) return;
 
     int bx = static_cast<int>(bounds.x);
@@ -144,6 +206,7 @@ void TilingWindowDecorator::ApplyGeometry(const core::Rect& bounds) {
 void TilingWindowDecorator::SetFocused(bool focused) {
     if (is_focused_ == focused) return;
     is_focused_ = focused;
+    motion_ctrl_.SetFocused(focused, spec_->motion.focus);
     UpdateColors();
 }
 
@@ -152,7 +215,7 @@ void TilingWindowDecorator::SetSpec(std::shared_ptr<TilingDecorationSpec> spec) 
     spec_ = spec;
     UpdateColors();
     if (current_bounds_.width > 0 && current_bounds_.height > 0) {
-        ApplyGeometry(current_bounds_);
+        UpdateSceneGeometry(current_bounds_);
     }
 }
 
@@ -165,16 +228,25 @@ void TilingWindowDecorator::UpdateColors() {
 
     float border_col[4];
     ColorToFloat4(is_focused_ ? spec_->border.color_focused : spec_->border.color_unfocused, border_col);
-    if (border_top_)    wlr_scene_rect_set_color(border_top_, border_col);
+    if (border_top_) wlr_scene_rect_set_color(border_top_, border_col);
     if (border_bottom_) wlr_scene_rect_set_color(border_bottom_, border_col);
-    if (border_left_)   wlr_scene_rect_set_color(border_left_, border_col);
-    if (border_right_)  wlr_scene_rect_set_color(border_right_, border_col);
+    if (border_left_) wlr_scene_rect_set_color(border_left_, border_col);
+    if (border_right_) wlr_scene_rect_set_color(border_right_, border_col);
 
-    float header_bg_col[4];
-    ColorToFloat4(is_focused_ ? spec_->header.bg_focused : spec_->header.bg_unfocused, header_bg_col);
-    if (header_bg_) wlr_scene_rect_set_color(header_bg_, header_bg_col);
+    float rim_col[4];
+    ColorToFloat4(spec_->border.top_rim_specular, rim_col);
+    if (rim_specular_) wlr_scene_rect_set_color(rim_specular_, rim_col);
+
+    if (header_bg_) {
+        float header_bg_col[4];
+        ColorToFloat4(is_focused_ ? spec_->header.bg_focused : spec_->header.bg_unfocused, header_bg_col);
+        wlr_scene_rect_set_color(header_bg_, header_bg_col);
+    }
 
     if (active_indicator_pill_) {
+        float indicator_col[4];
+        ColorToFloat4(spec_->border.color_focused, indicator_col);
+        wlr_scene_rect_set_color(active_indicator_pill_, indicator_col);
         wlr_scene_node_set_enabled(&active_indicator_pill_->node, is_focused_);
     }
 }
@@ -193,7 +265,7 @@ HeaderAction TilingWindowDecorator::HitTestHeader(float local_x, float local_y) 
     float hx = local_x - bw;
     float hy = local_y - bw;
 
-    // Close button: (14, 10, 12, 12) + 4px touch target padding
+    // Close button: (14, 10, 12, 12) + touch target padding
     if (hx >= 10.0f && hx <= 30.0f && hy >= 6.0f && hy <= 26.0f) {
         return HeaderAction::Close;
     }
@@ -203,8 +275,13 @@ HeaderAction TilingWindowDecorator::HitTestHeader(float local_x, float local_y) 
         return HeaderAction::ToggleSplit;
     }
 
-    // Monocle button: (54, 10, 12, 12)
+    // Fold button: (54, 10, 12, 12)
     if (hx >= 50.0f && hx <= 70.0f && hy >= 6.0f && hy <= 26.0f) {
+        return HeaderAction::ToggleFold;
+    }
+
+    // Monocle button: (74, 10, 12, 12)
+    if (hx >= 70.0f && hx <= 90.0f && hy >= 6.0f && hy <= 26.0f) {
         return HeaderAction::ToggleMonocle;
     }
 
@@ -232,6 +309,10 @@ core::Rect TilingWindowDecorator::GetContentBounds() const {
         std::max(0.0f, current_bounds_.width - 2 * bw),
         std::max(0.0f, current_bounds_.height - 2 * bw - hh)
     };
+}
+
+core::Rect TilingWindowDecorator::GetVisualBounds() const {
+    return motion_ctrl_.GetVisualBounds(spec_->header.height, spec_->border.width);
 }
 
 } // namespace prism::decoration

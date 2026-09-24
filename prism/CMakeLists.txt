@@ -37,6 +37,7 @@ add_library(prism_core
     src/decoration/tiling_decoration_spec.cpp
     src/decoration/tiling_window_decorator.cpp
     src/decoration/tiling_drag_manager.cpp
+    src/decoration/motion_controller.cpp
 )
 link_directories(${WLROOTS_LIBRARY_DIRS})
 target_link_directories(prism_core PUBLIC ${WLROOTS_LIBRARY_DIRS})

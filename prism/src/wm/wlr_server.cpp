@@ -413,6 +413,59 @@ bool WlrServer::Initialize(const std::string& socket_name) {
         ipc_server_->RegisterHandler("set_theme", set_theme_handler);
         ipc_server_->RegisterHandler("theme", set_theme_handler);
 
+        // Command: fold [window_index]
+        ipc_server_->RegisterHandler("fold", [this](const std::string&, const std::vector<std::string>& args) {
+            if (!compositor_) return std::string("{\"status\": \"error\", \"message\": \"No compositor\"}");
+            const auto& windows = compositor_->GetWindows();
+            if (windows.empty()) return std::string("{\"status\": \"error\", \"message\": \"No windows open\"}");
+
+            int idx = compositor_->GetFocusedWindowIndex();
+            if (!args.empty()) {
+                try {
+                    idx = std::clamp(std::stoi(args[0]), 0, static_cast<int>(windows.size() - 1));
+                } catch (...) {}
+            }
+            auto* dec = windows[idx]->GetDecorator();
+            if (!dec) return std::string("{\"status\": \"error\", \"message\": \"No decorator attached\"}");
+
+            dec->ToggleFold();
+            for (auto& out : outputs_) {
+                if (out && out->wlr_output) wlr_output_schedule_frame(out->wlr_output);
+            }
+            return std::string("{\"status\": \"ok\", \"window_index\": ") + std::to_string(idx) +
+                   ", \"folded\": " + (dec->IsFolded() ? "true" : "false") + "}";
+        });
+
+        // Command: fullscreen [window_index] / monocle
+        auto fs_handler = [this](const std::string&, const std::vector<std::string>& args) {
+            if (!compositor_) return std::string("{\"status\": \"error\", \"message\": \"No compositor\"}");
+            const auto& windows = compositor_->GetWindows();
+            if (windows.empty()) return std::string("{\"status\": \"error\", \"message\": \"No windows open\"}");
+
+            int idx = compositor_->GetFocusedWindowIndex();
+            if (!args.empty()) {
+                try {
+                    idx = std::clamp(std::stoi(args[0]), 0, static_cast<int>(windows.size() - 1));
+                } catch (...) {}
+            }
+            auto* dec = windows[idx]->GetDecorator();
+            if (!dec) return std::string("{\"status\": \"error\", \"message\": \"No decorator attached\"}");
+
+            core::Rect screen{0.0f, 30.0f, 1920.0f, 1050.0f};
+            if (!outputs_.empty() && outputs_[0]->wlr_output) {
+                screen = core::Rect{0.0f, 30.0f, static_cast<float>(outputs_[0]->wlr_output->width),
+                                   static_cast<float>(outputs_[0]->wlr_output->height - 30)};
+            }
+            dec->ToggleFullscreen(screen);
+            for (auto& out : outputs_) {
+                if (out && out->wlr_output) wlr_output_schedule_frame(out->wlr_output);
+            }
+            return std::string("{\"status\": \"ok\", \"window_index\": ") + std::to_string(idx) +
+                   ", \"fullscreen\": " + (dec->IsFullscreen() ? "true" : "false") + "}";
+        };
+        ipc_server_->RegisterHandler("fullscreen", fs_handler);
+        ipc_server_->RegisterHandler("monocle", fs_handler);
+
         // Command 5: action: <app_id> <action>
         ipc_server_->RegisterHandler("action", [this](const std::string&, const std::vector<std::string>& args) {
             if (args.size() < 2) {
@@ -743,8 +796,17 @@ void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t
                                 PRISM_LOG_INFO("WM-CHROME", "Clicked Close on tile '%s'", win->GetTitle().c_str());
                             } else if (action == decoration::HeaderAction::ToggleSplit) {
                                 PRISM_LOG_INFO("WM-CHROME", "Clicked ToggleSplit on tile '%s'", win->GetTitle().c_str());
+                            } else if (action == decoration::HeaderAction::ToggleFold) {
+                                dec->ToggleFold();
+                                PRISM_LOG_INFO("WM-CHROME", "Clicked ToggleFold on tile '%s' (folded=%d)", win->GetTitle().c_str(), dec->IsFolded());
                             } else if (action == decoration::HeaderAction::ToggleMonocle) {
-                                PRISM_LOG_INFO("WM-CHROME", "Clicked ToggleMonocle on tile '%s'", win->GetTitle().c_str());
+                                core::Rect screen{0.0f, 30.0f, 1920.0f, 1050.0f};
+                                if (!outputs_.empty() && outputs_[0]->wlr_output) {
+                                    screen = core::Rect{0.0f, 30.0f, static_cast<float>(outputs_[0]->wlr_output->width),
+                                                       static_cast<float>(outputs_[0]->wlr_output->height - 30)};
+                                }
+                                dec->ToggleFullscreen(screen);
+                                PRISM_LOG_INFO("WM-CHROME", "Clicked ToggleMonocle on tile '%s' (fullscreen=%d)", win->GetTitle().c_str(), dec->IsFullscreen());
                             }
                         }
                         break;
@@ -845,7 +907,7 @@ void WlrServer::InitSceneGraph() {
     PRISM_LOG_INFO("WLR-SCENE", "Native GPU Scene-graph hierarchy initialized successfully");
 }
 
-void WlrServer::UpdateSceneGraph(int width, int height) {
+void WlrServer::UpdateSceneGraph(int width, int height, float dt) {
     if (width <= 0 || height <= 0) return;
 
     // 1. Wallpaper size
@@ -895,7 +957,16 @@ void WlrServer::UpdateSceneGraph(int width, int height) {
             // Sync focus and layout geometry via TilingWindowDecorator
             bool is_focused = (static_cast<int>(i) == compositor_->GetFocusedWindowIndex());
             win->SetFocused(is_focused);
-            win->GetDecorator()->ApplyGeometry(win->GetBounds());
+            auto* dec = win->GetDecorator();
+            if (dec) {
+                dec->SetFocused(is_focused);
+                if (!dec->IsFullscreen()) {
+                    if (dec->GetMotionController().GetTargetBounds() != win->GetBounds()) {
+                        dec->AnimateToBounds(win->GetBounds(), decoration::MotionType::SplitMove);
+                    }
+                }
+                dec->StepAnimation(dt);
+            }
         }
 
         // 4. Split Divider
@@ -982,7 +1053,7 @@ void WlrServer::HandleOutputFrame(WlrOutput* output) {
     int out_h = output->wlr_output->height;
     if (out_w > 0 && out_h > 0) {
         // 1. Update Hardware GPU Scene-graph layout (Windows, Divider, Dock, HUD)
-        UpdateSceneGraph(out_w, out_h);
+        UpdateSceneGraph(out_w, out_h, dt);
 
         // 2. Hardware-accelerated GPU render & commit (wlr_scene natively dispatches GLES2 render pass & Direct Scanout!)
         uint64_t t_gpu_start = core::CurrentTimeNs();

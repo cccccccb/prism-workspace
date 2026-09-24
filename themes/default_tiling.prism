@@ -5,4 +5,11 @@ TilingDecoration("DefaultTilingGlass") {
     backdrop(focused: #141822, unfocused: #0E1016, blur: 28, passes: 4)
     header(height: 32, show: true, focused: #1C212E, unfocused: #12141C, titleFocused: #FFFFFF, titleUnfocused: #A0A5AF)
     dropZone(fill: #007AFF40, border: #007AFF, width: 2)
+
+    motion {
+        fold(engine: spring, damping: 0.82, stiffness: 240, duration: 250)
+        fullscreen(engine: bezier, duration: 280, bezier: [0.16, 1.0, 0.3, 1.0])
+        splitMove(engine: spring, damping: 0.76, stiffness: 260, duration: 200)
+        focus(engine: bezier, duration: 150, bezier: [0.25, 0.1, 0.25, 1.0])
+    }
 }

@@ -141,7 +141,7 @@ public:
 
 private:
     void InitSceneGraph();
-    void UpdateSceneGraph(int width, int height);
+    void UpdateSceneGraph(int width, int height, float dt = 0.016f);
 
     WlrServerSignals signals_{};
     std::shared_ptr<Compositor> compositor_;

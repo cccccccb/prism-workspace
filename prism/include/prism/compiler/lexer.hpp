@@ -16,6 +16,8 @@ enum class TokenType {
     CloseBrace,       // }
     OpenParen,        // (
     CloseParen,       // )
+    OpenBracket,      // [
+    CloseBracket,     // ]
     Colon,            // :
     Comma,            // ,
     EndOfFile

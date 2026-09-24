@@ -5,4 +5,11 @@ TilingDecoration("NordicGlass") {
     backdrop(focused: #2E3440, unfocused: #242933, blur: 28, passes: 4)
     header(height: 32, show: true, focused: #3B4252, unfocused: #2E3440, titleFocused: #ECEFF4, titleUnfocused: #8C96A8)
     dropZone(fill: #88C0D040, border: #88C0D0, width: 2)
+
+    motion {
+        fold(engine: spring, damping: 0.85, stiffness: 240, duration: 260)
+        fullscreen(engine: bezier, duration: 300, bezier: [0.16, 1.0, 0.3, 1.0])
+        splitMove(engine: spring, damping: 0.78, stiffness: 280, duration: 220)
+        focus(engine: bezier, duration: 180, bezier: [0.25, 0.1, 0.25, 1.0])
+    }
 }

@@ -356,3 +356,60 @@ TilingDecoration("NordicGlass") {
 ### 10.3 IPC 控制交互
 - `prism-msg set_theme <nordic|default|minimal|path.prismb>`：在运行时即刻切换合成器全局平铺主题，无需重启。
 - `prism-msg theme`：查询当前运行中的平铺主题规格。
+
+---
+
+## 11. 统一平铺动效与物理运动子系统 (Kinetic Tiling Motion & Animation Subsystem)
+
+### 11.1 核心设计理念
+动效（Kinetic Physics & Motion Transitions）不是孤立的 WM 逻辑，**动效本身就是修饰器在时间维度上的延伸**。一个真正完整的桌面主题，同时包含静态修饰属性（边框、间隙、背景毛玻璃）与动态物理基因（阻尼弹簧、贝塞尔过渡曲线）：
+- **目标几何与视觉几何解耦（Target vs Visual Geometry）**：平铺树负责纯数学计算窗口的槽位目标，而修饰器通过 `MotionController` 平滑驱动物理弹簧与视觉过渡，告别生硬瞬移；
+- **全生命周期平铺动作驱动**：
+  * **窗口折叠与卷帘展开 (Fold / Unfold)**：平铺窗口可一键卷帘收缩至标题栏高度（`32px`），内部渲染子树由 GPU 场景节点自动硬件裁剪，无需客户端重新重绘；
+  * **单片全屏形变 (Monocle / Fullscreen Toggle)**：窗口以连续曲线平滑扩容覆盖整个物理屏幕，平铺边距（gaps）动态归零；
+  * **分屏磁吸滑行 (Split Movement & Reorder)**：分屏插入或对调时，窗口如磁铁般弹性滑行进入新槽位；
+  * **焦点光泽过渡 (Focus Pulse)**：焦点转移时高亮边框与光泽阻尼扩散。
+
+### 11.2 DSL 声明式动效示例
+```prism
+// themes/nordic_glass.prism
+TilingDecoration("NordicGlass") {
+    gaps(inner: 14, outer: 16, smart: true)
+    border(width: 1.5, focused: #88C0D0, unfocused: #4C566A, specular: #ECEFF4, cornerRadius: 12)
+    backdrop(focused: #2E3440, unfocused: #242933, blur: 28, passes: 4)
+    header(height: 32, show: true, focused: #3B4252, unfocused: #2E3440, titleFocused: #ECEFF4, titleUnfocused: #8C96A8)
+    dropZone(fill: #88C0D040, border: #88C0D0, width: 2)
+
+    motion {
+        fold(engine: spring, damping: 0.85, stiffness: 240, duration: 260)
+        fullscreen(engine: bezier, duration: 300, bezier: [0.16, 1.0, 0.3, 1.0])
+        splitMove(engine: spring, damping: 0.78, stiffness: 280, duration: 220)
+        focus(engine: bezier, duration: 180, bezier: [0.25, 0.1, 0.25, 1.0])
+    }
+}
+```
+
+### 11.3 191 字节紧凑 AOT 二进制格式与零拷贝加载
+动效规格被直接紧凑编码入 `PrismbThemeHeader`，单份主题仅 **191 字节**：
+- `PrismbMotionCurveRecord`（20 字节）：紧凑存储引擎类型（Spring / Bezier）、功能标志位（clip_content, fade_content, smart_gaps_collapse）、基准时长及 4 维物理/控制参数；
+- 通过 `mmap` 零拷贝解析，整套动效主题加载耗时稳定保持在 **3.75 ~ 4.59 微秒**。
+
+### 11.4 物理求解器与场景图零开销呈现
+1. **二阶阻尼谐振子（Damped Harmonic Oscillator）**：
+   采用自适应子步迭代（$\Delta t_{\text{sub}} \le 1/240\text{s}$），不论物理帧率如何波动或丢帧，弹簧运动严格保持数值收敛与稳定，无超调失稳风险；
+2. **牛顿-拉弗森三次贝塞尔求解器**：
+   通过 8 步快速牛顿迭代逼近贝塞尔曲线时间反解，单次插值耗时小于 30 纳秒；
+3. **静止自动休眠**：
+   位置差值 $< 0.05\text{px}$ 且速度 $< 0.1\text{px/s}$ 时自动归位并休眠，无动画时 CPU 开销严格为 0%。
+
+### 11.5 交互与 IPC 指令
+- **标题栏胶囊控制**：
+  * 红色按钮：关闭窗口；
+  * 黄色按钮：切换横竖分屏；
+  * 琥珀色按钮：折叠/卷帘展开窗口（Fold/Unfold）；
+  * 绿色按钮：单片最大化/恢复（Monocle/Fullscreen）；
+  * 标题栏空白区域：发起 Drag-to-Split 拖拽重排。
+- **IPC 控制命令**：
+  * `prism-msg fold [window_index]`：平滑触发目标窗口折叠/展开；
+  * `prism-msg fullscreen [window_index]`：平滑触发单片全屏最大化或恢复。
+

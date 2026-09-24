@@ -139,6 +139,8 @@ std::vector<Token> Lexer::Tokenize() {
                 case '}': tokens.push_back(Token{TokenType::CloseBrace, "}", 0.0, line_}); break;
                 case '(': tokens.push_back(Token{TokenType::OpenParen, "(", 0.0, line_}); break;
                 case ')': tokens.push_back(Token{TokenType::CloseParen, ")", 0.0, line_}); break;
+                case '[': tokens.push_back(Token{TokenType::OpenBracket, "[", 0.0, line_}); break;
+                case ']': tokens.push_back(Token{TokenType::CloseBracket, "]", 0.0, line_}); break;
                 case ':': tokens.push_back(Token{TokenType::Colon, ":", 0.0, line_}); break;
                 case ',': tokens.push_back(Token{TokenType::Comma, ",", 0.0, line_}); break;
                 default: break;

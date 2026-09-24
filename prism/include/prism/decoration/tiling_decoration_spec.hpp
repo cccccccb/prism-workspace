@@ -43,6 +43,36 @@ struct DropZoneSpec {
     float border_width{2.0f};
 };
 
+enum class MotionEngine : uint8_t {
+    None        = 0,
+    Spring      = 1,
+    CubicBezier = 2
+};
+
+struct MotionCurveSpec {
+    MotionEngine engine{MotionEngine::Spring};
+    float duration_ms{250.0f};
+    // Damped harmonic spring physics
+    float damping{0.80f};
+    float stiffness{220.0f};
+    // Cubic Bézier curve controls
+    float bezier_x1{0.25f};
+    float bezier_y1{0.10f};
+    float bezier_x2{0.25f};
+    float bezier_y2{1.00f};
+    // Visual kinetic flags
+    bool clip_content{true};
+    bool fade_content{true};
+    bool smart_gaps_collapse{true};
+};
+
+struct MotionSpec {
+    MotionCurveSpec fold;
+    MotionCurveSpec fullscreen;
+    MotionCurveSpec split_move;
+    MotionCurveSpec focus;
+};
+
 class TilingDecorationSpec {
 public:
     std::string theme_name{"DefaultTilingGlass"};
@@ -51,6 +81,7 @@ public:
     BackdropSpec backdrop;
     HeaderSpec header;
     DropZoneSpec drop_zone;
+    MotionSpec motion;
 
     static std::shared_ptr<TilingDecorationSpec> CreateDefault();
     static std::shared_ptr<TilingDecorationSpec> CreateNordicGlass();

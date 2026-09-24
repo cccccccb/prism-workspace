@@ -122,6 +122,35 @@ std::vector<uint8_t> BinaryGenerator::GenerateTheme(const std::shared_ptr<AstNod
     header.drop_border_color = 0x007AFFE6;
     header.drop_border_width = 2.0f;
 
+    // Default Kinetic Motion Records
+    header.motion_fold.engine_type = static_cast<uint8_t>(MotionEngineType::Spring);
+    header.motion_fold.flags = 0x03; // clip_content (0x1) | fade_content (0x2)
+    header.motion_fold.duration_ms = 250;
+    header.motion_fold.param0 = 0.82f;   // damping
+    header.motion_fold.param1 = 240.0f;  // stiffness
+
+    header.motion_fullscreen.engine_type = static_cast<uint8_t>(MotionEngineType::CubicBezier);
+    header.motion_fullscreen.flags = 0x04; // smart_gaps_collapse (0x4)
+    header.motion_fullscreen.duration_ms = 280;
+    header.motion_fullscreen.param0 = 0.16f; // x1
+    header.motion_fullscreen.param1 = 1.00f; // y1
+    header.motion_fullscreen.param2 = 0.30f; // x2
+    header.motion_fullscreen.param3 = 1.00f; // y2
+
+    header.motion_split_move.engine_type = static_cast<uint8_t>(MotionEngineType::Spring);
+    header.motion_split_move.flags = 0x00;
+    header.motion_split_move.duration_ms = 200;
+    header.motion_split_move.param0 = 0.76f;   // damping
+    header.motion_split_move.param1 = 260.0f;  // stiffness
+
+    header.motion_focus.engine_type = static_cast<uint8_t>(MotionEngineType::CubicBezier);
+    header.motion_focus.flags = 0x00;
+    header.motion_focus.duration_ms = 150;
+    header.motion_focus.param0 = 0.25f; // x1
+    header.motion_focus.param1 = 0.10f; // y1
+    header.motion_focus.param2 = 0.25f; // x2
+    header.motion_focus.param3 = 1.00f; // y2
+
     if (root) {
         for (const auto& child : root->children) {
             if (child->name == "gaps") {
@@ -151,6 +180,46 @@ std::vector<uint8_t> BinaryGenerator::GenerateTheme(const std::shared_ptr<AstNod
                 if (child->number_props.count("fill")) header.drop_fill_color = static_cast<uint32_t>(child->number_props.at("fill"));
                 if (child->number_props.count("border")) header.drop_border_color = static_cast<uint32_t>(child->number_props.at("border"));
                 if (child->number_props.count("width")) header.drop_border_width = static_cast<float>(child->number_props.at("width"));
+            } else if (child->name == "motion" || child->name == "animation") {
+                for (const auto& m_sub : child->children) {
+                    if (m_sub->name == "fold") {
+                        if (m_sub->string_props.count("engine")) {
+                            header.motion_fold.engine_type = (m_sub->string_props.at("engine") == "bezier") ?
+                                static_cast<uint8_t>(MotionEngineType::CubicBezier) : static_cast<uint8_t>(MotionEngineType::Spring);
+                        }
+                        if (m_sub->number_props.count("duration")) header.motion_fold.duration_ms = static_cast<uint16_t>(m_sub->number_props.at("duration"));
+                        if (m_sub->number_props.count("damping")) header.motion_fold.param0 = static_cast<float>(m_sub->number_props.at("damping"));
+                        if (m_sub->number_props.count("stiffness")) header.motion_fold.param1 = static_cast<float>(m_sub->number_props.at("stiffness"));
+                    } else if (m_sub->name == "fullscreen" || m_sub->name == "monocle") {
+                        if (m_sub->string_props.count("engine")) {
+                            header.motion_fullscreen.engine_type = (m_sub->string_props.at("engine") == "spring") ?
+                                static_cast<uint8_t>(MotionEngineType::Spring) : static_cast<uint8_t>(MotionEngineType::CubicBezier);
+                        }
+                        if (m_sub->number_props.count("duration")) header.motion_fullscreen.duration_ms = static_cast<uint16_t>(m_sub->number_props.at("duration"));
+                        if (m_sub->number_props.count("bezier_x1")) header.motion_fullscreen.param0 = static_cast<float>(m_sub->number_props.at("bezier_x1"));
+                        if (m_sub->number_props.count("bezier_y1")) header.motion_fullscreen.param1 = static_cast<float>(m_sub->number_props.at("bezier_y1"));
+                        if (m_sub->number_props.count("bezier_x2")) header.motion_fullscreen.param2 = static_cast<float>(m_sub->number_props.at("bezier_x2"));
+                        if (m_sub->number_props.count("bezier_y2")) header.motion_fullscreen.param3 = static_cast<float>(m_sub->number_props.at("bezier_y2"));
+                    } else if (m_sub->name == "splitMove" || m_sub->name == "split_move") {
+                        if (m_sub->string_props.count("engine")) {
+                            header.motion_split_move.engine_type = (m_sub->string_props.at("engine") == "bezier") ?
+                                static_cast<uint8_t>(MotionEngineType::CubicBezier) : static_cast<uint8_t>(MotionEngineType::Spring);
+                        }
+                        if (m_sub->number_props.count("duration")) header.motion_split_move.duration_ms = static_cast<uint16_t>(m_sub->number_props.at("duration"));
+                        if (m_sub->number_props.count("damping")) header.motion_split_move.param0 = static_cast<float>(m_sub->number_props.at("damping"));
+                        if (m_sub->number_props.count("stiffness")) header.motion_split_move.param1 = static_cast<float>(m_sub->number_props.at("stiffness"));
+                    } else if (m_sub->name == "focus") {
+                        if (m_sub->string_props.count("engine")) {
+                            header.motion_focus.engine_type = (m_sub->string_props.at("engine") == "spring") ?
+                                static_cast<uint8_t>(MotionEngineType::Spring) : static_cast<uint8_t>(MotionEngineType::CubicBezier);
+                        }
+                        if (m_sub->number_props.count("duration")) header.motion_focus.duration_ms = static_cast<uint16_t>(m_sub->number_props.at("duration"));
+                        if (m_sub->number_props.count("bezier_x1")) header.motion_focus.param0 = static_cast<float>(m_sub->number_props.at("bezier_x1"));
+                        if (m_sub->number_props.count("bezier_y1")) header.motion_focus.param1 = static_cast<float>(m_sub->number_props.at("bezier_y1"));
+                        if (m_sub->number_props.count("bezier_x2")) header.motion_focus.param2 = static_cast<float>(m_sub->number_props.at("bezier_x2"));
+                        if (m_sub->number_props.count("bezier_y2")) header.motion_focus.param3 = static_cast<float>(m_sub->number_props.at("bezier_y2"));
+                    }
+                }
             }
         }
     }

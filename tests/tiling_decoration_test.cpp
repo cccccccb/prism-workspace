@@ -68,8 +68,11 @@ void TestWindowDecoratorGeometryAndHitTest() {
     // Inside Split toggle button (approx x=38, y=14)
     assert(decorator->HitTestHeader(38.0f, 14.0f) == HeaderAction::ToggleSplit);
 
-    // Inside Monocle button (approx x=58, y=14)
-    assert(decorator->HitTestHeader(58.0f, 14.0f) == HeaderAction::ToggleMonocle);
+    // Inside Fold button (approx x=58, y=14)
+    assert(decorator->HitTestHeader(58.0f, 14.0f) == HeaderAction::ToggleFold);
+
+    // Inside Monocle button (approx x=78, y=14)
+    assert(decorator->HitTestHeader(78.0f, 14.0f) == HeaderAction::ToggleMonocle);
 
     // On header blank region (approx x=200, y=14) -> initiates titlebar drag!
     assert(decorator->HitTestHeader(200.0f, 14.0f) == HeaderAction::TitlebarDrag);
@@ -145,6 +148,12 @@ void TestThemeAotCompilationAndLoading() {
             backdrop(focused: #261E14, unfocused: #1A140E, blur: 35, passes: 5)
             header(height: 36, show: true, focused: #3E2723, unfocused: #211510)
             dropZone(fill: #FFB30040, border: #FFB300, width: 3)
+            motion {
+                fold(engine: spring, damping: 0.85, stiffness: 240, duration: 250)
+                fullscreen(engine: bezier, duration: 300, bezier: [0.16, 1.0, 0.3, 1.0])
+                splitMove(engine: spring, damping: 0.78, stiffness: 280, duration: 220)
+                focus(engine: bezier, duration: 180, bezier: [0.25, 0.1, 0.25, 1.0])
+            }
         }
     )";
 
@@ -175,6 +184,15 @@ void TestThemeAotCompilationAndLoading() {
     assert(theme->header.height == 36.0f);
     assert(theme->drop_zone.border_width == 3.0f);
 
+    // Verify parsed kinetic motion properties
+    assert(theme->motion.fold.engine == MotionEngine::Spring);
+    assert(theme->motion.fold.damping >= 0.84f && theme->motion.fold.damping <= 0.86f);
+    assert(theme->motion.fold.stiffness == 240.0f);
+    assert(theme->motion.fullscreen.engine == MotionEngine::CubicBezier);
+    assert(theme->motion.fullscreen.duration_ms == 300.0f);
+    assert(std::abs(theme->motion.fullscreen.bezier_x1 - 0.16f) < 0.01f);
+    assert(theme->motion.split_move.stiffness == 280.0f);
+
     // 4. Apply to window decorator
     core::Rect b{0, 0, 800, 600};
     auto win = std::make_shared<wm::Window>("app", "Test Window", b, nullptr);
@@ -186,6 +204,78 @@ void TestThemeAotCompilationAndLoading() {
     std::cout << "  -> AOT Theme DSL Compilation & Zero-Copy Loading PASSED\n";
 }
 
+void TestKineticMotionAndAnimation() {
+    std::cout << "[TEST] 5. Kinetic Motion Physics, Springs & Decorator Transitions...\n";
+
+    // 1. SpringSolver convergence test
+    SpringSolver spring;
+    spring.SnapTo(0.0f);
+    spring.SetTarget(100.0f, 0.80f, 240.0f);
+    assert(!spring.IsSettled());
+
+    // Advance 60 frames @ 60 FPS (1 second)
+    for (int i = 0; i < 60; ++i) {
+        spring.Step(0.016f);
+    }
+    assert(spring.IsSettled());
+    assert(std::abs(spring.pos - 100.0f) < 0.01f);
+    assert(spring.vel == 0.0f);
+
+    // 2. CubicBezierEvaluator curve test
+    float val_start = CubicBezierEvaluator::Solve(0.16f, 1.0f, 0.3f, 1.0f, 0.0f);
+    float val_mid = CubicBezierEvaluator::Solve(0.16f, 1.0f, 0.3f, 1.0f, 0.5f);
+    float val_end = CubicBezierEvaluator::Solve(0.16f, 1.0f, 0.3f, 1.0f, 1.0f);
+    assert(val_start == 0.0f);
+    assert(val_mid > 0.8f); // Fast initial acceleration curve
+    assert(val_end == 1.0f);
+
+    // 3. Decorator AnimateToBounds (Split movement transition)
+    core::Rect b_start{0.0f, 30.0f, 400.0f, 600.0f};
+    core::Rect b_target{0.0f, 30.0f, 800.0f, 600.0f};
+    auto win = std::make_shared<wm::Window>("anim_app", "Animated Tile", b_start, nullptr);
+    auto spec = TilingDecorationSpec::CreateNordicGlass();
+    auto dec = std::make_unique<TilingWindowDecorator>(win.get(), spec);
+    dec->ApplyGeometry(b_start);
+
+    dec->AnimateToBounds(b_target, MotionType::SplitMove);
+    assert(dec->IsAnimating());
+
+    // Step animation for up to 60 frames (~1.0s)
+    for (int i = 0; i < 60 && dec->IsAnimating(); ++i) {
+        dec->StepAnimation(0.016f);
+    }
+    assert(!dec->IsAnimating());
+    auto final_vis = dec->GetVisualBounds();
+    assert(std::abs(final_vis.width - 800.0f) < 0.1f);
+
+    // 4. Decorator Fold / Roll-up to Titlebar transition
+    assert(!dec->IsFolded());
+    dec->ToggleFold();
+    assert(dec->IsFolded());
+    assert(dec->IsAnimating());
+
+    // Step fold animation to completion
+    for (int i = 0; i < 40; ++i) {
+        dec->StepAnimation(0.016f);
+    }
+    assert(!dec->IsAnimating());
+    auto folded_bounds = dec->GetVisualBounds();
+    float expected_folded_h = spec->header.height + 2.0f * spec->border.width;
+    assert(std::abs(folded_bounds.height - expected_folded_h) < 0.2f);
+
+    // Unfold back
+    dec->ToggleFold();
+    assert(!dec->IsFolded());
+    for (int i = 0; i < 40; ++i) {
+        dec->StepAnimation(0.016f);
+    }
+    assert(!dec->IsAnimating());
+    auto unfolded_bounds = dec->GetVisualBounds();
+    assert(std::abs(unfolded_bounds.height - 600.0f) < 0.2f);
+
+    std::cout << "  -> Kinetic Motion Physics, Springs & Decorator Transitions PASSED\n";
+}
+
 int main() {
     std::cout << "=================================================\n";
     std::cout << "  PrismWM Tiling Window Decoration System Tests  \n";
@@ -195,7 +285,8 @@ int main() {
     TestWindowDecoratorGeometryAndHitTest();
     TestTilingDragManager();
     TestThemeAotCompilationAndLoading();
+    TestKineticMotionAndAnimation();
 
-    std::cout << "\n>>> ALL TILING DECORATION TESTS PASSED CLEANLY! <<<\n";
+    std::cout << "\n>>> ALL TILING DECORATION & KINETIC MOTION TESTS PASSED CLEANLY! <<<\n";
     return 0;
 }

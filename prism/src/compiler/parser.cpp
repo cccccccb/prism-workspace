@@ -56,6 +56,11 @@ BinaryNodeType Parser::ResolveNodeType(const std::string& name) {
     if (name == "backdrop")         return BinaryNodeType::Backdrop;
     if (name == "header")           return BinaryNodeType::Header;
     if (name == "dropZone")         return BinaryNodeType::DropZone;
+    if (name == "motion" || name == "animation") return BinaryNodeType::Motion;
+    if (name == "fold")             return BinaryNodeType::MotionFold;
+    if (name == "fullscreen" || name == "monocle") return BinaryNodeType::MotionFullscreen;
+    if (name == "splitMove" || name == "split_move") return BinaryNodeType::MotionSplitMove;
+    if (name == "focus")            return BinaryNodeType::MotionFocus;
     return BinaryNodeType::Unknown;
 }
 
@@ -97,11 +102,35 @@ std::shared_ptr<AstNode> Parser::ParseNode() {
                 else if (label == "scale") node->numeric_value = static_cast<float>(num);
                 else if (label == "shimmer") node->numeric_value = static_cast<float>(num);
                 else node->numeric_value = static_cast<float>(num);
-            } else if (Check(TokenType::Identifier) && (Peek().text == "true" || Peek().text == "false")) {
-                bool b = (Advance().text == "true");
-                double num = b ? 1.0 : 0.0;
-                if (!label.empty()) node->number_props[label] = num;
-                node->numeric_value = static_cast<float>(num);
+            } else if (Match(TokenType::OpenBracket)) {
+                // Array literal, e.g. [0.16, 1.0, 0.3, 1.0]
+                int array_idx = 0;
+                while (!Check(TokenType::CloseBracket) && !IsAtEnd()) {
+                    if (Check(TokenType::NumberLiteral)) {
+                        double v = Advance().number_value;
+                        if (!label.empty()) {
+                            node->number_props[label + "_" + std::to_string(array_idx)] = v;
+                            if (array_idx == 0) node->number_props[label + "_x1"] = v;
+                            else if (array_idx == 1) node->number_props[label + "_y1"] = v;
+                            else if (array_idx == 2) node->number_props[label + "_x2"] = v;
+                            else if (array_idx == 3) node->number_props[label + "_y2"] = v;
+                        }
+                        array_idx++;
+                    } else {
+                        Advance();
+                    }
+                    Match(TokenType::Comma);
+                }
+                Consume(TokenType::CloseBracket, "Expected ']' after array literal");
+            } else if (Check(TokenType::Identifier)) {
+                std::string id = Advance().text;
+                if (id == "true" || id == "false") {
+                    double num = (id == "true") ? 1.0 : 0.0;
+                    if (!label.empty()) node->number_props[label] = num;
+                    node->numeric_value = static_cast<float>(num);
+                } else {
+                    if (!label.empty()) node->string_props[label] = id;
+                }
             } else {
                 Advance(); // Skip unknown
             }

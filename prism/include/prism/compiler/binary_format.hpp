@@ -6,7 +6,7 @@ namespace prism::compiler {
 
 constexpr uint32_t PRISMB_MAGIC = 0x50525342; // "PRSB" (Prism Binary UI AST)
 constexpr uint32_t PRISMB_THEME_MAGIC = 0x5448454D; // "THEM" (Prism Tiling Decoration Theme)
-constexpr uint16_t PRISMB_VERSION = 2;
+constexpr uint16_t PRISMB_VERSION = 3;
 
 enum class BinaryNodeType : uint16_t {
     Unknown          = 0,
@@ -22,10 +22,31 @@ enum class BinaryNodeType : uint16_t {
     Border           = 10,
     Backdrop         = 11,
     Header           = 12,
-    DropZone         = 13
+    DropZone         = 13,
+    Motion           = 14,
+    MotionFold       = 15,
+    MotionFullscreen = 16,
+    MotionSplitMove  = 17,
+    MotionFocus      = 18
 };
 
 #pragma pack(push, 1)
+enum class MotionEngineType : uint8_t {
+    None        = 0,
+    Spring      = 1,
+    CubicBezier = 2
+};
+
+struct PrismbMotionCurveRecord {
+    uint8_t  engine_type;      // MotionEngineType (0=None, 1=Spring, 2=CubicBezier)
+    uint8_t  flags;            // Bit0: clip_content, Bit1: fade_content, Bit2: smart_gaps_collapse
+    uint16_t duration_ms;      // duration in milliseconds
+    float    param0;           // Spring: damping / Bezier: x1
+    float    param1;           // Spring: stiffness / Bezier: y1
+    float    param2;           // Bezier: x2
+    float    param3;           // Bezier: y2
+};
+
 struct PrismbHeader {
     uint32_t magic;                 // PRISMB_MAGIC
     uint16_t version;               // PRISMB_VERSION
@@ -70,6 +91,12 @@ struct PrismbThemeHeader {
     uint32_t drop_fill_color;
     uint32_t drop_border_color;
     float    drop_border_width;
+
+    // Motion & Kinetic Physics
+    PrismbMotionCurveRecord motion_fold;
+    PrismbMotionCurveRecord motion_fullscreen;
+    PrismbMotionCurveRecord motion_split_move;
+    PrismbMotionCurveRecord motion_focus;
 };
 
 /**
