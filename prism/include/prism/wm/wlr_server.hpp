@@ -3,6 +3,8 @@
 #include "prism/core/noncopyable.hpp"
 #include "prism/core/types.hpp"
 #include "prism/wm/compositor.hpp"
+#include "prism/decoration/tiling_decoration_spec.hpp"
+#include "prism/decoration/tiling_drag_manager.hpp"
 
 #include <string>
 #include <memory>
@@ -85,21 +87,6 @@ struct WlrServerSignals {
     struct wl_listener cursor_axis;
     struct wl_listener cursor_frame;
     WlrServer* server{nullptr};
-};
-
-struct WindowSceneElements {
-    struct wlr_scene_tree* tree{nullptr};
-    struct wlr_scene_rect* bg_rect{nullptr};
-    struct wlr_scene_rect* border_top{nullptr};
-    struct wlr_scene_rect* traffic_red{nullptr};
-    struct wlr_scene_rect* traffic_yellow{nullptr};
-    struct wlr_scene_rect* traffic_green{nullptr};
-    struct wlr_scene_rect* btn_1{nullptr};
-    struct wlr_scene_rect* btn_2{nullptr};
-    struct wlr_scene_rect* slider_track{nullptr};
-    struct wlr_scene_rect* slider_fill{nullptr};
-    struct wlr_scene_rect* slider2_track{nullptr};
-    struct wlr_scene_rect* slider2_fill{nullptr};
 };
 
 /**
@@ -198,7 +185,8 @@ private:
     struct wlr_scene_rect* hud_border_rect_{nullptr};
     struct wlr_scene_rect* hud_status_pill_{nullptr};
 
-    std::vector<WindowSceneElements> window_scene_nodes_;
+    std::shared_ptr<decoration::TilingDecorationSpec> decoration_spec_;
+    std::unique_ptr<decoration::TilingDragManager> drag_manager_;
 
     std::vector<std::unique_ptr<WlrOutput>> outputs_;
     uint64_t last_frame_time_ns_{0};

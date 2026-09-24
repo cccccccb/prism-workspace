@@ -8,6 +8,7 @@
 #include "prism/core/logging.hpp"
 #include "prism/core/types.hpp"
 #include "prism/pack/package.hpp"
+#include "prism/decoration/tiling_decoration_spec.hpp"
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -162,6 +163,81 @@ std::shared_ptr<scene::SceneNode> BinarySceneLoader::LoadFromMemory(const uint8_
     }
 
     return nodes.empty() ? nullptr : nodes[0];
+}
+
+std::shared_ptr<decoration::TilingDecorationSpec> BinaryThemeLoader::LoadFromFile(const std::string& prismb_path) {
+    int fd = open(prismb_path.c_str(), O_RDONLY);
+    if (fd < 0) {
+        PRISM_LOG_ERROR("LOADER", "Failed to open theme file: %s", prismb_path.c_str());
+        return nullptr;
+    }
+
+    struct stat st{};
+    if (fstat(fd, &st) < 0 || st.st_size < static_cast<off_t>(sizeof(PrismbThemeHeader))) {
+        PRISM_LOG_ERROR("LOADER", "Invalid file size for theme: %s", prismb_path.c_str());
+        close(fd);
+        return nullptr;
+    }
+
+    void* mapped = mmap(nullptr, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+    close(fd);
+
+    if (mapped == MAP_FAILED) {
+        PRISM_LOG_ERROR("LOADER", "mmap failed for theme: %s", prismb_path.c_str());
+        return nullptr;
+    }
+
+    auto t0 = core::CurrentTimeNs();
+    auto theme = LoadFromMemory(static_cast<const uint8_t*>(mapped), st.st_size);
+    auto elapsed_us = (core::CurrentTimeNs() - t0) / 1000.0;
+
+    munmap(mapped, st.st_size);
+
+    if (theme) {
+        PRISM_LOG_INFO("LOADER", "AOT theme '%s' ('%s') loaded via zero-copy mmap in %.2f us (%.4f ms)",
+                       prismb_path.c_str(), theme->theme_name.c_str(), elapsed_us, elapsed_us / 1000.0);
+    }
+    return theme;
+}
+
+std::shared_ptr<decoration::TilingDecorationSpec> BinaryThemeLoader::LoadFromMemory(const uint8_t* data, size_t size) {
+    if (!data || size < sizeof(PrismbThemeHeader)) return nullptr;
+    const auto* header = reinterpret_cast<const PrismbThemeHeader*>(data);
+    if (header->magic != PRISMB_THEME_MAGIC) {
+        PRISM_LOG_ERROR("LOADER", "Theme magic mismatch: expected 0x%08X (THEM), got 0x%08X", PRISMB_THEME_MAGIC, header->magic);
+        return nullptr;
+    }
+
+    auto spec = std::make_shared<decoration::TilingDecorationSpec>();
+    spec->theme_name = header->theme_name;
+    spec->gaps.inner = header->inner_gap;
+    spec->gaps.outer = header->outer_gap;
+    spec->gaps.smart_gaps = (header->smart_gaps != 0);
+
+    spec->border.width = header->border_width;
+    spec->border.color_focused = core::Color::FromHex(header->border_color_focused);
+    spec->border.color_unfocused = core::Color::FromHex(header->border_color_unfocused);
+    spec->border.top_rim_specular = core::Color::FromHex(header->top_rim_specular);
+    spec->border.corner_radius = header->corner_radius;
+
+    spec->backdrop.bg_focused = core::Color::FromHex(header->bg_focused);
+    spec->backdrop.bg_unfocused = core::Color::FromHex(header->bg_unfocused);
+    spec->backdrop.blur_radius = header->blur_radius;
+    spec->backdrop.blur_passes = header->blur_passes;
+
+    spec->header.height = header->header_height;
+    spec->header.show_header = (header->show_header != 0);
+    spec->header.bg_focused = core::Color::FromHex(header->header_bg_focused);
+    spec->header.bg_unfocused = core::Color::FromHex(header->header_bg_unfocused);
+    spec->header.title_focused = core::Color::FromHex(header->title_color_focused);
+    spec->header.title_unfocused = core::Color::FromHex(header->title_color_unfocused);
+    spec->header.show_tiling_controls = (header->show_tiling_controls != 0);
+
+    spec->drop_zone.fill_color = core::Color::FromHex(header->drop_fill_color);
+    spec->drop_zone.border_color = core::Color::FromHex(header->drop_border_color);
+    spec->drop_zone.border_width = header->drop_border_width;
+
+    return spec;
 }
 
 } // namespace prism::compiler

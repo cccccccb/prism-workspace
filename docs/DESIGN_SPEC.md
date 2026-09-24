@@ -330,3 +330,29 @@ int main(int argc, char* argv[]) {
 - **Phase 1**：进一步扩展 `prism_sdk` 的 Wayland 协议交互层，支持通过 `xdg_shell` 标准协议创建浮动/平铺窗口。
 - **Phase 2**：GPU Shader 硬件加速管线迁移至 Vulkan / EGL GLES3，支持硬件级 Dual Kawase 毛玻璃与亚像素 SDF 抗锯齿抗走样。
 - **Phase 3**：引入多窗口工作区（Spaces Workspace）与触控板全局平滑手势（双指捏合缩放、三指横滑切换工作区）。
+
+---
+
+## 10. 独立平铺窗口修饰器系统与 DSL 主题体系 (Tiling Window Decoration & DSL Theme System)
+
+### 10.1 核心设计理念
+为严格践行类 i3 / Sway 平铺管理器的哲学，PrismWM 彻底摒弃传统浮动窗口的 8 方向自由边框缩放与无序堆叠：
+- **纯粹平铺约束**：窗口几何由平铺树严格计算分配，修饰器系统只负责外观装饰与平铺交互；
+- **标题栏拖拽升维**：标题栏点击与拖拽专用于**分屏重排与切分（Drag-to-Split / Swap）**，提供五象限落点感知与 GPU 顶层 DropZone 半透明落点预览；
+- **声明式 DSL 主题与 AOT 极速热重载**：支持使用自研 `.prism` DSL 声明主题样式，经 `prism-compiler` 编译为紧凑的 `.prismb`（111 字节），运行时通过零拷贝 `mmap` 在数微秒内完成热重载。
+
+### 10.2 DSL 主题示例
+```prism
+// themes/nordic_glass.prism
+TilingDecoration("NordicGlass") {
+    gaps(inner: 14, outer: 16, smart: true)
+    border(width: 1.5, focused: #88C0D0, unfocused: #4C566A, specular: #ECEFF4, cornerRadius: 12)
+    backdrop(focused: #2E3440, unfocused: #242933, blur: 28, passes: 4)
+    header(height: 32, show: true, focused: #3B4252, unfocused: #2E3440, titleFocused: #ECEFF4, titleUnfocused: #8C96A8)
+    dropZone(fill: #88C0D040, border: #88C0D0, width: 2)
+}
+```
+
+### 10.3 IPC 控制交互
+- `prism-msg set_theme <nordic|default|minimal|path.prismb>`：在运行时即刻切换合成器全局平铺主题，无需重启。
+- `prism-msg theme`：查询当前运行中的平铺主题规格。

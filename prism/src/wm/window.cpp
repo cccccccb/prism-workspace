@@ -4,6 +4,7 @@
 #include "prism/scene/leaf_nodes.hpp"
 #include "prism/core/logging.hpp"
 #include "prism/render/framebuffer.hpp"
+#include "prism/decoration/tiling_window_decorator.hpp"
 #include <iostream>
 
 namespace prism::wm {
@@ -171,6 +172,28 @@ void Window::Render() {
     }
 
     std::cout << "└──" << std::string(50, '-') << "──┘\n";
+}
+
+void Window::SetBounds(core::Rect bounds) {
+    bounds_ = bounds;
+    if (decorator_) {
+        decorator_->ApplyGeometry(bounds);
+    }
+}
+
+void Window::SetFocused(bool focused) {
+    is_focused_ = focused;
+    if (decorator_) {
+        decorator_->SetFocused(focused);
+    }
+}
+
+void Window::SetDecorator(std::unique_ptr<decoration::TilingWindowDecorator> decorator) {
+    decorator_ = std::move(decorator);
+    if (decorator_) {
+        decorator_->SetFocused(is_focused_);
+        decorator_->ApplyGeometry(bounds_);
+    }
 }
 
 } // namespace prism::wm

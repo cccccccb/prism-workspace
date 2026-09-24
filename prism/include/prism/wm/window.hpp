@@ -12,6 +12,10 @@ namespace prism::render {
 class FrameBuffer;
 }
 
+namespace prism::decoration {
+class TilingWindowDecorator;
+}
+
 namespace prism::wm {
 
 class Window {
@@ -34,7 +38,12 @@ public:
     void UpdateSlot(uint32_t slot_id, const std::string& val);
     void UpdateSlot(uint32_t slot_id, double val);
 
-    void SetBounds(core::Rect bounds) { bounds_ = bounds; }
+    void SetBounds(core::Rect bounds);
+    void SetFocused(bool focused);
+    bool IsFocused() const { return is_focused_; }
+
+    void SetDecorator(std::unique_ptr<decoration::TilingWindowDecorator> decorator);
+    decoration::TilingWindowDecorator* GetDecorator() const { return decorator_.get(); }
 
     void Render();
 
@@ -62,6 +71,9 @@ private:
     std::shared_ptr<scene::SceneNode> master_tree_;
     std::unordered_map<uint32_t, std::shared_ptr<scene::SceneNode>> slot_index_;
     std::shared_ptr<render::FrameBuffer> surface_buffer_{nullptr};
+
+    bool is_focused_{false};
+    std::unique_ptr<decoration::TilingWindowDecorator> decorator_{nullptr};
 };
 
 } // namespace prism::wm

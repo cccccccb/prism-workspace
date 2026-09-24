@@ -26,6 +26,10 @@ struct AstNode {
     float numeric_value{0.0f};
     float spacing{8.0f};
 
+    // Generic Named Properties (for Decoration and extensible components)
+    std::unordered_map<std::string, double> number_props;
+    std::unordered_map<std::string, std::string> string_props;
+
     // Modifiers list
     std::vector<AstModifier> modifiers;
 

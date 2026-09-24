@@ -1,0 +1,8 @@
+// themes/nordic_glass.prism: Nordic Frost Glass Theme for PrismWM Tiling Compositor
+TilingDecoration("NordicGlass") {
+    gaps(inner: 14, outer: 16, smart: true)
+    border(width: 1.5, focused: #88C0D0, unfocused: #4C566A, specular: #ECEFF4, cornerRadius: 12)
+    backdrop(focused: #2E3440, unfocused: #242933, blur: 28, passes: 4)
+    header(height: 32, show: true, focused: #3B4252, unfocused: #2E3440, titleFocused: #ECEFF4, titleUnfocused: #8C96A8)
+    dropZone(fill: #88C0D040, border: #88C0D0, width: 2)
+}

@@ -13,6 +13,7 @@ public:
     BinaryGenerator() = default;
 
     std::vector<uint8_t> Generate(const std::shared_ptr<AstNode>& root);
+    std::vector<uint8_t> GenerateTheme(const std::shared_ptr<AstNode>& root);
     bool WriteToFile(const std::shared_ptr<AstNode>& root, const std::string& output_path);
 
 private:

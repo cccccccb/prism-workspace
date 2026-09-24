@@ -44,6 +44,7 @@ private:
     Token ScanDollarIdentifier();
     Token ScanString();
     Token ScanNumber();
+    Token ScanHexColor();
 
     std::string source_;
     size_t cursor_{0};

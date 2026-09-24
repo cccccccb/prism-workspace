@@ -1,0 +1,8 @@
+// themes/default_tiling.prism: Default Apple Glass Theme for PrismWM Tiling Compositor
+TilingDecoration("DefaultTilingGlass") {
+    gaps(inner: 10, outer: 12, smart: true)
+    border(width: 2.0, focused: #007AFF, unfocused: #FFFFFF20, specular: #FFFFFF35, cornerRadius: 12)
+    backdrop(focused: #141822, unfocused: #0E1016, blur: 28, passes: 4)
+    header(height: 32, show: true, focused: #1C212E, unfocused: #12141C, titleFocused: #FFFFFF, titleUnfocused: #A0A5AF)
+    dropZone(fill: #007AFF40, border: #007AFF, width: 2)
+}

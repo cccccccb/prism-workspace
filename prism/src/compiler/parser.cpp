@@ -43,13 +43,19 @@ const Token& Parser::Consume(TokenType type, const std::string& err_msg) {
 }
 
 BinaryNodeType Parser::ResolveNodeType(const std::string& name) {
-    if (name == "VStack")   return BinaryNodeType::VStack;
-    if (name == "HStack")   return BinaryNodeType::HStack;
-    if (name == "Text")     return BinaryNodeType::Text;
-    if (name == "Button")   return BinaryNodeType::Button;
-    if (name == "Slider")   return BinaryNodeType::Slider;
-    if (name == "Skeleton") return BinaryNodeType::Skeleton;
-    if (name == "Icon")     return BinaryNodeType::Icon;
+    if (name == "VStack")           return BinaryNodeType::VStack;
+    if (name == "HStack")           return BinaryNodeType::HStack;
+    if (name == "Text")             return BinaryNodeType::Text;
+    if (name == "Button")           return BinaryNodeType::Button;
+    if (name == "Slider")           return BinaryNodeType::Slider;
+    if (name == "Skeleton")         return BinaryNodeType::Skeleton;
+    if (name == "Icon")             return BinaryNodeType::Icon;
+    if (name == "TilingDecoration") return BinaryNodeType::TilingDecoration;
+    if (name == "gaps")             return BinaryNodeType::Gaps;
+    if (name == "border")           return BinaryNodeType::Border;
+    if (name == "backdrop")         return BinaryNodeType::Backdrop;
+    if (name == "header")           return BinaryNodeType::Header;
+    if (name == "dropZone")         return BinaryNodeType::DropZone;
     return BinaryNodeType::Unknown;
 }
 
@@ -59,7 +65,7 @@ std::shared_ptr<AstNode> Parser::Parse() {
 }
 
 std::shared_ptr<AstNode> Parser::ParseNode() {
-    const Token& tag_token = Consume(TokenType::Identifier, "Expected component identifier (e.g. VStack, Text)");
+    const Token& tag_token = Consume(TokenType::Identifier, "Expected component identifier (e.g. VStack, Text, TilingDecoration)");
     auto node = std::make_shared<AstNode>();
     node->name = tag_token.text;
     node->type = ResolveNodeType(tag_token.text);
@@ -68,7 +74,7 @@ std::shared_ptr<AstNode> Parser::ParseNode() {
     if (Match(TokenType::OpenParen)) {
         while (!Check(TokenType::CloseParen) && !IsAtEnd()) {
             std::string label;
-            if (Check(TokenType::Identifier) && tokens_[current_ + 1].type == TokenType::Colon) {
+            if (Check(TokenType::Identifier) && (current_ + 1 < tokens_.size()) && tokens_[current_ + 1].type == TokenType::Colon) {
                 label = Advance().text;
                 Consume(TokenType::Colon, "Expected ':' after argument label");
             }
@@ -78,17 +84,24 @@ std::shared_ptr<AstNode> Parser::ParseNode() {
                 node->slot_binding = Advance().text;
             } else if (Check(TokenType::StringLiteral)) {
                 std::string s = Advance().text;
+                if (!label.empty()) node->string_props[label] = s;
                 if (label == "action") node->action_value = s;
                 else if (label == "icon") node->icon_value = s;
                 else if (node->text_value.empty()) node->text_value = s;
                 else node->action_value = s;
             } else if (Check(TokenType::NumberLiteral)) {
-                float num = static_cast<float>(Advance().number_value);
-                if (label == "spacing") node->spacing = num;
-                else if (label == "font") node->numeric_value = num;
-                else if (label == "scale") node->numeric_value = num;
-                else if (label == "shimmer") node->numeric_value = num;
-                else node->numeric_value = num;
+                double num = Advance().number_value;
+                if (!label.empty()) node->number_props[label] = num;
+                if (label == "spacing") node->spacing = static_cast<float>(num);
+                else if (label == "font") node->numeric_value = static_cast<float>(num);
+                else if (label == "scale") node->numeric_value = static_cast<float>(num);
+                else if (label == "shimmer") node->numeric_value = static_cast<float>(num);
+                else node->numeric_value = static_cast<float>(num);
+            } else if (Check(TokenType::Identifier) && (Peek().text == "true" || Peek().text == "false")) {
+                bool b = (Advance().text == "true");
+                double num = b ? 1.0 : 0.0;
+                if (!label.empty()) node->number_props[label] = num;
+                node->numeric_value = static_cast<float>(num);
             } else {
                 Advance(); // Skip unknown
             }

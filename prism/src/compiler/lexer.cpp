@@ -1,6 +1,7 @@
 #include "prism/compiler/lexer.hpp"
 #include <cctype>
 #include <cstdlib>
+#include <cstdint>
 
 namespace prism::compiler {
 
@@ -77,12 +78,40 @@ Token Lexer::ScanString() {
 
 Token Lexer::ScanNumber() {
     size_t start = cursor_;
+    if (Peek() == '0' && cursor_ + 1 < source_.size() && (source_[cursor_ + 1] == 'x' || source_[cursor_ + 1] == 'X')) {
+        Advance(); // '0'
+        Advance(); // 'x'
+        while (!IsAtEnd() && std::isxdigit(Peek())) {
+            Advance();
+        }
+        std::string text = source_.substr(start, cursor_ - start);
+        double val = static_cast<double>(std::strtoull(text.c_str(), nullptr, 16));
+        return Token{TokenType::NumberLiteral, text, val, line_};
+    }
     while (!IsAtEnd() && (std::isdigit(Peek()) || Peek() == '.')) {
         Advance();
     }
     std::string text = source_.substr(start, cursor_ - start);
     double val = std::strtod(text.c_str(), nullptr);
     return Token{TokenType::NumberLiteral, text, val, line_};
+}
+
+Token Lexer::ScanHexColor() {
+    Advance(); // Consume '#'
+    size_t start = cursor_;
+    while (!IsAtEnd() && std::isxdigit(Peek())) {
+        Advance();
+    }
+    std::string hex_str = source_.substr(start, cursor_ - start);
+    uint32_t val = 0;
+    if (hex_str.size() == 6) {
+        val = (static_cast<uint32_t>(std::strtoul(hex_str.c_str(), nullptr, 16)) << 8) | 0xFF;
+    } else if (hex_str.size() == 8) {
+        val = static_cast<uint32_t>(std::strtoul(hex_str.c_str(), nullptr, 16));
+    } else {
+        val = static_cast<uint32_t>(std::strtoul(hex_str.c_str(), nullptr, 16));
+    }
+    return Token{TokenType::NumberLiteral, "#" + hex_str, static_cast<double>(val), line_};
 }
 
 std::vector<Token> Lexer::Tokenize() {
@@ -98,6 +127,8 @@ std::vector<Token> Lexer::Tokenize() {
             tokens.push_back(ScanDollarIdentifier());
         } else if (c == '"') {
             tokens.push_back(ScanString());
+        } else if (c == '#') {
+            tokens.push_back(ScanHexColor());
         } else if (std::isdigit(c)) {
             tokens.push_back(ScanNumber());
         } else {

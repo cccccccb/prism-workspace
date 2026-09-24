@@ -200,6 +200,9 @@ bool Compositor::IsInMissionControl() const {
 void Compositor::SetFocusedWindowIndex(int idx) {
     if (idx >= 0 && idx < static_cast<int>(windows_.size())) {
         focused_window_index_ = idx;
+        for (size_t i = 0; i < windows_.size(); ++i) {
+            windows_[i]->SetFocused(static_cast<int>(i) == idx);
+        }
         PRISM_LOG_INFO("WM-FOCUS", "Active focus shifted to window [%d: '%s']", idx, windows_[idx]->GetTitle().c_str());
     }
 }

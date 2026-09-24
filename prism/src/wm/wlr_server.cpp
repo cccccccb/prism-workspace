@@ -4,6 +4,10 @@
 #include "prism/core/logging.hpp"
 #include "prism/layout/fluid_split_strategy.hpp"
 #include "prism/layout/mission_control_strategy.hpp"
+#include "prism/decoration/tiling_decoration_spec.hpp"
+#include "prism/decoration/tiling_window_decorator.hpp"
+#include "prism/decoration/tiling_drag_manager.hpp"
+#include "prism/compiler/binary_loader.hpp"
 
 extern "C" {
 #include <wayland-server-core.h>
@@ -121,7 +125,8 @@ static void handle_cursor_axis(struct wl_listener* listener, void* data) {
 }
 
 WlrServer::WlrServer(std::shared_ptr<Compositor> compositor)
-    : compositor_(std::move(compositor)) {}
+    : compositor_(std::move(compositor)),
+      decoration_spec_(decoration::TilingDecorationSpec::CreateDefault()) {}
 
 WlrServer::~WlrServer() {
     Stop();
@@ -360,6 +365,54 @@ bool WlrServer::Initialize(const std::string& socket_name) {
         ipc_server_->RegisterHandler("set_layout", layout_handler);
         ipc_server_->RegisterHandler("layout", layout_handler);
 
+        // Command 8: set_theme / theme: <theme_path | nordic | default | minimal>
+        auto set_theme_handler = [this](const std::string&, const std::vector<std::string>& args) {
+            if (args.empty()) {
+                std::string cur_name = decoration_spec_ ? decoration_spec_->theme_name : "none";
+                return std::string("{\"status\": \"ok\", \"current_theme\": \"") + cur_name + "\"}";
+            }
+            std::string theme_arg = args[0];
+            std::shared_ptr<decoration::TilingDecorationSpec> new_spec = nullptr;
+            if (theme_arg == "nordic" || theme_arg == "NordicGlass") {
+                new_spec = decoration::TilingDecorationSpec::CreateNordicGlass();
+            } else if (theme_arg == "default" || theme_arg == "DefaultTilingGlass") {
+                new_spec = decoration::TilingDecorationSpec::CreateDefault();
+            } else if (theme_arg == "minimal" || theme_arg == "MinimalI3") {
+                new_spec = decoration::TilingDecorationSpec::CreateMinimalI3();
+            } else {
+                std::string bin_path = theme_arg;
+                if (theme_arg.ends_with(".prism")) {
+                    bin_path = theme_arg + "b";
+                }
+                new_spec = compiler::BinaryThemeLoader::LoadFromFile(bin_path);
+            }
+
+            if (!new_spec) {
+                return std::string("{\"status\": \"error\", \"message\": \"Failed to load theme: ") + theme_arg + "\"}";
+            }
+
+            decoration_spec_ = new_spec;
+            if (compositor_) {
+                for (auto& win : compositor_->GetWindows()) {
+                    if (auto* dec = win->GetDecorator()) {
+                        dec->SetSpec(decoration_spec_);
+                    }
+                }
+            }
+
+            for (auto& out : outputs_) {
+                if (out && out->wlr_output) {
+                    wlr_output_schedule_frame(out->wlr_output);
+                }
+            }
+
+            PRISM_LOG_INFO("WLR-SERVER", "Applied new Tiling Decoration Theme: '%s'", decoration_spec_->theme_name.c_str());
+            return std::string("{\"status\": \"ok\", \"message\": \"Theme switched successfully\", \"theme\": \"") +
+                   decoration_spec_->theme_name + "\"}";
+        };
+        ipc_server_->RegisterHandler("set_theme", set_theme_handler);
+        ipc_server_->RegisterHandler("theme", set_theme_handler);
+
         // Command 5: action: <app_id> <action>
         ipc_server_->RegisterHandler("action", [this](const std::string&, const std::vector<std::string>& args) {
             if (args.size() < 2) {
@@ -480,7 +533,6 @@ void WlrServer::Stop() {
     running_ = false;
 
     outputs_.clear();
-    window_scene_nodes_.clear();
     dock_icon_rects_.clear();
 
     if (scene_) {
@@ -630,6 +682,9 @@ void WlrServer::HandleCursorMotion(uint32_t time_msec, double dx, double dy) {
     if (compositor_) {
         compositor_->OnPointerMotion(static_cast<float>(cursor_->x), static_cast<float>(cursor_->y), static_cast<float>(dx), static_cast<float>(dy));
     }
+    if (drag_manager_ && drag_manager_->IsDragging() && compositor_) {
+        drag_manager_->UpdateDrag(static_cast<float>(cursor_->x), static_cast<float>(cursor_->y), compositor_->GetWindows());
+    }
     for (auto& out : outputs_) {
         if (out && out->wlr_output) {
             wlr_output_schedule_frame(out->wlr_output);
@@ -647,6 +702,9 @@ void WlrServer::HandleCursorMotionAbsolute(uint32_t time_msec, double x, double 
     if (compositor_) {
         compositor_->OnPointerMotion(static_cast<float>(cursor_->x), static_cast<float>(cursor_->y));
     }
+    if (drag_manager_ && drag_manager_->IsDragging() && compositor_) {
+        drag_manager_->UpdateDrag(static_cast<float>(cursor_->x), static_cast<float>(cursor_->y), compositor_->GetWindows());
+    }
     for (auto& out : outputs_) {
         if (out && out->wlr_output) {
             wlr_output_schedule_frame(out->wlr_output);
@@ -658,6 +716,57 @@ void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t
     wlr_seat_pointer_notify_button(seat_, time_msec, button, static_cast<wlr_button_state>(state));
     if (compositor_) {
         compositor_->OnPointerButton(button, state == WLR_BUTTON_PRESSED);
+    }
+
+    // Tiling Window Header & Drag-to-Split interaction (Left Click: 1 or 272)
+    if (button == 1 || button == 272) {
+        if (state == WLR_BUTTON_PRESSED) {
+            if (compositor_) {
+                const auto& windows = compositor_->GetWindows();
+                for (size_t i = 0; i < windows.size(); ++i) {
+                    auto& win = windows[i];
+                    auto b = win->GetBounds();
+                    if (cursor_->x >= b.x && cursor_->x <= b.x + b.width &&
+                        cursor_->y >= b.y && cursor_->y <= b.y + b.height) {
+
+                        compositor_->SetFocusedWindowIndex(static_cast<int>(i));
+
+                        if (auto* dec = win->GetDecorator()) {
+                            float lx = static_cast<float>(cursor_->x - b.x);
+                            float ly = static_cast<float>(cursor_->y - b.y);
+                            auto action = dec->HitTestHeader(lx, ly);
+                            if (action == decoration::HeaderAction::TitlebarDrag) {
+                                if (drag_manager_) {
+                                    drag_manager_->BeginDrag(win, static_cast<float>(cursor_->x), static_cast<float>(cursor_->y));
+                                }
+                            } else if (action == decoration::HeaderAction::Close) {
+                                PRISM_LOG_INFO("WM-CHROME", "Clicked Close on tile '%s'", win->GetTitle().c_str());
+                            } else if (action == decoration::HeaderAction::ToggleSplit) {
+                                PRISM_LOG_INFO("WM-CHROME", "Clicked ToggleSplit on tile '%s'", win->GetTitle().c_str());
+                            } else if (action == decoration::HeaderAction::ToggleMonocle) {
+                                PRISM_LOG_INFO("WM-CHROME", "Clicked ToggleMonocle on tile '%s'", win->GetTitle().c_str());
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        } else {
+            if (drag_manager_ && drag_manager_->IsDragging()) {
+                auto res = drag_manager_->EndDrag();
+                if (res.executed) {
+                    PRISM_LOG_INFO("WM-TILING", "Committed Drag-to-Split between [%s] and [%s]",
+                                   res.source_window->GetTitle().c_str(),
+                                   res.target_window->GetTitle().c_str());
+                }
+            }
+        }
+    }
+
+    for (auto& out : outputs_) {
+        if (out && out->wlr_output) {
+            wlr_output_schedule_frame(out->wlr_output);
+        }
     }
 }
 
@@ -729,6 +838,10 @@ void WlrServer::InitSceneGraph() {
     wlr_scene_node_set_position(&hud_status_pill_->node, 16, 16);
     wlr_scene_node_set_position(&hud_tree_->node, 18, 44);
 
+    // 5. Layer 4: Tiling Drag Overlay (Drop-Zone visualization)
+    drag_manager_ = std::make_unique<decoration::TilingDragManager>(decoration_spec_);
+    drag_manager_->AttachToScene(chrome_tree_);
+
     PRISM_LOG_INFO("WLR-SCENE", "Native GPU Scene-graph hierarchy initialized successfully");
 }
 
@@ -749,64 +862,40 @@ void WlrServer::UpdateSceneGraph(int width, int height) {
         wlr_scene_node_set_position(&top_bar_border_->node, 0, 29);
     }
 
-    // 3. Desktop Windows
+    // 3. Desktop Windows & Modular Tiling Window Decorator System
     if (compositor_) {
         const auto& windows = compositor_->GetWindows();
-        while (window_scene_nodes_.size() < windows.size()) {
-            WindowSceneElements elem;
-            elem.tree = wlr_scene_tree_create(windows_tree_);
-
-            // Window card background (Mac translucent glass: rgba(0.10, 0.12, 0.16, 0.90))
-            const float win_bg[4] = {0.10f, 0.12f, 0.16f, 0.90f};
-            elem.bg_rect = wlr_scene_rect_create(elem.tree, 640, 720, win_bg);
-
-            // Specular top rim
-            const float rim[4] = {1.0f, 1.0f, 1.0f, 0.15f};
-            elem.border_top = wlr_scene_rect_create(elem.tree, 640, 1, rim);
-
-            // Traffic lights (Red, Yellow, Green)
-            const float c_red[4] = {0.98f, 0.28f, 0.28f, 1.0f};
-            const float c_yel[4] = {0.98f, 0.78f, 0.20f, 1.0f};
-            const float c_grn[4] = {0.20f, 0.80f, 0.35f, 1.0f};
-            elem.traffic_red = wlr_scene_rect_create(elem.tree, 12, 12, c_red);
-            wlr_scene_node_set_position(&elem.traffic_red->node, 16, 12);
-            elem.traffic_yellow = wlr_scene_rect_create(elem.tree, 12, 12, c_yel);
-            wlr_scene_node_set_position(&elem.traffic_yellow->node, 36, 12);
-            elem.traffic_green = wlr_scene_rect_create(elem.tree, 12, 12, c_grn);
-            wlr_scene_node_set_position(&elem.traffic_green->node, 56, 12);
-
-            // UI Elements: Interactive buttons & sliders
-            const float btn_col[4] = {0.24f, 0.27f, 0.33f, 0.85f};
-            elem.btn_1 = wlr_scene_rect_create(elem.tree, 140, 36, btn_col);
-            wlr_scene_node_set_position(&elem.btn_1->node, 24, 60);
-
-            elem.btn_2 = wlr_scene_rect_create(elem.tree, 140, 36, btn_col);
-            wlr_scene_node_set_position(&elem.btn_2->node, 180, 60);
-
-            // Slider 1
-            const float track_col[4] = {0.20f, 0.22f, 0.28f, 1.0f};
-            const float fill_col[4] = {0.0f, 0.48f, 1.0f, 1.0f}; // Apple accent blue
-            elem.slider_track = wlr_scene_rect_create(elem.tree, 300, 6, track_col);
-            wlr_scene_node_set_position(&elem.slider_track->node, 24, 120);
-            elem.slider_fill = wlr_scene_rect_create(elem.tree, 120, 6, fill_col);
-            wlr_scene_node_set_position(&elem.slider_fill->node, 24, 120);
-
-            // Slider 2
-            elem.slider2_track = wlr_scene_rect_create(elem.tree, 300, 6, track_col);
-            wlr_scene_node_set_position(&elem.slider2_track->node, 24, 150);
-            elem.slider2_fill = wlr_scene_rect_create(elem.tree, 150, 6, fill_col);
-            wlr_scene_node_set_position(&elem.slider2_fill->node, 24, 150);
-
-            window_scene_nodes_.push_back(elem);
-        }
-
-        // Update positions & sizes of window cards based on Compositor Layout
         for (size_t i = 0; i < windows.size(); ++i) {
-            auto b = windows[i]->GetBounds();
-            auto& node = window_scene_nodes_[i];
-            wlr_scene_node_set_position(&node.tree->node, static_cast<int>(b.x), static_cast<int>(b.y));
-            wlr_scene_rect_set_size(node.bg_rect, static_cast<int>(b.width), static_cast<int>(b.height));
-            wlr_scene_rect_set_size(node.border_top, static_cast<int>(b.width), 1);
+            auto& win = windows[i];
+            if (!win->GetDecorator()) {
+                auto decorator = std::make_unique<decoration::TilingWindowDecorator>(win.get(), decoration_spec_);
+                decorator->AttachToScene(windows_tree_);
+
+                // Mount internal interactive controls inside decorator's content tree
+                auto* c_tree = decorator->GetContentTree();
+                if (c_tree) {
+                    const float btn_col[4] = {0.24f, 0.27f, 0.33f, 0.85f};
+                    auto* btn1 = wlr_scene_rect_create(c_tree, 140, 36, btn_col);
+                    wlr_scene_node_set_position(&btn1->node, 24, 20);
+
+                    auto* btn2 = wlr_scene_rect_create(c_tree, 140, 36, btn_col);
+                    wlr_scene_node_set_position(&btn2->node, 180, 20);
+
+                    const float track_col[4] = {0.20f, 0.22f, 0.28f, 1.0f};
+                    const float fill_col[4] = {0.0f, 0.48f, 1.0f, 1.0f};
+                    auto* sl_track = wlr_scene_rect_create(c_tree, 300, 6, track_col);
+                    wlr_scene_node_set_position(&sl_track->node, 24, 80);
+                    auto* sl_fill = wlr_scene_rect_create(c_tree, 120 + static_cast<int>(i) * 30, 6, fill_col);
+                    wlr_scene_node_set_position(&sl_fill->node, 24, 80);
+                }
+
+                win->SetDecorator(std::move(decorator));
+            }
+
+            // Sync focus and layout geometry via TilingWindowDecorator
+            bool is_focused = (static_cast<int>(i) == compositor_->GetFocusedWindowIndex());
+            win->SetFocused(is_focused);
+            win->GetDecorator()->ApplyGeometry(win->GetBounds());
         }
 
         // 4. Split Divider

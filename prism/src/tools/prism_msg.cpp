@@ -19,13 +19,15 @@ static void PrintUsage(const char* prog) {
               << "  set_mode <output> <w> <h> [hz]  Dynamically change output resolution and refresh rate\n"
               << "  get_status, status              Query compositor status, live FPS, and window metrics\n"
               << "  set_layout <split|overview>     Dynamically change window layout or toggle Mission Control\n"
+              << "  set_theme <path|nordic|default> Hot-reload or switch Tiling Decoration Theme (.prismb)\n"
               << "  action <app_id> <action_name>   Send action event to application (e.g. player:toggle)\n"
               << "  ipc_test                        Run zero-copy shared memory IPC latency benchmark\n\n"
               << "Examples:\n"
               << "  " << prog << " get_outputs\n"
               << "  " << prog << " set_mode WL-1 1600 900 60\n"
               << "  " << prog << " get_status\n"
-              << "  " << prog << " set_layout overview\n"
+              << "  " << prog << " set_theme nordic\n"
+              << "  " << prog << " set_theme themes/nordic_glass.prismb\n"
               << "  " << prog << " ipc_test\n";
 }
 

@@ -83,7 +83,88 @@ uint16_t BinaryGenerator::FlattenNode(const std::shared_ptr<AstNode>& node, uint
     return my_index;
 }
 
+std::vector<uint8_t> BinaryGenerator::GenerateTheme(const std::shared_ptr<AstNode>& root) {
+    PrismbThemeHeader header{};
+    header.magic = PRISMB_THEME_MAGIC;
+    header.version = PRISMB_VERSION;
+
+    // Default parameters
+    std::string theme_name = "DefaultTilingGlass";
+    if (root && !root->text_value.empty()) {
+        theme_name = root->text_value;
+    }
+    std::strncpy(header.theme_name, theme_name.c_str(), sizeof(header.theme_name) - 1);
+
+    header.inner_gap = 10;
+    header.outer_gap = 12;
+    header.smart_gaps = 1;
+
+    header.border_width = 2.0f;
+    header.border_color_focused = 0x007AFFE6;
+    header.border_color_unfocused = 0xFFFFFF1E;
+    header.top_rim_specular = 0xFFFFFF32;
+    header.corner_radius = 12.0f;
+
+    header.bg_focused = 0x141822E6;
+    header.bg_unfocused = 0x0E1016D9;
+    header.blur_radius = 28.0f;
+    header.blur_passes = 4;
+
+    header.header_height = 32.0f;
+    header.show_header = 1;
+    header.header_bg_focused = 0x1C212EF0;
+    header.header_bg_unfocused = 0x12141CDC;
+    header.title_color_focused = 0xFFFFFFFF;
+    header.title_color_unfocused = 0xA0A5AFB4;
+    header.show_tiling_controls = 1;
+
+    header.drop_fill_color = 0x007AFF3C;
+    header.drop_border_color = 0x007AFFE6;
+    header.drop_border_width = 2.0f;
+
+    if (root) {
+        for (const auto& child : root->children) {
+            if (child->name == "gaps") {
+                if (child->number_props.count("inner")) header.inner_gap = static_cast<int16_t>(child->number_props.at("inner"));
+                if (child->number_props.count("outer")) header.outer_gap = static_cast<int16_t>(child->number_props.at("outer"));
+                if (child->number_props.count("smart")) header.smart_gaps = static_cast<uint8_t>(child->number_props.at("smart"));
+            } else if (child->name == "border") {
+                if (child->number_props.count("width")) header.border_width = static_cast<float>(child->number_props.at("width"));
+                if (child->number_props.count("focused")) header.border_color_focused = static_cast<uint32_t>(child->number_props.at("focused"));
+                if (child->number_props.count("unfocused")) header.border_color_unfocused = static_cast<uint32_t>(child->number_props.at("unfocused"));
+                if (child->number_props.count("specular")) header.top_rim_specular = static_cast<uint32_t>(child->number_props.at("specular"));
+                if (child->number_props.count("cornerRadius")) header.corner_radius = static_cast<float>(child->number_props.at("cornerRadius"));
+            } else if (child->name == "backdrop") {
+                if (child->number_props.count("focused")) header.bg_focused = static_cast<uint32_t>(child->number_props.at("focused"));
+                if (child->number_props.count("unfocused")) header.bg_unfocused = static_cast<uint32_t>(child->number_props.at("unfocused"));
+                if (child->number_props.count("blur")) header.blur_radius = static_cast<float>(child->number_props.at("blur"));
+                if (child->number_props.count("passes")) header.blur_passes = static_cast<int16_t>(child->number_props.at("passes"));
+            } else if (child->name == "header") {
+                if (child->number_props.count("height")) header.header_height = static_cast<float>(child->number_props.at("height"));
+                if (child->number_props.count("show")) header.show_header = static_cast<uint8_t>(child->number_props.at("show"));
+                if (child->number_props.count("focused")) header.header_bg_focused = static_cast<uint32_t>(child->number_props.at("focused"));
+                if (child->number_props.count("unfocused")) header.header_bg_unfocused = static_cast<uint32_t>(child->number_props.at("unfocused"));
+                if (child->number_props.count("titleFocused")) header.title_color_focused = static_cast<uint32_t>(child->number_props.at("titleFocused"));
+                if (child->number_props.count("titleUnfocused")) header.title_color_unfocused = static_cast<uint32_t>(child->number_props.at("titleUnfocused"));
+                if (child->number_props.count("controls")) header.show_tiling_controls = static_cast<uint8_t>(child->number_props.at("controls"));
+            } else if (child->name == "dropZone") {
+                if (child->number_props.count("fill")) header.drop_fill_color = static_cast<uint32_t>(child->number_props.at("fill"));
+                if (child->number_props.count("border")) header.drop_border_color = static_cast<uint32_t>(child->number_props.at("border"));
+                if (child->number_props.count("width")) header.drop_border_width = static_cast<float>(child->number_props.at("width"));
+            }
+        }
+    }
+
+    std::vector<uint8_t> buffer(sizeof(PrismbThemeHeader));
+    std::memcpy(buffer.data(), &header, sizeof(PrismbThemeHeader));
+    return buffer;
+}
+
 std::vector<uint8_t> BinaryGenerator::Generate(const std::shared_ptr<AstNode>& root) {
+    if (root && root->type == BinaryNodeType::TilingDecoration) {
+        return GenerateTheme(root);
+    }
+
     node_records_.clear();
     string_table_.clear();
 
@@ -126,8 +207,13 @@ bool BinaryGenerator::WriteToFile(const std::shared_ptr<AstNode>& root, const st
         return false;
     }
     out.write(reinterpret_cast<const char*>(binary.data()), binary.size());
-    PRISM_LOG_INFO("COMPILER", "Successfully emitted AOT binary '%s' (%zu bytes, %zu nodes)",
-                   output_path.c_str(), binary.size(), node_records_.size());
+    if (root && root->type == BinaryNodeType::TilingDecoration) {
+        PRISM_LOG_INFO("COMPILER", "Successfully emitted AOT Theme binary '%s' (%zu bytes)",
+                       output_path.c_str(), binary.size());
+    } else {
+        PRISM_LOG_INFO("COMPILER", "Successfully emitted AOT UI binary '%s' (%zu bytes, %zu nodes)",
+                       output_path.c_str(), binary.size(), node_records_.size());
+    }
     return true;
 }
 
