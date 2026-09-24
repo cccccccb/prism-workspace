@@ -442,54 +442,91 @@ void FrameBuffer::DrawTextSimple(int x, int y, const std::string& text, uint32_t
 }
 
 void FrameBuffer::DrawTopMenuBar(const std::string& active_app, const std::string& time_str) {
-    ApplyKawaseBlur(0, 0, width_, 30, 16.0f, 3);
-    DrawRect(0, 0, width_, 30, 0x55141720);
-    DrawRect(0, 29, width_, 1, 0x22FFFFFF);
+    ApplyKawaseBlur(0, 0, width_, height_, 16.0f, 3);
+    DrawRect(0, 0, width_, height_, 0xCC161A24);
+    DrawRect(0, height_ - 1, width_, 1, 0x33FFFFFF);
 
-    DrawRoundedRect(14, 7, 16, 16, 4.0f, 0xFF007AFF);
-    DrawTextSimple(17, 12, "*", 0xFFFFFFFF);
+    // 1. Left: Prism circular emblem [●] & Brand text
+    DrawCircle(20, height_ / 2, 8, 0xFFE04040);
+    DrawCircle(20, height_ / 2, 3, 0xFFFFFFFF);
+    DrawTextSimple(34, height_ / 2 - 4, active_app.empty() ? "PRISM" : active_app, 0xFFFFFFFF, 1);
 
-    DrawTextSimple(38, 12, active_app.empty() ? "PrismWM" : active_app, 0xFFFFFFFF);
+    // 2. Center: Mac Dynamic Island Clock Pill with top handle
+    std::string display_time = time_str.empty() ? "Oct-11 15:13:24" : time_str;
+    int pill_w = 180;
+    int pill_h = 24;
+    int pill_x = (width_ - pill_w) / 2;
+    int pill_y = (height_ - pill_h) / 2;
 
-    DrawTextSimple(220, 12, "File", 0xCCFFFFFF);
-    DrawTextSimple(265, 12, "Edit", 0xCCFFFFFF);
-    DrawTextSimple(310, 12, "View", 0xCCFFFFFF);
-    DrawTextSimple(355, 12, "Window", 0xCCFFFFFF);
-    DrawTextSimple(415, 12, "Help", 0xCCFFFFFF);
+    DrawRoundedRect(pill_x, pill_y, pill_w, pill_h, 12.0f, 0xFF0D1017);
+    DrawBorder(pill_x, pill_y, pill_w, pill_h, 12.0f, 1.0f, 0x33FFFFFF);
+    DrawRect((width_ - 40) / 2, 2, 40, 2, 0xCCFFFFFF); // Top white handle bar
 
-    int right_x = width_ - 260;
-    DrawTextSimple(right_x, 12, "wlroots-0.17", 0xFF30D158);
-    DrawTextSimple(right_x + 110, 12, "100%", 0xCCFFFFFF);
-    DrawTextSimple(right_x + 155, 12, time_str.empty() ? "16:30" : time_str, 0xFFFFFFFF);
+    int text_x = pill_x + (pill_w - static_cast<int>(display_time.size()) * 7) / 2;
+    DrawTextSimple(text_x, pill_y + 8, display_time, 0xFFFFFFFF, 1);
+
+    // 3. Right: System control center pills (Wi-Fi, Battery, Bell)
+    if (width_ > 500) {
+        DrawTextSimple(width_ - 210, height_ / 2 - 4, "Wi-Fi 5G", 0xCCFFFFFF, 1);
+
+        DrawRoundedRect(width_ - 130, height_ / 2 - 8, 44, 16, 4.0f, 0x33FFFFFF);
+        DrawRoundedRect(width_ - 128, height_ / 2 - 6, 40, 12, 2.0f, 0xFF30D158);
+        DrawTextSimple(width_ - 120, height_ / 2 - 4, "100%", 0xFFFFFFFF, 1);
+
+        DrawCircle(width_ - 40, height_ / 2, 9, 0x33FFFFFF);
+        DrawTextSimple(width_ - 44, height_ / 2 - 4, "[*]", 0xFFE0E6ED, 1);
+    }
 }
 
 void FrameBuffer::DrawMacDock(const std::vector<std::string>& app_names, int active_index) {
     int count = static_cast<int>(app_names.size());
     if (count == 0) return;
+
     int icon_size = 46;
-    int gap = 14;
+    int gap = 12;
     int pad_h = 16;
-    int dock_w = count * icon_size + (count - 1) * gap + pad_h * 2;
-    int dock_h = 66;
-    int dock_x = (width_ - dock_w) / 2;
-    int dock_y = height_ - dock_h - 14;
+    int launcher_card_w = icon_size;
+    int separator_w = 2;
+    int dock_w = launcher_card_w + 12 + separator_w + 12 + count * icon_size + (count - 1) * gap + pad_h * 2;
+    int dock_h = (height_ <= 74) ? height_ : 72;
+    int dock_x = (width_ <= dock_w) ? 0 : (width_ - dock_w) / 2;
+    int dock_y = (height_ <= 74) ? 0 : (height_ - dock_h - 14);
 
-    DrawShadow(dock_x, dock_y, dock_w, dock_h, 20.0f, 25.0f, 0x77000000);
+    // 1. Acrylic Frosted Glass Container
+    DrawShadow(dock_x, dock_y, dock_w, dock_h, 22.0f, 20.0f, 0x77000000);
     ApplyKawaseBlur(dock_x, dock_y, dock_w, dock_h, 24.0f, 4);
-    DrawRoundedRect(dock_x, dock_y, dock_w, dock_h, 20.0f, 0x44282c38, 0.9f);
-    DrawRoundedRect(dock_x, dock_y, dock_w, dock_h, 20.0f, 0x22ffffff, 0.2f);
-
-    uint32_t colors[5] = {0xFFFA2D48, 0xFF8E8E93, 0xFF007AFF, 0xFF34C759, 0xFFFF9500};
+    DrawRoundedRect(dock_x, dock_y, dock_w, dock_h, 22.0f, 0xCC151924, 0.95f);
+    DrawBorder(dock_x, dock_y, dock_w, dock_h, 22.0f, 1.0f, 0x33FFFFFF);
 
     int cur_x = dock_x + pad_h;
-    for (int i = 0; i < count; ++i) {
-        uint32_t c = colors[i % 5];
-        DrawRoundedRect(cur_x, dock_y + 10, icon_size, icon_size, 11.0f, c);
-        std::string initial = app_names[i].substr(0, 3);
-        DrawTextSimple(cur_x + 12, dock_y + 26, initial, 0xFFFFFFFF);
+    int card_y = dock_y + (dock_h - icon_size) / 2;
 
-        if (i == active_index) {
-            DrawRoundedRect(cur_x + icon_size / 2 - 2, dock_y + dock_h - 6, 4, 4, 2.0f, 0xFFFFFFFF);
+    // 2. [田] App Launcher Card
+    DrawRoundedRect(cur_x, card_y, icon_size, icon_size, 11.0f, 0x33FFFFFF);
+    DrawRoundedRect(cur_x + 9, card_y + 9, 10, 10, 2.0f, 0xFFFFFFFF);
+    DrawRoundedRect(cur_x + 27, card_y + 9, 10, 10, 2.0f, 0xFFFFFFFF);
+    DrawRoundedRect(cur_x + 9, card_y + 27, 10, 10, 2.0f, 0xFFFFFFFF);
+    DrawRoundedRect(cur_x + 27, card_y + 27, 10, 10, 2.0f, 0xFFFFFFFF);
+    cur_x += icon_size + 12;
+
+    // 3. Vertical Separator Line
+    DrawRect(cur_x, dock_y + 18, 2, dock_h - 36, 0x33FFFFFF);
+    cur_x += 2 + 12;
+
+    // 4. Squircle App Icons & Running Dots
+    uint32_t colors[6] = {0xFF007AFF, 0xFF2C3240, 0xFF34C759, 0xFFFF9500, 0xFFAF52DE, 0xFFFA2D48};
+
+    for (int i = 0; i < count; ++i) {
+        uint32_t c = colors[i % 6];
+        DrawRoundedRect(cur_x, card_y, icon_size, icon_size, 11.0f, c);
+
+        std::string label = (app_names[i].size() > 5) ? app_names[i].substr(0, 4) : app_names[i];
+        int lbl_x = cur_x + (icon_size - static_cast<int>(label.size()) * 7) / 2;
+        DrawTextSimple(lbl_x, card_y + 18, label, 0xFFFFFFFF, 1);
+
+        // Running indicator dot / pill beneath active apps
+        if (i == active_index || i < 3) {
+            DrawRoundedRect(cur_x + icon_size / 2 - 3, dock_y + dock_h - 6, 6, 3, 1.5f, 0xFFFFFFFF);
         }
         cur_x += icon_size + gap;
     }

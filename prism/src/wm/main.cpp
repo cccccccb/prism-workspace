@@ -229,8 +229,14 @@ int main(int argc, char* argv[]) {
     server.Stop();
 
     // Terminate child backends cleanly
-    if (pid_a > 0) { kill(pid_a, SIGTERM); waitpid(pid_a, nullptr, 0); }
-    if (pid_b > 0) { kill(pid_b, SIGTERM); waitpid(pid_b, nullptr, 0); }
+    if (pid_a > 0) {
+        kill(pid_a, SIGKILL);
+        waitpid(pid_a, nullptr, WNOHANG);
+    }
+    if (pid_b > 0) {
+        kill(pid_b, SIGKILL);
+        waitpid(pid_b, nullptr, WNOHANG);
+    }
 
     PRISM_LOG_INFO("WM-MAIN", "Multi-Window Compositor execution completed cleanly.");
     return 0;

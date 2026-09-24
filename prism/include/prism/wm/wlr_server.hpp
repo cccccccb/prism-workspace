@@ -25,6 +25,7 @@ struct wlr_scene;
 struct wlr_scene_output;
 struct wlr_scene_tree;
 struct wlr_scene_rect;
+struct wlr_scene_buffer;
 struct wlr_scene_node;
 struct wlr_xdg_shell;
 struct wlr_xdg_surface;
@@ -200,6 +201,14 @@ private:
     struct wlr_scene_rect* hud_bg_rect_{nullptr};
     struct wlr_scene_rect* hud_border_rect_{nullptr};
     struct wlr_scene_rect* hud_status_pill_{nullptr};
+
+    // Hardware Pixel Buffers for full resolution image & font rendering
+    struct wlr_scene_buffer* wallpaper_scene_buf_{nullptr};
+    struct wlr_scene_buffer* top_bar_scene_buf_{nullptr};
+    struct wlr_scene_buffer* dock_scene_buf_{nullptr};
+    int last_scene_w_{0};
+    int last_scene_h_{0};
+    int last_clock_sec_{-1};
 
     std::shared_ptr<decoration::TilingDecorationSpec> decoration_spec_;
     std::unique_ptr<decoration::TilingDragManager> drag_manager_;
