@@ -594,7 +594,7 @@ void FrameBuffer::DrawDebugHud(float fps, float frame_time_ms, int frame_count, 
     cur_y += line_h;
 
     // Engine architecture
-    DrawTextSimple(pad_x, cur_y, "Engine: wlroots 0.17 | Sway Sync", 0xFF8B949E, scale);
+    DrawTextSimple(pad_x, cur_y, "Engine: wlroots 0.17 | Native VSync", 0xFF8B949E, scale);
 }
 
 bool FrameBuffer::SavePPM(const std::string& filepath) const {

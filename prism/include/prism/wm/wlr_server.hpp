@@ -170,15 +170,31 @@ private:
 
     // GPU-native geometry nodes
     struct wlr_scene_rect* wallpaper_rect_{nullptr};
+    struct wlr_scene_rect* bg_sky_mid_{nullptr};
+    struct wlr_scene_rect* bg_sunset_glow_{nullptr};
+    struct wlr_scene_rect* bg_sunset_horizon_{nullptr};
+    struct wlr_scene_rect* bg_silhouette_{nullptr};
+    struct wlr_scene_rect* bg_water_glow_{nullptr};
+
     struct wlr_scene_rect* top_bar_rect_{nullptr};
     struct wlr_scene_rect* top_bar_border_{nullptr};
     struct wlr_scene_rect* top_bar_icon_{nullptr};
+    struct wlr_scene_rect* top_bar_clock_pill_{nullptr};
+    struct wlr_scene_rect* top_bar_clock_handle_{nullptr};
+    struct wlr_scene_rect* top_bar_wifi_pill_{nullptr};
+    struct wlr_scene_rect* top_bar_battery_pill_{nullptr};
+    struct wlr_scene_rect* top_bar_bell_pill_{nullptr};
 
     struct wlr_scene_rect* split_divider_line_{nullptr};
     struct wlr_scene_rect* split_divider_pill_{nullptr};
 
+    struct wlr_scene_rect* dock_border_rect_{nullptr};
     struct wlr_scene_rect* dock_bg_rect_{nullptr};
+    struct wlr_scene_rect* dock_launcher_card_{nullptr};
+    std::vector<struct wlr_scene_rect*> dock_launcher_tiles_;
+    struct wlr_scene_rect* dock_separator_{nullptr};
     std::vector<struct wlr_scene_rect*> dock_icon_rects_;
+    std::vector<struct wlr_scene_rect*> dock_active_dots_;
     struct wlr_scene_rect* dock_active_dot_{nullptr};
 
     struct wlr_scene_rect* hud_bg_rect_{nullptr};

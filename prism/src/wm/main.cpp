@@ -37,9 +37,14 @@ void ExportSnapshot(std::shared_ptr<wm::Compositor> wm, render::FrameBuffer& fb,
 
 int main(int argc, char* argv[]) {
     bool auto_exit = false;
+    bool run_demo = false;
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "--auto-exit" || std::string(argv[i]) == "--test") {
             auto_exit = true;
+            run_demo = true;
+        }
+        if (std::string(argv[i]) == "--demo") {
+            run_demo = true;
         }
     }
 
@@ -47,7 +52,7 @@ int main(int argc, char* argv[]) {
     signal(SIGTERM, SigIntHandler);
 
     PRISM_LOG_INFO("WM-MAIN", "=================================================");
-    PRISM_LOG_INFO("WM-MAIN", "  Project PrismWM Compositor (wlroots 0.17 / Sway) ");
+    PRISM_LOG_INFO("WM-MAIN", "     Project Prism Desktop Compositor (wlroots) ");
     PRISM_LOG_INFO("WM-MAIN", "=================================================");
 
     // 1. Initialize Compositor Engine
@@ -90,42 +95,44 @@ int main(int argc, char* argv[]) {
     auto win_dock    = wm->CreateWindow("prism_dock", "Prism Dock", core::Rect{560, 994, 800, 72}, "/prism_dock_ipc", wm::LayerType::Dock);
     auto win_topbar  = wm->CreateWindow("prism_topbar", "Prism TopBar", core::Rect{0, 0, 1920, 34}, "/prism_topbar_ipc", wm::LayerType::TopBar);
 
-    // 4. Create Window A from .prismpkg: Prism Music Studio
-    std::string channel_a = "/prism_demo_player";
-    auto win_a = wm->CreateWindow("demo_player", "Prism Music Studio", core::Rect{0, 0, 960, 1080}, channel_a);
-    if (win_a) {
-        auto prev_a = compiler::BinarySceneLoader::LoadFromFile("demos/demo_player.prismpkg:preview.prismb");
-        if (!prev_a) prev_a = compiler::BinarySceneLoader::LoadFromFile("demos/demo_player/preview.prismb");
-        if (prev_a) win_a->SetPreviewTree(prev_a);
+    // 4. Optionally create Demo Windows when invoked with --demo or in test mode
+    pid_t pid_a = -1;
+    pid_t pid_b = -1;
+    if (run_demo) {
+        std::string channel_a = "/prism_demo_player";
+        auto win_a = wm->CreateWindow("demo_player", "Prism Music Studio", core::Rect{0, 0, 960, 1080}, channel_a);
+        if (win_a) {
+            auto prev_a = compiler::BinarySceneLoader::LoadFromFile("demos/demo_player.prismpkg:preview.prismb");
+            if (!prev_a) prev_a = compiler::BinarySceneLoader::LoadFromFile("demos/demo_player/preview.prismb");
+            if (prev_a) win_a->SetPreviewTree(prev_a);
 
-        auto mast_a = compiler::BinarySceneLoader::LoadFromFile("demos/demo_player.prismpkg:master.prismb");
-        if (!mast_a) mast_a = compiler::BinarySceneLoader::LoadFromFile("demos/demo_player/master.prismb");
-        if (mast_a) win_a->SetMasterTree(mast_a);
-    }
+            auto mast_a = compiler::BinarySceneLoader::LoadFromFile("demos/demo_player.prismpkg:master.prismb");
+            if (!mast_a) mast_a = compiler::BinarySceneLoader::LoadFromFile("demos/demo_player/master.prismb");
+            if (mast_a) win_a->SetMasterTree(mast_a);
+        }
 
-    // 5. Create Window B from .prismpkg: Prism System Monitor & Preferences
-    std::string channel_b = "/prism_demo_settings";
-    auto win_b = wm->CreateWindow("demo_settings", "System Preferences", core::Rect{960, 0, 960, 1080}, channel_b);
-    if (win_b) {
-        auto prev_b = compiler::BinarySceneLoader::LoadFromFile("demos/demo_settings.prismpkg:preview.prismb");
-        if (!prev_b) prev_b = compiler::BinarySceneLoader::LoadFromFile("demos/demo_settings/preview.prismb");
-        if (prev_b) win_b->SetPreviewTree(prev_b);
+        std::string channel_b = "/prism_demo_settings";
+        auto win_b = wm->CreateWindow("demo_settings", "System Preferences", core::Rect{960, 0, 960, 1080}, channel_b);
+        if (win_b) {
+            auto prev_b = compiler::BinarySceneLoader::LoadFromFile("demos/demo_settings.prismpkg:preview.prismb");
+            if (!prev_b) prev_b = compiler::BinarySceneLoader::LoadFromFile("demos/demo_settings/preview.prismb");
+            if (prev_b) win_b->SetPreviewTree(prev_b);
 
-        auto mast_b = compiler::BinarySceneLoader::LoadFromFile("demos/demo_settings.prismpkg:master.prismb");
-        if (!mast_b) mast_b = compiler::BinarySceneLoader::LoadFromFile("demos/demo_settings/master.prismb");
-        if (mast_b) win_b->SetMasterTree(mast_b);
-    }
+            auto mast_b = compiler::BinarySceneLoader::LoadFromFile("demos/demo_settings.prismpkg:master.prismb");
+            if (!mast_b) mast_b = compiler::BinarySceneLoader::LoadFromFile("demos/demo_settings/master.prismb");
+            if (mast_b) win_b->SetMasterTree(mast_b);
+        }
 
-    // 6. Fast fork & launch application backends to connect to IPC
-    pid_t pid_a = fork();
-    if (pid_a == 0) {
-        execl("./build/demos/demo_player", "demo_player", channel_a.c_str(), nullptr);
-        _exit(1);
-    }
-    pid_t pid_b = fork();
-    if (pid_b == 0) {
-        execl("./build/demos/demo_settings", "demo_settings", channel_b.c_str(), nullptr);
-        _exit(1);
+        pid_a = fork();
+        if (pid_a == 0) {
+            execl("./build/demos/demo_player", "demo_player", channel_a.c_str(), nullptr);
+            _exit(1);
+        }
+        pid_b = fork();
+        if (pid_b == 0) {
+            execl("./build/demos/demo_settings", "demo_settings", channel_b.c_str(), nullptr);
+            _exit(1);
+        }
     }
 
     render::FrameBuffer fb(1920, 1080);
@@ -203,7 +210,7 @@ int main(int argc, char* argv[]) {
         PRISM_LOG_INFO("WM-MAIN", "  PrismWM Compositor is now running persistently (Active)");
         PRISM_LOG_INFO("WM-MAIN", "  Wayland Display Socket: %s", server.GetSocketName().c_str());
         PRISM_LOG_INFO("WM-MAIN", "  IPC Control Socket:     %s", server.GetIpcServer() ? server.GetIpcServer()->GetSocketPath().c_str() : "N/A");
-        PRISM_LOG_INFO("WM-MAIN", "  Frame Rate: Dynamic VSync-driven (Sway architecture)   ");
+        PRISM_LOG_INFO("WM-MAIN", "  Frame Rate: Dynamic VSync-driven Native Pipeline    ");
         PRISM_LOG_INFO("WM-MAIN", "  Press Ctrl+C (SIGINT) to terminate Window Manager.     ");
         PRISM_LOG_INFO("WM-MAIN", "=========================================================");
 

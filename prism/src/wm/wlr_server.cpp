@@ -314,7 +314,7 @@ bool WlrServer::Initialize(const std::string& socket_name) {
             std::ostringstream ss;
             ss << "{\n"
                << "  \"status\": \"ok\",\n"
-               << "  \"version\": \"Project PrismWM 0.1.0 (wlroots 0.17 / Sway architecture)\",\n"
+               << "  \"version\": \"Project PrismWM 0.1.0 (wlroots 0.17 Native)\",\n"
                << "  \"fps\": " << std::fixed << std::setprecision(1) << current_fps_ << ",\n"
                << "  \"frame_count\": " << frame_count_ << ",\n"
                << "  \"outputs_count\": " << outputs_.size() << ",\n"
@@ -619,7 +619,7 @@ static void auto_create_output_for_nested(struct wlr_backend* backend, void* dat
         struct wlr_output* out = wlr_wl_output_create(backend);
         PRISM_LOG_INFO("WLR-SERVER", "wlr_wl_output_create returned %p", (void*)out);
         if (out) {
-            wlr_wl_output_set_title(out, "Project PrismWM Compositor (wlroots 0.17 / Sway)");
+            wlr_wl_output_set_title(out, "Project Prism Desktop");
             *created = true;
             PRISM_LOG_INFO("WLR-SERVER", "Created nested Wayland output window");
         }
@@ -636,7 +636,7 @@ static void auto_create_output_for_nested(struct wlr_backend* backend, void* dat
         struct wlr_output* out = wlr_x11_output_create(backend);
         PRISM_LOG_INFO("WLR-SERVER", "wlr_x11_output_create returned %p", (void*)out);
         if (out) {
-            wlr_x11_output_set_title(out, "Project PrismWM Compositor (wlroots 0.17 / Sway)");
+            wlr_x11_output_set_title(out, "Project Prism Desktop");
             *created = true;
             PRISM_LOG_INFO("WLR-SERVER", "Created nested X11 output window");
         }
@@ -652,15 +652,17 @@ void WlrServer::Start() {
         PRISM_LOG_ERROR("WLR-SERVER", "Failed to start wlroots backend");
         return;
     }
-    PRISM_LOG_INFO("WLR-SERVER", "Backend started! is_multi=%d, is_wl=%d",
-                   wlr_backend_is_multi(backend_), wlr_backend_is_wl(backend_));
+    PRISM_LOG_INFO("WLR-SERVER", "Backend started! is_multi=%d, is_wl=%d, outputs=%zu",
+                   wlr_backend_is_multi(backend_), wlr_backend_is_wl(backend_), outputs_.size());
 
-    // Auto-create output window if running under nested host (Wayland, X11) or Headless
+    // Auto-create output window ONLY if no outputs exist (prevents duplicate output window)
     bool created = false;
-    if (wlr_backend_is_multi(backend_)) {
-        wlr_multi_for_each_backend(backend_, auto_create_output_for_nested, &created);
-    } else {
-        auto_create_output_for_nested(backend_, &created);
+    if (outputs_.empty()) {
+        if (wlr_backend_is_multi(backend_)) {
+            wlr_multi_for_each_backend(backend_, auto_create_output_for_nested, &created);
+        } else {
+            auto_create_output_for_nested(backend_, &created);
+        }
     }
 
     PRISM_LOG_INFO("WLR-SERVER", "wlroots backend running! Wayland display listening on %s (created_nested=%d)",
@@ -733,6 +735,10 @@ void WlrServer::RunEventLoopIteration(int timeout_ms) {
 
 void WlrServer::HandleNewOutput(struct wlr_output* output) {
     wlr_output_init_render(output, allocator_, renderer_);
+
+    if (wlr_output_is_wl(output)) {
+        wlr_wl_output_set_title(output, "Project Prism Desktop");
+    }
 
     // 1. Attach listeners
     auto wlr_out = std::make_unique<WlrOutput>(output, this);
@@ -945,10 +951,32 @@ void WlrServer::HandleCursorAxis(uint32_t time_msec, int axis, double value) {
 void WlrServer::InitSceneGraph() {
     if (!scene_) return;
 
-    // 1. Layer 0: Background Desktop
+    // 1. Layer 0: Background Desktop (Anime Sunset Atmosphere matching sunset_anime.png)
     background_tree_ = wlr_scene_tree_create(&scene_->tree);
-    const float bg_color[4] = {0.043f, 0.047f, 0.063f, 1.0f}; // macOS Dark Slate / Nebula #0b0c10
-    wallpaper_rect_ = wlr_scene_rect_create(background_tree_, 1920, 1080, bg_color);
+
+    // Sky Top (Twilight Lavender / Deep Indigo #1e192c)
+    const float sky_top[4] = {0.12f, 0.10f, 0.18f, 1.0f};
+    wallpaper_rect_ = wlr_scene_rect_create(background_tree_, 1920, 1080, sky_top);
+
+    // Sky Mid (Twilight Violet / Purple #382647)
+    const float sky_mid[4] = {0.24f, 0.16f, 0.30f, 1.0f};
+    bg_sky_mid_ = wlr_scene_rect_create(background_tree_, 1920, 360, sky_mid);
+
+    // Sunset Glow (Warm Coral / Sunset Mauve #d47862)
+    const float sunset_glow[4] = {0.83f, 0.47f, 0.38f, 0.85f};
+    bg_sunset_glow_ = wlr_scene_rect_create(background_tree_, 1920, 200, sunset_glow);
+
+    // Golden Sunset Horizon Band (#f5ad80)
+    const float horizon_glow[4] = {0.96f, 0.68f, 0.50f, 0.90f};
+    bg_sunset_horizon_ = wlr_scene_rect_create(background_tree_, 1920, 8, horizon_glow);
+
+    // Distant anime coastline silhouette (#14111d)
+    const float silh_color[4] = {0.08f, 0.07f, 0.12f, 0.98f};
+    bg_silhouette_ = wlr_scene_rect_create(background_tree_, 1920, 80, silh_color);
+
+    // Sunset sea reflection (#473046)
+    const float water_col[4] = {0.28f, 0.19f, 0.27f, 0.95f};
+    bg_water_glow_ = wlr_scene_rect_create(background_tree_, 1920, 260, water_col);
 
     // 2. Layer 1: Windows & Application Views
     windows_tree_ = wlr_scene_tree_create(&scene_->tree);
@@ -956,19 +984,37 @@ void WlrServer::InitSceneGraph() {
     // 3. Layer 2: Desktop Chrome (Top Menu Bar, Split Divider, Dock)
     chrome_tree_ = wlr_scene_tree_create(&scene_->tree);
 
-    // Top Menu Bar background (30px height, translucent dark slate: rgba(0.08, 0.09, 0.12, 0.85))
-    const float bar_color[4] = {0.08f, 0.09f, 0.12f, 0.85f};
-    top_bar_rect_ = wlr_scene_rect_create(chrome_tree_, 1920, 30, bar_color);
+    // Top Menu Bar background (34px height, frosted acrylic glass rgba(0.10, 0.12, 0.18, 0.82))
+    const float bar_color[4] = {0.10f, 0.12f, 0.18f, 0.82f};
+    top_bar_rect_ = wlr_scene_rect_create(chrome_tree_, 1920, 34, bar_color);
 
-    // Top Menu Bar bottom border line (1px, subtle highlight: rgba(1.0, 1.0, 1.0, 0.12))
-    const float line_color[4] = {1.0f, 1.0f, 1.0f, 0.12f};
+    // Top Menu Bar bottom border line (1px, subtle highlight rgba(1.0, 1.0, 1.0, 0.15))
+    const float line_color[4] = {1.0f, 1.0f, 1.0f, 0.15f};
     top_bar_border_ = wlr_scene_rect_create(chrome_tree_, 1920, 1, line_color);
-    wlr_scene_node_set_position(&top_bar_border_->node, 0, 29);
+    wlr_scene_node_set_position(&top_bar_border_->node, 0, 33);
 
-    // Top Menu Bar Apple / Prism logo icon (16x16 blue pill)
-    const float icon_color[4] = {0.0f, 0.48f, 1.0f, 1.0f};
-    top_bar_icon_ = wlr_scene_rect_create(chrome_tree_, 16, 16, icon_color);
-    wlr_scene_node_set_position(&top_bar_icon_->node, 14, 7);
+    // Top Menu Bar Prism Red-Coral Logo Badge (22x14)
+    const float icon_color[4] = {0.96f, 0.32f, 0.36f, 1.0f};
+    top_bar_icon_ = wlr_scene_rect_create(chrome_tree_, 22, 14, icon_color);
+    wlr_scene_node_set_position(&top_bar_icon_->node, 16, 10);
+
+    // Central Capsule Clock Pill (Dark acrylic capsule: rgba(0.06, 0.08, 0.12, 0.88), 170x22)
+    const float clock_bg[4] = {0.06f, 0.08f, 0.12f, 0.88f};
+    top_bar_clock_pill_ = wlr_scene_rect_create(chrome_tree_, 170, 22, clock_bg);
+
+    // Top handle indicator line above clock (40px x 2px, rgba(1.0, 1.0, 1.0, 0.65))
+    const float handle_color[4] = {1.0f, 1.0f, 1.0f, 0.65f};
+    top_bar_clock_handle_ = wlr_scene_rect_create(chrome_tree_, 40, 2, handle_color);
+
+    // Control Center Indicators (Right side)
+    const float wifi_color[4] = {0.20f, 0.78f, 0.35f, 1.0f}; // Wi-Fi green
+    top_bar_wifi_pill_ = wlr_scene_rect_create(chrome_tree_, 16, 10, wifi_color);
+
+    const float bat_color[4] = {0.85f, 0.85f, 0.90f, 0.90f}; // Battery silver
+    top_bar_battery_pill_ = wlr_scene_rect_create(chrome_tree_, 22, 11, bat_color);
+
+    const float bell_color[4] = {0.0f, 0.48f, 1.0f, 1.0f}; // Notification bell blue
+    top_bar_bell_pill_ = wlr_scene_rect_create(chrome_tree_, 12, 12, bell_color);
 
     // Split Divider (Vertical line & pill handle)
     const float div_line_color[4] = {1.0f, 1.0f, 1.0f, 0.18f};
@@ -977,20 +1023,49 @@ void WlrServer::InitSceneGraph() {
     split_divider_pill_ = wlr_scene_rect_create(chrome_tree_, 6, 42, div_pill_color);
 
     // macOS Floating Glass Dock (Bottom centered)
-    const float dock_bg_color[4] = {0.14f, 0.16f, 0.22f, 0.88f};
-    dock_bg_rect_ = wlr_scene_rect_create(chrome_tree_, 320, 64, dock_bg_color);
+    // Dock outer glow border
+    const float dock_glow[4] = {1.0f, 1.0f, 1.0f, 0.22f};
+    dock_border_rect_ = wlr_scene_rect_create(chrome_tree_, 462, 72, dock_glow);
 
-    // 5 Dock app icons (Music, Settings, Terminal, Files, Browser)
-    const float dock_palette[5][4] = {
-        {0.98f, 0.18f, 0.28f, 1.0f}, // Music (Red)
-        {0.56f, 0.56f, 0.58f, 1.0f}, // Settings (Gray)
-        {0.0f, 0.48f, 1.0f, 1.0f},  // Terminal (Blue)
-        {0.2f, 0.78f, 0.35f, 1.0f},  // Files (Green)
-        {1.0f, 0.58f, 0.0f, 1.0f}   // Browser (Orange)
+    // Dock frosted glass body (rgba(0.14, 0.17, 0.26, 0.84))
+    const float dock_bg_color[4] = {0.14f, 0.17f, 0.26f, 0.84f};
+    dock_bg_rect_ = wlr_scene_rect_create(chrome_tree_, 460, 70, dock_bg_color);
+
+    // App Launcher [田] 4-Square Matrix card (46x46, frosted card)
+    const float launcher_card_col[4] = {1.0f, 1.0f, 1.0f, 0.15f};
+    dock_launcher_card_ = wlr_scene_rect_create(chrome_tree_, 46, 46, launcher_card_col);
+
+    // 4 launcher square tiles inside [田]
+    dock_launcher_tiles_.clear();
+    const float tile_color[4] = {1.0f, 1.0f, 1.0f, 0.92f};
+    for (int t = 0; t < 4; ++t) {
+        auto* tile = wlr_scene_rect_create(chrome_tree_, 10, 10, tile_color);
+        dock_launcher_tiles_.push_back(tile);
+    }
+
+    // Vertical frosted divider line between Launcher and App cards
+    const float sep_col[4] = {1.0f, 1.0f, 1.0f, 0.18f};
+    dock_separator_ = wlr_scene_rect_create(chrome_tree_, 2, 44, sep_col);
+
+    // 6 Curated Squircle App Cards matching reference
+    dock_icon_rects_.clear();
+    dock_active_dots_.clear();
+    const float app_palette[6][4] = {
+        {0.98f, 0.42f, 0.18f, 1.0f}, // Browser (Firefox Orange-Red)
+        {0.18f, 0.65f, 0.95f, 1.0f}, // Twitter / Social (Sky Blue)
+        {0.20f, 0.75f, 0.38f, 1.0f}, // Chrome / Web (Emerald Green)
+        {0.15f, 0.80f, 0.45f, 1.0f}, // WeChat / Chat (Mint Green)
+        {0.95f, 0.20f, 0.25f, 1.0f}, // YouTube / Video (Ruby Red)
+        {0.18f, 0.20f, 0.28f, 1.0f}  // Terminal / Dev (Dark Slate)
     };
-    for (int i = 0; i < 5; ++i) {
-        auto* icon_rect = wlr_scene_rect_create(chrome_tree_, 44, 44, dock_palette[i]);
+    for (int i = 0; i < 6; ++i) {
+        auto* icon_rect = wlr_scene_rect_create(chrome_tree_, 46, 46, app_palette[i]);
         dock_icon_rects_.push_back(icon_rect);
+
+        // Apple-style running active indicator dot
+        const float dot_c[4] = {1.0f, 1.0f, 1.0f, (i < 3) ? 0.95f : 0.0f}; // First 3 apps active
+        auto* dot = wlr_scene_rect_create(chrome_tree_, 4, 4, dot_c);
+        dock_active_dots_.push_back(dot);
     }
     const float dot_color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
     dock_active_dot_ = wlr_scene_rect_create(chrome_tree_, 4, 4, dot_color);
@@ -1016,47 +1091,118 @@ void WlrServer::InitSceneGraph() {
 void WlrServer::UpdateSceneGraph(int width, int height, float dt) {
     if (width <= 0 || height <= 0) return;
 
-    // 1. Wallpaper size
+    // 1. Wallpaper Sunset Atmosphere Layout
     if (wallpaper_rect_) {
         wlr_scene_rect_set_size(wallpaper_rect_, width, height);
+        wlr_scene_node_set_position(&wallpaper_rect_->node, 0, 0);
+    }
+    if (bg_sky_mid_) {
+        int mid_h = static_cast<int>(height * 0.35f);
+        wlr_scene_rect_set_size(bg_sky_mid_, width, mid_h);
+        wlr_scene_node_set_position(&bg_sky_mid_->node, 0, static_cast<int>(height * 0.32f));
+    }
+    if (bg_sunset_glow_) {
+        int glow_h = static_cast<int>(height * 0.20f);
+        wlr_scene_rect_set_size(bg_sunset_glow_, width, glow_h);
+        wlr_scene_node_set_position(&bg_sunset_glow_->node, 0, static_cast<int>(height * 0.52f));
+    }
+    if (bg_sunset_horizon_) {
+        wlr_scene_rect_set_size(bg_sunset_horizon_, width, 6);
+        wlr_scene_node_set_position(&bg_sunset_horizon_->node, 0, static_cast<int>(height * 0.68f));
+    }
+    if (bg_silhouette_) {
+        int silh_h = static_cast<int>(height * 0.08f);
+        wlr_scene_rect_set_size(bg_silhouette_, width, silh_h);
+        wlr_scene_node_set_position(&bg_silhouette_->node, 0, static_cast<int>(height * 0.68f));
+    }
+    if (bg_water_glow_) {
+        int water_h = static_cast<int>(height * 0.24f);
+        wlr_scene_rect_set_size(bg_water_glow_, width, water_h);
+        wlr_scene_node_set_position(&bg_water_glow_->node, 0, static_cast<int>(height * 0.76f));
     }
 
-    // 2. Top Menu Bar size
+    // 2. Top Menu Bar (height: 34px)
     if (top_bar_rect_) {
-        wlr_scene_rect_set_size(top_bar_rect_, width, 30);
+        wlr_scene_rect_set_size(top_bar_rect_, width, 34);
+        wlr_scene_node_set_position(&top_bar_rect_->node, 0, 0);
     }
     if (top_bar_border_) {
         wlr_scene_rect_set_size(top_bar_border_, width, 1);
-        wlr_scene_node_set_position(&top_bar_border_->node, 0, 29);
+        wlr_scene_node_set_position(&top_bar_border_->node, 0, 33);
+    }
+    if (top_bar_icon_) {
+        wlr_scene_node_set_position(&top_bar_icon_->node, 16, 10);
+    }
+    if (top_bar_clock_pill_) {
+        int clock_w = 170;
+        int clock_x = (width - clock_w) / 2;
+        wlr_scene_node_set_position(&top_bar_clock_pill_->node, clock_x, 6);
+        if (top_bar_clock_handle_) {
+            wlr_scene_node_set_position(&top_bar_clock_handle_->node, (width - 40) / 2, 2);
+        }
+    }
+    if (top_bar_bell_pill_) {
+        wlr_scene_node_set_position(&top_bar_bell_pill_->node, width - 36, 11);
+    }
+    if (top_bar_battery_pill_) {
+        wlr_scene_node_set_position(&top_bar_battery_pill_->node, width - 68, 11);
+    }
+    if (top_bar_wifi_pill_) {
+        wlr_scene_node_set_position(&top_bar_wifi_pill_->node, width - 94, 12);
     }
 
-    // 3. Desktop Windows & Modular Tiling Window Decorator System
+    // 3. Floating Mac Dock (width: 460px, height: 70px, floating 14px above bottom)
+    int dock_w = 460;
+    int dock_h = 70;
+    int dock_x = (width - dock_w) / 2;
+    int dock_y = height - dock_h - 14;
+    if (dock_border_rect_) {
+        wlr_scene_rect_set_size(dock_border_rect_, dock_w + 2, dock_h + 2);
+        wlr_scene_node_set_position(&dock_border_rect_->node, dock_x - 1, dock_y - 1);
+    }
+    if (dock_bg_rect_) {
+        wlr_scene_rect_set_size(dock_bg_rect_, dock_w, dock_h);
+        wlr_scene_node_set_position(&dock_bg_rect_->node, dock_x, dock_y);
+    }
+    int cur_x = dock_x + 14;
+    int icon_y = dock_y + 12;
+    if (dock_launcher_card_) {
+        wlr_scene_node_set_position(&dock_launcher_card_->node, cur_x, icon_y);
+        if (dock_launcher_tiles_.size() >= 4) {
+            wlr_scene_node_set_position(&dock_launcher_tiles_[0]->node, cur_x + 9, icon_y + 9);
+            wlr_scene_node_set_position(&dock_launcher_tiles_[1]->node, cur_x + 25, icon_y + 9);
+            wlr_scene_node_set_position(&dock_launcher_tiles_[2]->node, cur_x + 9, icon_y + 25);
+            wlr_scene_node_set_position(&dock_launcher_tiles_[3]->node, cur_x + 25, icon_y + 25);
+        }
+        cur_x += 46 + 10;
+    }
+    if (dock_separator_) {
+        wlr_scene_node_set_position(&dock_separator_->node, cur_x, dock_y + 13);
+        cur_x += 2 + 10;
+    }
+    for (size_t i = 0; i < dock_icon_rects_.size(); ++i) {
+        wlr_scene_node_set_position(&dock_icon_rects_[i]->node, cur_x, icon_y);
+        if (i < dock_active_dots_.size()) {
+            wlr_scene_node_set_position(&dock_active_dots_[i]->node, cur_x + 21, dock_y + dock_h - 6);
+        }
+        cur_x += 46 + 10;
+    }
+
+    // 4. Desktop Windows & Modular Tiling Window Decorator System
     if (compositor_) {
         const auto& windows = compositor_->GetWindows();
+        size_t app_win_count = 0;
+        for (const auto& w : windows) {
+            if (w->GetLayerType() == LayerType::App) app_win_count++;
+        }
+
         for (size_t i = 0; i < windows.size(); ++i) {
             auto& win = windows[i];
+            if (win->GetLayerType() != LayerType::App) continue;
+
             if (!win->GetDecorator()) {
                 auto decorator = std::make_unique<decoration::TilingWindowDecorator>(win.get(), decoration_spec_);
                 decorator->AttachToScene(windows_tree_);
-
-                // Mount internal interactive controls inside decorator's content tree
-                auto* c_tree = decorator->GetContentTree();
-                if (c_tree) {
-                    const float btn_col[4] = {0.24f, 0.27f, 0.33f, 0.85f};
-                    auto* btn1 = wlr_scene_rect_create(c_tree, 140, 36, btn_col);
-                    wlr_scene_node_set_position(&btn1->node, 24, 20);
-
-                    auto* btn2 = wlr_scene_rect_create(c_tree, 140, 36, btn_col);
-                    wlr_scene_node_set_position(&btn2->node, 180, 20);
-
-                    const float track_col[4] = {0.20f, 0.22f, 0.28f, 1.0f};
-                    const float fill_col[4] = {0.0f, 0.48f, 1.0f, 1.0f};
-                    auto* sl_track = wlr_scene_rect_create(c_tree, 300, 6, track_col);
-                    wlr_scene_node_set_position(&sl_track->node, 24, 80);
-                    auto* sl_fill = wlr_scene_rect_create(c_tree, 120 + static_cast<int>(i) * 30, 6, fill_col);
-                    wlr_scene_node_set_position(&sl_fill->node, 24, 80);
-                }
-
                 win->SetDecorator(std::move(decorator));
             }
 
@@ -1075,7 +1221,7 @@ void WlrServer::UpdateSceneGraph(int width, int height, float dt) {
             }
         }
 
-        // 4. Split Divider
+        // 5. Split Divider
         float mc_prog = 0.0f;
         layout::MacFluidSplitStrategy* split_strat = nullptr;
         if (auto mc = dynamic_cast<layout::MissionControlStrategy*>(compositor_->GetLayoutStrategy())) {
@@ -1085,41 +1231,20 @@ void WlrServer::UpdateSceneGraph(int width, int height, float dt) {
             split_strat = dynamic_cast<layout::MacFluidSplitStrategy*>(compositor_->GetLayoutStrategy());
         }
 
-        bool show_divider = (split_strat && mc_prog < 0.2f && windows.size() >= 2);
+        bool show_divider = (split_strat && mc_prog < 0.2f && app_win_count >= 2);
         wlr_scene_node_set_enabled(&split_divider_line_->node, show_divider);
         wlr_scene_node_set_enabled(&split_divider_pill_->node, show_divider);
         if (show_divider) {
             int div_x = static_cast<int>(width * split_strat->GetCurrentRatio());
-            wlr_scene_rect_set_size(split_divider_line_, 2, height - 30);
-            wlr_scene_node_set_position(&split_divider_line_->node, div_x - 1, 30);
-
-            wlr_scene_node_set_position(&split_divider_pill_->node, div_x - 3, height / 2 - 21);
+            wlr_scene_rect_set_size(split_divider_line_, 2, dock_y - 34);
+            wlr_scene_node_set_position(&split_divider_line_->node, div_x - 1, 34);
+            wlr_scene_node_set_position(&split_divider_pill_->node, div_x - 3, (34 + dock_y) / 2 - 21);
         }
-
-        // 5. Dock position
-        int dock_w = 320;
-        int dock_h = 64;
-        int dock_x = (width - dock_w) / 2;
-        int dock_y = height - dock_h - 14;
-        wlr_scene_node_set_position(&dock_bg_rect_->node, dock_x, dock_y);
-
-        int icon_pad = 16;
-        int icon_size = 44;
-        int icon_gap = 16;
-        int cur_ix = dock_x + icon_pad;
-        for (size_t i = 0; i < dock_icon_rects_.size(); ++i) {
-            wlr_scene_node_set_position(&dock_icon_rects_[i]->node, cur_ix, dock_y + 10);
-            cur_ix += icon_size + icon_gap;
-        }
-        int focused_idx = compositor_->GetFocusedWindowIndex();
-        int dot_x = dock_x + icon_pad + focused_idx * (icon_size + icon_gap) + icon_size / 2 - 2;
-        wlr_scene_node_set_position(&dock_active_dot_->node, dot_x, dock_y + dock_h - 6);
 
         // 6. Debug HUD
         bool hud_enabled = compositor_->IsDebugHudEnabled();
         wlr_scene_node_set_enabled(&hud_tree_->node, hud_enabled);
         if (hud_enabled && hud_status_pill_) {
-            // Update color based on current_fps_
             if (current_fps_ >= 50.0f) {
                 const float c[4] = {0.25f, 0.73f, 0.31f, 1.0f}; // Green
                 wlr_scene_rect_set_color(hud_status_pill_, c);
