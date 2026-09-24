@@ -1,0 +1,50 @@
+# ==============================================================================
+# Git Ignore for PrismWM Project
+# ==============================================================================
+
+# Build Output & Artifacts
+build/
+bin/
+lib/
+out/
+dist/
+
+# Object & Binary Files
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+
+# CMake Generated Files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+.ninja_*
+
+# IDE & Editor Configurations
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.cache/
+.clangd/
+
+# Logs, Dumps & Temp Files
+*.log
+*.tmp
+core
+core.*
+gmon.out
+
+# Test & Debug Snapshots
+# Keep compressed PNG showcases, ignore uncompressed raw frame dumps
+snapshots/*.ppm
+
+# Cloned Reference Codebases
+sway/

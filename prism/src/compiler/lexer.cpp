@@ -1,0 +1,121 @@
+#include "prism/compiler/lexer.hpp"
+#include <cctype>
+#include <cstdlib>
+
+namespace prism::compiler {
+
+Lexer::Lexer(std::string source) : source_(std::move(source)) {}
+
+char Lexer::Peek() const {
+    if (IsAtEnd()) return '\0';
+    return source_[cursor_];
+}
+
+char Lexer::Advance() {
+    if (IsAtEnd()) return '\0';
+    char c = source_[cursor_++];
+    if (c == '\n') line_++;
+    return c;
+}
+
+bool Lexer::IsAtEnd() const {
+    return cursor_ >= source_.size();
+}
+
+void Lexer::SkipWhitespaceAndComments() {
+    while (!IsAtEnd()) {
+        char c = Peek();
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+            Advance();
+        } else if (c == '/' && cursor_ + 1 < source_.size() && source_[cursor_ + 1] == '/') {
+            // Line comment: skip until newline
+            while (!IsAtEnd() && Peek() != '\n') {
+                Advance();
+            }
+        } else {
+            break;
+        }
+    }
+}
+
+Token Lexer::ScanIdentifierOrKeyword() {
+    size_t start = cursor_;
+    while (!IsAtEnd() && (std::isalnum(Peek()) || Peek() == '_')) {
+        Advance();
+    }
+    std::string text = source_.substr(start, cursor_ - start);
+    return Token{TokenType::Identifier, text, 0.0, line_};
+}
+
+Token Lexer::ScanDollarIdentifier() {
+    Advance(); // Consume '$'
+    size_t start = cursor_;
+    while (!IsAtEnd() && (std::isalnum(Peek()) || Peek() == '_')) {
+        Advance();
+    }
+    std::string text = source_.substr(start, cursor_ - start);
+    return Token{TokenType::DollarIdentifier, text, 0.0, line_};
+}
+
+Token Lexer::ScanString() {
+    Advance(); // Consume leading '"'
+    std::string text;
+    while (!IsAtEnd() && Peek() != '"') {
+        if (Peek() == '\\' && cursor_ + 1 < source_.size()) {
+            Advance(); // skip '\'
+            char next = Advance();
+            if (next == 'n') text += '\n';
+            else if (next == 't') text += '\t';
+            else text += next;
+        } else {
+            text += Advance();
+        }
+    }
+    if (!IsAtEnd()) Advance(); // Consume closing '"'
+    return Token{TokenType::StringLiteral, text, 0.0, line_};
+}
+
+Token Lexer::ScanNumber() {
+    size_t start = cursor_;
+    while (!IsAtEnd() && (std::isdigit(Peek()) || Peek() == '.')) {
+        Advance();
+    }
+    std::string text = source_.substr(start, cursor_ - start);
+    double val = std::strtod(text.c_str(), nullptr);
+    return Token{TokenType::NumberLiteral, text, val, line_};
+}
+
+std::vector<Token> Lexer::Tokenize() {
+    std::vector<Token> tokens;
+    while (!IsAtEnd()) {
+        SkipWhitespaceAndComments();
+        if (IsAtEnd()) break;
+
+        char c = Peek();
+        if (std::isalpha(c) || c == '_') {
+            tokens.push_back(ScanIdentifierOrKeyword());
+        } else if (c == '$') {
+            tokens.push_back(ScanDollarIdentifier());
+        } else if (c == '"') {
+            tokens.push_back(ScanString());
+        } else if (std::isdigit(c)) {
+            tokens.push_back(ScanNumber());
+        } else {
+            Advance();
+            switch (c) {
+                case '.': tokens.push_back(Token{TokenType::Dot, ".", 0.0, line_}); break;
+                case '{': tokens.push_back(Token{TokenType::OpenBrace, "{", 0.0, line_}); break;
+                case '}': tokens.push_back(Token{TokenType::CloseBrace, "}", 0.0, line_}); break;
+                case '(': tokens.push_back(Token{TokenType::OpenParen, "(", 0.0, line_}); break;
+                case ')': tokens.push_back(Token{TokenType::CloseParen, ")", 0.0, line_}); break;
+                case ':': tokens.push_back(Token{TokenType::Colon, ":", 0.0, line_}); break;
+                case ',': tokens.push_back(Token{TokenType::Comma, ",", 0.0, line_}); break;
+                default: break;
+            }
+        }
+    }
+    tokens.push_back(Token{TokenType::EndOfFile, "", 0.0, line_});
+    return tokens;
+}
+
+} // namespace prism::compiler

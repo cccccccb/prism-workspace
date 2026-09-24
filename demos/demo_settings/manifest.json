@@ -1,0 +1,12 @@
+{
+  "app_id": "demo_settings",
+  "name": "System Preferences",
+  "version": "1.0.0",
+  "preview": "demos/demo_settings/preview.prismb",
+  "master": "demos/demo_settings/master.prismb",
+  "exec": "./build/demos/demo_settings",
+  "window": {
+    "width": 960,
+    "height": 640
+  }
+}

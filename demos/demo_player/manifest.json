@@ -1,0 +1,12 @@
+{
+  "app_id": "demo_player",
+  "name": "Prism Music Studio",
+  "version": "1.0.0",
+  "preview": "demos/demo_player/preview.prismb",
+  "master": "demos/demo_player/master.prismb",
+  "exec": "./build/demos/demo_player",
+  "window": {
+    "width": 960,
+    "height": 640
+  }
+}

@@ -1,0 +1,9 @@
+// preview.prism: 0ms Instant Splash UI for Prism Music Studio
+VStack(spacing: 16) {
+    Icon("prism.logo", scale: 0.9)
+        .springAnimation(damping: 0.75, stiffness: 180)
+    Skeleton("Prism Engine Warming Up...", shimmer: 1.2)
+}
+.blur(radius: 35, passes: 4)
+.cornerRadius(18)
+.padding(24)

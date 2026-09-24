@@ -1,0 +1,9 @@
+// preview.prism: 0ms Splash for Prism System Settings
+VStack(spacing: 14) {
+    Icon("settings.gear", scale: 0.9)
+        .springAnimation(damping: 0.8, stiffness: 200)
+    Skeleton("Loading System Preferences...", shimmer: 1.0)
+}
+.blur(radius: 30, passes: 4)
+.cornerRadius(18)
+.padding(20)

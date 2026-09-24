@@ -1,0 +1,22 @@
+// master.prism: Full Interactive UI for Prism System Monitor & Preferences
+VStack(spacing: 16) {
+    HStack(spacing: 12) {
+        Icon("system.cpu", scale: 0.8)
+        Text($cpu_usage_text, font: 16)
+    }
+    Slider($cpu_usage_val)
+
+    HStack(spacing: 12) {
+        Icon("system.memory", scale: 0.8)
+        Text($mem_usage_text, font: 16)
+    }
+    Slider($mem_usage_val)
+
+    HStack(spacing: 16) {
+        Button($dark_mode_btn, action: "theme:toggle")
+        Button("Purge RAM Cache", action: "sys:purge")
+    }
+}
+.blur(radius: 35, passes: 4)
+.cornerRadius(18)
+.padding(20)
