@@ -23,9 +23,15 @@ add_executable(layer_manager_test
 )
 target_link_libraries(layer_manager_test PRIVATE prism_core prism_sdk)
 
+add_executable(shell_experimental_test
+    shell_experimental_test.cpp
+)
+target_link_libraries(shell_experimental_test PRIVATE prism_core prism_sdk)
+
 enable_testing()
 add_test(NAME tree_engine_test COMMAND tree_engine_test)
 add_test(NAME tiling_decoration_test COMMAND tiling_decoration_test)
 add_test(NAME ipc_benchmark COMMAND ipc_benchmark)
 add_test(NAME dsl_widgets_test COMMAND dsl_widgets_test)
 add_test(NAME layer_manager_test COMMAND layer_manager_test)
+add_test(NAME shell_experimental_test COMMAND shell_experimental_test)

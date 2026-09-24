@@ -1,0 +1,11 @@
+Desktop {
+    ZStack {
+        Card {
+            HStack(spacing: 8.0) {
+                Badge("PRISM-DESKTOP", $desktop_badge)
+                Spacer(12.0)
+                Text("Sunset Anime Coastline", $wallpaper_title)
+            }
+        }
+    }
+}.acrylic(blur: 0.0, passes: 1, tint: #00000000)

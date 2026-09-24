@@ -676,6 +676,40 @@ Prism 采用装饰器模式 (`ModifierChain`) 链式修饰控件，所有参数�
 - 仅有 `LayerType::App` 类型的窗口才会接入 `TreeEngine` 参与 BSP 拆分、全屏互斥、焦点方向导航（`MoveFocus`）与多工作区迁移；
 - `Desktop`、`TopBar`、`Dock` 独立挂载于 `LayerManager`，不受平铺分屏扰动，不参与键盘焦点轮转，确保平铺窗口管理体验纯粹、严密且高效。
 
+---
+
+## 15. 类 Mac 风格独立系统壳层套件 (Standalone Mac-Style Shell Suite: Desktop, TopBar, Dock)
+
+### 15.1 模块解耦与独立工程架构 (Modular Decoupled Architecture)
+
+系统壳层的三大组件全部作为完全独立的工程进行开发与维护，分别位于：
+1. `prism-desktop`：纯净桌面背景画布与主题壁纸引擎；
+2. `prism-topbar`：系统状态与全局控制核心顶栏；
+3. `prism-dock`：类 Mac 亚克力悬浮胶囊应用坞。
+
+每个项目均具备专属的 `CMakeLists.txt`、`.prism` 声明式 UI 模板、C++ 业务逻辑后端及资源资产，仅通过链接官方 `prism_sdk` 与 IPC 通道与合成器宿主解耦交互。
+
+### 15.2 prism-desktop：纯净桌面画布与主题壁纸切换引擎
+- **无杂质纯净桌面**：目前专注于极致美学的桌面视觉画布，零多余桌面文件与图标堆叠；
+- **动态壁纸与主题轮转**：内置 `WallpaperManager`，支持 `sunset_anime`（日落二次元海岸）、`ocean_sunset`（热带夕阳海岸）、`deep_space`（深空星云银河）、`cyber_night`（赛博霓虹东京）等高画质壁纸；
+- **响应式控制**：接收 `desktop:next_wallpaper`、`desktop:prev_wallpaper` 及主题切换指令，更新 `$wallpaper_title` 并即时刷新渲染画布。
+
+### 15.3 prism-topbar：系统状态监控与控制中枢
+- **系统控制核心定位**：区别于传统 Mac 展示应用菜单，Prism TopBar 专职承担全局状态监控与全局系统控制核心；
+- **视觉排版**（参考示例图）：
+  * **左侧控制区**：系统 Emblem 图标（`●`）、全局应用抽屉触发器（`launcher:toggle`）、工作区胶囊徽章；
+  * **居中时间中枢**：毫秒级精准秒跳的时钟中枢（格式：`Oct-11 15:13:24`），后台独立 Ticker 线程每秒向 `$clock_time` 槽位推流；
+  * **右侧托盘与控制中心**：Wi-Fi 连接状态徽章（`$net_status`）、电池/电源充放电状态（`$bat_status: 100% ⚡`）、未读通知铃铛胶囊（`$notifications_btn: 🔔 2`）、控制中心触发器（`control:toggle`）。
+
+### 15.4 prism-dock：类 Mac 亚克力悬浮胶囊应用坞
+- **磨砂亚克力胶囊**：采用 `.acrylic(blur: 28.0, passes: 4, tint: #181C26E6)` 与 `.springOnHover(scale: 1.12, damping: 0.85)` 呈现极致细腻的毛玻璃与悬停弹簧缩放交互；
+- **组件构成**（参考示例图）：
+  * **左侧应用抽屉网格**：`田`（2x2 应用网格按钮，触发全局 App Drawer）；
+  * **垂直微光分割线**：视觉上严谨隔离系统级触发器与常规应用列表；
+  * **应用卡片与常驻托盘**：内置 Files、Terminal、Browser、Editor、Music、Settings 等高频应用卡片；
+  * **运行状态指示器**：运行中的应用卡片下方常驻活跃状态指示（高光下划线/指示点），动态推流 `$running_badge`。
+
+
 
 
 

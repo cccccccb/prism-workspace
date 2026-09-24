@@ -37,6 +37,7 @@ public:
     void OnMasterReady();
 
     void UpdateSlot(uint32_t slot_id, const std::string& val);
+    void UpdateSlot(uint32_t slot_id, const char* val) { UpdateSlot(slot_id, std::string(val)); }
     void UpdateSlot(uint32_t slot_id, double val);
     void UpdateSlot(uint32_t slot_id, int64_t val);
     void UpdateSlot(uint32_t slot_id, bool val);

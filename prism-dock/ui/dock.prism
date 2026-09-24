@@ -1,0 +1,14 @@
+Dock(height: 72.0) {
+    HStack(spacing: 12.0) {
+        Button("田", "dock:launcher")
+        Spacer(4.0)
+        Button("Files", "app:launch:files")
+        Button("Terminal", "app:launch:terminal")
+        Button("Browser", "app:launch:browser")
+        Button("Editor", "app:launch:editor")
+        Button("Music", "app:launch:music")
+        Button("Settings", "app:launch:settings")
+        Spacer(4.0)
+        Badge("● 3 Active", $running_badge)
+    }
+}.acrylic(blur: 28.0, passes: 4, tint: #181c26e6).springOnHover(scale: 1.12, damping: 0.85)

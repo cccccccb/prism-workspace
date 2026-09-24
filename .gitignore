@@ -45,6 +45,8 @@ gmon.out
 
 # Test & Debug Snapshots
 # Keep compressed PNG showcases, ignore uncompressed raw frame dumps
+*.ppm
+*.prismb
 snapshots/*.ppm
 
 # Cloned Reference Codebases

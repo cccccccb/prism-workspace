@@ -34,6 +34,8 @@ public:
     void DrawDebugHud(float fps, float frame_time_ms, int frame_count, const std::string& mode_str, int cursor_x, int cursor_y);
 
     bool SavePPM(const std::string& filepath) const;
+    bool LoadPPM(const std::string& filepath);
+    bool LoadImage(const std::string& filepath);
 
     int GetWidth() const { return width_; }
     int GetHeight() const { return height_; }

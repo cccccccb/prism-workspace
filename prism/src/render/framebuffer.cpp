@@ -3,6 +3,7 @@
 #include <cmath>
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
 
 namespace prism::render {
 
@@ -611,6 +612,78 @@ bool FrameBuffer::SavePPM(const std::string& filepath) const {
 
     out.write(reinterpret_cast<const char*>(rgb.data()), rgb.size());
     return true;
+}
+
+bool FrameBuffer::LoadPPM(const std::string& filepath) {
+    std::ifstream in(filepath, std::ios::binary);
+    if (!in) return false;
+
+    std::string magic;
+    in >> magic;
+    if (magic != "P6") return false;
+
+    auto skip_ws_and_comments = [&in]() {
+        while (true) {
+            int c = in.peek();
+            if (std::isspace(c)) {
+                in.get();
+            } else if (c == '#') {
+                std::string line;
+                std::getline(in, line);
+            } else {
+                break;
+            }
+        }
+    };
+
+    skip_ws_and_comments();
+    int w = 0, h = 0, maxval = 0;
+    in >> w;
+    skip_ws_and_comments();
+    in >> h;
+    skip_ws_and_comments();
+    in >> maxval;
+    in.get(); // Consume single newline or space separator
+
+    if (w <= 0 || h <= 0 || maxval <= 0 || maxval > 255) return false;
+
+    width_ = w;
+    height_ = h;
+    pixels_.resize(w * h);
+
+    std::vector<uint8_t> rgb(w * h * 3);
+    in.read(reinterpret_cast<char*>(rgb.data()), rgb.size());
+    if (!in) return false;
+
+    for (int i = 0; i < w * h; ++i) {
+        uint8_t r = rgb[i * 3 + 0];
+        uint8_t g = rgb[i * 3 + 1];
+        uint8_t b = rgb[i * 3 + 2];
+        pixels_[i] = (0xFF << 24) | (static_cast<uint32_t>(r) << 16) | (static_cast<uint32_t>(g) << 8) | static_cast<uint32_t>(b);
+    }
+    return true;
+}
+
+bool FrameBuffer::LoadImage(const std::string& filepath) {
+    if (filepath.ends_with(".ppm")) {
+        return LoadPPM(filepath);
+    }
+    // Check if a preconverted .ppm exists alongside it
+    auto dot_pos = filepath.find_last_of('.');
+    if (dot_pos != std::string::npos) {
+        std::string ppm_path = filepath.substr(0, dot_pos) + ".ppm";
+        if (std::filesystem::exists(ppm_path)) {
+            return LoadPPM(ppm_path);
+        }
+    }
+    // Convert on demand via Python PIL into a cached ppm file in /tmp
+    std::string cached_ppm = "/tmp/prism_cache_" + std::to_string(std::hash<std::string>{}(filepath)) + ".ppm";
+    if (!std::filesystem::exists(cached_ppm)) {
+        std::string cmd = "python3 -c \"from PIL import Image; Image.open('" + filepath + "').convert('RGB').save('" + cached_ppm + "')\" 2>/dev/null";
+        int ret = std::system(cmd.c_str());
+        if (ret != 0) return false;
+    }
+    return LoadPPM(cached_ppm);
 }
 
 } // namespace prism::render

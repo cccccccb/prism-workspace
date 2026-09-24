@@ -51,3 +51,8 @@ add_subdirectory(demos)
 # 3. Tests Subdirectory
 enable_testing()
 add_subdirectory(tests)
+
+# 4. Shell Standalone Projects (Desktop, TopBar, Dock)
+add_subdirectory(prism-desktop)
+add_subdirectory(prism-topbar)
+add_subdirectory(prism-dock)
