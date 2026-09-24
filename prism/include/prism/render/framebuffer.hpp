@@ -15,6 +15,9 @@ public:
 
     void DrawRect(int x, int y, int w, int h, uint32_t color);
     void DrawRoundedRect(int x, int y, int w, int h, float radius, uint32_t color, float opacity = 1.0f);
+    void DrawBorder(int x, int y, int w, int h, float radius, float stroke_width, uint32_t color);
+    void DrawCircle(int cx, int cy, int radius, uint32_t color);
+    void DrawGlow(int x, int y, int w, int h, float radius, uint32_t color);
     void DrawShadow(int x, int y, int w, int h, float radius, float shadow_radius, uint32_t color);
     void ApplyKawaseBlur(int x, int y, int w, int h, float blur_radius, int passes);
     void Blit(const FrameBuffer& src, int dst_x, int dst_y, int dst_w, int dst_h, float opacity = 1.0f);

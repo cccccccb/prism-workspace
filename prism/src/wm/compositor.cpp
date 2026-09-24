@@ -168,7 +168,7 @@ void Compositor::Tick(float dt) {
                     break;
 
                 case ipc::DiffOp::SetInt64:
-                    win->UpdateSlot(diff.slot_id, static_cast<double>(diff.value.i64));
+                    win->UpdateSlot(diff.slot_id, diff.value.i64);
                     break;
 
                 case ipc::DiffOp::SetFloat:
@@ -176,7 +176,7 @@ void Compositor::Tick(float dt) {
                     break;
 
                 case ipc::DiffOp::SetBool:
-                    win->UpdateSlot(diff.slot_id, diff.value.b ? "true" : "false");
+                    win->UpdateSlot(diff.slot_id, diff.value.b);
                     break;
 
                 case ipc::DiffOp::AppExit:

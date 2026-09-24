@@ -16,11 +16,18 @@ public:
 
     void Visit(scene::VStackNode& node) override;
     void Visit(scene::HStackNode& node) override;
+    void Visit(scene::ZStackNode& node) override;
+    void Visit(scene::CardNode& node) override;
     void Visit(scene::TextNode& node) override;
     void Visit(scene::ButtonNode& node) override;
     void Visit(scene::SliderNode& node) override;
     void Visit(scene::SkeletonNode& node) override;
     void Visit(scene::IconNode& node) override;
+    void Visit(scene::ToggleNode& node) override;
+    void Visit(scene::TextInputNode& node) override;
+    void Visit(scene::ProgressBarNode& node) override;
+    void Visit(scene::BadgeNode& node) override;
+    void Visit(scene::SpacerNode& node) override;
 
     void SetViewport(core::Rect vp) { viewport_ = vp; }
 

@@ -157,6 +157,75 @@ void FrameBuffer::DrawRoundedRect(int x, int y, int w, int h, float radius, uint
     }
 }
 
+void FrameBuffer::DrawCircle(int cx, int cy, int radius, uint32_t color) {
+    if (radius <= 0) return;
+    int x0 = std::max(0, cx - radius);
+    int y0 = std::max(0, cy - radius);
+    int x1 = std::min(width_, cx + radius + 1);
+    int y1 = std::min(height_, cy + radius + 1);
+    if (x0 >= x1 || y0 >= y1) return;
+
+    float r2 = static_cast<float>(radius * radius);
+    float r_edge = static_cast<float>((radius + 1) * (radius + 1));
+
+    for (int py = y0; py < y1; ++py) {
+        float dy = static_cast<float>(py - cy);
+        float dy2 = dy * dy;
+        uint32_t* row = &pixels_[py * width_];
+        for (int px = x0; px < x1; ++px) {
+            float dx = static_cast<float>(px - cx);
+            float d2 = dx * dx + dy2;
+            if (d2 <= r2) {
+                row[px] = AlphaBlend(row[px], color);
+            } else if (d2 < r_edge) {
+                float dist = std::sqrt(d2);
+                float alpha_t = (radius + 1.0f - dist);
+                row[px] = AlphaBlend(row[px], color, alpha_t);
+            }
+        }
+    }
+}
+
+void FrameBuffer::DrawBorder(int x, int y, int w, int h, float radius, float stroke_width, uint32_t color) {
+    if (w <= 0 || h <= 0 || stroke_width <= 0.0f) return;
+    int sw = std::max(1, static_cast<int>(std::ceil(stroke_width)));
+    DrawRoundedRect(x, y, w, sw, radius, color);
+    DrawRoundedRect(x, y + h - sw, w, sw, radius, color);
+    DrawRoundedRect(x, y, sw, h, radius, color);
+    DrawRoundedRect(x + w - sw, y, sw, h, radius, color);
+}
+
+void FrameBuffer::DrawGlow(int x, int y, int w, int h, float radius, uint32_t color) {
+    int g = static_cast<int>(radius);
+    if (g <= 0) return;
+    int x0 = std::max(0, x - g);
+    int y0 = std::max(0, y - g);
+    int x1 = std::min(width_, x + w + g);
+    int y1 = std::min(height_, y + h + g);
+    if (x0 >= x1 || y0 >= y1) return;
+
+    float inv_g = 1.0f / radius;
+    for (int py = y0; py < y1; ++py) {
+        float dy = 0.0f;
+        if (py < y) dy = static_cast<float>(y - py);
+        else if (py >= y + h) dy = static_cast<float>(py - (y + h));
+
+        uint32_t* row = &pixels_[py * width_];
+        for (int px = x0; px < x1; ++px) {
+            float dx = 0.0f;
+            if (px < x) dx = static_cast<float>(x - px);
+            else if (px >= x + w) dx = static_cast<float>(px - (x + w));
+
+            float dist = std::sqrt(dx * dx + dy * dy);
+            if (dist <= radius) {
+                float t = 1.0f - dist * inv_g;
+                float falloff = t * t * 0.45f;
+                row[px] = AlphaBlend(row[px], color, falloff);
+            }
+        }
+    }
+}
+
 void FrameBuffer::DrawShadow(int x, int y, int w, int h, float radius, float shadow_radius, uint32_t color) {
     int s = static_cast<int>(shadow_radius);
     if (s <= 0) return;

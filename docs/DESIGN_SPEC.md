@@ -527,4 +527,76 @@ PrismWM 严格坚守类 **i3 / Sway** 的平铺窗口哲学，彻底摒弃传统
   * `prism-msg layout <splith|splitv|tabbed|stacked|overview|split>`：切换当前容器或全局布局；
   * `prism-msg tree`：导出整棵平铺树 JSON 结构。
 
+---
+
+## 13. DSL 原生控件库、GPU 视觉特效与后端进程双向响应式交互系统 (Native DSL Controls, GPU Visual Effects, & Reactive Process Interop)
+
+### 13.1 核心设计理念与体系架构
+
+为了彻底颠覆传统桌面开发（如 Electron 启动慢、体积大、内存暴涨数十倍，以及传统 GTK/Qt C++ 样板代码冗长）的痛点，Project Prism 打造了一套连接原生声明式 DSL (`.prism`)、AOT 二进制渲染引擎与后端业务进程的核心系统。
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                   External Client Process (外部应用程序)                │
+│                                                                        │
+│   ┌────────────────────────┐         ┌───────────────────────────────┐ │
+│   │ Declarative UI (.prism)│         │ Native Backend Process (C++)  │ │
+│   │   - Card / ZStack      │         │   - Business Logic / Audio    │ │
+│   │   - Toggle / TextInput │ ──AOT──>│   - State Binding: $slot      │ │
+│   │   - ProgressBar / Badge│         │   - app->SetState("vol", 80)  │ │
+│   │   - .acrylic / .glow   │         │   - app->HotReload()          │ │
+│   └────────────────────────┘         └──────────────┬────────────────┘ │
+└─────────────────────────────────────────────────────┼──────────────────┘
+                                                      │ Zero-Copy Shared Memory
+                                                      │ RingBuffer (< 1 us Latency)
+┌─────────────────────────────────────────────────────▼──────────────────┐
+│                   Project Prism Compositor & WM Engine                 │
+│                                                                        │
+│   ┌────────────────────────┐         ┌───────────────────────────────┐ │
+│   │ Binary AST (mmap)      │         │ Tiling Window & Compositor    │ │
+│   │   - LCRS Compact Table │ ───────>│   - Reactive State Dispatcher │ │
+│   │   - Zero-Copy Loader   │         │   - GPU Kawase Acrylic / Glow │ │
+│   │   - Dynamic Morphing   │         │   - Analytical Anti-Aliasing  │ │
+│   └────────────────────────┘         └───────────────────────────────┘ │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### 13.2 DSL 原生控件库 (Native Widget Library)
+
+针对现代优美应用界面，Prism 内置全套高性能原生声明式组件：
+1. **容器与布局类**：
+   - `Card(spacing)`：自适应毛玻璃磨砂面板容器，内置深色半透明亚克力底色与镜面微光高光边框；
+   - `ZStack`：重叠图层覆盖容器，子节点按先后顺序依次叠放，用于悬浮控件、背景装饰与叠加层；
+   - `VStack(spacing)` / `HStack(spacing)`：纵向与横向自适应弹性盒子容器。
+2. **交互与展示控件**：
+   - `Toggle(isOn, $slot)`：胶囊跑道式平滑切换开关，带弹簧平滑位移滑块；
+   - `TextInput(placeholder, $slot)`：圆角边框单行输入框，支持动态聚焦光标条、占位符淡化显示与实时双向文本绑定；
+   - `ProgressBar(progress, $slot)`：带动态高亮填充与双通道底轨的自适应进度条；
+   - `Badge(text, $slot)`：圆角状态徽章胶囊标签，支持色彩自适应；
+   - `Spacer(minLength)`：弹性/固定间隙占位元素，灵活排版；
+   - `Button(label, action)` / `Slider(value, $slot)` / `Text(content)` / `Icon(name, scale)` / `Skeleton(style)`.
+
+### 13.3 GPU 视觉特效修饰符体系 (Visual Modifiers & Decorators)
+
+Prism 采用装饰器模式 (`ModifierChain`) 链式修饰控件，所有参数紧凑序列化进 AOT 二进制节点记录：
+- `.acrylic(blur: 24.0, passes: 4, tint: #141822E6)`：多通道 Kawase 亚克力磨砂玻璃背景模糊与定制底色调和；
+- `.glow(radius: 16.0, color: #007AFFE6)`：基于解析高斯渐变衰减的环境发光与外发霓虹光晕；
+- `.springOnHover(scale: 1.05, damping: 0.82)`：悬停动力学弹簧形变交互反馈；
+- `.cornerRadius(r)` / `.padding(p)` / `.springAnimation(damping, stiffness)`.
+
+### 13.4 后端微秒级响应式交互与无损热重载 (Reactive SDK & Hot-Reload)
+
+1. **自动前缀抹平哈希 (`HashSlot`)**：
+   `core::HashSlot` 内部智能支持 `$track_title` 与 `track_title`，外部应用调用 `SetState("track_title", ...)` 无缝命中 DSL 中的 `$track_title` 槽位。
+2. **多态强类型同步 (`SetState` / `UpdateSlot`)**：
+   - `SetState(slot, string)`：更新 `TextNode`、`TextInputNode`、`BadgeNode`、`ButtonNode`；
+   - `SetState(slot, double)` / `SetState(slot, int64_t)`：更新 `SliderNode`、`ProgressBarNode`、`ToggleNode`；
+   - `SetState(slot, bool)`：更新 `ToggleNode`、`TextNode`。
+3. **动态无损热重载 (`Application::HotReload`)**：
+   在应用开发运行中，开发者修改 `.prism` 模板并重新编译后，调用 `app->HotReload(new_path)`：
+   - 自动暂存当前所有活跃槽位的数据（滑块数值、输入框文字、开关状态、进度百分比）；
+   - 毫秒级重载新布局 AST 树并重构组件层级；
+   - 自动将暂存的运行时状态精确回填入新布局中，实现**界面任意调整而业务逻辑与用户操作状态零丢失**的极致开发体验。
+
+
 

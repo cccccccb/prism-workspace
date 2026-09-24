@@ -37,6 +37,8 @@ public:
 
     void UpdateSlot(uint32_t slot_id, const std::string& val);
     void UpdateSlot(uint32_t slot_id, double val);
+    void UpdateSlot(uint32_t slot_id, int64_t val);
+    void UpdateSlot(uint32_t slot_id, bool val);
 
     void SetBounds(core::Rect bounds);
     void SetFocused(bool focused);

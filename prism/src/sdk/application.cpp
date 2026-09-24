@@ -102,6 +102,9 @@ void Application::LoadPackageDsl() {
     if (!master_tree_) {
         master_tree_ = compiler::BinarySceneLoader::LoadFromFile(config_.package_path + ":master.prismb");
     }
+    if (!master_tree_) {
+        master_tree_ = compiler::BinarySceneLoader::LoadFromFile(config_.package_path);
+    }
 
     if (master_tree_) {
         slot_index_.clear();
@@ -139,6 +142,10 @@ void Application::SetState(std::string_view slot_name, std::string_view str) {
             text_node->SetText(std::string(str));
         } else if (auto btn_node = std::dynamic_pointer_cast<scene::ButtonNode>(it->second)) {
             btn_node->SetLabel(std::string(str));
+        } else if (auto input_node = std::dynamic_pointer_cast<scene::TextInputNode>(it->second)) {
+            input_node->SetText(std::string(str));
+        } else if (auto badge_node = std::dynamic_pointer_cast<scene::BadgeNode>(it->second)) {
+            badge_node->SetText(std::string(str));
         }
     }
 
@@ -166,8 +173,14 @@ void Application::SetState(std::string_view slot_name, int64_t val) {
     if (it != slot_index_.end()) {
         if (auto slider = std::dynamic_pointer_cast<scene::SliderNode>(it->second)) {
             slider->SetValue(static_cast<double>(val));
+        } else if (auto progress = std::dynamic_pointer_cast<scene::ProgressBarNode>(it->second)) {
+            progress->SetProgress(static_cast<float>(val > 1 ? val / 100.0 : val));
+        } else if (auto toggle = std::dynamic_pointer_cast<scene::ToggleNode>(it->second)) {
+            toggle->SetState(val != 0);
         } else if (auto text = std::dynamic_pointer_cast<scene::TextNode>(it->second)) {
             text->SetText(std::to_string(val));
+        } else if (auto badge = std::dynamic_pointer_cast<scene::BadgeNode>(it->second)) {
+            badge->SetText(std::to_string(val));
         }
     }
 
@@ -184,6 +197,10 @@ void Application::SetState(std::string_view slot_name, double val) {
     if (it != slot_index_.end()) {
         if (auto slider = std::dynamic_pointer_cast<scene::SliderNode>(it->second)) {
             slider->SetValue(val);
+        } else if (auto progress = std::dynamic_pointer_cast<scene::ProgressBarNode>(it->second)) {
+            progress->SetProgress(static_cast<float>(val > 1.0 ? val / 100.0 : val));
+        } else if (auto toggle = std::dynamic_pointer_cast<scene::ToggleNode>(it->second)) {
+            toggle->SetState(val > 0.5);
         } else if (auto text = std::dynamic_pointer_cast<scene::TextNode>(it->second)) {
             text->SetText(std::to_string(val));
         }
@@ -200,7 +217,9 @@ void Application::SetState(std::string_view slot_name, bool val) {
     uint32_t slot = core::HashSlot(slot_name);
     auto it = slot_index_.find(slot);
     if (it != slot_index_.end()) {
-        if (auto text = std::dynamic_pointer_cast<scene::TextNode>(it->second)) {
+        if (auto toggle = std::dynamic_pointer_cast<scene::ToggleNode>(it->second)) {
+            toggle->SetState(val);
+        } else if (auto text = std::dynamic_pointer_cast<scene::TextNode>(it->second)) {
             text->SetText(val ? "true" : "false");
         }
     }
@@ -210,6 +229,68 @@ void Application::SetState(std::string_view slot_name, bool val) {
         channel_->PushStateDiff(pkt);
     }
     RenderSurface();
+}
+
+bool Application::HotReload(const std::string& package_path) {
+    if (!package_path.empty()) {
+        config_.package_path = package_path;
+    }
+    if (config_.package_path.empty()) return false;
+
+    PRISM_LOG_INFO("SDK-DSL", "[%s] Hot-reloading DSL bundle from: %s",
+                   config_.app_id.c_str(), config_.package_path.c_str());
+
+    // Preserve runtime state across hot-reload
+    std::unordered_map<uint32_t, std::string> saved_text;
+    std::unordered_map<uint32_t, double> saved_double;
+    std::unordered_map<uint32_t, bool> saved_bool;
+
+    for (const auto& [slot, node] : slot_index_) {
+        if (auto text = std::dynamic_pointer_cast<scene::TextNode>(node)) {
+            saved_text[slot] = text->GetText();
+        } else if (auto input = std::dynamic_pointer_cast<scene::TextInputNode>(node)) {
+            saved_text[slot] = input->GetText();
+        } else if (auto badge = std::dynamic_pointer_cast<scene::BadgeNode>(node)) {
+            saved_text[slot] = badge->GetText();
+        } else if (auto slider = std::dynamic_pointer_cast<scene::SliderNode>(node)) {
+            saved_double[slot] = slider->GetValue();
+        } else if (auto progress = std::dynamic_pointer_cast<scene::ProgressBarNode>(node)) {
+            saved_double[slot] = progress->GetProgress();
+        } else if (auto toggle = std::dynamic_pointer_cast<scene::ToggleNode>(node)) {
+            saved_bool[slot] = toggle->IsOn();
+        }
+    }
+
+    // Reload AST from updated bundle
+    LoadPackageDsl();
+
+    // Reapply runtime states to the fresh AST
+    for (const auto& [slot, str] : saved_text) {
+        auto it = slot_index_.find(slot);
+        if (it != slot_index_.end()) {
+            if (auto t = std::dynamic_pointer_cast<scene::TextNode>(it->second)) t->SetText(str);
+            else if (auto inp = std::dynamic_pointer_cast<scene::TextInputNode>(it->second)) inp->SetText(str);
+            else if (auto b = std::dynamic_pointer_cast<scene::BadgeNode>(it->second)) b->SetText(str);
+        }
+    }
+    for (const auto& [slot, val] : saved_double) {
+        auto it = slot_index_.find(slot);
+        if (it != slot_index_.end()) {
+            if (auto s = std::dynamic_pointer_cast<scene::SliderNode>(it->second)) s->SetValue(val);
+            else if (auto p = std::dynamic_pointer_cast<scene::ProgressBarNode>(it->second)) p->SetProgress(static_cast<float>(val));
+        }
+    }
+    for (const auto& [slot, val] : saved_bool) {
+        auto it = slot_index_.find(slot);
+        if (it != slot_index_.end()) {
+            if (auto tog = std::dynamic_pointer_cast<scene::ToggleNode>(it->second)) tog->SetState(val);
+        }
+    }
+
+    RenderSurface();
+    PRISM_LOG_INFO("SDK-DSL", "[%s] Hot-reload complete with runtime state preserved (%zu slots)",
+                   config_.app_id.c_str(), slot_index_.size());
+    return true;
 }
 
 void Application::Ready() {

@@ -61,4 +61,29 @@ private:
     float spacing_{8.0f};
 };
 
+class CardNode : public ContainerNode {
+public:
+    explicit CardNode(float spacing = 12.0f, std::string name = "Card")
+        : ContainerNode(std::move(name)), spacing_(spacing) {}
+
+    void Accept(SceneVisitor& visitor) override {
+        visitor.Visit(*this);
+    }
+
+    float GetSpacing() const { return spacing_; }
+
+private:
+    float spacing_{12.0f};
+};
+
+class ZStackNode : public ContainerNode {
+public:
+    explicit ZStackNode(std::string name = "ZStack")
+        : ContainerNode(std::move(name)) {}
+
+    void Accept(SceneVisitor& visitor) override {
+        visitor.Visit(*this);
+    }
+};
+
 } // namespace prism::scene

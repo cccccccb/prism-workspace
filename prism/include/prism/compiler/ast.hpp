@@ -9,9 +9,11 @@
 namespace prism::compiler {
 
 struct AstModifier {
-    std::string name; // "blur", "cornerRadius", "padding", "springAnimation"
+    std::string name; // "blur", "cornerRadius", "padding", "springAnimation", "acrylic", "glow", "springOnHover"
     std::vector<float> float_args;
     std::vector<std::string> str_args;
+    std::unordered_map<std::string, double> named_floats;
+    std::unordered_map<std::string, std::string> named_strings;
 };
 
 struct AstNode {

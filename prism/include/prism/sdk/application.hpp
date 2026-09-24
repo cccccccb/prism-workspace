@@ -52,9 +52,14 @@ public:
     void Exit(int code = 0);
     void PollEvents();
 
+    // Hot-reload DSL without dropping backend application state
+    bool HotReload(const std::string& package_path = "");
+
     // Client-side UI Rendering & Surface access
     void RenderSurface();
     std::shared_ptr<render::FrameBuffer> GetSurface() const { return client_surface_; }
+    std::shared_ptr<scene::SceneNode> GetMasterTree() const { return master_tree_; }
+    std::shared_ptr<scene::SceneNode> GetPreviewTree() const { return preview_tree_; }
 
     const std::string& GetAppId() const { return config_.app_id; }
     bool IsConnectedToWayland() const { return wl_display_ != nullptr; }

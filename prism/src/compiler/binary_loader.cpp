@@ -5,6 +5,9 @@
 #include "prism/modifiers/blur_modifier.hpp"
 #include "prism/modifiers/geometry_modifier.hpp"
 #include "prism/modifiers/animation_modifier.hpp"
+#include "prism/modifiers/acrylic_modifier.hpp"
+#include "prism/modifiers/glow_modifier.hpp"
+#include "prism/modifiers/spring_hover_modifier.hpp"
 #include "prism/core/logging.hpp"
 #include "prism/core/types.hpp"
 #include "prism/pack/package.hpp"
@@ -121,6 +124,27 @@ std::shared_ptr<scene::SceneNode> BinarySceneLoader::LoadFromMemory(const uint8_
             case BinaryNodeType::Icon:
                 node = std::make_shared<scene::IconNode>(GetString(rec.icon_offset), rec.width > 0 ? rec.width : 1.0f, name.empty() ? "Icon" : name);
                 break;
+            case BinaryNodeType::Toggle:
+                node = std::make_shared<scene::ToggleNode>(rec.width > 0.5f, name.empty() ? "Toggle" : name);
+                break;
+            case BinaryNodeType::TextInput:
+                node = std::make_shared<scene::TextInputNode>("", GetString(rec.text_offset), "", name.empty() ? "TextInput" : name);
+                break;
+            case BinaryNodeType::ProgressBar:
+                node = std::make_shared<scene::ProgressBarNode>(rec.width, name.empty() ? "ProgressBar" : name);
+                break;
+            case BinaryNodeType::Card:
+                node = std::make_shared<scene::CardNode>(rec.spacing > 0 ? rec.spacing : 12.0f, name.empty() ? "Card" : name);
+                break;
+            case BinaryNodeType::Spacer:
+                node = std::make_shared<scene::SpacerNode>(rec.width, name.empty() ? "Spacer" : name);
+                break;
+            case BinaryNodeType::Badge:
+                node = std::make_shared<scene::BadgeNode>(GetString(rec.text_offset), name.empty() ? "Badge" : name);
+                break;
+            case BinaryNodeType::ZStack:
+                node = std::make_shared<scene::ZStackNode>(name.empty() ? "ZStack" : name);
+                break;
             default:
                 node = std::make_shared<scene::VStackNode>(0.0f, "Unknown");
                 break;
@@ -133,7 +157,21 @@ std::shared_ptr<scene::SceneNode> BinarySceneLoader::LoadFromMemory(const uint8_
 
         // Attach Modifiers (Decorator Pattern)
         if (rec.blur_radius > 0) {
-            node->Modifiers().Add(std::make_shared<modifiers::KawaseBlurModifier>(rec.blur_radius, rec.blur_passes > 0 ? rec.blur_passes : 4));
+            if (rec.tint_color != 0) {
+                node->Modifiers().Add(std::make_shared<modifiers::AcrylicModifier>(
+                    rec.blur_radius, rec.blur_passes > 0 ? rec.blur_passes : 4, core::Color::FromHex(rec.tint_color)));
+            } else {
+                node->Modifiers().Add(std::make_shared<modifiers::KawaseBlurModifier>(
+                    rec.blur_radius, rec.blur_passes > 0 ? rec.blur_passes : 4));
+            }
+        }
+        if (rec.glow_radius > 0 || rec.glow_color != 0) {
+            node->Modifiers().Add(std::make_shared<modifiers::GlowModifier>(
+                rec.glow_radius, core::Color::FromHex(rec.glow_color)));
+        }
+        if (rec.hover_scale > 0) {
+            node->Modifiers().Add(std::make_shared<modifiers::HoverSpringModifier>(
+                rec.hover_scale, rec.spring_damping > 0 ? rec.spring_damping : 0.8f));
         }
         if (rec.corner_radius > 0) {
             node->Modifiers().Add(std::make_shared<modifiers::CornerRadiusModifier>(rec.corner_radius));
@@ -141,7 +179,7 @@ std::shared_ptr<scene::SceneNode> BinarySceneLoader::LoadFromMemory(const uint8_
         if (rec.padding > 0) {
             node->Modifiers().Add(std::make_shared<modifiers::PaddingModifier>(rec.padding));
         }
-        if (rec.spring_damping > 0) {
+        if (rec.spring_damping > 0 && rec.hover_scale <= 0) {
             node->Modifiers().Add(std::make_shared<modifiers::SpringAnimationModifier>(rec.spring_damping, rec.spring_stiffness));
         }
 

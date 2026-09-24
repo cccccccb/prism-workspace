@@ -51,6 +51,43 @@ public:
         std::cout << "[Icon: " << node.GetIconName() << " scale=" << node.GetScale() << "]\n";
     }
 
+    void Visit(scene::ZStackNode& node) override {
+        PrintPrefix(node);
+        std::cout << "[ZStack]\n";
+        Recurse(node);
+    }
+
+    void Visit(scene::CardNode& node) override {
+        PrintPrefix(node);
+        std::cout << "[Card spacing=" << node.GetSpacing() << "]\n";
+        Recurse(node);
+    }
+
+    void Visit(scene::ToggleNode& node) override {
+        PrintPrefix(node);
+        std::cout << "[Toggle: state=" << (node.GetState() ? "ON" : "OFF") << " label=\"" << node.GetLabel() << "\" action=" << node.GetAction() << "]\n";
+    }
+
+    void Visit(scene::TextInputNode& node) override {
+        PrintPrefix(node);
+        std::cout << "[TextInput: text=\"" << node.GetText() << "\" placeholder=\"" << node.GetPlaceholder() << "\" action=" << node.GetAction() << "]\n";
+    }
+
+    void Visit(scene::ProgressBarNode& node) override {
+        PrintPrefix(node);
+        std::cout << "[ProgressBar: progress=" << (node.GetProgress() * 100.0) << "%]\n";
+    }
+
+    void Visit(scene::BadgeNode& node) override {
+        PrintPrefix(node);
+        std::cout << "[Badge: \"" << node.GetText() << "\"]\n";
+    }
+
+    void Visit(scene::SpacerNode& node) override {
+        PrintPrefix(node);
+        std::cout << "[Spacer min=" << node.GetMinLength() << "px]\n";
+    }
+
 private:
     void PrintPrefix(scene::SceneNode& node) {
         std::string pad(indent_ * 2, ' ');
@@ -138,6 +175,10 @@ void Window::UpdateSlot(uint32_t slot_id, const std::string& val) {
             text_node->SetText(val);
         } else if (auto btn_node = std::dynamic_pointer_cast<scene::ButtonNode>(it->second)) {
             btn_node->SetLabel(val);
+        } else if (auto input_node = std::dynamic_pointer_cast<scene::TextInputNode>(it->second)) {
+            input_node->SetText(val);
+        } else if (auto badge_node = std::dynamic_pointer_cast<scene::BadgeNode>(it->second)) {
+            badge_node->SetText(val);
         }
         PRISM_LOG_INFO("WM-WIN", "[%s] Slot 0x%08X updated to string '%s'", app_id_.c_str(), slot_id, val.c_str());
     } else {
@@ -150,12 +191,50 @@ void Window::UpdateSlot(uint32_t slot_id, double val) {
     if (it != slot_index_.end()) {
         if (auto slider = std::dynamic_pointer_cast<scene::SliderNode>(it->second)) {
             slider->SetValue(val);
+        } else if (auto progress = std::dynamic_pointer_cast<scene::ProgressBarNode>(it->second)) {
+            progress->SetProgress(static_cast<float>(val > 1.0 ? val / 100.0 : val));
+        } else if (auto toggle = std::dynamic_pointer_cast<scene::ToggleNode>(it->second)) {
+            toggle->SetState(val > 0.5);
         } else if (auto text_node = std::dynamic_pointer_cast<scene::TextNode>(it->second)) {
             text_node->SetText(std::to_string(val));
         }
         PRISM_LOG_DEBUG("WM-WIN", "[%s] Slot 0x%08X updated to %.2f", app_id_.c_str(), slot_id, val);
     } else {
         PRISM_LOG_WARN("WM-WIN", "[%s] Float slot 0x%08X not found in index!", app_id_.c_str(), slot_id);
+    }
+}
+
+void Window::UpdateSlot(uint32_t slot_id, int64_t val) {
+    auto it = slot_index_.find(slot_id);
+    if (it != slot_index_.end()) {
+        if (auto slider = std::dynamic_pointer_cast<scene::SliderNode>(it->second)) {
+            slider->SetValue(static_cast<double>(val));
+        } else if (auto progress = std::dynamic_pointer_cast<scene::ProgressBarNode>(it->second)) {
+            progress->SetProgress(static_cast<float>(val > 1 ? val / 100.0 : val));
+        } else if (auto toggle = std::dynamic_pointer_cast<scene::ToggleNode>(it->second)) {
+            toggle->SetState(val != 0);
+        } else if (auto text_node = std::dynamic_pointer_cast<scene::TextNode>(it->second)) {
+            text_node->SetText(std::to_string(val));
+        } else if (auto badge = std::dynamic_pointer_cast<scene::BadgeNode>(it->second)) {
+            badge->SetText(std::to_string(val));
+        }
+        PRISM_LOG_DEBUG("WM-WIN", "[%s] Slot 0x%08X updated to int %ld", app_id_.c_str(), slot_id, val);
+    } else {
+        PRISM_LOG_WARN("WM-WIN", "[%s] Int slot 0x%08X not found in index!", app_id_.c_str(), slot_id);
+    }
+}
+
+void Window::UpdateSlot(uint32_t slot_id, bool val) {
+    auto it = slot_index_.find(slot_id);
+    if (it != slot_index_.end()) {
+        if (auto toggle = std::dynamic_pointer_cast<scene::ToggleNode>(it->second)) {
+            toggle->SetState(val);
+        } else if (auto text_node = std::dynamic_pointer_cast<scene::TextNode>(it->second)) {
+            text_node->SetText(val ? "true" : "false");
+        }
+        PRISM_LOG_DEBUG("WM-WIN", "[%s] Slot 0x%08X updated to bool %s", app_id_.c_str(), slot_id, val ? "true" : "false");
+    } else {
+        PRISM_LOG_WARN("WM-WIN", "[%s] Bool slot 0x%08X not found in index!", app_id_.c_str(), slot_id);
     }
 }
 

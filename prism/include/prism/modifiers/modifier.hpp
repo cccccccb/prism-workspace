@@ -10,7 +10,10 @@ enum class ModifierType {
     CornerRadius,
     Shadow,
     Padding,
-    SpringAnimation
+    SpringAnimation,
+    Acrylic,
+    Glow,
+    HoverSpring
 };
 
 /**

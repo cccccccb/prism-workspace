@@ -27,7 +27,14 @@ enum class BinaryNodeType : uint16_t {
     MotionFold       = 15,
     MotionFullscreen = 16,
     MotionSplitMove  = 17,
-    MotionFocus      = 18
+    MotionFocus      = 18,
+    Toggle           = 19,
+    TextInput        = 20,
+    ProgressBar      = 21,
+    Card             = 22,
+    Spacer           = 23,
+    Badge            = 24,
+    ZStack           = 25
 };
 
 #pragma pack(push, 1)
@@ -121,6 +128,10 @@ struct PrismbNodeRecord {
     float          padding;
     float          spring_damping;
     float          spring_stiffness;
+    uint32_t       glow_color;
+    float          glow_radius;
+    uint32_t       tint_color;
+    float          hover_scale;
 
     // String Table Offsets (0xFFFFFFFF if none)
     uint32_t       name_offset;

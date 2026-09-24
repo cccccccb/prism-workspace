@@ -45,9 +45,16 @@ const Token& Parser::Consume(TokenType type, const std::string& err_msg) {
 BinaryNodeType Parser::ResolveNodeType(const std::string& name) {
     if (name == "VStack")           return BinaryNodeType::VStack;
     if (name == "HStack")           return BinaryNodeType::HStack;
+    if (name == "ZStack")           return BinaryNodeType::ZStack;
+    if (name == "Card")             return BinaryNodeType::Card;
     if (name == "Text")             return BinaryNodeType::Text;
     if (name == "Button")           return BinaryNodeType::Button;
     if (name == "Slider")           return BinaryNodeType::Slider;
+    if (name == "Toggle" || name == "Switch") return BinaryNodeType::Toggle;
+    if (name == "TextInput" || name == "TextField") return BinaryNodeType::TextInput;
+    if (name == "ProgressBar" || name == "Progress") return BinaryNodeType::ProgressBar;
+    if (name == "Badge")            return BinaryNodeType::Badge;
+    if (name == "Spacer")           return BinaryNodeType::Spacer;
     if (name == "Skeleton")         return BinaryNodeType::Skeleton;
     if (name == "Icon")             return BinaryNodeType::Icon;
     if (name == "TilingDecoration") return BinaryNodeType::TilingDecoration;
@@ -92,6 +99,7 @@ std::shared_ptr<AstNode> Parser::ParseNode() {
                 if (!label.empty()) node->string_props[label] = s;
                 if (label == "action") node->action_value = s;
                 else if (label == "icon") node->icon_value = s;
+                else if (label == "placeholder") node->text_value = s;
                 else if (node->text_value.empty()) node->text_value = s;
                 else node->action_value = s;
             } else if (Check(TokenType::NumberLiteral)) {
@@ -164,15 +172,23 @@ AstModifier Parser::ParseModifier() {
 
     if (Match(TokenType::OpenParen)) {
         while (!Check(TokenType::CloseParen) && !IsAtEnd()) {
-            if (Check(TokenType::Identifier) && tokens_[current_ + 1].type == TokenType::Colon) {
-                Advance(); // label
+            std::string label;
+            if (Check(TokenType::Identifier) && (current_ + 1 < tokens_.size()) && tokens_[current_ + 1].type == TokenType::Colon) {
+                label = Advance().text;
                 Consume(TokenType::Colon, "Expected ':'");
             }
 
             if (Check(TokenType::NumberLiteral)) {
-                mod.float_args.push_back(static_cast<float>(Advance().number_value));
+                double val = Advance().number_value;
+                mod.float_args.push_back(static_cast<float>(val));
+                if (!label.empty()) mod.named_floats[label] = val;
             } else if (Check(TokenType::StringLiteral)) {
-                mod.str_args.push_back(Advance().text);
+                std::string s = Advance().text;
+                mod.str_args.push_back(s);
+                if (!label.empty()) mod.named_strings[label] = s;
+            } else if (Check(TokenType::Identifier)) {
+                std::string id = Advance().text;
+                if (!label.empty()) mod.named_strings[label] = id;
             } else {
                 Advance();
             }

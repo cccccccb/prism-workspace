@@ -40,13 +40,19 @@ uint16_t BinaryGenerator::FlattenNode(const std::shared_ptr<AstNode>& node, uint
     record.action_offset = AddString(node->action_value);
     record.icon_offset = AddString(node->icon_value);
 
-    // Numeric value defaults (font, shimmer, scale)
+    // Numeric value defaults (font, shimmer, scale, progress, toggle, spacer)
     if (node->type == BinaryNodeType::Skeleton) {
         record.height = node->numeric_value; // shimmer speed
     } else if (node->type == BinaryNodeType::Icon) {
         record.width = node->numeric_value;  // scale
     } else if (node->type == BinaryNodeType::Text) {
         record.height = node->numeric_value; // font size
+    } else if (node->type == BinaryNodeType::Toggle) {
+        record.width = node->numeric_value;  // initial state (0.0 or 1.0)
+    } else if (node->type == BinaryNodeType::ProgressBar) {
+        record.width = node->numeric_value;  // initial progress (0.0 .. 1.0)
+    } else if (node->type == BinaryNodeType::Spacer) {
+        record.width = node->numeric_value;  // length
     }
 
     // Process Modifiers
@@ -62,6 +68,40 @@ uint16_t BinaryGenerator::FlattenNode(const std::shared_ptr<AstNode>& node, uint
         } else if (mod.name == "springAnimation") {
             if (!mod.float_args.empty()) record.spring_damping = mod.float_args[0];
             if (mod.float_args.size() > 1) record.spring_stiffness = mod.float_args[1];
+        } else if (mod.name == "acrylic") {
+            float blur = 20.0f;
+            int16_t passes = 4;
+            uint32_t tint = 0x221E2028;
+            if (!mod.float_args.empty()) blur = mod.float_args[0];
+            else if (mod.named_floats.count("blur")) blur = static_cast<float>(mod.named_floats.at("blur"));
+            if (mod.float_args.size() > 1) passes = static_cast<int16_t>(mod.float_args[1]);
+            else if (mod.named_floats.count("passes")) passes = static_cast<int16_t>(mod.named_floats.at("passes"));
+            if (mod.named_floats.count("tint")) tint = static_cast<uint32_t>(mod.named_floats.at("tint"));
+            else if (mod.float_args.size() > 2) tint = static_cast<uint32_t>(mod.float_args[2]);
+
+            record.blur_radius = blur;
+            record.blur_passes = passes;
+            record.tint_color = tint;
+        } else if (mod.name == "glow") {
+            float radius = 12.0f;
+            uint32_t color = 0x007AFFE6;
+            if (!mod.float_args.empty()) radius = mod.float_args[0];
+            else if (mod.named_floats.count("radius")) radius = static_cast<float>(mod.named_floats.at("radius"));
+            if (mod.named_floats.count("color")) color = static_cast<uint32_t>(mod.named_floats.at("color"));
+            else if (mod.float_args.size() > 1) color = static_cast<uint32_t>(mod.float_args[1]);
+
+            record.glow_radius = radius;
+            record.glow_color = color;
+        } else if (mod.name == "springOnHover") {
+            float scale = 1.05f;
+            float damping = 0.8f;
+            if (!mod.float_args.empty()) scale = mod.float_args[0];
+            else if (mod.named_floats.count("scale")) scale = static_cast<float>(mod.named_floats.at("scale"));
+            if (mod.float_args.size() > 1) damping = mod.float_args[1];
+            else if (mod.named_floats.count("damping")) damping = static_cast<float>(mod.named_floats.at("damping"));
+
+            record.hover_scale = scale;
+            record.spring_damping = damping;
         }
     }
 
