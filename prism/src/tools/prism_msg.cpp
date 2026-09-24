@@ -18,7 +18,11 @@ static void PrintUsage(const char* prog) {
               << "  get_outputs, outputs            Get connected outputs, resolutions, and refresh rates\n"
               << "  set_mode <output> <w> <h> [hz]  Dynamically change output resolution and refresh rate\n"
               << "  get_status, status              Query compositor status, live FPS, and window metrics\n"
-              << "  set_layout <split|overview>     Dynamically change window layout or toggle Mission Control\n"
+              << "  focus <left|right|up|down>      Geometric closest-neighbour focus navigation\n"
+              << "  swap <left|right|up|down>       Geometric neighbour window swap\n"
+              << "  workspace, ws [name]            Switch or query dynamic workspaces (1..N)\n"
+              << "  layout <splith|splitv|tabbed|stacked|overview|split> Change container layout mode\n"
+              << "  tree, get_tree                  Dump multi-level recursive container tree in JSON (Swaymsg-like)\n"
               << "  set_theme <path|nordic|default> Hot-reload or switch Tiling Decoration Theme (.prismb)\n"
               << "  fold [window_index]             Trigger smooth kinetic fold/unfold on tile (roll-up)\n"
               << "  fullscreen, monocle [win_index] Toggle kinetic fullscreen expansion / restore\n"
@@ -26,13 +30,14 @@ static void PrintUsage(const char* prog) {
               << "  ipc_test                        Run zero-copy shared memory IPC latency benchmark\n\n"
               << "Examples:\n"
               << "  " << prog << " get_outputs\n"
-              << "  " << prog << " set_mode WL-1 1600 900 60\n"
-              << "  " << prog << " get_status\n"
+              << "  " << prog << " focus right\n"
+              << "  " << prog << " swap left\n"
+              << "  " << prog << " workspace 2\n"
+              << "  " << prog << " layout tabbed\n"
+              << "  " << prog << " tree\n"
               << "  " << prog << " fold 0\n"
               << "  " << prog << " fullscreen\n"
-              << "  " << prog << " set_theme nordic\n"
-              << "  " << prog << " set_theme themes/nordic_glass.prismb\n"
-              << "  " << prog << " ipc_test\n";
+              << "  " << prog << " set_theme nordic\n";
 }
 
 static std::string FindSocketPath(const std::string& custom_sock) {

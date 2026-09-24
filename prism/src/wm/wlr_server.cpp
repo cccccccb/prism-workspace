@@ -236,6 +236,10 @@ bool WlrServer::Initialize(const std::string& socket_name) {
 
     PRISM_LOG_INFO("WLR-SERVER", "wlroots Compositor initialized successfully on socket '%s'", socket_name_.c_str());
 
+    if (compositor_ && decoration_spec_) {
+        compositor_->SetDecorationSpec(decoration_spec_);
+    }
+
     // 9. Initialize Compositor-level IPC Server (Sway/i3 architecture)
     ipc_server_ = std::make_unique<ipc::IpcServer>(wl_event_loop_);
     if (!ipc_server_->Start()) {
@@ -346,10 +350,10 @@ bool WlrServer::Initialize(const std::string& socket_name) {
         ipc_server_->RegisterHandler("set_debug", debug_handler);
         ipc_server_->RegisterHandler("debug", debug_handler);
 
-        // Command 4: set_layout / layout: <split|mission_control|overview|toggle>
+        // Command 4: set_layout / layout: <split|mission_control|overview|splith|splitv|tabbed|stacked|toggle>
         auto layout_handler = [this](const std::string&, const std::vector<std::string>& args) {
             if (args.empty()) {
-                return std::string("{\"status\": \"error\", \"message\": \"Usage: set_layout <split|mission_control|overview|toggle>\"}");
+                return std::string("{\"status\": \"error\", \"message\": \"Usage: layout <split|overview|splith|splitv|tabbed|stacked|toggle>\"}");
             }
             if (compositor_) {
                 if (args[0] == "toggle") {
@@ -358,12 +362,93 @@ bool WlrServer::Initialize(const std::string& socket_name) {
                     compositor_->SetMissionControl(true);
                 } else if (args[0] == "split" || args[0] == "normal") {
                     compositor_->SetMissionControl(false);
+                } else if (args[0] == "splith" || args[0] == "split_horizontal") {
+                    compositor_->SetMissionControl(false);
+                    compositor_->SetTreeLayout(tree::LayoutMode::SplitHorizontal);
+                } else if (args[0] == "splitv" || args[0] == "split_vertical") {
+                    compositor_->SetMissionControl(false);
+                    compositor_->SetTreeLayout(tree::LayoutMode::SplitVertical);
+                } else if (args[0] == "tabbed" || args[0] == "tabs") {
+                    compositor_->SetMissionControl(false);
+                    compositor_->SetTreeLayout(tree::LayoutMode::Tabbed);
+                } else if (args[0] == "stacked" || args[0] == "stack") {
+                    compositor_->SetMissionControl(false);
+                    compositor_->SetTreeLayout(tree::LayoutMode::Stacked);
                 }
+            }
+            for (auto& out : outputs_) {
+                if (out && out->wlr_output) wlr_output_schedule_frame(out->wlr_output);
             }
             return std::string("{\"status\": \"ok\", \"layout\": \"") + args[0] + "\"}";
         };
         ipc_server_->RegisterHandler("set_layout", layout_handler);
         ipc_server_->RegisterHandler("layout", layout_handler);
+
+        // Command: focus <left|right|up|down|h|j|k|l>
+        auto focus_handler = [this](const std::string&, const std::vector<std::string>& args) {
+            if (args.empty()) {
+                return std::string("{\"status\": \"error\", \"message\": \"Usage: focus <left|right|up|down>\"}");
+            }
+            if (!compositor_) return std::string("{\"status\": \"error\", \"message\": \"No compositor\"}");
+            tree::Direction dir = tree::Direction::Right;
+            if (args[0] == "left" || args[0] == "h") dir = tree::Direction::Left;
+            else if (args[0] == "right" || args[0] == "l") dir = tree::Direction::Right;
+            else if (args[0] == "up" || args[0] == "k") dir = tree::Direction::Up;
+            else if (args[0] == "down" || args[0] == "j") dir = tree::Direction::Down;
+
+            bool moved = compositor_->MoveFocus(dir);
+            for (auto& out : outputs_) {
+                if (out && out->wlr_output) wlr_output_schedule_frame(out->wlr_output);
+            }
+            return std::string("{\"status\": \"") + (moved ? "ok" : "no_change") +
+                   "\", \"direction\": \"" + args[0] + "\"}";
+        };
+        ipc_server_->RegisterHandler("focus", focus_handler);
+
+        // Command: swap <left|right|up|down|h|j|k|l>
+        auto swap_handler = [this](const std::string&, const std::vector<std::string>& args) {
+            if (args.empty()) {
+                return std::string("{\"status\": \"error\", \"message\": \"Usage: swap <left|right|up|down>\"}");
+            }
+            if (!compositor_) return std::string("{\"status\": \"error\", \"message\": \"No compositor\"}");
+            tree::Direction dir = tree::Direction::Right;
+            if (args[0] == "left" || args[0] == "h") dir = tree::Direction::Left;
+            else if (args[0] == "right" || args[0] == "l") dir = tree::Direction::Right;
+            else if (args[0] == "up" || args[0] == "k") dir = tree::Direction::Up;
+            else if (args[0] == "down" || args[0] == "j") dir = tree::Direction::Down;
+
+            bool swapped = compositor_->SwapFocusDirection(dir);
+            for (auto& out : outputs_) {
+                if (out && out->wlr_output) wlr_output_schedule_frame(out->wlr_output);
+            }
+            return std::string("{\"status\": \"") + (swapped ? "ok" : "no_change") +
+                   "\", \"direction\": \"" + args[0] + "\"}";
+        };
+        ipc_server_->RegisterHandler("swap", swap_handler);
+
+        // Command: workspace <name> / ws <name>
+        auto ws_handler = [this](const std::string&, const std::vector<std::string>& args) {
+            if (!compositor_) return std::string("{\"status\": \"error\", \"message\": \"No compositor\"}");
+            if (args.empty()) {
+                auto ws = compositor_->GetTreeEngine().GetActiveWorkspace();
+                return std::string("{\"status\": \"ok\", \"active_workspace\": \"") + (ws ? ws->GetName() : "1") + "\"}";
+            }
+            bool ok = compositor_->SwitchWorkspace(args[0]);
+            for (auto& out : outputs_) {
+                if (out && out->wlr_output) wlr_output_schedule_frame(out->wlr_output);
+            }
+            return std::string("{\"status\": \"") + (ok ? "ok" : "error") + "\", \"workspace\": \"" + args[0] + "\"}";
+        };
+        ipc_server_->RegisterHandler("workspace", ws_handler);
+        ipc_server_->RegisterHandler("ws", ws_handler);
+
+        // Command: tree / get_tree (Sway / i3 architecture container tree dump)
+        auto tree_handler = [this](const std::string&, const std::vector<std::string>&) {
+            if (!compositor_) return std::string("{\"status\": \"error\", \"message\": \"No compositor\"}");
+            return compositor_->GetTreeEngine().DumpTreeJson();
+        };
+        ipc_server_->RegisterHandler("tree", tree_handler);
+        ipc_server_->RegisterHandler("get_tree", tree_handler);
 
         // Command 8: set_theme / theme: <theme_path | nordic | default | minimal>
         auto set_theme_handler = [this](const std::string&, const std::vector<std::string>& args) {
@@ -393,6 +478,7 @@ bool WlrServer::Initialize(const std::string& socket_name) {
 
             decoration_spec_ = new_spec;
             if (compositor_) {
+                compositor_->SetDecorationSpec(decoration_spec_);
                 for (auto& win : compositor_->GetWindows()) {
                     if (auto* dec = win->GetDecorator()) {
                         dec->SetSpec(decoration_spec_);
@@ -816,7 +902,25 @@ void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t
         } else {
             if (drag_manager_ && drag_manager_->IsDragging()) {
                 auto res = drag_manager_->EndDrag();
-                if (res.executed) {
+                if (res.executed && res.source_window && res.target_window &&
+                    res.source_window != res.target_window && compositor_) {
+                    if (res.quadrant == decoration::DropQuadrant::Swap) {
+                        auto src_node = compositor_->GetTreeEngine().FindViewForWindow(res.source_window);
+                        auto tgt_node = compositor_->GetTreeEngine().FindViewForWindow(res.target_window);
+                        if (src_node && tgt_node) {
+                            compositor_->GetTreeEngine().SwapNodes(src_node, tgt_node);
+                        }
+                    } else {
+                        tree::Direction dir = tree::Direction::Right;
+                        if (res.quadrant == decoration::DropQuadrant::LeftSplit) dir = tree::Direction::Left;
+                        else if (res.quadrant == decoration::DropQuadrant::RightSplit) dir = tree::Direction::Right;
+                        else if (res.quadrant == decoration::DropQuadrant::TopSplit) dir = tree::Direction::Up;
+                        else if (res.quadrant == decoration::DropQuadrant::BottomSplit) dir = tree::Direction::Down;
+
+                        auto tgt_node = compositor_->GetTreeEngine().FindViewForWindow(res.target_window);
+                        compositor_->GetTreeEngine().RemoveWindow(res.source_window);
+                        compositor_->GetTreeEngine().InsertWindow(res.source_window, dir, tgt_node);
+                    }
                     PRISM_LOG_INFO("WM-TILING", "Committed Drag-to-Split between [%s] and [%s]",
                                    res.source_window->GetTitle().c_str(),
                                    res.target_window->GetTitle().c_str());

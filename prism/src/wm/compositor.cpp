@@ -16,6 +16,10 @@ Compositor::~Compositor() = default;
 bool Compositor::Initialize() {
     PRISM_LOG_INFO("WM", "Initializing PrismWM Compositor Engine (wlroots/Wayland Native)...");
 
+    if (!decoration_spec_) {
+        decoration_spec_ = decoration::TilingDecorationSpec::CreateDefault();
+    }
+
     // Default to Mac Fluid Split Layout strategy (Strategy Pattern)
     SetLayoutStrategy(std::make_unique<layout::MacFluidSplitStrategy>(0.5f));
 
@@ -91,8 +95,22 @@ std::shared_ptr<Window> Compositor::CreateWindow(
 
     auto win = std::make_shared<Window>(app_id, title, bounds, std::move(channel));
     windows_.push_back(win);
-    PRISM_LOG_INFO("WM", "Registered managed window '%s' on channel '%s'", app_id.c_str(), channel_name.c_str());
+
+    // Insert into Multi-Level Recursive BSP Tree Engine
+    tree_engine_.InsertWindow(win, tree::Direction::Right);
+
+    PRISM_LOG_INFO("WM", "Registered managed window '%s' on channel '%s' in TreeEngine", app_id.c_str(), channel_name.c_str());
     return win;
+}
+
+void Compositor::DestroyWindow(const std::shared_ptr<Window>& win) {
+    if (!win) return;
+    auto it = std::find(windows_.begin(), windows_.end(), win);
+    if (it != windows_.end()) {
+        windows_.erase(it);
+    }
+    tree_engine_.RemoveWindow(win);
+    PRISM_LOG_INFO("WM", "Destroyed managed window '%s' from TreeEngine", win->GetAppId().c_str());
 }
 
 void Compositor::SetLayoutStrategy(std::unique_ptr<layout::LayoutStrategy> strategy) {
@@ -103,16 +121,31 @@ void Compositor::SetLayoutStrategy(std::unique_ptr<layout::LayoutStrategy> strat
 }
 
 void Compositor::Tick(float dt) {
-    // 1. Step layout animation physics & apply window geometry (Strategy Pattern)
-    if (layout_strategy_) {
-        layout_strategy_->StepPhysics(dt);
+    // 1. Step layout animation physics & apply window geometry
+    if (IsInMissionControl()) {
+        if (layout_strategy_) {
+            layout_strategy_->StepPhysics(dt);
 
-        if (windows_.size() >= 2) {
-            core::Rect screen{0, 30.0f, static_cast<float>(screen_width_), static_cast<float>(screen_height_ - 30)};
-            core::Rect bounds_a, bounds_b;
-            layout_strategy_->CalculateLayout(screen, bounds_a, bounds_b);
-            windows_[0]->SetBounds(bounds_a);
-            windows_[1]->SetBounds(bounds_b);
+            if (windows_.size() >= 2) {
+                core::Rect screen{0, 30.0f, static_cast<float>(screen_width_), static_cast<float>(screen_height_ - 30)};
+                core::Rect bounds_a, bounds_b;
+                layout_strategy_->CalculateLayout(screen, bounds_a, bounds_b);
+                windows_[0]->SetBounds(bounds_a);
+                windows_[1]->SetBounds(bounds_b);
+            }
+        }
+    } else {
+        // Multi-Level Recursive BSP Tree Layout arrangement
+        if (!decoration_spec_) {
+            decoration_spec_ = decoration::TilingDecorationSpec::CreateDefault();
+        }
+        core::Rect screen{0.0f, 30.0f, static_cast<float>(screen_width_), static_cast<float>(screen_height_ - 30)};
+        tree_engine_.Arrange(screen, *decoration_spec_);
+        auto layout = tree_engine_.GetCalculatedLayout();
+        for (const auto& [win, rect] : layout) {
+            if (win) {
+                win->SetBounds(rect);
+            }
         }
     }
 
@@ -203,8 +236,61 @@ void Compositor::SetFocusedWindowIndex(int idx) {
         for (size_t i = 0; i < windows_.size(); ++i) {
             windows_[i]->SetFocused(static_cast<int>(i) == idx);
         }
+        tree_engine_.SetFocusedWindow(windows_[idx]);
         PRISM_LOG_INFO("WM-FOCUS", "Active focus shifted to window [%d: '%s']", idx, windows_[idx]->GetTitle().c_str());
     }
+}
+
+bool Compositor::MoveFocus(tree::Direction dir) {
+    if (tree_engine_.MoveFocus(dir)) {
+        auto win = tree_engine_.GetFocusedWindow();
+        if (win) {
+            for (size_t i = 0; i < windows_.size(); ++i) {
+                if (windows_[i] == win) {
+                    focused_window_index_ = static_cast<int>(i);
+                    windows_[i]->SetFocused(true);
+                } else {
+                    windows_[i]->SetFocused(false);
+                }
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+bool Compositor::SwitchWorkspace(const std::string& name) {
+    bool ok = tree_engine_.SwitchWorkspace(name);
+    if (ok) {
+        auto win = tree_engine_.GetFocusedWindow();
+        if (win) {
+            for (size_t i = 0; i < windows_.size(); ++i) {
+                if (windows_[i] == win) {
+                    focused_window_index_ = static_cast<int>(i);
+                    windows_[i]->SetFocused(true);
+                } else {
+                    windows_[i]->SetFocused(false);
+                }
+            }
+        }
+    }
+    return ok;
+}
+
+bool Compositor::SetTreeLayout(tree::LayoutMode mode) {
+    auto focused = tree_engine_.GetFocusedNode();
+    if (!focused) {
+        auto ws = tree_engine_.GetActiveWorkspace();
+        if (ws) focused = ws->GetRootContainer();
+    }
+    if (focused) {
+        return tree_engine_.SetLayoutMode(focused, mode);
+    }
+    return false;
+}
+
+bool Compositor::SwapFocusDirection(tree::Direction dir) {
+    return tree_engine_.SwapFocusDirection(dir);
 }
 
 void Compositor::RenderToFrameBuffer(render::FrameBuffer& fb) {

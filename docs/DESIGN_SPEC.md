@@ -413,3 +413,118 @@ TilingDecoration("NordicGlass") {
   * `prism-msg fold [window_index]`：平滑触发目标窗口折叠/展开；
   * `prism-msg fullscreen [window_index]`：平滑触发单片全屏最大化或恢复。
 
+---
+
+## 12. 自研多层级递归 BSP / 容器树引擎 (Multi-Level Recursive BSP Container Tree Engine)
+
+### 12.1 架构设计理念与核心哲学
+PrismWM 严格坚守类 **i3 / Sway** 的平铺窗口哲学，彻底摒弃传统堆叠式窗口管理器（Floating WM）繁琐低效的“拖动边框随意缩放”、“窗口相互遮挡”等缺陷。
+- **纯粹的平铺宇宙**：所有应用窗口的几何尺寸与屏幕位置完全由背后的空间分割数学模型决定，窗口不存在浮动坐标，标题栏拖拽唯一的作用是**改变容器布局拓扑结构**（二分、三分、四分或更细粒度的网格分屏与对调），绝不允许调整为任意浮动大小；
+- **五级层次化递归树模型**：
+  ```
+  RootNode
+    └── OutputNode (显示器输出，如 WL-1 / DP-1)
+          └── WorkspaceNode (工作区 1..N，动态按需创建与按需销毁)
+                └── ContainerNode (递归空间容器: SplitH / SplitV / Tabbed / Stacked)
+                      ├── ViewNode (叶子视图节点: 托管 Prism Window 与 TilingWindowDecorator)
+                      └── ContainerNode (嵌套下级子容器，支持任意深度 BSP 空间划分)
+  ```
+
+### 12.2 BSP 空间二分/多分递归裂变机制 (Binary & N-ary Space Partitioning Fission)
+当向平铺树插入新窗口或拖拽放置时，引擎自动解析目标节点及其父容器布局模式：
+1. **同向扩容（Sibling Insertion）**：
+   若切分方向与父容器布局一致（例如在 `SplitHorizontal` 容器中向右切分），新窗口直接作为兄弟节点追加，自动平摊容器可用几何宽度；
+2. **异向递归裂变（BSP Recursive Fission）**：
+   若切分方向与父容器产生冲突（例如在 `SplitHorizontal` 容器中对某一窗口向下切分），引擎自动在目标节点位置**裂变包装**一个全新的 `ContainerNode`（设置布局为 `SplitVertical`），继承原节点的权重分数，并将目标节点与新窗口作为其子节点。由此可无上限构造 2x2、3x3 或任意不对称嵌套网格；
+3. **单子容器智能修剪 (Auto-Prune)**：
+   当用户关闭窗口导致某容器仅剩一个单子节点时，引擎自动折叠并将该子节点提升，消除多余嵌套层级，始终保证树结构精简最优。
+
+### 12.3 Sway 兼容的动态权重分数平衡 (Fraction Balancing Algorithm)
+借鉴 Sway 核心数学算法，容器内各个子节点维护浮点权重 `width_fraction` 与 `height_fraction`：
+- **权重均摊**：新加入无权重子节点时，继承已有兄弟节点的平均权重，并在所有子节点间进行归一化：
+  $$\sum_{i=1}^N \text{fraction}_i = 1.0$$
+- **整数像素无损对齐**：按分数比例计算实际几何像素时，除法产生的微小余数像素通过累积补偿自动分配至末位窗口，消除多窗口平铺时的黑色缝隙或 1px 错位；
+- **智能边距协同 (Smart Gaps)**：单窗口全屏时外边距动态归零，多窗口时根据主题配置（inner gap / outer gap）自动计算多级嵌套容器的边距补偿。
+
+### 12.4 容器模式支持 (Container Layout Modes)
+| 布局模式 | 几何划分行为 | 视觉呈现与交互 |
+| :--- | :--- | :--- |
+| **SplitHorizontal** | 沿水平轴线按 fraction 比例横向均分窗口宽度 | 左右并排分屏，间距由 `inner_gap` 控制 |
+| **SplitVertical** | 沿垂直轴线按 fraction 比例纵向均分窗口高度 | 上下堆叠分屏，垂直间隙对齐 |
+| **Tabbed** | 内容区域占满容器，标题栏在顶部水平排列并列并切分 | 类似浏览器标签页，点击标签平滑切换活跃视图 |
+| **Stacked** | 内容区域占满容器，标题栏在垂直方向逐行向下堆叠 | 纵向抽屉式堆叠展示，各标题栏常驻显示 |
+
+### 12.5 几何加权曼哈顿最近邻焦点导航与对调 (Geometric Navigation & Swap)
+摒弃死板的数组索引遍历，平铺引擎基于当前聚焦窗口与候选窗口的边界几何中心进行加权拓扑距离计算：
+- **主次轴距离判决公式**：
+  $$D_{\text{right}} = (cx_i - cx_0) + 2.0 \cdot |cy_i - cy_0| \quad (cx_i > cx_0)$$
+  主运动轴权重为 1，次级偏移轴施加 2 倍惩罚权重，保证方向导航严格符合人类空间直觉；
+- **四向平铺焦点导航**：`prism-msg focus <left|right|up|down>`（支持 Vim 键位 `h/j/k/l`）；
+- **四向平铺位置对调**：`prism-msg swap <left|right|up|down>`：直接与该几何方向的最近邻窗口互换拓扑节点位置；
+- **工作区焦点记忆 (Focus Memory via `focused_inactive_child`)**：每个工作区离开时自动记录当前聚焦的叶子视图，切回该工作区时毫秒级无缝还原。
+
+### 12.6 标题栏拖拽分屏 (Drag-to-Split) 物理闭环
+1. 用户按住标题栏拖拽时，`TilingDragManager` 在 GPU 场景图中绘制半透明投射指示框；
+2. 命中目标窗口时，根据光标落在目标窗口的五象限区域（左 25% / 右 25% / 上 25% / 下 25% / 中间 50%）自动锁定意图：
+   * **左/右/上/下**：触发 `RemoveWindow` + `InsertWindow(dir, target_view)`，由 BSP 引擎自动完成裂变重排；
+   * **中心区域**：触发 `SwapNodes`，立即对调两窗口位置；
+3. 鼠标松开瞬间，窗口的 `TilingWindowDecorator` 接收全新目标边界，通过统一动力学弹簧引擎（`MotionController`）优雅滑入新槽位，全程不卡顿、无突变。
+
+### 12.7 Swaymsg 兼容的 JSON 树自省与 IPC 控制集
+平铺树原生提供与 `swaymsg -t get_tree` 对齐的完整 JSON 序列化功能：
+- **查询整棵平铺容器树**：
+  ```bash
+  prism-msg tree
+  ```
+  输出示例：
+  ```json
+  {
+    "type": "root",
+    "active_workspace": "1",
+    "focused_id": 94837261829120,
+    "workspaces": [
+      {
+        "id": 1,
+        "type": "workspace",
+        "name": "1",
+        "active": true,
+        "focused": true,
+        "rect": {"x": 0.0, "y": 30.0, "width": 1920.0, "height": 1050.0},
+        "nodes": [
+          {
+            "id": 94837261829280,
+            "type": "container",
+            "layout": "splith",
+            "active_child_index": 0,
+            "nodes": [
+              {
+                "id": 94837261829440,
+                "type": "view",
+                "name": "Prism Music Studio",
+                "app_id": "player",
+                "focused": true,
+                "rect": {"x": 12.0, "y": 42.0, "width": 942.0, "height": 1026.0}
+              },
+              {
+                "id": 94837261829600,
+                "type": "view",
+                "name": "System Preferences",
+                "app_id": "settings",
+                "focused": false,
+                "rect": {"x": 966.0, "y": 42.0, "width": 942.0, "height": 1026.0}
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+  ```
+- **核心 IPC 命令汇总**：
+  * `prism-msg focus <left|right|up|down>`：几何四向移动焦点；
+  * `prism-msg swap <left|right|up|down>`：几何四向对调窗口槽位；
+  * `prism-msg workspace [name]`：切换或查询动态工作区；
+  * `prism-msg layout <splith|splitv|tabbed|stacked|overview|split>`：切换当前容器或全局布局；
+  * `prism-msg tree`：导出整棵平铺树 JSON 结构。
+
+

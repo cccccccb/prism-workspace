@@ -3,6 +3,8 @@
 #include "prism/wm/window.hpp"
 #include "prism/layout/layout_strategy.hpp"
 #include "prism/core/types.hpp"
+#include "prism/tree/tree_engine.hpp"
+#include "prism/decoration/tiling_decoration_spec.hpp"
 #include <vector>
 #include <memory>
 #include <string>
@@ -56,7 +58,20 @@ public:
     int GetFocusedWindowIndex() const { return focused_window_index_; }
     void SetFocusedWindowIndex(int idx);
 
+    void DestroyWindow(const std::shared_ptr<Window>& win);
     const std::vector<std::shared_ptr<Window>>& GetWindows() const { return windows_; }
+
+    // Multi-Level Recursive BSP Tree Engine
+    tree::TreeEngine& GetTreeEngine() { return tree_engine_; }
+    const tree::TreeEngine& GetTreeEngine() const { return tree_engine_; }
+
+    void SetDecorationSpec(std::shared_ptr<decoration::TilingDecorationSpec> spec) { decoration_spec_ = std::move(spec); }
+    std::shared_ptr<decoration::TilingDecorationSpec> GetDecorationSpec() const { return decoration_spec_; }
+
+    bool MoveFocus(tree::Direction dir);
+    bool SwitchWorkspace(const std::string& name);
+    bool SetTreeLayout(tree::LayoutMode mode);
+    bool SwapFocusDirection(tree::Direction dir);
 
     void SetDrawSoftwareCursor(bool draw) { draw_software_cursor_ = draw; }
     bool GetDrawSoftwareCursor() const { return draw_software_cursor_; }
@@ -79,6 +94,8 @@ public:
 private:
     std::vector<std::shared_ptr<Window>> windows_;
     std::unique_ptr<layout::LayoutStrategy> layout_strategy_;
+    tree::TreeEngine tree_engine_;
+    std::shared_ptr<decoration::TilingDecorationSpec> decoration_spec_;
     float cursor_x_{960.0f};
     float cursor_y_{540.0f};
     bool is_dragging_divider_{false};

@@ -49,4 +49,5 @@ add_subdirectory(prism)
 add_subdirectory(demos)
 
 # 3. Tests Subdirectory
+enable_testing()
 add_subdirectory(tests)
