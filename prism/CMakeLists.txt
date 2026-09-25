@@ -50,13 +50,33 @@ add_library(prism_core
     third_party/imgui/imgui_widgets.cpp
     third_party/imgui/imgui_sw.cpp
 )
-link_directories(${WLROOTS_LIBRARY_DIRS})
-target_link_directories(prism_core PUBLIC ${WLROOTS_LIBRARY_DIRS})
-
+set(XDG_SHELL_PROTOCOL_HEADER "${CMAKE_CURRENT_BINARY_DIR}/xdg-shell-protocol.h")
+add_custom_command(
+    OUTPUT "${XDG_SHELL_PROTOCOL_HEADER}"
+    COMMAND "${WAYLAND_SCANNER}" server-header
+            "${WAYLAND_PROTOCOLS_DIR}/stable/xdg-shell/xdg-shell.xml"
+            "${XDG_SHELL_PROTOCOL_HEADER}"
+    DEPENDS "${WAYLAND_PROTOCOLS_DIR}/stable/xdg-shell/xdg-shell.xml"
+    VERBATIM
+)
+add_custom_target(prism_wayland_protocol_headers DEPENDS "${XDG_SHELL_PROTOCOL_HEADER}")
+add_dependencies(prism_core prism_wayland_protocol_headers)
+# wlroots 0.18 exposes C99 [static N] array parameters in public C headers.
+# C++ cannot parse that spelling; mirror only the affected headers with [N].
+set(WLROOTS_CPP_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/wlroots_cpp")
+foreach(WLROOTS_HEADER IN ITEMS wlr_buffer.h wlr_scene.h wlr_matrix.h)
+    set(WLROOTS_HEADER_SOURCE "${WLROOTS_HEADER_ROOT}/wlr/types/${WLROOTS_HEADER}")
+    file(READ "${WLROOTS_HEADER_SOURCE}" WLROOTS_HEADER_TEXT)
+    string(REGEX REPLACE "\\[static ([0-9]+)\\]" "[\\1]" WLROOTS_HEADER_TEXT "${WLROOTS_HEADER_TEXT}")
+    file(MAKE_DIRECTORY "${WLROOTS_CPP_INCLUDE_DIR}/wlr/types")
+    file(CONFIGURE OUTPUT "${WLROOTS_CPP_INCLUDE_DIR}/wlr/types/${WLROOTS_HEADER}"
+        CONTENT "${WLROOTS_HEADER_TEXT}" @ONLY)
+endforeach()
 target_include_directories(prism_core PUBLIC 
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui
-    ${WLROOTS_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_BINARY_DIR}
+    ${WLROOTS_CPP_INCLUDE_DIR}
     ${WAYLAND_SERVER_INCLUDE_DIRS}
     ${DRM_INCLUDE_DIRS}
     ${EGL_INCLUDE_DIRS}
@@ -69,7 +89,7 @@ target_include_directories(prism_core PUBLIC
 target_link_libraries(prism_core PUBLIC
     Threads::Threads
     rt
-    ${WLROOTS_LIBRARIES}
+    PkgConfig::WLROOTS
     ${WAYLAND_SERVER_LIBRARIES}
     ${DRM_LIBRARIES}
     ${EGL_LIBRARIES}
@@ -137,4 +157,3 @@ add_executable(prism-msg
 )
 target_include_directories(prism-msg PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(prism-msg PRIVATE prism_core)
-

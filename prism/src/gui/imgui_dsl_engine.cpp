@@ -2,6 +2,8 @@
 #include "prism/core/logging.hpp"
 #include "imgui.h"
 #include "imgui_sw.hpp"
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <vector>
 

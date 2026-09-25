@@ -39,8 +39,9 @@ compile_commands.json
 # Logs, Dumps & Temp Files
 *.log
 *.tmp
-core
-core.*
+# Only root-level crash dumps; unanchored patterns hide prism/*/core/ source files.
+/core
+/core.*
 gmon.out
 
 # Test & Debug Snapshots

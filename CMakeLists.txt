@@ -31,14 +31,14 @@ pkg_check_modules(LIBINPUT REQUIRED libinput)
 pkg_check_modules(UDEV REQUIRED libudev)
 pkg_check_modules(PIXMAN REQUIRED pixman-1)
 pkg_check_modules(XKBCOMMON REQUIRED xkbcommon)
+pkg_check_modules(WLROOTS REQUIRED IMPORTED_TARGET wlroots-0.18)
+find_path(WLROOTS_HEADER_ROOT wlr/types/wlr_scene.h
+    HINTS ${WLROOTS_INCLUDE_DIRS} NO_DEFAULT_PATH REQUIRED)
+pkg_check_modules(WAYLAND_PROTOCOLS REQUIRED wayland-protocols)
+pkg_get_variable(WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)
+find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
 
 add_compile_definitions(WLR_USE_UNSTABLE)
-
-set(WLROOTS_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/deps/wlroots/usr/include")
-set(WLROOTS_LIBRARY_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/deps/wlroots/usr/lib/x86_64-linux-gnu")
-set(WLROOTS_LIBRARIES wlroots)
-
-link_directories(${WLROOTS_LIBRARY_DIRS})
 
 find_package(Threads REQUIRED)
 
@@ -117,7 +117,7 @@ set(CPACK_PACKAGE_CONTACT "Chen Bin <chenbin@prism.org>")
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Chen Bin <chenbin@prism.org>")
 set(CPACK_DEBIAN_PACKAGE_SECTION "x11")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "libwayland-server0, libwayland-client0, libdrm2, libegl1, libgbm1, libinput10, libxkbcommon0, libpixman-1-0")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "libwlroots-0.18, libwayland-server0, libwayland-client0, libdrm2, libegl1, libgbm1, libinput10, libxkbcommon0, libpixman-1-0")
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/chenbin/prism")
 set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
 

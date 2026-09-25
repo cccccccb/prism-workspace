@@ -203,7 +203,7 @@ bool WlrServer::Initialize(const std::string& socket_name) {
     wl_event_loop_ = wl_display_get_event_loop(wl_display_);
 
     // 2. Autocreate multi-backend (DRM/KMS, Wayland-nested, or Headless)
-    backend_ = wlr_backend_autocreate(wl_display_, nullptr);
+    backend_ = wlr_backend_autocreate(wl_event_loop_, nullptr);
     if (!backend_) {
         PRISM_LOG_ERROR("WLR-SERVER", "Failed to create wlr_backend");
         return false;
@@ -229,7 +229,7 @@ bool WlrServer::Initialize(const std::string& socket_name) {
     wlr_data_device_manager_create(wl_display_);
 
     // 5. Output layout & Hardware Scene graph
-    output_layout_ = wlr_output_layout_create();
+    output_layout_ = wlr_output_layout_create(wl_display_);
     scene_ = wlr_scene_create();
     wlr_scene_attach_output_layout(scene_, output_layout_);
 
@@ -915,7 +915,8 @@ void WlrServer::HandleCursorMotionAbsolute(uint32_t time_msec, double x, double 
 }
 
 void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t state) {
-    wlr_seat_pointer_notify_button(seat_, time_msec, button, static_cast<wlr_button_state>(state));
+    wlr_seat_pointer_notify_button(seat_, time_msec, button,
+                                   static_cast<wl_pointer_button_state>(state));
     if (compositor_) {
         compositor_->OnPointerButton(button, state == WLR_BUTTON_PRESSED);
     }
@@ -1000,7 +1001,10 @@ void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t
 }
 
 void WlrServer::HandleCursorAxis(uint32_t time_msec, int axis, double value) {
-    wlr_seat_pointer_notify_axis(seat_, time_msec, static_cast<wlr_axis_orientation>(axis), value, 0, WLR_AXIS_SOURCE_FINGER);
+    wlr_seat_pointer_notify_axis(seat_, time_msec,
+                                 static_cast<wl_pointer_axis>(axis), value, 0,
+                                 WL_POINTER_AXIS_SOURCE_FINGER,
+                                 WL_POINTER_AXIS_RELATIVE_DIRECTION_IDENTICAL);
 }
 
 void WlrServer::InitSceneGraph() {
