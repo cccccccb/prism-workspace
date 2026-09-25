@@ -34,6 +34,8 @@ Skia 是绘图后端，不是控件系统。核心 Scene、布局、事件和 DS
 
 补齐仓库缺失的核心源码与头文件，清理架构相关硬编码路径，建立 ARM64 依赖锁定与构建说明。固定一个普通应用、topbar、dock、desktop 的 DSL 样例和窗口行为。产物是能在树莓派上复现的构建与测试命令，以及可比较的截图/时序记录。此步不改变生产渲染路径。
 
+当前结果：Pi 构建、测试与 headless 运行检查已完成；样例哈希、旧软件快照和窗口行为记录见 [BASELINE_ACCEPTANCE.md](BASELINE_ACCEPTANCE.md)。真实 DRM/KMS 截图与呈现时序仍在第六步的实机验收范围内。
+
 ### 第二步：固定进程协议与模块依赖
 
 定义 DSL/运行时、平台、渲染器和 WM 之间的数据契约：WindowId、NodeId、逻辑尺寸与 buffer 尺寸、输入事件、资源句柄、绘制命令及窗口角色。SDK 只向业务暴露应用状态、动作、窗口和资源接口。业务状态更新留在客户端；WM IPC 只承载窗口管理命令和明确授权的 shell 服务。用 CMake target 依赖与 include 检查阻止 WM 链接 DSL、Skia 或 ImGui。
