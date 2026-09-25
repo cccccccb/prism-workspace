@@ -158,6 +158,7 @@ void Scene::Paint(const Node& node, contracts::DisplayList& list) const {
         contracts::DrawGlyphRun run;
         run.font = font_;
         run.color = node.style.foreground;
+        run.font_size = node.style.font_size;
         for (auto glyph : node.shaped.glyphs) {
             glyph.origin.x += node.bounds.x;
             glyph.origin.y += node.bounds.y;

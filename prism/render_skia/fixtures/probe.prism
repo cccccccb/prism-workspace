@@ -1,0 +1,10 @@
+VStack(spacing: 12, background: #182840FF) {
+    Card(height: 80, background: #274A78FF) {
+        Text("Prism DSL → Skia", font: 24, foreground: #FFFFFFFF)
+    }.cornerRadius(12)
+    HStack(spacing: 12) {
+        Button("Launch", action: "probe:launch", width: 160, height: 60, background: #4A80CAFF).cornerRadius(10)
+        Text($title, font: 20, foreground: #FFFFFFFF)
+    }
+}
+.padding(20)

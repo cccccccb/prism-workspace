@@ -6,6 +6,11 @@
 
 namespace prism::runtime {
 namespace {
+contracts::Color ColorFromPacked(double value) {
+    const auto rgba = static_cast<std::uint32_t>(value);
+    return {static_cast<std::uint8_t>(rgba >> 24), static_cast<std::uint8_t>(rgba >> 16),
+            static_cast<std::uint8_t>(rgba >> 8), static_cast<std::uint8_t>(rgba)};
+}
 Blueprint Convert(const compiler::AstNode& ast) {
     Blueprint out;
     using Type = compiler::BinaryNodeType;
@@ -24,6 +29,10 @@ Blueprint Convert(const compiler::AstNode& ast) {
     if (auto it = ast.number_props.find("width"); it != ast.number_props.end()) out.style.width = it->second;
     if (auto it = ast.number_props.find("height"); it != ast.number_props.end()) out.style.height = it->second;
     if (auto it = ast.number_props.find("font"); it != ast.number_props.end()) out.style.font_size = it->second;
+    if (auto it = ast.number_props.find("background"); it != ast.number_props.end())
+        out.style.background = ColorFromPacked(it->second);
+    if (auto it = ast.number_props.find("foreground"); it != ast.number_props.end())
+        out.style.foreground = ColorFromPacked(it->second);
     for (const auto& modifier : ast.modifiers) {
         if (modifier.name == "padding" && !modifier.float_args.empty()) out.style.padding = modifier.float_args.front();
         else if (modifier.name == "cornerRadius" && !modifier.float_args.empty()) out.style.radius = modifier.float_args.front();

@@ -41,6 +41,7 @@ struct DrawGlyphRun {
     ResourceId font{};
     std::vector<GlyphPlacement> glyphs;
     Color color{};
+    double font_size{16.0};
 };
 
 struct PushClipRect { LogicalRect bounds{}; };

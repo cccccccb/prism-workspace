@@ -6,7 +6,7 @@
 
 `SetSlot` 更新绑定文字并标记 Layout/Paint；背景色变化只标记 Paint；viewport 变化标记 Layout/Paint。`Build` 在无变化时返回空，不产生新的提交。输出是进程内 DisplayList。文字 glyph id 与位置由调用方提供的 shaping 接口生成；当前没有生产字体 shaping 实现。固定尺寸与均分的 Row/Column、基础裁剪、圆角和文字命令已通过单元测试。
 
-本机没有 Skia 开发库。此检查点未包含 Skia 绘制、图片资源、真实字体排版，也未连接第三步的 Wayland 客户端。不能据此宣称第四步完成，更不能推断 Pi 上的 GPU 性能。后续先接字体 shaping/资源表与 Skia DisplayList 后端，再连 Wayland surface 做单线程端到端验证，并在真实设备上比较 Vulkan 与 OpenGL ES。
+此文件记录 Scene 首个检查点。后续已加入 Skia CPU 诊断后端、HarfBuzz 字体排版和真实 Wayland 测试窗口，见 [SKIA_BACKEND_PI.md](SKIA_BACKEND_PI.md)。图片资源与 GPU 后端仍待实现；不能由 CPU 结果推断 Pi 上的 GPU 性能。
 
 验证：
 

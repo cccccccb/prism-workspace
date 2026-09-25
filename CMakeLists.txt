@@ -41,18 +41,19 @@ find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
 add_compile_definitions(WLR_USE_UNSTABLE)
 
 find_package(Threads REQUIRED)
+enable_testing()
 
 # 1. Core Framework Subdirectory
 add_subdirectory(prism/contracts)
 add_subdirectory(prism/platform/wayland_client)
 add_subdirectory(prism/runtime)
+add_subdirectory(prism/render_skia)
 add_subdirectory(prism)
 
 # 2. Demos Subdirectory
 add_subdirectory(demos)
 
 # 3. Tests Subdirectory
-enable_testing()
 add_subdirectory(tests)
 
 # 4. Shell Standalone Projects (Desktop, TopBar, Dock)
