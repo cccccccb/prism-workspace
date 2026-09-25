@@ -40,6 +40,8 @@ Skia 是绘图后端，不是控件系统。核心 Scene、布局、事件和 DS
 
 定义 DSL/运行时、平台、渲染器和 WM 之间的数据契约：WindowId、NodeId、逻辑尺寸与 buffer 尺寸、输入事件、资源句柄、绘制命令及窗口角色。SDK 只向业务暴露应用状态、动作、窗口和资源接口。业务状态更新留在客户端；WM IPC 只承载窗口管理命令和明确授权的 shell 服务。用 CMake target 依赖与 include 检查阻止 WM 链接 DSL、Skia 或 ImGui。
 
+进程边界与首版无后端值契约见 [PROCESS_CONTRACTS.md](PROCESS_CONTRACTS.md)。由于旧 `prism_core` 仍是单体，最终 WM 链接禁令在第五步删除旧渲染路径时启用；新的契约 target 从本步起独立构建。
+
 ### 第三步：完成真实 Wayland 客户端生命周期
 
 SDK 连接 registry，创建 `wl_surface` 与 xdg-shell toplevel，处理首次空提交、configure/ack、buffer 提交、frame callback、resize、关闭和输入。shell 客户端的层级、锚点与独占区域另行实现并限制授权。WM 为每个真实 surface 建立窗口记录，管理映射/解除映射、焦点、键盘和指针命中，并把 tiling 几何通过 configure 发给客户端。验收条件：不读取 DSL 的普通测试窗口可显示、调整大小并接收输入。

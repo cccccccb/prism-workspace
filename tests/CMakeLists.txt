@@ -29,6 +29,9 @@ add_executable(shell_experimental_test
 target_link_libraries(shell_experimental_test PRIVATE prism_core prism_sdk)
 
 enable_testing()
+add_executable(contracts_smoke ../prism/contracts/tests/contracts_smoke.cpp)
+target_link_libraries(contracts_smoke PRIVATE prism_contracts)
+add_test(NAME contracts_smoke COMMAND contracts_smoke)
 add_test(NAME tree_engine_test COMMAND tree_engine_test)
 add_test(NAME tiling_decoration_test COMMAND tiling_decoration_test)
 add_test(NAME ipc_benchmark COMMAND ipc_benchmark)
