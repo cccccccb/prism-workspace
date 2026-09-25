@@ -42,6 +42,8 @@ flowchart LR
 
 `events.hpp` 定义 platform → runtime 的规范化窗口事件。指针坐标为 surface 局部逻辑坐标；按键物理码采用 USB HID usage，由平台适配器转换；文本输入与按键事件分开。`time_ns` 是单调时间域，Wayland 32 位毫秒时间戳的回绕处理属于 platform 层。configure、焦点和关闭事件不经 WM 自定义状态差分通道。runtime 命中测试后再产生业务动作；WM 不做控件命中测试。
 
+第三步的诊断客户端在事件到达时读取单调时钟，键盘仅覆盖常见物理键映射；未知键使用 0，文本输入尚未实现。后续接入正式 SDK 前必须完成键位与文本输入语义，不能将这份局部映射当成完整输入法支持。
+
 `display_list.hpp` 定义 runtime → renderer 的有序、进程内绘制命令。颜色输入是 straight-alpha sRGB；几何和 glyph 原点使用逻辑坐标。文字在客户端完成排版与 shaping，renderer 收到 glyph id、位置和字体资源句柄。clip 与 transform 指令必须平衡；无效列表由 renderer 拒绝。renderer 自行转换为 Skia 对象，DisplayList 与 Scene API 不出现 Skia/Vulkan/Wayland 类型。buffer 提交由 platform 层完成，DisplayList 本身不跨进程、不通过 WM IPC 发送。
 
 命令按出现顺序绘制；后续命令覆盖先前命令。`PushTransform` 的 6 个数按 `[a,c,tx,b,d,ty]` 表示局部到父坐标的 2×3 仿射矩阵；`PushClipRect` 在当前变换下建立裁剪。push/pop 嵌套顺序必须合法，帧末两个栈都必须清空。资源句柄在整帧提交完成前保持有效。

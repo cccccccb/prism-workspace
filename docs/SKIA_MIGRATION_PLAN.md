@@ -46,6 +46,8 @@ Skia 是绘图后端，不是控件系统。核心 Scene、布局、事件和 DS
 
 SDK 连接 registry，创建 `wl_surface` 与 xdg-shell toplevel，处理首次空提交、configure/ack、buffer 提交、frame callback、resize、关闭和输入。shell 客户端的层级、锚点与独占区域另行实现并限制授权。WM 为每个真实 surface 建立窗口记录，管理映射/解除映射、焦点、键盘和指针命中，并把 tiling 几何通过 configure 发给客户端。验收条件：不读取 DSL 的普通测试窗口可显示、调整大小并接收输入。
 
+普通 xdg-shell 窗口的已测实现与尚缺功能见 [WAYLAND_LIFECYCLE.md](WAYLAND_LIFECYCLE.md)。已通过无 DSL 客户端的 headless 集成测试；shell 角色授权、缩放与生产 SDK 切换尚未完成。
+
 ### 第四步：实现客户端 DSL 运行时与 Skia 后端
 
 AST 只表示语法；长期 Scene 保存节点状态、绑定、焦点与布局；渲染数据通过独立后端接口送给 Skia。首版先覆盖固定尺寸、row/column、文字、图片、矩形、圆角和基本裁剪。属性变更至少区分 Layout、Paint、Composite；静止页面不持续提交。先用一个单线程端到端路径保证正确性，再依据测量引入 Render Tree、DisplayList chunk、缓存或渲染线程。Skia Vulkan 与 OpenGL ES 在目标设备上做功能与帧时对比后，确定实际发布后端；CPU Skia 可作为诊断路径，但不能用软件结果宣称 GPU 性能。

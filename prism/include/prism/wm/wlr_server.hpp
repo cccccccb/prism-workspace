@@ -29,6 +29,7 @@ struct wlr_scene_buffer;
 struct wlr_scene_node;
 struct wlr_xdg_shell;
 struct wlr_xdg_surface;
+struct wlr_xdg_toplevel;
 struct wlr_seat;
 struct wlr_cursor;
 struct wlr_xcursor_manager;
@@ -73,6 +74,8 @@ struct OutputInfo {
 };
 
 class WlrServer;
+struct WlrXdgView;
+struct WlrKeyboardBinding;
 
 struct WlrOutput {
     WlrOutput(struct wlr_output* out, WlrServer* server);
@@ -89,7 +92,7 @@ struct WlrOutput {
 struct WlrServerSignals {
     struct wl_listener new_output;
     struct wl_listener new_input;
-    struct wl_listener new_xdg_surface;
+    struct wl_listener new_xdg_toplevel;
     struct wl_listener cursor_motion;
     struct wl_listener cursor_motion_absolute;
     struct wl_listener cursor_button;
@@ -129,7 +132,15 @@ public:
 
     void HandleNewOutput(struct wlr_output* output);
     void HandleNewInput(struct wlr_input_device* device);
-    void HandleNewXdgSurface(struct wlr_xdg_surface* xdg_surface);
+    void HandleNewXdgToplevel(struct wlr_xdg_toplevel* toplevel);
+    void HandleXdgMap(WlrXdgView* view);
+    void HandleXdgUnmap(WlrXdgView* view);
+    void HandleXdgDestroy(WlrXdgView* view);
+    void HandleXdgMaximize(WlrXdgView* view);
+    void HandleKeyboardKey(WlrKeyboardBinding* binding, void* event);
+    void HandleKeyboardModifiers(WlrKeyboardBinding* binding);
+    void HandleKeyboardDestroy(WlrKeyboardBinding* binding);
+    void CloseFocusedXdgView();
     void HandleCursorMotion(uint32_t time_msec, double dx, double dy);
     void HandleCursorMotionAbsolute(uint32_t time_msec, double x, double y);
     void HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t state);
@@ -151,6 +162,9 @@ public:
 private:
     void InitSceneGraph();
     void UpdateSceneGraph(int width, int height, float dt = 0.016f);
+    void FocusXdgView(WlrXdgView* view);
+    void ArrangeXdgViews();
+    void UpdateXdgPointerFocus(uint32_t time_msec);
 
     WlrServerSignals signals_{};
     std::shared_ptr<Compositor> compositor_;
@@ -223,6 +237,9 @@ private:
     std::unique_ptr<decoration::TilingDragManager> drag_manager_;
 
     std::vector<std::unique_ptr<WlrOutput>> outputs_;
+    std::vector<std::unique_ptr<WlrXdgView>> xdg_views_;
+    std::vector<std::unique_ptr<WlrKeyboardBinding>> keyboards_;
+    WlrXdgView* focused_xdg_view_{nullptr};
     uint64_t last_frame_time_ns_{0};
     float current_fps_{0.0f};
     uint64_t frame_count_{0};

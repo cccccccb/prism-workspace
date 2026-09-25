@@ -56,6 +56,44 @@ extern "C" {
 
 namespace prism::wm {
 
+struct WlrXdgView {
+    WlrServer* server{nullptr};
+    struct wlr_xdg_toplevel* toplevel{nullptr};
+    struct wlr_scene_tree* scene_tree{nullptr};
+    struct wl_listener map{};
+    struct wl_listener unmap{};
+    struct wl_listener destroy{};
+    struct wl_listener request_maximize{};
+    struct wl_listener request_fullscreen{};
+    int x{0};
+    int y{0};
+    int width{640};
+    int height{400};
+    bool mapped{false};
+
+    ~WlrXdgView() {
+        wl_list_remove(&map.link);
+        wl_list_remove(&unmap.link);
+        wl_list_remove(&destroy.link);
+        wl_list_remove(&request_maximize.link);
+        wl_list_remove(&request_fullscreen.link);
+    }
+};
+
+struct WlrKeyboardBinding {
+    WlrServer* server{nullptr};
+    struct wlr_keyboard* keyboard{nullptr};
+    struct wl_listener key{};
+    struct wl_listener modifiers{};
+    struct wl_listener destroy{};
+
+    ~WlrKeyboardBinding() {
+        wl_list_remove(&key.link);
+        wl_list_remove(&modifiers.link);
+        wl_list_remove(&destroy.link);
+    }
+};
+
 // Custom wlr_buffer wrapping prism::render::FrameBuffer
 struct PrismCustomWlrBuffer {
     struct wlr_buffer base;
@@ -121,8 +159,41 @@ static void handle_output_destroy(struct wl_listener* listener, void* data) {
 }
 
 static void handle_server_new_xdg_surface(struct wl_listener* listener, void* data) {
-    auto* sig = WlContainerOf<WlrServerSignals>(listener, offsetof(WlrServerSignals, new_xdg_surface));
-    sig->server->HandleNewXdgSurface(static_cast<struct wlr_xdg_surface*>(data));
+    auto* sig = WlContainerOf<WlrServerSignals>(listener, offsetof(WlrServerSignals, new_xdg_toplevel));
+    sig->server->HandleNewXdgToplevel(static_cast<struct wlr_xdg_toplevel*>(data));
+}
+
+static void handle_xdg_map(struct wl_listener* listener, void*) {
+    auto* view = WlContainerOf<WlrXdgView>(listener, offsetof(WlrXdgView, map));
+    view->server->HandleXdgMap(view);
+}
+static void handle_xdg_unmap(struct wl_listener* listener, void*) {
+    auto* view = WlContainerOf<WlrXdgView>(listener, offsetof(WlrXdgView, unmap));
+    view->server->HandleXdgUnmap(view);
+}
+static void handle_xdg_destroy(struct wl_listener* listener, void*) {
+    auto* view = WlContainerOf<WlrXdgView>(listener, offsetof(WlrXdgView, destroy));
+    view->server->HandleXdgDestroy(view);
+}
+static void handle_xdg_maximize(struct wl_listener* listener, void*) {
+    auto* view = WlContainerOf<WlrXdgView>(listener, offsetof(WlrXdgView, request_maximize));
+    view->server->HandleXdgMaximize(view);
+}
+static void handle_xdg_fullscreen(struct wl_listener* listener, void*) {
+    auto* view = WlContainerOf<WlrXdgView>(listener, offsetof(WlrXdgView, request_fullscreen));
+    view->server->HandleXdgMaximize(view);
+}
+static void handle_keyboard_key(struct wl_listener* listener, void* data) {
+    auto* binding = WlContainerOf<WlrKeyboardBinding>(listener, offsetof(WlrKeyboardBinding, key));
+    binding->server->HandleKeyboardKey(binding, data);
+}
+static void handle_keyboard_modifiers(struct wl_listener* listener, void*) {
+    auto* binding = WlContainerOf<WlrKeyboardBinding>(listener, offsetof(WlrKeyboardBinding, modifiers));
+    binding->server->HandleKeyboardModifiers(binding);
+}
+static void handle_keyboard_destroy(struct wl_listener* listener, void*) {
+    auto* binding = WlContainerOf<WlrKeyboardBinding>(listener, offsetof(WlrKeyboardBinding, destroy));
+    binding->server->HandleKeyboardDestroy(binding);
 }
 
 WlrOutput::WlrOutput(struct wlr_output* out, WlrServer* s)
@@ -239,8 +310,8 @@ bool WlrServer::Initialize(const std::string& socket_name) {
     // 7. XDG Shell Protocol (Wayland Window Standard Protocol)
     xdg_shell_ = wlr_xdg_shell_create(wl_display_, 3);
     if (xdg_shell_) {
-        signals_.new_xdg_surface.notify = handle_server_new_xdg_surface;
-        wl_signal_add(&xdg_shell_->events.new_surface, &signals_.new_xdg_surface);
+        signals_.new_xdg_toplevel.notify = handle_server_new_xdg_surface;
+        wl_signal_add(&xdg_shell_->events.new_toplevel, &signals_.new_xdg_toplevel);
         PRISM_LOG_INFO("WLR-SERVER", "Wayland XDG-Shell v3 active: Native application windows supported");
     }
 
@@ -727,6 +798,9 @@ void WlrServer::Stop() {
     if (!running_) return;
     running_ = false;
 
+    focused_xdg_view_ = nullptr;
+    xdg_views_.clear();
+    keyboards_.clear();
     outputs_.clear();
     dock_icon_rects_.clear();
 
@@ -828,6 +902,7 @@ void WlrServer::HandleNewOutput(struct wlr_output* output) {
     
     WlrOutput* raw_out = wlr_out.get();
     outputs_.push_back(std::move(wlr_out));
+    ArrangeXdgViews();
 
     // 4. Kickstart first frame
     HandleOutputFrame(raw_out);
@@ -838,6 +913,7 @@ void WlrServer::RemoveOutput(WlrOutput* output) {
         if (it->get() == output) {
             PRISM_LOG_INFO("WLR-OUTPUT", "Output removed: %s", output->wlr_output->name);
             outputs_.erase(it);
+            ArrangeXdgViews();
             break;
         }
     }
@@ -854,6 +930,17 @@ void WlrServer::HandleNewInput(struct wlr_input_device* device) {
 
         wlr_keyboard_set_repeat_info(wlr_kbd, 25, 600);
         wlr_seat_set_keyboard(seat_, wlr_kbd);
+        auto binding = std::make_unique<WlrKeyboardBinding>();
+        binding->server = this;
+        binding->keyboard = wlr_kbd;
+        binding->key.notify = handle_keyboard_key;
+        binding->modifiers.notify = handle_keyboard_modifiers;
+        binding->destroy.notify = handle_keyboard_destroy;
+        wl_signal_add(&wlr_kbd->events.key, &binding->key);
+        wl_signal_add(&wlr_kbd->events.modifiers, &binding->modifiers);
+        wl_signal_add(&device->events.destroy, &binding->destroy);
+        keyboards_.push_back(std::move(binding));
+        if (focused_xdg_view_) FocusXdgView(focused_xdg_view_);
         PRISM_LOG_INFO("WLR-INPUT", "Keyboard attached: %s", device->name);
     } else if (device->type == WLR_INPUT_DEVICE_POINTER || device->type == WLR_INPUT_DEVICE_TOUCH) {
         wlr_cursor_attach_input_device(cursor_, device);
@@ -861,16 +948,157 @@ void WlrServer::HandleNewInput(struct wlr_input_device* device) {
     }
 }
 
-void WlrServer::HandleNewXdgSurface(struct wlr_xdg_surface* xdg_surface) {
-    if (xdg_surface->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL) {
-        PRISM_LOG_INFO("WLR-XDG", "New XDG Toplevel Surface: title='%s' app_id='%s'",
-                       (xdg_surface->toplevel && xdg_surface->toplevel->title) ? xdg_surface->toplevel->title : "(untitled)",
-                       (xdg_surface->toplevel && xdg_surface->toplevel->app_id) ? xdg_surface->toplevel->app_id : "(none)");
-        
-        // Attach standard Wayland client surface directly to hardware scene tree!
-        if (windows_tree_) {
-            wlr_scene_xdg_surface_create(windows_tree_, xdg_surface);
-        }
+void WlrServer::HandleNewXdgToplevel(struct wlr_xdg_toplevel* toplevel) {
+    if (!toplevel || !windows_tree_) return;
+    auto view = std::make_unique<WlrXdgView>();
+    view->server = this;
+    view->toplevel = toplevel;
+    view->x = 80 + static_cast<int>(xdg_views_.size()) * 40;
+    view->y = 80 + static_cast<int>(xdg_views_.size()) * 40;
+    view->scene_tree = wlr_scene_xdg_surface_create(windows_tree_, toplevel->base);
+    if (!view->scene_tree) return;
+    wlr_scene_node_set_position(&view->scene_tree->node, view->x, view->y);
+    wlr_scene_node_set_enabled(&view->scene_tree->node, false);
+    view->map.notify = handle_xdg_map;
+    view->unmap.notify = handle_xdg_unmap;
+    view->destroy.notify = handle_xdg_destroy;
+    view->request_maximize.notify = handle_xdg_maximize;
+    view->request_fullscreen.notify = handle_xdg_fullscreen;
+    wl_signal_add(&toplevel->base->surface->events.map, &view->map);
+    wl_signal_add(&toplevel->base->surface->events.unmap, &view->unmap);
+    wl_signal_add(&toplevel->events.destroy, &view->destroy);
+    wl_signal_add(&toplevel->events.request_maximize, &view->request_maximize);
+    wl_signal_add(&toplevel->events.request_fullscreen, &view->request_fullscreen);
+    wlr_xdg_toplevel_set_size(toplevel, view->width, view->height);
+    PRISM_LOG_INFO("WLR-XDG", "New XDG toplevel registered: title='%s' app_id='%s'",
+                   toplevel->title ? toplevel->title : "(untitled)",
+                   toplevel->app_id ? toplevel->app_id : "(none)");
+    xdg_views_.push_back(std::move(view));
+}
+
+void WlrServer::HandleXdgMap(WlrXdgView* view) {
+    view->mapped = true;
+    wlr_scene_node_set_enabled(&view->scene_tree->node, true);
+    FocusXdgView(view);
+    ArrangeXdgViews();
+    PRISM_LOG_INFO("WLR-XDG", "Mapped XDG toplevel: %s", view->toplevel->title ? view->toplevel->title : "(untitled)");
+}
+
+void WlrServer::HandleXdgUnmap(WlrXdgView* view) {
+    view->mapped = false;
+    wlr_scene_node_set_enabled(&view->scene_tree->node, false);
+    if (focused_xdg_view_ == view) {
+        focused_xdg_view_ = nullptr;
+        wlr_seat_keyboard_notify_clear_focus(seat_);
+    }
+    if (seat_->pointer_state.focused_surface == view->toplevel->base->surface) {
+        wlr_seat_pointer_notify_clear_focus(seat_);
+    }
+    ArrangeXdgViews();
+    PRISM_LOG_INFO("WLR-XDG", "Unmapped XDG toplevel");
+}
+
+void WlrServer::HandleXdgDestroy(WlrXdgView* view) {
+    if (focused_xdg_view_ == view) focused_xdg_view_ = nullptr;
+    auto it = std::find_if(xdg_views_.begin(), xdg_views_.end(),
+        [view](const auto& item) { return item.get() == view; });
+    if (it != xdg_views_.end()) xdg_views_.erase(it);
+    ArrangeXdgViews();
+    PRISM_LOG_INFO("WLR-XDG", "Destroyed XDG toplevel record");
+}
+
+void WlrServer::HandleXdgMaximize(WlrXdgView* view) {
+    if (!view || !view->toplevel) return;
+    const bool fullscreen = view->toplevel->requested.fullscreen;
+    const bool maximized = view->toplevel->requested.maximized;
+    const bool expanded = fullscreen || maximized;
+    int out_width = 1280;
+    int out_height = 720;
+    if (!outputs_.empty() && outputs_[0]->wlr_output) {
+        out_width = outputs_[0]->wlr_output->width;
+        out_height = outputs_[0]->wlr_output->height;
+    }
+    view->x = expanded ? 0 : 80;
+    view->y = expanded ? (fullscreen ? 0 : 34) : 80;
+    view->width = expanded ? out_width : 640;
+    view->height = expanded ? std::max(1, out_height - (fullscreen ? 0 : 106)) : 400;
+    wlr_scene_node_set_position(&view->scene_tree->node, view->x, view->y);
+    wlr_xdg_toplevel_set_maximized(view->toplevel, maximized);
+    wlr_xdg_toplevel_set_fullscreen(view->toplevel, fullscreen);
+    wlr_xdg_toplevel_set_size(view->toplevel, view->width, view->height);
+    if (!expanded) ArrangeXdgViews();
+    PRISM_LOG_INFO("WLR-XDG", "Configured XDG toplevel size %dx%d", view->width, view->height);
+}
+
+void WlrServer::ArrangeXdgViews() {
+    std::vector<WlrXdgView*> tiled;
+    for (auto& view : xdg_views_) {
+        if (view->mapped && !view->toplevel->requested.maximized &&
+            !view->toplevel->requested.fullscreen) tiled.push_back(view.get());
+    }
+    if (tiled.empty()) return;
+    const int out_width = !outputs_.empty() && outputs_[0]->wlr_output
+        ? outputs_[0]->wlr_output->width : 1280;
+    const int out_height = !outputs_.empty() && outputs_[0]->wlr_output
+        ? outputs_[0]->wlr_output->height : 720;
+    const int top = 34;
+    const int usable_height = std::max(1, out_height - 106);
+    for (std::size_t i = 0; i < tiled.size(); ++i) {
+        auto* view = tiled[i];
+        const int left = static_cast<int>(i * static_cast<std::size_t>(out_width) / tiled.size());
+        const int right = static_cast<int>((i + 1) * static_cast<std::size_t>(out_width) / tiled.size());
+        const int width = std::max(1, right - left);
+        if (view->x == left && view->y == top && view->width == width &&
+            view->height == usable_height) continue;
+        view->x = left;
+        view->y = top;
+        view->width = width;
+        view->height = usable_height;
+        wlr_scene_node_set_position(&view->scene_tree->node, left, top);
+        wlr_xdg_toplevel_set_tiled(view->toplevel,
+            WLR_EDGE_TOP | WLR_EDGE_BOTTOM | WLR_EDGE_LEFT | WLR_EDGE_RIGHT);
+        wlr_xdg_toplevel_set_size(view->toplevel, width, usable_height);
+    }
+}
+
+void WlrServer::FocusXdgView(WlrXdgView* view) {
+    if (!view || !view->mapped) return;
+    if (focused_xdg_view_ && focused_xdg_view_ != view && focused_xdg_view_->toplevel) {
+        wlr_xdg_toplevel_set_activated(focused_xdg_view_->toplevel, false);
+    }
+    focused_xdg_view_ = view;
+    wlr_scene_node_raise_to_top(&view->scene_tree->node);
+    wlr_xdg_toplevel_set_activated(view->toplevel, true);
+    if (auto* keyboard = wlr_seat_get_keyboard(seat_)) {
+        wlr_seat_keyboard_notify_enter(seat_, view->toplevel->base->surface,
+                                       keyboard->keycodes, keyboard->num_keycodes,
+                                       &keyboard->modifiers);
+    }
+}
+
+void WlrServer::HandleKeyboardKey(WlrKeyboardBinding* binding, void* data) {
+    auto* event = static_cast<struct wlr_keyboard_key_event*>(data);
+    wlr_seat_set_keyboard(seat_, binding->keyboard);
+    wlr_seat_keyboard_notify_key(seat_, event->time_msec, event->keycode, event->state);
+}
+
+void WlrServer::HandleKeyboardModifiers(WlrKeyboardBinding* binding) {
+    wlr_seat_set_keyboard(seat_, binding->keyboard);
+    wlr_seat_keyboard_notify_modifiers(seat_, &binding->keyboard->modifiers);
+}
+
+void WlrServer::HandleKeyboardDestroy(WlrKeyboardBinding* binding) {
+    if (wlr_seat_get_keyboard(seat_) == binding->keyboard) {
+        wlr_seat_set_keyboard(seat_, nullptr);
+    }
+    auto it = std::find_if(keyboards_.begin(), keyboards_.end(),
+        [binding](const auto& item) { return item.get() == binding; });
+    if (it != keyboards_.end()) keyboards_.erase(it);
+}
+
+void WlrServer::CloseFocusedXdgView() {
+    if (focused_xdg_view_ && focused_xdg_view_->toplevel) {
+        wlr_xdg_toplevel_send_close(focused_xdg_view_->toplevel);
     }
 }
 
@@ -879,8 +1107,7 @@ void WlrServer::HandleCursorMotion(uint32_t time_msec, double dx, double dy) {
     if (cursor_mgr_) {
         wlr_cursor_set_xcursor(cursor_, cursor_mgr_, "left_ptr");
     }
-    wlr_seat_pointer_notify_motion(seat_, time_msec, cursor_->x, cursor_->y);
-    wlr_seat_pointer_notify_frame(seat_);
+    UpdateXdgPointerFocus(time_msec);
     if (compositor_) {
         compositor_->OnPointerMotion(static_cast<float>(cursor_->x), static_cast<float>(cursor_->y), static_cast<float>(dx), static_cast<float>(dy));
     }
@@ -899,8 +1126,7 @@ void WlrServer::HandleCursorMotionAbsolute(uint32_t time_msec, double x, double 
     if (cursor_mgr_) {
         wlr_cursor_set_xcursor(cursor_, cursor_mgr_, "left_ptr");
     }
-    wlr_seat_pointer_notify_motion(seat_, time_msec, cursor_->x, cursor_->y);
-    wlr_seat_pointer_notify_frame(seat_);
+    UpdateXdgPointerFocus(time_msec);
     if (compositor_) {
         compositor_->OnPointerMotion(static_cast<float>(cursor_->x), static_cast<float>(cursor_->y));
     }
@@ -915,8 +1141,18 @@ void WlrServer::HandleCursorMotionAbsolute(uint32_t time_msec, double x, double 
 }
 
 void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t state) {
+    if (state == WLR_BUTTON_PRESSED && seat_->pointer_state.focused_surface) {
+        auto* top = wlr_xdg_toplevel_try_from_wlr_surface(seat_->pointer_state.focused_surface);
+        for (auto& view : xdg_views_) {
+            if (view->toplevel == top) {
+                FocusXdgView(view.get());
+                break;
+            }
+        }
+    }
     wlr_seat_pointer_notify_button(seat_, time_msec, button,
                                    static_cast<wl_pointer_button_state>(state));
+    wlr_seat_pointer_notify_frame(seat_);
     if (compositor_) {
         compositor_->OnPointerButton(button, state == WLR_BUTTON_PRESSED);
     }
@@ -1005,6 +1241,29 @@ void WlrServer::HandleCursorAxis(uint32_t time_msec, int axis, double value) {
                                  static_cast<wl_pointer_axis>(axis), value, 0,
                                  WL_POINTER_AXIS_SOURCE_FINGER,
                                  WL_POINTER_AXIS_RELATIVE_DIRECTION_IDENTICAL);
+    wlr_seat_pointer_notify_frame(seat_);
+}
+
+void WlrServer::UpdateXdgPointerFocus(uint32_t time_msec) {
+    if (!windows_tree_ || !seat_ || !cursor_) return;
+    double sx = 0.0;
+    double sy = 0.0;
+    struct wlr_scene_node* node = wlr_scene_node_at(&windows_tree_->node,
+                                                      cursor_->x, cursor_->y,
+                                                      &sx, &sy);
+    struct wlr_surface* surface = nullptr;
+    if (node && node->type == WLR_SCENE_NODE_BUFFER) {
+        auto* scene_buffer = wlr_scene_buffer_from_node(node);
+        auto* scene_surface = wlr_scene_surface_try_from_buffer(scene_buffer);
+        if (scene_surface) surface = scene_surface->surface;
+    }
+    if (surface) {
+        wlr_seat_pointer_notify_enter(seat_, surface, sx, sy);
+        wlr_seat_pointer_notify_motion(seat_, time_msec, sx, sy);
+    } else {
+        wlr_seat_pointer_notify_clear_focus(seat_);
+    }
+    wlr_seat_pointer_notify_frame(seat_);
 }
 
 void WlrServer::InitSceneGraph() {
@@ -1474,6 +1733,7 @@ bool WlrServer::SetOutputMode(const std::string& name, int width, int height, in
 
         if (wlr_output_commit_state(w_out, &state)) {
             any_success = true;
+            ArrangeXdgViews();
             UpdateSceneGraph(w_out->width, w_out->height);
             wlr_output_schedule_frame(w_out);
         } else {
