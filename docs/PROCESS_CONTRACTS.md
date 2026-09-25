@@ -75,3 +75,5 @@ flowchart LR
 ## 接下来的验收
 
 第三步先完成一个**不读取 DSL** 的普通 Wayland 客户端，验证首次 configure/ack、buffer 提交、resize、关闭、键盘与指针。它通过上述事件和尺寸契约与客户端 runtime 对接；shell 角色待授权机制就绪后再开放。第四步再实现 Scene → DisplayList → Skia，不让 WM 获得应用树。
+
+第四步的首个实现检查点见 [CLIENT_SCENE_RUNTIME.md](CLIENT_SCENE_RUNTIME.md)：`prism_client_scene` 独立于旧单体和平台，尚未接入 Skia。

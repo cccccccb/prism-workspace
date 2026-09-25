@@ -41,3 +41,7 @@ add_test(NAME ipc_benchmark COMMAND ipc_benchmark)
 add_test(NAME dsl_widgets_test COMMAND dsl_widgets_test)
 add_test(NAME layer_manager_test COMMAND layer_manager_test)
 add_test(NAME shell_experimental_test COMMAND shell_experimental_test)
+
+add_executable(client_scene_test client_scene_test.cpp)
+target_link_libraries(client_scene_test PRIVATE prism_client_dsl)
+add_test(NAME client_scene_test COMMAND client_scene_test)

@@ -45,6 +45,7 @@ find_package(Threads REQUIRED)
 # 1. Core Framework Subdirectory
 add_subdirectory(prism/contracts)
 add_subdirectory(prism/platform/wayland_client)
+add_subdirectory(prism/runtime)
 add_subdirectory(prism)
 
 # 2. Demos Subdirectory

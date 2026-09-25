@@ -52,6 +52,8 @@ SDK 连接 registry，创建 `wl_surface` 与 xdg-shell toplevel，处理首次�
 
 AST 只表示语法；长期 Scene 保存节点状态、绑定、焦点与布局；渲染数据通过独立后端接口送给 Skia。首版先覆盖固定尺寸、row/column、文字、图片、矩形、圆角和基本裁剪。属性变更至少区分 Layout、Paint、Composite；静止页面不持续提交。先用一个单线程端到端路径保证正确性，再依据测量引入 Render Tree、DisplayList chunk、缓存或渲染线程。Skia Vulkan 与 OpenGL ES 在目标设备上做功能与帧时对比后，确定实际发布后端；CPU Skia 可作为诊断路径，但不能用软件结果宣称 GPU 性能。
 
+当前检查点：独立的客户端 DSL 前端与 retained Scene 已实现基础布局、绑定、命中和 DisplayList 生成，范围及缺项见 [CLIENT_SCENE_RUNTIME.md](CLIENT_SCENE_RUNTIME.md)。Skia 后端和真实客户端集成尚未完成。
+
 ### 第五步：迁移全部应用并一次性切换生产路径
 
 普通 demo、desktop、topbar、dock 全部通过 SDK 自主解析 DSL、绘制与提交 surface。启动器按包元数据启动客户端；dock 的启动动作必须真正调用启动服务。WM 只合成 surface 并绘制自身装饰。此步骤完成时，删除 ImGui 及 `imgui_sw`、WM 对应用 AST/`$slot` 的持有、WM 内 topbar/dock 解析与绘制、演示应用的硬编码路径。构建产物中不得再出现生产 ImGui 引用。
