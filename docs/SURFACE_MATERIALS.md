@@ -54,3 +54,10 @@ Raw GLES 采样必须显式设置 MIN/MAG 为 LINEAR、WRAP 为 CLAMP_TO_EDGE；
 `tests/probes/visual_session_probe.py` 已通过统一 launcher/host 创建真实业务应用，保存 1024×600 的双窗、三窗、四窗截图与对应树，真实提交尺寸与树一致。正常退出及 WM/launcher/Shell 崩溃后的进程回收检查通过。最终 CTest 26/26 通过；五个独立 V3D 会话共 40 次背景捕获通过。前期曾有间歇捕获超时未复现/未归因，probe 保留诊断并失败、不重试，不能称作已修复。
 
 0.1.0-5 已安装到 Pi 的物理 DRM 输出，五应用均报告真实 V3D FirstPresented，WM GPU backdrop 开启，截图无圆角黑底/遮挡。用户确认外观及播放、配色切换、Dock 激活点击均正常；详情见 Pi 部署文档。节点增量布局、分块缓存、花哨动画与零拷贝专项仍不列入本轮完成范围。
+
+
+## 7. 0.1.0-7 静态视觉收尾
+
+当前 Glass 的背景 tint 改为烟灰，减少此前白色蒙层；`dockTile` 与 `album` 是普通主题材料，局部内外阴影由 SDK 执行，窗口外阴影仍由 WM 提供。顶线、运行标记和主题选中线共享色值与厚度，顶线以局部细底座解决亮背景对比，不改壁纸或 compositor 算法。
+
+28/28 CTest、最终资源 2/2、已安装四主题物理截图通过；用户已现场确认“外观满意，点击正常”。最终布局的一次 headless Clear 截图超时已原样记录，没有重试或宣称修复，详见 [PI_DEB_DEPLOYMENT.md](PI_DEB_DEPLOYMENT.md)。

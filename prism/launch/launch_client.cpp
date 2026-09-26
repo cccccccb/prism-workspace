@@ -52,11 +52,11 @@ std::uint64_t LaunchClient::SubscribeInstances() {
 std::vector<contracts::InstanceUpdate> LaunchClient::TakeInstanceUpdates() {
     auto result=std::move(updates_); updates_.clear(); return result;
 }
-std::uint64_t LaunchClient::SelectTheme(std::string id) {
+std::uint64_t LaunchClient::SelectTheme(std::string id, std::string color_scheme) {
     if (!Connect() || !next_request_) return 0;
     const auto request=next_request_++;
     try {
-        if (!stream_->Queue(launch::EncodeMessage(contracts::ThemeRequest{request,std::move(id)}))) return 0;
+        if (!stream_->Queue(launch::EncodeMessage(contracts::ThemeRequest{request,std::move(id),std::move(color_scheme)}))) return 0;
         stream_->Flush(); return Connected() ? request : 0;
     } catch (...) { return 0; }
 }

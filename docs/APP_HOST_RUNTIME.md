@@ -97,6 +97,10 @@ python3 tests/probes/client_suite_probe.py build-gles
 
 ABI v1 的原有字段和布局前缀保留：HostApi 尾部增加 `select_theme(context, PrismStringViewV1 id) -> uint64_t`，Module 尾部增加 `on_theme_event(instance, const PrismThemeEventV1*)`。加载器只复制 struct_size 覆盖的完整字段，旧模块缺失回调时置空；模块调用新 Host API 前同样检查字段是否存在。`prism::app::SelectTheme` 已提供这一检查。
 
-请求参数只包含已安装的包 ID，空 ID 查询当前主题；返回非零表示已排队，零表示接口不可用或请求被拒绝，不能提前报告已切换。ModuleSession 构造函数最后一个可选参数是 `ThemeSink`，并通过 `Deliver(const ThemeEvent&)` 投影结果。
+主题接口的参数包含已安装的包 ID，空 ID 查询当前主题；配色接口独立请求 light/dark；返回非零表示已排队，零表示接口不可用或请求被拒绝，不能提前报告已切换。ModuleSession 构造函数保留可选 `ThemeSink`，其后追加可选 `ColorSchemeSink`，并通过 `Deliver(const ThemeEvent&)` 投影结果。
 
 `PrismThemeEventV1` 包含 struct_size、request_id、generation、status 和借用的 id/name/detail 字符串。status 为 Current=0、Applied=1、Rejected=2；request_id=0 可表示当前主题广播。模块按真实结果更新显示，不自行写另一份窗口配色。字符串只在回调期间有效。旧 host 无此尾部时，应用应明确显示接口不可用；不可回退为伪装成全局主题的本窗口颜色切换。
+
+### 配色与 ABI 尾字段
+
+`HostConfig::select_color_scheme` 与 module 的可选 `select_color_scheme` 接口沿用主题请求通道。初始快照、Preview/Master 切换、预热 host、应用中快照更新及 `on_theme_event` 均携带同一 `color_scheme`。V1 的原前缀不变；新 module 处理旧 `PrismThemeEventV1` 时按旧前缀长度校验，完整尾字段存在才读取配色，否则 dark。独立 host 的事件回读同样用 ID 和实际配色加载资源，不能重置为默认 dark。

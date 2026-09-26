@@ -1,17 +1,25 @@
-Card(height: "@shell_top_height", padding: "@topbar_inset") {
-    Card(height: "@topbar_height", paddingX: "@topbar_padding_x", paddingY: "@topbar_padding_y",
-         material: "panel", shadowBlur: "@topbar_shadow_blur", justify: "center") {
-        HStack(width: 140, anchor: "left", align: "center", spacing: 8, overflow: "clip") {
-            Icon("grid", width: 20, height: 20, foreground: "@text")
-            Text("Prism", font: "@font_body", foreground: "@text")
+Card(height: "@shell_top_height", paddingX: "@topbar_inset", paddingY: "@topbar_stack_inset") {
+    VStack(spacing: "@topbar_handle_gap") {
+        Card(height: "@topbar_handle_plate_height") {
+            Card(width: "@topbar_handle_plate_width", height: "@topbar_handle_plate_height", anchor: "center",
+                 cornerRadius: "@topbar_handle_plate_radius", background: "@handleTrack", justify: "center",
+                 shadowBlur: "@control_shadow_blur", shadowY: "@local_shadow_y", shadowColor: "@shadow") {
+                Card(width: "@topbar_handle_width", height: "@topbar_handle_height", anchor: "center",
+                     cornerRadius: "@topbar_handle_radius", background: "@indicator")
+            }
         }
-        Text($clock_time, anchor: "center", font: "@topbar_font", foreground: "@text")
-        HStack(width: 192, anchor: "right", align: "center", spacing: 7, overflow: "clip") {
-            Icon("wifi", width: 18, height: 18, foreground: "@mutedText")
-            Text($net_status, width: 72, font: "@font_caption", foreground: "@mutedText")
-            Separator(width: 1, height: 16, background: "@divider")
-            Icon($power_icon, width: 20, height: 18, foreground: "@mutedText")
-            Text($bat_status, width: 32, font: "@font_caption", foreground: "@mutedText")
+        Card(height: "@topbar_height", material: "panel", shadowBlur: "@topbar_shadow_blur") {
+            Card(paddingX: "@topbar_padding_x", paddingY: "@topbar_padding_y", justify: "center") {
+                HStack(width: 140, anchor: "left", align: "center", spacing: 8, overflow: "clip") {
+                    Icon("grid", width: 20, height: 20, foreground: "@text")
+                    Text("Prism", font: "@font_body", foreground: "@text")
+                }
+                Text($clock_time, anchor: "center", font: "@topbar_font", foreground: "@text")
+                HStack(width: 64, anchor: "right", align: "center", justify: "end", spacing: 12, overflow: "clip") {
+                    Icon($network_icon, width: 20, height: 18, foreground: "@mutedText")
+                    Icon($power_icon, width: 20, height: 18, foreground: "@mutedText")
+                }
+            }
         }
     }
 }

@@ -89,6 +89,19 @@ inline void ReplayIcon(SkCanvas* canvas, const contracts::DrawIcon& icon) {
         case I::Heart:
             {SkPath p;p.moveTo(12,21);p.cubicTo(2,14,-1,7,5,3);p.cubicTo(8,1,11,3,12,6);
              p.cubicTo(13,3,16,1,19,3);p.cubicTo(25,7,22,14,12,21);p.close();canvas->drawPath(p,fill);}break;
+        case I::Layers:
+            path({{12,3},{22,8},{12,13},{2,8}},true);
+            path({{2,12},{12,17},{22,12}});path({{2,16},{12,21},{22,16}});break;
+        case I::Rectangle:rect(3,5,18,14,0);break;
+        case I::Drop:
+            {SkPath p;p.moveTo(12,2);p.cubicTo(10,6,4,11,4,15);
+             p.cubicTo(4,24,20,24,20,15);p.cubicTo(20,11,14,6,12,2);p.close();canvas->drawPath(p,stroke);}break;
+        case I::WifiOff:
+            {SkPath p;p.moveTo(3,9);p.quadTo(12,1,21,9);canvas->drawPath(p,stroke);
+             SkPath q;q.moveTo(6,13);q.quadTo(12,7,18,13);canvas->drawPath(q,stroke);
+             canvas->drawCircle(12,20,1.4,fill);line(3,3,21,21);}break;
+        case I::Error:
+            canvas->drawCircle(12,12,9,stroke);line(8,8,16,16);line(16,8,8,16);break;
     }
     canvas->restore();
 }

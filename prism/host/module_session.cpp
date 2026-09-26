@@ -16,11 +16,11 @@ bool Valid(PrismStringViewV1 text, std::size_t limit) {
 }
 }
 ModuleSession::ModuleSession(const std::filesystem::path& module, std::string app_id,
-    std::uint64_t instance, BindingSink bindings, LaunchSink launch, SubscribeSink subscribe, ThemeSink themes)
+    std::uint64_t instance, BindingSink bindings, LaunchSink launch, SubscribeSink subscribe, ThemeSink themes, ColorSchemeSink schemes)
     : module_(module), app_id_(std::move(app_id)), instance_id_(instance),
       bindings_(std::move(bindings)), launch_(std::move(launch)), subscribe_(std::move(subscribe)),
-      themes_(std::move(themes)), host_{sizeof(host_), PRISM_APP_ABI_V1, this,
-        SetBinding, Ready, Launch, Schedule, Subscribe, SelectTheme} {}
+      themes_(std::move(themes)), schemes_(std::move(schemes)), host_{sizeof(host_), PRISM_APP_ABI_V1, this,
+        SetBinding, Ready, Launch, Schedule, Subscribe, SelectTheme, SelectColorScheme} {}
 ModuleSession::~ModuleSession() {
     tick_due_.reset();
     if (instance_) module_.Api().destroy(instance_);
@@ -101,12 +101,25 @@ uint64_t ModuleSession::SelectTheme(void* ctx, PrismStringViewV1 id) noexcept {
         return request;
     } catch (...) { return 0; }
 }
+uint64_t ModuleSession::SelectColorScheme(void* ctx, PrismStringViewV1 scheme) noexcept {
+    try {
+        auto& self = *static_cast<ModuleSession*>(ctx);
+        if (!Valid(scheme,5) || !self.schemes_ || self.theme_requests_.size() >= 64) return 0;
+        const std::string_view name(scheme.data,scheme.size);
+        if (name != "light" && name != "dark") return 0;
+        const auto request = self.schemes_(name);
+        if (!request || self.theme_requests_.contains(request)) return 0;
+        self.theme_requests_.emplace(request,std::string{});
+        return request;
+    } catch (...) { return 0; }
+}
 void ModuleSession::Deliver(const contracts::ThemeEvent& event) {
     if (event.request && !theme_requests_.contains(event.request)) return;
     if (instance_ && module_.Api().on_theme_event) {
         PrismThemeEventV1 projected{sizeof(projected),event.request,event.generation,
             static_cast<std::uint32_t>(event.status),{event.id.data(),event.id.size()},
-            {event.name.data(),event.name.size()},{event.detail.data(),event.detail.size()}};
+            {event.name.data(),event.name.size()},{event.detail.data(),event.detail.size()},
+            {event.color_scheme.data(),event.color_scheme.size()}};
         module_.Api().on_theme_event(instance_,&projected);
     }
     if (event.request) theme_requests_.erase(event.request);

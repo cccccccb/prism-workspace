@@ -72,13 +72,17 @@ struct AppHost::Impl {
                 if (config.select_theme) return config.select_theme(id);
                 if (!launches) launches=std::make_unique<LaunchClient>();
                 return launches->SelectTheme(std::string(id));
+            }, [this](std::string_view scheme) {
+                if (config.select_color_scheme) return config.select_color_scheme(scheme);
+                if (!launches) launches=std::make_unique<LaunchClient>();
+                return launches->SelectTheme({},std::string(scheme));
             });
         if (!business->Start()) return Fail(contracts::LaunchError::RuntimeFailed, "Business create failed");
         frontend->OnAction([this](std::string_view action) { business->Action(action); });
         if (config.initial_theme) {
             const auto& theme=*config.initial_theme;
             business->Deliver(contracts::ThemeEvent{0,theme.generation,contracts::ThemeStatus::Current,
-                theme.id,theme.name,{}});
+                theme.id,theme.name,{},theme.color_scheme});
         }
         return true;
     }
@@ -147,7 +151,7 @@ bool AppHost::Bind(const launch::AppPackage& package) {
         }
         const auto& manifest = package.manifest;
         ClientConfig config{self.config.socket, manifest.app_id, manifest.name, self.config.font_path,
-            manifest.width, manifest.height, package.assets.string()};
+            manifest.width, manifest.height, package.assets.string(),self.config.gpu_resource_cache_bytes};
         if (!self.frontend->ConfigureWindow(std::move(config)) ||
             !self.frontend->Open(ReadUi(package.preview ? *package.preview : package.ui)))
             return self.Fail(contracts::LaunchError::RuntimeFailed, "Frontend open failed");
@@ -172,9 +176,9 @@ bool AppHost::Pump(int timeout) {
             for (const auto& event:self.launches->TakeThemeEvents()) {
                 if (event.status != contracts::ThemeStatus::Rejected) {
                     std::string diagnostic;
-                    if (!ApplyTheme(theme::LoadTheme(theme::DefaultThemeRoot(),event.id,event.generation),&diagnostic)) {
+                    if (!ApplyTheme(theme::LoadTheme(theme::DefaultThemeRoot(),event.id,event.generation,event.color_scheme),&diagnostic)) {
                         self.business->Deliver(contracts::ThemeEvent{event.request,ThemeGeneration(),
-                            contracts::ThemeStatus::Rejected,event.id,event.name,std::move(diagnostic)});
+                            contracts::ThemeStatus::Rejected,event.id,event.name,std::move(diagnostic),event.color_scheme});
                         continue;
                     }
                 }

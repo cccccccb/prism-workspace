@@ -39,7 +39,8 @@ struct RoundedRectShadow {
 };
 // SDK vector resources; these are geometric icons, independent of installed fonts.
 enum class VectorIcon { Grid, Music, Settings, Folder, Terminal, Play, Pause, Previous,
-    Next, Volume, Wifi, Battery, Search, Sun, Moon, Power, Check, Chevron, Refresh, Cpu, Memory, Heart };
+    Next, Volume, Wifi, Battery, Search, Sun, Moon, Power, Check, Chevron, Refresh, Cpu, Memory, Heart,
+    Layers, Rectangle, Drop, WifiOff, Error };
 struct DrawIcon { VectorIcon icon{VectorIcon::Grid}; LogicalRect bounds{}; Color color{}; };
 enum class ImageFit { Fill, Contain, Cover };
 

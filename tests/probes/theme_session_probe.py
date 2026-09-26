@@ -17,6 +17,9 @@ build=Path(sys.argv[1]).resolve()
 grim=Path(sys.argv[2]).resolve()
 output=Path(sys.argv[3]).resolve()
 output.mkdir(parents=True,exist_ok=True)
+# A failed run must not leave a previous run's success report in this directory.
+(output/'results.json').unlink(missing_ok=True)
+(output/'capture-timeout.json').unlink(missing_ok=True)
 
 def wait(predicate,detail,timeout=20):
     deadline=time.monotonic()+timeout
@@ -79,7 +82,15 @@ with tempfile.TemporaryDirectory(prefix='prism-theme-') as directory:
                 assert peer.recv(1)==b'',collision
     def capture(name):
         time.sleep(.3)
-        subprocess.run([str(grim),str(output/(name+'.png'))],env=env,check=True,timeout=10)
+        try:
+            subprocess.run([str(grim),str(output/(name+'.png'))],env=env,check=True,timeout=10)
+        except subprocess.TimeoutExpired:
+            (output/'capture-timeout.json').write_text(json.dumps({
+                'theme':name,'timeout_seconds':10,'automatic_retries':0,
+                'session_pid':session.pid,'session_exit':session.poll(),
+                'capture':str(output/(name+'.png')),'session_log':str(log_path),
+            },indent=2)+'\n')
+            raise
     with log_path.open('w') as log:
         session=subprocess.Popen([str(build/'bin/prism-session-runtime'),'--themes-root',str(catalog)],
                                  env=env,stdout=log,stderr=log)

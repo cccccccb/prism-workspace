@@ -53,6 +53,8 @@ typedef struct PrismHostApiV1 {
     /* Optional tail: select an installed theme ID, or query with an empty ID.
      * Nonzero only means queued; the theme event reports the platform result. */
     uint64_t (*select_theme)(void*, PrismStringViewV1);
+    /* Optional tail: select light/dark independently of the material theme. */
+    uint64_t (*select_color_scheme)(void*, PrismStringViewV1);
 } PrismHostApiV1;
 
 typedef struct PrismAppInitV1 {
@@ -95,6 +97,8 @@ typedef struct PrismThemeEventV1 {
     PrismStringViewV1 id;
     PrismStringViewV1 name;
     PrismStringViewV1 detail;
+    /* Optional tail; absent in older hosts means dark. */
+    PrismStringViewV1 color_scheme;
 } PrismThemeEventV1;
 
 typedef struct PrismAppModuleV1 {

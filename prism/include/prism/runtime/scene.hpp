@@ -19,6 +19,7 @@ struct RenderTree;
 
 enum class Kind { Row, Column, Box, Text, Image, Icon, IconButton, Progress, Toggle, Separator };
 struct Style {
+    bool visible{true};
     double width{0};  // automatic: intrinsic leaves, remaining-space containers
     double height{0}; // automatic; Card fills containers and measures text
     double padding{0};
@@ -88,6 +89,7 @@ public:
     std::uint64_t Generation() const { return generation_; }
     contracts::NodeId RootId() const;
     contracts::LogicalRect Bounds(contracts::NodeId id) const;
+    bool IsVisible(contracts::NodeId id) const;
     std::vector<contracts::SurfaceEffectRegion> SurfaceEffects() const;
     const std::vector<contracts::SurfaceInputRegion>& InputRegions() const;
     bool SetPointer(contracts::LogicalPoint point);
@@ -99,6 +101,7 @@ private:
     std::unique_ptr<Node> MakeNode(Blueprint blueprint);
     Blueprint CurrentBlueprint(const Node&) const;
     Node* Find(contracts::NodeId id) const;
+    bool IsVisible(const Node&) const;
     void ApplyCachedProperty(Node& node, DslProperty property, const PropertyValue& value);
     PropertyValue CurrentProperty(const Node& node, DslProperty property) const;
     std::optional<std::string> Hit(const Node& node, contracts::LogicalPoint point) const;

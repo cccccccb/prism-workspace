@@ -18,6 +18,7 @@ using Visual = std::variant<RectVisual, RoundedRectVisual, ImageVisual, TextVisu
 struct RenderNode {
     contracts::NodeId id{};
     contracts::LogicalRect bounds{};
+    bool visible{true};
     bool clip{false};
     double clip_radius{0};
     std::vector<Visual> visuals;

@@ -6,7 +6,7 @@
 namespace prism::launcher {
 struct ServiceConfig {
     std::filesystem::path apps_root, host, themes_root;
-    std::string theme_id{"glass"};
+    std::string theme_id{"glass"}, color_scheme{"dark"};
     std::string socket_name{"launcher.sock"}, wayland;
     int wm_fd{-1}, parent_pid{};
     bool start_shell{};

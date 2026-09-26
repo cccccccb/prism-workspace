@@ -136,14 +136,18 @@ class Compiler {
         return out;
     }
 public:
-    contracts::ThemeSnapshot Compile(const SyntaxNode& root,std::uint64_t generation) {
+    contracts::ThemeSnapshot Compile(const SyntaxNode& root,std::uint64_t generation,std::string_view color_scheme) {
+        if(color_scheme!="dark" && color_scheme!="light") Error(root.line,"unsupported color scheme");
         if (root.name!="Theme") Error(root.line,"root must be Theme");
         Args args(root,{"name","schemaVersion"},true,true);
         contracts::ThemeSnapshot out;
         out.id=args.Text("$name"); if (!PackageId(out.id)) Error(root.line,"invalid theme ID");
         out.name=args.Text("name"); out.generation=generation;
         const auto* version=std::get_if<double>(&args.Get("schemaVersion").data);
-        if (!version || *version!=1) Error(root.line,"unsupported theme schema version");
+        if (!version || (*version!=1 && *version!=2)) Error(root.line,"unsupported theme schema version");
+        out.schema_version=static_cast<std::uint32_t>(*version);
+        out.color_scheme=color_scheme;
+        if(out.schema_version==1 && color_scheme!="dark") Error(root.line,"schema 1 only supports dark");
         if (root.children.size()>512) Error(root.line,"excessive theme components");
         for (const auto& node:root.children) if (node.name=="Number" || node.name=="Color") {
             Args token(node,{"value"},true);
@@ -152,6 +156,48 @@ public:
             if (!tokens.emplace(name,Token{&token.Get("value"),node.line,node.name=="Color",0,{}}).second)
                 Error(node.line,"duplicate token: "+name);
         }
+        // Keep references unresolved until the selected palette is applied.
+        // Aliases and material fields then resolve against the same token map.
+        const auto base=tokens;
+        std::map<std::string,std::map<std::string,Token>> palettes;
+        for(const auto& node:root.children) if(node.name=="Palette") {
+            if(out.schema_version!=2) Error(node.line,"Palette requires schema 2");
+            Args palette(node,{},true,true);
+            const auto scheme=palette.Text("$name");
+            if(scheme!="dark" && scheme!="light") Error(node.line,"unsupported palette color scheme");
+            if(palettes.contains(scheme)) Error(node.line,"duplicate Palette: "+scheme);
+            if(node.children.size()>128) Error(node.line,"excessive palette overrides");
+            auto& overrides=palettes[scheme];
+            for(const auto& child:node.children) {
+                if(child.name!="Color" && child.name!="Number") Error(child.line,"Palette only contains Color or Number overrides");
+                Args token(child,{"value"},true);
+                const auto name=token.Text("$name");
+                const auto existing=base.find(name);
+                if(existing==base.end()) Error(child.line,"unknown palette override: "+name);
+                if(existing->second.color!=(child.name=="Color")) Error(child.line,"palette override has wrong token type: "+name);
+                if(!overrides.emplace(name,Token{&token.Get("value"),child.line,child.name=="Color",0,{}}).second)
+                    Error(child.line,"duplicate palette override: "+name);
+            }
+        }
+        if(color_scheme=="light" && !palettes.contains("light")) Error(root.line,"theme has no light Palette");
+        const auto validate_tokens=[&] {
+            for(auto& [name,token]:tokens) {
+                const auto value=Resolve(token);
+                if(!token.color && (std::get<double>(value)<-16384 || std::get<double>(value)>16384))
+                    Error(token.line,"number token outside supported range: "+name);
+            }
+        };
+        // Reject invalid declarations in unselected palettes too. Each palette
+        // starts from the unresolved base, preventing cache leakage across schemes.
+        validate_tokens();
+        for(const auto& [scheme,overrides]:palettes) {
+            tokens=base;
+            for(const auto& [name,token]:overrides)tokens[name]=token;
+            validate_tokens();
+        }
+        tokens=base;
+        if(const auto selected=palettes.find(std::string(color_scheme));selected!=palettes.end())
+            for(const auto& [name,token]:selected->second)tokens[name]=token;
         for (auto& [name,token]:tokens) {
             auto value=Resolve(token);
             if (token.color) out.colors.push_back({name,std::get<Color>(value)});
@@ -160,7 +206,7 @@ public:
         bool layout=false,controls=false;
         std::set<std::string> materials,decorations;
         for (const auto& node:root.children) {
-            if (node.name=="Number" || node.name=="Color") continue;
+            if (node.name=="Number" || node.name=="Color" || node.name=="Palette") continue;
             if (node.name=="Material") {
                 auto material=Material(node);
                 if (!materials.insert(material.name).second) Error(node.line,"duplicate material: "+material.name);
@@ -206,12 +252,12 @@ public:
 };
 } // namespace
 
-contracts::ThemeSnapshot CompileTheme(std::string_view source,std::uint64_t generation) {
+contracts::ThemeSnapshot CompileTheme(std::string_view source,std::uint64_t generation,std::string_view color_scheme) {
     if (source.empty() || source.size()>contracts::kMaxThemePayload || source.find('\0')!=std::string_view::npos)
         throw std::invalid_argument("Theme source is empty, oversized or contains NUL");
-    return Compiler{}.Compile(runtime::ParseSyntax(source),generation);
+    return Compiler{}.Compile(runtime::ParseSyntax(source),generation,color_scheme);
 }
-contracts::ThemeSnapshot LoadTheme(const std::filesystem::path& root,std::string_view id,std::uint64_t generation) {
+contracts::ThemeSnapshot LoadTheme(const std::filesystem::path& root,std::string_view id,std::uint64_t generation,std::string_view color_scheme) {
     if (!PackageId(id)) throw std::invalid_argument("Invalid theme package ID");
     const auto base=std::filesystem::canonical(root);
     const auto file=std::filesystem::canonical(base/std::string(id)/"theme.prism");
@@ -223,7 +269,7 @@ contracts::ThemeSnapshot LoadTheme(const std::filesystem::path& root,std::string
     std::ifstream input(file,std::ios::binary);
     std::string source(size,'\0');
     if (!input.read(source.data(),source.size())) throw std::invalid_argument("Cannot read theme package");
-    auto snapshot=CompileTheme(source,generation);
+    auto snapshot=CompileTheme(source,generation,color_scheme);
     if (snapshot.id!=id) throw std::invalid_argument("Theme package ID does not match its directory");
     return snapshot;
 }

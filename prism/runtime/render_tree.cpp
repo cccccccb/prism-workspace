@@ -19,25 +19,38 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot& snapshot, const RenderT
     RenderTree tree;
     tree.root = snapshot.root;
     tree.nodes.reserve(snapshot.nodes.size());
+    std::vector<bool> visible(snapshot.nodes.size(),false);
+    const auto collect=[&](const auto& self,contracts::NodeId id,bool parent_visible)->void {
+        const auto& node=snapshot.Get(id);
+        visible[id.index]=parent_visible && node.style.visible;
+        for(auto child:node.children)self(self,child,visible[id.index]);
+    };
+    collect(collect,snapshot.root,true);
     for (const auto& source : snapshot.nodes) {
         const RenderNode* old = nullptr;
         if (previous && source.id.index < previous->nodes.size() &&
             previous->nodes[source.id.index].id == source.id)
             old = &previous->nodes[source.id.index];
         if (old && old->source_revision == source.revision &&
-            SameBounds(old->bounds, source.bounds) && old->children == source.children) {
+            SameBounds(old->bounds, source.bounds) && old->children == source.children &&
+            old->visible == visible[source.id.index]) {
             tree.nodes.push_back(*old);
             continue;
         }
         RenderNode node;
         node.id = source.id;
         node.bounds = source.bounds;
+        node.visible = visible[source.id.index];
         node.clip = source.style.clip;
         node.clip = node.clip || source.style.overflow == "clip";
         node.clip_radius = source.style.radius;
         node.children = source.children;
         node.source_revision = source.revision;
         node.render_generation = old ? old->render_generation + 1 : 1;
+        if (!node.visible) {
+            tree.nodes.push_back(std::move(node));
+            continue;
+        }
         if (source.style.shadow_color.a && source.style.shadow_blur > 0)
             node.visuals.emplace_back(ShadowVisual{source.style.radius,source.style.shadow_blur,
                 source.style.shadow_y,source.style.shadow_color,false});
@@ -62,7 +75,7 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot& snapshot, const RenderT
             node.visuals.emplace_back(ImageVisual{source.image,source.style.image_fit});
         if ((source.kind == Kind::Icon || source.kind == Kind::IconButton) && !source.icon.empty()) {
             constexpr std::string_view names[] = {"grid", "music", "settings", "folder", "terminal", "play", "pause",
-                "previous", "next", "volume", "wifi", "battery", "search", "sun", "moon", "power", "check", "chevron", "refresh", "cpu", "memory", "heart"};
+                "previous", "next", "volume", "wifi", "battery", "search", "sun", "moon", "power", "check", "chevron", "refresh", "cpu", "memory", "heart", "layers", "rectangle", "drop", "wifi-off", "error"};
             const auto it=std::find(std::begin(names),std::end(names),source.icon);
             if (it!=std::end(names)) node.visuals.emplace_back(IconVisual{
                 static_cast<contracts::VectorIcon>(it-std::begin(names)),source.style.foreground,source.style.padding});

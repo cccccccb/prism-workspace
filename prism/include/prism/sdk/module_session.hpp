@@ -15,10 +15,11 @@ public:
     using BindingSink = std::function<bool(std::string_view, runtime::PropertyValue)>;
     using SubscribeSink = std::function<std::uint64_t()>;
     using LaunchSink = std::function<std::uint64_t(std::string_view)>;
+    using ColorSchemeSink = std::function<std::uint64_t(std::string_view)>;
     using ThemeSink = std::function<std::uint64_t(std::string_view)>;
     ModuleSession(const std::filesystem::path& module, std::string app_id,
                   std::uint64_t instance, BindingSink bindings, LaunchSink launch = {}, SubscribeSink subscribe = {},
-                  ThemeSink themes = {});
+                  ThemeSink themes = {}, ColorSchemeSink schemes = {});
     ~ModuleSession();
     ModuleSession(const ModuleSession&) = delete;
     ModuleSession& operator=(const ModuleSession&) = delete;
@@ -37,6 +38,7 @@ private:
     static uint64_t Launch(void*, PrismStringViewV1) noexcept;
     static uint64_t Subscribe(void*) noexcept;
     static uint64_t SelectTheme(void*, PrismStringViewV1) noexcept;
+    static uint64_t SelectColorScheme(void*, PrismStringViewV1) noexcept;
     static int32_t Schedule(void*, uint64_t) noexcept;
     launch::AppModule module_;
     std::string app_id_;
@@ -45,6 +47,7 @@ private:
     LaunchSink launch_;
     SubscribeSink subscribe_;
     ThemeSink themes_;
+    ColorSchemeSink schemes_;
     std::map<std::uint64_t, std::string> theme_requests_;
     std::uint64_t subscription_{};
     struct PendingLaunch { std::string app_id; contracts::InstanceId instance; std::uint32_t pid{}; bool failed{}; };

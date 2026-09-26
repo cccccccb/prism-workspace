@@ -22,11 +22,12 @@ struct GlesRenderer::Impl {
     GLint framebuffer = -1;
 };
 
-GlesRenderer::GlesRenderer(const RasterRenderer& commands)
+GlesRenderer::GlesRenderer(const RasterRenderer& commands, GlesRendererOptions options)
     : impl_(std::make_unique<Impl>(commands)) {
     auto interface = GrGLMakeAssembledGLESInterface(nullptr,
         [](void*, const char* name) { return eglGetProcAddress(name); });
     if (interface) impl_->context = GrDirectContexts::MakeGL(std::move(interface));
+    if (impl_->context) impl_->context->setResourceCacheLimit(options.resource_cache_bytes);
 }
 GlesRenderer::~GlesRenderer() = default;
 bool GlesRenderer::Ready() const { return impl_->context != nullptr; }

@@ -18,7 +18,7 @@ enum class DslProperty {
     Align, Justify, Flex, Inset, PaddingX, PaddingY, Anchor, Overflow,
     BorderWidth, BorderColor, ShadowBlur, ShadowY, ShadowColor,
     InnerShadowBlur, InnerShadowColor, Icon, Value, Checked, ImageFit, BackdropBlur,
-    Material, InputShape, InnerShadowY
+    Material, InputShape, InnerShadowY, Visible
 };
 using PropertyValue = std::variant<double, bool, std::string, contracts::Color, contracts::ResourceId>;
 struct PropertyAssignment {

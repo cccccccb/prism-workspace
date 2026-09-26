@@ -1,32 +1,56 @@
 Card(padding: "@window_padding", material: "window", clip: true) {
-    VStack(spacing: 8) {
-        HStack(height: 32, spacing: 8, align: "center") {
-            Icon("music", width: 24, height: 24, foreground: "@musicAccent")
-            Text("Music", flex: 1, font: "@font_heading", foreground: "@text")
-            IconButton("grid", "nav:library", width: "@button_size", height: "@button_size", padding: "@button_padding",
+    VStack(spacing: 6) {
+        HStack(height: 28, spacing: 8, align: "center") {
+            Icon("music", width: 20, height: 20, foreground: "@musicAccent")
+            Text("Music", flex: 1, font: "@font_body", foreground: "@text")
+            IconButton("grid", "nav:library", width: 28, height: 28, padding: 6,
                        material: "control", foreground: "@mutedText")
-            IconButton("heart", "nav:favorites", width: "@button_size", height: "@button_size", padding: "@button_padding",
+            IconButton("heart", "nav:favorites", width: 28, height: 28, padding: 6,
                        material: "control", foreground: "@musicAccent")
         }
-        Card(flex: 1, material: "card", background: "@accentSoft", overflow: "clip", justify: "center") {
-            Icon("music", width: 64, height: 64, anchor: "center", foreground: "@musicAccent")
+        Card(flex: 1, padding: 8, material: "album") {
+            Card(justify: "center", align: "center", overflow: "clip") {
+                HStack(width: 44, height: 30, anchor: "left", spacing: 4, align: "center") {
+                    Separator(width: 3, height: 8, background: "@indicator")
+                    Separator(width: 3, height: 18, background: "@indicator")
+                    Separator(width: 3, height: 30, background: "@indicator")
+                    Separator(width: 3, height: 22, background: "@indicator")
+                    Separator(width: 3, height: 12, background: "@indicator")
+                }
+                Card(width: 72, height: 72, anchor: "center", justify: "center", align: "center",
+                     material: "control", cornerRadius: 36, background: "@musicAccent",
+                     borderWidth: 1, borderColor: "@border") {
+                    Card(width: 48, height: 48, cornerRadius: 24, anchor: "center", justify: "center", align: "center",
+                         background: "@albumTint", borderWidth: 1, borderColor: "@border") {
+                        Icon("music", width: 24, height: 24, anchor: "center", foreground: "@onAccent")
+                    }
+                }
+                HStack(width: 44, height: 30, anchor: "right", spacing: 4, align: "center") {
+                    Separator(width: 3, height: 12, background: "@indicator")
+                    Separator(width: 3, height: 22, background: "@indicator")
+                    Separator(width: 3, height: 30, background: "@indicator")
+                    Separator(width: 3, height: 18, background: "@indicator")
+                    Separator(width: 3, height: 8, background: "@indicator")
+                }
+            }
         }
-        Text($track_title, height: 20, font: "@track_font", foreground: "@text", overflow: "clip")
-        Progress(value: $playback_progress, height: 5, cornerRadius: "@progress_radius",
+        VStack(height: 38, spacing: 2) {
+            Text($track_title, height: 22, font: "@font_title", foreground: "@text", overflow: "clip")
+            Text($track_artist, height: 14, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
+        }
+        Progress(value: $playback_progress, height: "@indicator_height", cornerRadius: "@progress_radius",
                  foreground: "@musicAccent", background: "@progressTrack")
-        HStack(height: 14, justify: "spaceBetween") {
-            Text($playback_progress_text, font: "@font_caption", foreground: "@mutedText")
-            Text("Demo playback", font: "@font_caption", foreground: "@mutedText")
+        HStack(height: 12, justify: "spaceBetween", align: "center", spacing: 0) {
+            Text($playback_elapsed, font: "@font_caption", foreground: "@mutedText")
+            Text($playback_duration, font: "@font_caption", foreground: "@mutedText")
         }
-        HStack(height: 44, spacing: 8, align: "center", justify: "center") {
-            IconButton("previous", "player:previous", width: "@button_size", height: "@button_size", padding: "@button_padding",
-                       foreground: "@text", cornerRadius: "@control_radius")
-            IconButton($playback_icon, "player:toggle", width: "@primary_button_width", height: "@primary_button_height",
-                       padding: "@primary_button_padding", material: "control", foreground: "@onAccent", background: "@musicAccent",
-                       shadowBlur: "@primary_shadow_blur", shadowY: "@primary_shadow_y", shadowColor: "@shadow")
-            IconButton("next", "player:next", width: "@button_size", height: "@button_size", padding: "@button_padding",
-                       foreground: "@text", cornerRadius: "@control_radius")
-            Text($play_state_icon, width: 36, font: "@font_caption", foreground: "@mutedText")
+        HStack(height: 36, spacing: 12, align: "center", justify: "center") {
+            IconButton("previous", "player:previous", width: 32, height: 32, padding: 7,
+                       material: "control", foreground: "@text")
+            IconButton($playback_icon, "player:toggle", width: 44, height: 36, padding: 8,
+                       material: "control", foreground: "@onAccent", background: "@musicAccent")
+            IconButton("next", "player:next", width: 32, height: 32, padding: 7,
+                       material: "control", foreground: "@text")
         }
     }
 }

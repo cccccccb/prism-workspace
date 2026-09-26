@@ -12,6 +12,7 @@ double PadY(const Style& s) { return s.padding_y < 0 ? s.padding : s.padding_y; 
 bool Container(Kind kind) { return kind == Kind::Row || kind == Kind::Column || kind == Kind::Box; }
 Size Measure(SceneSnapshot& snapshot, contracts::NodeId id, const ShapeText& shaper) {
     auto& node = snapshot.Get(id);
+    if (!node.style.visible) return {};
     Size natural{};
     if (node.kind == Kind::Text) {
         node.shaped = shaper(node.text, node.style.font_size);
@@ -22,7 +23,10 @@ Size Measure(SceneSnapshot& snapshot, contracts::NodeId id, const ShapeText& sha
     else if (node.kind == Kind::Progress) natural = {80,5};
     else if (node.kind == Kind::Separator) natural = {1,24};
     else {
+        std::size_t visible_count=0;
         for (auto child_id : node.children) {
+            if (!snapshot.Get(child_id).style.visible) continue;
+            ++visible_count;
             auto child = Measure(snapshot, child_id, shaper);
             const auto inset = snapshot.Get(child_id).style.inset * 2;
             child.width += inset; child.height += inset;
@@ -35,8 +39,8 @@ Size Measure(SceneSnapshot& snapshot, contracts::NodeId id, const ShapeText& sha
                 natural.height = std::max(natural.height, child.height);
             }
         }
-        if (!node.children.empty()) {
-            const auto gaps = node.style.spacing * (node.children.size()-1);
+        if (visible_count) {
+            const auto gaps = node.style.spacing * (visible_count-1);
             if (node.kind == Kind::Row) natural.width += gaps;
             if (node.kind == Kind::Column) natural.height += gaps;
         }
@@ -55,18 +59,21 @@ double Offset(std::string_view align, double available, double length) {
 }
 void Place(SceneSnapshot& snapshot, contracts::NodeId id, Rect bounds) {
     auto& node = snapshot.Get(id);
+    if (!node.style.visible) return;
     node.bounds = bounds;
     if (!Container(node.kind)) return;
+    std::vector<contracts::NodeId> children;
+    for (auto child:node.children) if (snapshot.Get(child).style.visible) children.push_back(child);
     const double px=PadX(node.style), py=PadY(node.style);
     Rect inner{bounds.x+px, bounds.y+py, std::max(0.0,bounds.width-2*px), std::max(0.0,bounds.height-2*py)};
     if (node.kind == Kind::Box) {
         double centered_width=0;
-        for(auto child_id:node.children) {
+        for(auto child_id:children) {
             const auto& child=snapshot.Get(child_id);
             if(child.style.anchor=="center")centered_width=std::max(centered_width,
                 child.style.width>0?child.style.width:child.intrinsic_size.width);
         }
-        for (auto child_id : node.children) {
+        for (auto child_id : children) {
             const auto& child = snapshot.Get(child_id);
             const auto& style = child.style;
             const double margin = style.inset;
@@ -76,7 +83,8 @@ void Place(SceneSnapshot& snapshot, contracts::NodeId id, Rect bounds) {
             const bool anchored=style.anchor!="fill";
             const double w = std::min(side_limit, style.width>0 ? style.width : anchored ? child.intrinsic_size.width : available_w);
             const double h = std::min(available_h, style.height>0 ? style.height : child.kind==Kind::Text ? child.intrinsic_size.height : available_h);
-            const auto horizontal = style.anchor=="center" ? "center" : style.anchor=="right" ? "end" : node.style.align.c_str();
+            const auto horizontal = style.anchor=="left" ? "start" : style.anchor=="center" ? "center" :
+                style.anchor=="right" ? "end" : node.style.align.c_str();
             Place(snapshot, child_id, {inner.x+margin+Offset(horizontal,available_w,w),
                 inner.y+margin+Offset(node.style.justify,available_h,h),w,h});
         }
@@ -85,9 +93,9 @@ void Place(SceneSnapshot& snapshot, contracts::NodeId id, Rect bounds) {
     const bool row=node.kind==Kind::Row;
     const double main=row?inner.width:inner.height, cross=row?inner.height:inner.width;
     double gap=node.style.spacing;
-    double fixed=gap*(node.children.empty()?0:node.children.size()-1), total_weight=0;
+    double fixed=gap*(children.empty()?0:children.size()-1), total_weight=0;
     std::vector<double> lengths, weights;
-    for (auto child_id : node.children) {
+    for (auto child_id : children) {
         const auto& child=snapshot.Get(child_id);
         const double explicit_size=row?child.style.width:child.style.height;
         const double weight=child.style.flex>0 ? child.style.flex : explicit_size==0 && Container(child.kind) ? 1 : 0;
@@ -100,8 +108,8 @@ void Place(SceneSnapshot& snapshot, contracts::NodeId id, Rect bounds) {
     if (total_weight>0) for (std::size_t i=0;i<lengths.size();++i) lengths[i]+=remaining*weights[i]/total_weight;
     double cursor=(row?inner.x:inner.y)+Offset(node.style.justify,main,fixed+(total_weight>0?remaining:0));
     if (total_weight==0 && node.style.justify=="spaceBetween" && lengths.size()>1) gap+=remaining/(lengths.size()-1);
-    for (std::size_t i=0;i<node.children.size();++i) {
-        const auto child_id=node.children[i];
+    for (std::size_t i=0;i<children.size();++i) {
+        const auto child_id=children[i];
         const auto& child=snapshot.Get(child_id);
         const double margin=child.style.inset;
         const double explicit_cross=row?child.style.height:child.style.width;
@@ -119,6 +127,7 @@ void Place(SceneSnapshot& snapshot, contracts::NodeId id, Rect bounds) {
 } // namespace
 void LayoutEngine::Compute(SceneSnapshot& snapshot, contracts::LogicalSize viewport, const ShapeText& shaper) {
     if (!snapshot.root || !shaper) throw std::invalid_argument("Layout needs a root and text shaper");
+    for (auto& node:snapshot.nodes) node.bounds={};
     Measure(snapshot,snapshot.root,shaper);
     const auto inset=snapshot.Get(snapshot.root).style.inset;
     Place(snapshot,snapshot.root,{inset,inset,std::max(0.0,viewport.width-2*inset),std::max(0.0,viewport.height-2*inset)});

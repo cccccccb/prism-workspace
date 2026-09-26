@@ -149,7 +149,9 @@ bool ClientApplication::Open(std::string_view dsl_source) {
         if (!app.egl.Ready()) {
             if (!app.egl.Open(display, surface, width, height)) { app.failed = true; return false; }
             app.gl_renderer = app.egl.GlRenderer();
-            app.renderer = std::make_unique<render_skia::GlesRenderer>(app.commands);
+            render_skia::GlesRendererOptions options;
+            if (app.config.gpu_resource_cache_bytes) options.resource_cache_bytes=*app.config.gpu_resource_cache_bytes;
+            app.renderer = std::make_unique<render_skia::GlesRenderer>(app.commands,options);
         }
         if (!app.renderer || !app.renderer->Ready() || !app.egl.Resize(width, height) ||
             !app.egl.MakeCurrent()) { app.failed = true; return false; }

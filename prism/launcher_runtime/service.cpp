@@ -38,7 +38,7 @@ struct Endpoint {
     std::map<std::uint64_t, std::uint64_t> requests;
     std::uint64_t partial_since{}, subscription{};
     std::map<std::uint64_t, contracts::ThemeEvent> theme_requests;
-    std::map<std::uint64_t, std::string> theme_ids;
+    std::map<std::uint64_t, std::pair<std::string,std::string>> theme_ids;
 };
 struct Job {
     Job(std::uint64_t id, LaunchRequest source, Owner endpoint)
@@ -97,7 +97,7 @@ struct Service::Impl {
     void Open() {
         opened_at=Now();
         if (config.themes_root.empty()) config.themes_root=prism::theme::DefaultThemeRoot();
-        theme=prism::theme::LoadTheme(config.themes_root,config.theme_id,1);
+        theme=prism::theme::LoadTheme(config.themes_root,config.theme_id,1,config.color_scheme);
         committed_theme=theme; theme_ready=config.wm_fd<0;
         if (config.wm_fd>=0) {
             launch::VerifyControlPeer(config.wm_fd,config.parent_pid);
@@ -205,7 +205,7 @@ struct Service::Impl {
         }
     }
     ThemeEvent ThemeResult(std::uint64_t request,ThemeStatus status,std::string detail={}) const {
-        return {request,committed_theme.generation,status,committed_theme.id,committed_theme.name,std::move(detail)};
+        return {request,committed_theme.generation,status,committed_theme.id,committed_theme.name,std::move(detail),committed_theme.color_scheme};
     }
     void DeliverTheme(Owner owner,const ThemeEvent& event) {
         if (auto* endpoint=Find(owner)) {
@@ -234,7 +234,7 @@ struct Service::Impl {
         committed_theme=theme;
         DeliverTheme(t.owner,ThemeResult(t.request,t.rollback?ThemeStatus::Rejected:ThemeStatus::Applied,t.detail));
         PublishThemeToHosts();
-        std::cout<<"theme applied id="<<theme.id<<" generation="<<theme.generation<<" rollback="<<t.rollback<<std::endl;
+        std::cout<<"theme applied id="<<theme.id<<" scheme="<<theme.color_scheme<<" generation="<<theme.generation<<" rollback="<<t.rollback<<std::endl;
     }
     void RollbackTheme(std::string detail) {
         if (!theme_transaction) {control_failed=true;return;}
@@ -261,7 +261,7 @@ struct Service::Impl {
         auto* endpoint=Find(owner);if (!endpoint)return;
         Require(!endpoint->requests.contains(request.request) && endpoint->subscription!=request.request,"Theme request ID reused");
         if(auto identity=endpoint->theme_ids.find(request.request);identity!=endpoint->theme_ids.end()) {
-            Require(identity->second==request.id,"Theme replay ID refers to another package");
+            Require(identity->second==std::pair{request.id,request.color_scheme},"Theme replay ID refers to another appearance request");
             if(auto prior=endpoint->theme_requests.find(request.request);prior!=endpoint->theme_requests.end())DeliverTheme(owner,prior->second);
             return;
         }
@@ -269,14 +269,15 @@ struct Service::Impl {
             endpoint->theme_ids.erase(endpoint->theme_requests.begin()->first);
             endpoint->theme_requests.erase(endpoint->theme_requests.begin());
         }
-        endpoint->theme_ids.emplace(request.request,request.id);
-        if(request.id.empty()){DeliverTheme(owner,ThemeResult(request.request,ThemeStatus::Current));return;}
+        endpoint->theme_ids.emplace(request.request,std::pair{request.id,request.color_scheme});
+        if(request.id.empty() && request.color_scheme.empty()){DeliverTheme(owner,ThemeResult(request.request,ThemeStatus::Current));return;}
         if(shutting_down||theme_transaction||!theme_ready){DeliverTheme(owner,ThemeResult(request.request,ThemeStatus::Rejected,"Theme service is busy"));return;}
         ThemeSnapshot candidate;
-        try {candidate=prism::theme::LoadTheme(config.themes_root,request.id,theme.generation+1);}
+        try {candidate=prism::theme::LoadTheme(config.themes_root,request.id.empty()?committed_theme.id:request.id,theme.generation+1,
+            request.color_scheme.empty()?committed_theme.color_scheme:request.color_scheme);}
         catch(const std::exception& e){DeliverTheme(owner,ThemeResult(request.request,ThemeStatus::Rejected,e.what()));return;}
         if(candidate.layout!=committed_theme.layout){DeliverTheme(owner,ThemeResult(request.request,ThemeStatus::Rejected,"Live Shell/BSP geometry changes require a configure-aware theme transaction"));return;}
-        if (candidate.id==committed_theme.id && candidate.numbers==committed_theme.numbers && candidate.colors==committed_theme.colors && candidate.materials==committed_theme.materials && candidate.layout==committed_theme.layout && candidate.normal==committed_theme.normal && candidate.focused==committed_theme.focused && candidate.fullscreen==committed_theme.fullscreen && candidate.controls==committed_theme.controls) {
+        if (candidate.id==committed_theme.id && candidate.color_scheme==committed_theme.color_scheme && candidate.numbers==committed_theme.numbers && candidate.colors==committed_theme.colors && candidate.materials==committed_theme.materials && candidate.layout==committed_theme.layout && candidate.normal==committed_theme.normal && candidate.focused==committed_theme.focused && candidate.fullscreen==committed_theme.fullscreen && candidate.controls==committed_theme.controls) {
             DeliverTheme(owner,ThemeResult(request.request,ThemeStatus::Applied));return;
         }
         ThemeTransaction t;t.owner=owner;t.request=request.request;t.previous=committed_theme;t.deadline=Now()+5000000000ULL;t.wm_pending=control!=nullptr;

@@ -114,6 +114,18 @@ static void handle_output_frame(struct wl_listener* listener, void* data) {
     output->server->HandleOutputFrame(output);
 }
 
+static void handle_output_present(struct wl_listener* listener, void* data) {
+    auto* output = WlContainerOf<WlrOutput>(listener, offsetof(WlrOutput, present));
+    const auto* event = static_cast<wlr_output_event_present*>(data);
+    if (!event->presented) { ++output->discarded_count; return; }
+    ++output->presented_count;
+    if (!event->when) return;
+    const std::uint64_t now = static_cast<std::uint64_t>(event->when->tv_sec)*1000000000ULL + event->when->tv_nsec;
+    if (output->last_present_ns && now > output->last_present_ns)
+        output->present_intervals.Record((now-output->last_present_ns)/1e6);
+    output->last_present_ns=now;
+}
+
 static void handle_output_destroy(struct wl_listener* listener, void* data) {
     auto* output = WlContainerOf<WlrOutput>(listener, offsetof(WlrOutput, destroy));
     if (output && output->server) {
@@ -164,6 +176,8 @@ WlrOutput::WlrOutput(struct wlr_output* out, WlrServer* s)
     frame.notify = handle_output_frame;
     wl_signal_add(&wlr_output->events.frame, &frame);
 
+    present.notify = handle_output_present;
+    wl_signal_add(&wlr_output->events.present, &present);
     destroy.notify = handle_output_destroy;
     wl_signal_add(&wlr_output->events.destroy, &destroy);
 }
@@ -174,6 +188,7 @@ WlrOutput::~WlrOutput() {
         scene_output = nullptr;
     }
     wl_list_remove(&frame.link);
+    wl_list_remove(&present.link);
     wl_list_remove(&destroy.link);
 }
 
@@ -407,6 +422,20 @@ bool WlrServer::Initialize(const std::string& socket_name) {
 
         // Command 3: get_status / status
         auto get_status_handler = [this](const std::string&, const std::vector<std::string>&) {
+            const auto summary=[](const TimingSamples& samples) {
+                const auto s=samples.Summarize();
+                return nlohmann::json{{"samples",s.count},{"mean_ms",s.mean},{"p50_ms",s.p50},
+                    {"p95_ms",s.p95},{"p99_ms",s.p99},{"max_ms",s.maximum}};
+            };
+            nlohmann::json presentation=nlohmann::json::array();
+            for (const auto& output:outputs_) presentation.push_back({{"output",output->wlr_output->name},
+                {"presented",output->presented_count},{"discarded",output->discarded_count},
+                {"interval",summary(output->present_intervals)}});
+            const nlohmann::json performance{{"sample_capacity",240},{"frame_cpu",summary(frame_cpu_)},
+                {"effects_cpu",summary(effects_cpu_)},{"commit_cpu",summary(commit_cpu_)},
+                {"commit_successes",commit_successes_},{"commit_failures",commit_failures_},
+                {"pointer_events",pointer_events_},{"pointer_event_age",summary(pointer_event_age_)},
+                {"presentation",std::move(presentation)}};
             std::ostringstream ss;
             ss << "{\n"
                << "  \"status\": \"ok\",\n"
@@ -418,7 +447,9 @@ bool WlrServer::Initialize(const std::string& socket_name) {
                << "  \"mission_control\": " << (compositor_ && compositor_->IsInMissionControl() ? "true" : "false") << ",\n"
                << "  \"debug_hud\": " << (compositor_ && compositor_->IsDebugHudEnabled() ? "true" : "false") << ",\n"
                << "  \"theme\": " << nlohmann::json{{"id",theme_snapshot_?theme_snapshot_->id:""},
-                                                       {"generation",theme_snapshot_?theme_snapshot_->generation:0}}.dump() << ",\n"
+                                                       {"generation",theme_snapshot_?theme_snapshot_->generation:0},
+                                                       {"color_scheme",theme_snapshot_?theme_snapshot_->color_scheme:""}}.dump() << ",\n"
+               << "  \"performance\": " << performance.dump() << ",\n"
                << "  \"wayland_socket\": \"" << socket_name_ << "\",\n"
                << "  \"ipc_socket\": \"" << ipc_server_->GetSocketPath() << "\"\n"
                << "}";
@@ -522,7 +553,7 @@ bool WlrServer::Initialize(const std::string& socket_name) {
             if(!theme_snapshot_) return nlohmann::json{{"status","bootstrap"},{"generation",0}}.dump();
             return nlohmann::json{{"status","ok"},{"current_theme",theme_snapshot_->name},
                                   {"id",theme_snapshot_->id},{"generation",theme_snapshot_->generation},
-                                  {"schema_version",theme_snapshot_->schema_version}}.dump();
+                                  {"schema_version",theme_snapshot_->schema_version},{"color_scheme",theme_snapshot_->color_scheme}}.dump();
         };
         ipc_server_->RegisterHandler("theme",theme_handler);
         ipc_server_->RegisterHandler("set_theme",theme_handler);
@@ -1221,6 +1252,9 @@ void WlrServer::CloseFocusedXdgView() {
 }
 
 void WlrServer::HandleCursorMotion(uint32_t time_msec, double dx, double dy) {
+    ++pointer_events_;
+    const auto age=static_cast<std::uint32_t>(core::CurrentTimeNs()/1000000ULL)-time_msec;
+    if (age < 60000) pointer_event_age_.Record(age);
     wlr_cursor_move(cursor_, nullptr, dx, dy);
     if (cursor_mgr_) {
         wlr_cursor_set_xcursor(cursor_, cursor_mgr_, "left_ptr");
@@ -1240,6 +1274,9 @@ void WlrServer::HandleCursorMotion(uint32_t time_msec, double dx, double dy) {
 }
 
 void WlrServer::HandleCursorMotionAbsolute(uint32_t time_msec, double x, double y) {
+    ++pointer_events_;
+    const auto age=static_cast<std::uint32_t>(core::CurrentTimeNs()/1000000ULL)-time_msec;
+    if (age < 60000) pointer_event_age_.Record(age);
     wlr_cursor_warp_absolute(cursor_, nullptr, x, y);
     if (cursor_mgr_) {
         wlr_cursor_set_xcursor(cursor_, cursor_mgr_, "left_ptr");
@@ -1483,13 +1520,17 @@ void WlrServer::HandleOutputFrame(WlrOutput* output) {
     if (out_w > 0 && out_h > 0) {
         // 1. Update Hardware GPU Scene-graph layout (Windows, Divider, Dock, HUD)
         UpdateSceneGraph(out_w, out_h, dt);
+        const auto effects_start=core::CurrentTimeNs();
         if(surface_effects_){std::vector<WlrXdgView*> views;for(auto& view:xdg_views_)views.push_back(view.get());
             surface_effects_->Update(scene_,views,focused_xdg_view_,theme_snapshot_.get());}
+        effects_cpu_.Record((core::CurrentTimeNs()-effects_start)/1e6);
 
         // 2. Hardware-accelerated GPU render & commit (wlr_scene natively dispatches GLES2 render pass & Direct Scanout!)
         uint64_t t_gpu_start = core::CurrentTimeNs();
         commit_ok = wlr_scene_output_commit(output->scene_output, nullptr);
         uint64_t t_gpu_done = core::CurrentTimeNs();
+        commit_cpu_.Record((t_gpu_done-t_gpu_start)/1e6);
+        if (commit_ok) ++commit_successes_; else ++commit_failures_;
 
         // 3. Send frame_done to client surfaces
         struct timespec now;
@@ -1498,12 +1539,14 @@ void WlrServer::HandleOutputFrame(WlrOutput* output) {
 
         if (++s_frame_log_count % 60 == 1) {
             float gpu_ms = static_cast<float>(t_gpu_done - t_gpu_start) / 1e6f;
-            PRISM_LOG_INFO("WLR-SCENE", "Native GPU Frame %lu on '%s': commit=%s (%dx%d @ %.1f FPS, gpu_commit=%.2fms, dt=%.2fms)",
+            PRISM_LOG_INFO("WLR-SCENE", "Native GPU Frame %lu on '%s': commit=%s (%dx%d @ %.1f FPS, commit_cpu=%.2fms, dt=%.2fms)",
                            frame_count_, output->wlr_output->name,
                            commit_ok ? "OK" : "FAILED", out_w, out_h,
                            current_fps_, gpu_ms, dt * 1000.0f);
         }
     }
+
+    frame_cpu_.Record((core::CurrentTimeNs()-now_ns)/1e6);
 
     // Schedule next frame for continuous presentation aligned with monitor VSync
     if (commit_ok) {

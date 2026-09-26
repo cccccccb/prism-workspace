@@ -7,7 +7,7 @@ namespace {
 void Emit(const RenderTree& tree, contracts::NodeId id, contracts::ResourceId font,
           contracts::DisplayList& list) {
     const auto& node = tree.Get(id);
-    if (node.bounds.width <= 0 || node.bounds.height <= 0) return;
+    if (!node.visible || node.bounds.width <= 0 || node.bounds.height <= 0) return;
     for (const auto& visual : node.visuals) if (const auto* shadow=std::get_if<ShadowVisual>(&visual); shadow && !shadow->inset)
         list.commands.emplace_back(contracts::RoundedRectShadow{node.bounds,shadow->radius,
             shadow->blur,shadow->offset_y,shadow->color,false});

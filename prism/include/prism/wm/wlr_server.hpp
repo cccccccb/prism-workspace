@@ -4,6 +4,7 @@
 #include "prism/core/types.hpp"
 #include "prism/wm/compositor.hpp"
 #include "prism/wm/theme.hpp"
+#include "prism/wm/performance.hpp"
 #include "prism/decoration/tiling_drag_manager.hpp"
 
 #include <string>
@@ -82,6 +83,9 @@ struct WlrOutput {
     struct wlr_scene_output* scene_output{nullptr};
     WlrServer* server{nullptr};
     struct wl_listener frame;
+    struct wl_listener present;
+    std::uint64_t last_present_ns{}, presented_count{}, discarded_count{};
+    TimingSamples present_intervals;
     struct wl_listener request_state;
     struct wl_listener destroy;
 };
@@ -254,6 +258,8 @@ private:
     uint64_t last_frame_time_ns_{0};
     float current_fps_{0.0f};
     uint64_t frame_count_{0};
+    std::uint64_t commit_successes_{}, commit_failures_{}, pointer_events_{};
+    TimingSamples frame_cpu_, effects_cpu_, commit_cpu_, pointer_event_age_;
 
     std::unique_ptr<ipc::IpcServer> ipc_server_;
 

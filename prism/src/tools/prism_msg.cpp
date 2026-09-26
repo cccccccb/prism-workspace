@@ -27,6 +27,7 @@ static void PrintUsage(const char* prog) {
               << "  layout <splith|splitv|tabbed|stacked|overview|split> Change container layout mode\n"
               << "  tree, get_tree                  Dump multi-level recursive container tree in JSON (Swaymsg-like)\n"
               << "  set_theme <id>                 Apply a DSL theme through the unified runtime\n"
+              << "  set_color_scheme <light|dark>   Apply a global color palette, keeping the theme\n"
               << "  get_theme                       Query the applied theme and generation\n"
               << "  fold [window_index]             Trigger smooth kinetic fold/unfold on tile (roll-up)\n"
               << "  fullscreen, monocle [win_index] Toggle kinetic fullscreen expansion / restore\n"
@@ -126,11 +127,12 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    if (cmd_args.front()=="set_theme" || cmd_args.front()=="theme" || cmd_args.front()=="get_theme") {
+    if (cmd_args.front()=="set_theme" || cmd_args.front()=="theme" || cmd_args.front()=="get_theme" || cmd_args.front()=="set_color_scheme") {
         const bool query=cmd_args.front()=="get_theme" || (cmd_args.front()=="theme" && cmd_args.size()==1);
         if(cmd_args.size()!=(query?1u:2u)){PrintUsage(argv[0]);return 2;}
         prism::sdk::LaunchClient client(custom_sock);
-        const auto request=client.SelectTheme(query?std::string{}:cmd_args[1]);
+        const bool scheme=cmd_args.front()=="set_color_scheme";
+        const auto request=client.SelectTheme(query||scheme?std::string{}:cmd_args[1],scheme?cmd_args[1]:std::string{});
         if(!request){std::cerr<<"Cannot connect to the theme owner (launcher socket)\n";return 1;}
         const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(12);
         while(client.Connected()&&std::chrono::steady_clock::now()<deadline){
@@ -138,7 +140,7 @@ int main(int argc, char* argv[]) {
             for(auto& event:client.TakeThemeEvents())if(event.request==request){
                 using prism::contracts::ThemeStatus;
                 const auto status=event.status==ThemeStatus::Rejected?"rejected":event.status==ThemeStatus::Current?"current":"applied";
-                std::cout<<nlohmann::json{{"status",status},{"generation",event.generation},{"id",event.id},{"name",event.name},{"detail",event.detail}}.dump()<<'\n';
+                std::cout<<nlohmann::json{{"status",status},{"generation",event.generation},{"id",event.id},{"name",event.name},{"color_scheme",event.color_scheme},{"detail",event.detail}}.dump()<<'\n';
                 return event.status==ThemeStatus::Rejected?1:0;
             }
         }

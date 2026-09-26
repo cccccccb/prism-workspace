@@ -37,4 +37,9 @@ inline std::uint64_t SelectTheme(const PrismHostApiV1* host,std::string_view id)
         !host->select_theme) return 0;
     return host->select_theme(host->context,{id.data(),id.size()});
 }
+inline std::uint64_t SelectColorScheme(const PrismHostApiV1* host,std::string_view scheme) {
+    if (!host || host->struct_size < offsetof(PrismHostApiV1,select_color_scheme)+sizeof(host->select_color_scheme) ||
+        !host->select_color_scheme) return 0;
+    return host->select_color_scheme(host->context,{scheme.data(),scheme.size()});
+}
 } // namespace prism::app

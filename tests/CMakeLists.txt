@@ -34,6 +34,7 @@ target_link_libraries(client_scene_test PRIVATE prism_client_dsl)
 add_test(NAME client_scene_test COMMAND client_scene_test)
 add_executable(client_app_templates_test client_app_templates_test.cpp)
 target_link_libraries(client_app_templates_test PRIVATE prism_client_dsl prism_module_session prism_theme_compiler)
+target_compile_options(client_app_templates_test PRIVATE -UNDEBUG)
 target_compile_definitions(client_app_templates_test PRIVATE PRISM_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
 if(TARGET prism_music_module AND TARGET prism_desktop_module)
     add_dependencies(client_app_templates_test prism_desktop_module prism_topbar_module
@@ -182,3 +183,13 @@ target_link_libraries(theme_protocol_test PRIVATE prism_launch prism_theme_compi
 target_compile_definitions(theme_protocol_test PRIVATE PRISM_SOURCE_THEMES="${CMAKE_SOURCE_DIR}/resources/themes")
 target_compile_options(theme_protocol_test PRIVATE -UNDEBUG)
 add_test(NAME theme_protocol_test COMMAND theme_protocol_test)
+
+add_executable(performance_samples_test performance_samples_test.cpp)
+target_include_directories(performance_samples_test PRIVATE "${CMAKE_SOURCE_DIR}/prism/include")
+target_compile_options(performance_samples_test PRIVATE -UNDEBUG)
+add_test(NAME performance_samples_test COMMAND performance_samples_test)
+
+add_executable(metrics_test metrics_test.cpp "${CMAKE_SOURCE_DIR}/demos/demo_settings/metrics.cpp")
+target_include_directories(metrics_test PRIVATE "${CMAKE_SOURCE_DIR}/demos/demo_settings")
+target_compile_definitions(metrics_test PRIVATE PRISM_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
+add_test(NAME metrics_test COMMAND metrics_test)

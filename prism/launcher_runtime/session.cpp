@@ -42,13 +42,14 @@ int main(int argc,char** argv) {
     auto bin=std::filesystem::canonical("/proc/self/exe").parent_path();
     auto wm=bin/"prism-wm", launcher=bin/"prism-launcher", root=bin.parent_path()/"share/prism/apps";
     auto themes=bin.parent_path()/"share/prism/themes";
-    std::string theme_id="glass";
+    std::string theme_id="glass", color_scheme="dark";
     for (int i=1;i<argc;++i) {
         std::string_view option(argv[i]); if (++i>=argc) return 2;
         if (option=="--wm") wm=argv[i]; else if (option=="--launcher") launcher=argv[i];
         else if (option=="--apps-root") root=argv[i];
         else if(option=="--themes-root") themes=argv[i];
-        else if(option=="--theme") theme_id=argv[i]; else return 2;
+        else if(option=="--theme") theme_id=argv[i];
+        else if(option=="--color-scheme") color_scheme=argv[i]; else return 2;
     }
     std::signal(SIGINT,Stop); std::signal(SIGTERM,Stop); std::signal(SIGCHLD,SIG_DFL);
     // PAM/systemd can leave an existing sd-pam helper across exec. It ends
@@ -62,7 +63,7 @@ int main(int argc,char** argv) {
     try {
         wm_pid=Spawn(wm,pair[0],pair[1],{"--control-fd","3","--parent-pid",parent});
         launcher_pid=Spawn(launcher,pair[1],pair[0],{"--wm-fd","3","--parent-pid",parent,
-            "--start-shell","--apps-root",root.string(),"--themes-root",themes.string(),"--theme",theme_id,"--wayland","wayland-prism-0"});
+            "--start-shell","--apps-root",root.string(),"--themes-root",themes.string(),"--theme",theme_id,"--color-scheme",color_scheme,"--wayland","wayland-prism-0"});
         std::cout << "session wm=" << wm_pid << " launcher=" << launcher_pid << std::endl;
     } catch (const std::exception& error) { std::cerr << error.what() << std::endl; stopping=1; result=1; }
     close(pair[0]); close(pair[1]);

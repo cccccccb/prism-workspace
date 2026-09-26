@@ -16,6 +16,7 @@ namespace prism::runtime {
 struct Scene::Node {
     contracts::NodeId id{};
     Kind kind{Kind::Box};
+    Node* parent{};
     Style style{};
     std::map<DslProperty, PropertyValue> properties;
     std::set<DslProperty> explicit_properties;
@@ -65,7 +66,7 @@ bool ValidPropertyValue(DslProperty id, const PropertyValue& value) {
             if (id == DslProperty::ImageFit) return *text == "fill" || *text == "contain" || *text == "cover";
             if (id == DslProperty::Icon) {
                 constexpr std::string_view icons[] = {"grid", "music", "settings", "folder", "terminal", "play", "pause",
-                    "previous", "next", "volume", "wifi", "battery", "search", "sun", "moon", "power", "check", "chevron", "refresh", "cpu", "memory", "heart"};
+                    "previous", "next", "volume", "wifi", "battery", "search", "sun", "moon", "power", "check", "chevron", "refresh", "cpu", "memory", "heart", "layers", "rectangle", "drop", "wifi-off", "error"};
                 return std::find(std::begin(icons), std::end(icons), *text) != std::end(icons);
             }
             return true;
@@ -141,7 +142,11 @@ std::unique_ptr<Scene::Node> Scene::MakeNode(Blueprint blueprint) {
         bindings_[binding.name].push_back({raw, binding.target});
         node->explicit_properties.insert(binding.target);
     }
-    for (auto& child : blueprint.children) node->children.push_back(MakeNode(std::move(child)));
+    for (auto& child : blueprint.children) {
+        auto created=MakeNode(std::move(child));
+        created->parent=raw;
+        node->children.push_back(std::move(created));
+    }
     return node;
 }
 
@@ -178,7 +183,7 @@ bool Scene::ApplyTheme(const contracts::ThemeSnapshot& theme, std::string* diagn
             (void)candidate.InputRegions();
         } else {
             const auto count = std::count_if(candidate.nodes_.begin(), candidate.nodes_.end(),
-                [](const Node* node) { return node->style.backdrop_blur > 0; });
+                [&](const Node* node) { return candidate.IsVisible(*node) && node->style.backdrop_blur > 0; });
             if (count > 8) throw std::length_error("Surface effect region limit is 8");
         }
         // All potentially failing work is complete. Swap prepared value objects
@@ -201,6 +206,7 @@ bool Scene::ApplyTheme(const contracts::ThemeSnapshot& theme, std::string* diagn
 
 void Scene::ApplyCachedProperty(Node& node, DslProperty id, const PropertyValue& value) {
     switch (id) {
+        case DslProperty::Visible: node.style.visible = std::get<bool>(value); break;
         case DslProperty::Width: node.style.width = std::get<double>(value); break;
         case DslProperty::Height: node.style.height = std::get<double>(value); break;
         case DslProperty::Font: node.style.font_size = std::get<double>(value); break;
@@ -250,6 +256,7 @@ void Scene::ApplyCachedProperty(Node& node, DslProperty id, const PropertyValue&
 
 PropertyValue Scene::CurrentProperty(const Node& node, DslProperty id) const {
     switch (id) {
+        case DslProperty::Visible: return node.style.visible;
         case DslProperty::Width: return node.style.width;
         case DslProperty::Height: return node.style.height;
         case DslProperty::Font: return node.style.font_size;
@@ -304,11 +311,20 @@ Scene::Node* Scene::Find(contracts::NodeId id) const {
     Node* node = nodes_[id.index];
     return node->id == id ? node : nullptr;
 }
+bool Scene::IsVisible(const Node& node) const {
+    for (const Node* current=&node;current;current=current->parent)
+        if (!current->style.visible) return false;
+    return true;
+}
 
 contracts::NodeId Scene::RootId() const { return root_->id; }
 contracts::LogicalRect Scene::Bounds(contracts::NodeId id) const {
     Node* node = Find(id);
     return node ? node->bounds : contracts::LogicalRect{};
+}
+bool Scene::IsVisible(contracts::NodeId id) const {
+    const auto* node=Find(id);
+    return node && IsVisible(*node);
 }
 
 bool Scene::SetSlot(std::string_view name, std::string value) {
@@ -340,10 +356,20 @@ bool Scene::SetProperty(contracts::NodeId id, DslProperty property, PropertyValu
         !ValidPropertyValue(property, value)) return false;
     const auto previous=CurrentProperty(*node,property);
     if (previous == value) return false;
+    const bool was_visible=IsVisible(*node);
     node->properties[property] = value;
     node->explicit_properties.insert(property);
     std::erase_if(node->theme_refs, [property](const ThemeRef& ref) { return ref.target == property; });
     ApplyCachedProperty(*node, property, value);
+    ++node->revision;
+    // Retain all state while concealed, including cache revisions and resolved
+    // style overrides. Revealing any ancestor triggers a full layout/snapshot.
+    // A child becoming locally visible under a hidden parent stays concealed.
+    if (!was_visible && !IsVisible(*node)) return true;
+    if (property == DslProperty::Visible && !node->style.visible) {
+        if (hovered_ && !IsVisible(*hovered_)) { ++hovered_->revision; hovered_=nullptr; }
+        if (focused_ && !IsVisible(*focused_)) { ++focused_->revision; focused_=nullptr; }
+    }
     const Dirty affected = FindProperty(property)->affects;
     const bool input_shape=Has(affected,Dirty::Layout) || property==DslProperty::Radius ||
         property==DslProperty::Clip || property==DslProperty::Overflow || property==DslProperty::InputShape ||
@@ -353,7 +379,6 @@ bool Scene::SetProperty(contracts::NodeId id, DslProperty property, PropertyValu
     if(input_shape)input_dirty_=true;
     dirty_ = dirty_ | affected;
     if(input_shape && affected==Dirty::None)dirty_=dirty_|Dirty::Composite;
-    if (affected != Dirty::None) ++node->revision;
     return true;
 }
 
@@ -434,6 +459,7 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window) {
 }
 
 std::optional<std::string> Scene::Hit(const Node& node, contracts::LogicalPoint point) const {
+    if (!node.style.visible) return std::nullopt;
     const bool inside=Inside(node.bounds,point);
     if (!inside && (node.style.clip || node.style.overflow=="clip")) return std::nullopt;
     const double radius = std::min({node.style.radius, node.bounds.width / 2, node.bounds.height / 2});
@@ -488,7 +514,7 @@ std::vector<contracts::SurfaceEffectRegion> Scene::SurfaceEffects() const {
     };
     std::vector<Shape> clips{{{0,0,viewport_.width,viewport_.height},0}};
     const auto collect=[&](const auto& self,const Node& node)->void {
-        if(node.bounds.width<=0 || node.bounds.height<=0)return;
+        if(!node.style.visible || node.bounds.width<=0 || node.bounds.height<=0)return;
         const bool clipped=node.style.clip || node.style.overflow=="clip";
         if(clipped)clips.push_back(normalized({node.bounds,node.style.radius}));
         if(node.style.backdrop_blur>0) {
@@ -560,7 +586,7 @@ const std::vector<contracts::SurfaceInputRegion>& Scene::InputRegions() const {
         }
     };
     const auto collect=[&](const auto& self,const Node& node)->void {
-        if(node.bounds.width<=0 || node.bounds.height<=0)return;
+        if(!node.style.visible || node.bounds.width<=0 || node.bounds.height<=0)return;
         const bool clipped=node.style.clip || node.style.overflow=="clip";
         if(clipped)clips.push_back({node.bounds,node.style.radius});
         const bool material=node.style.input_shape=="bounds" || node.style.background.a || node.style.backdrop_blur>0 ||
@@ -579,7 +605,7 @@ bool Scene::SetPointer(contracts::LogicalPoint point) {
     Node* next=nullptr;
     const auto action=ActionAt(point);
     if(action) for(auto it=nodes_.rbegin();it!=nodes_.rend();++it)
-        if((*it)->action==*action && Inside((*it)->bounds,point)) {next=*it;break;}
+        if(IsVisible(**it) && (*it)->action==*action && Inside((*it)->bounds,point)) {next=*it;break;}
     if(next==hovered_)return false;
     if(hovered_)++hovered_->revision;
     hovered_=next;
@@ -589,7 +615,7 @@ bool Scene::SetPointer(contracts::LogicalPoint point) {
 }
 bool Scene::FocusNext() {
     std::vector<Node*> actions;
-    for(auto* node:nodes_)if(!node->action.empty())actions.push_back(node);
+    for(auto* node:nodes_)if(IsVisible(*node) && !node->action.empty())actions.push_back(node);
     if(actions.empty())return false;
     const auto it=std::find(actions.begin(),actions.end(),focused_);
     Node* next=it==actions.end() || std::next(it)==actions.end() ? actions.front() : *std::next(it);
@@ -599,7 +625,7 @@ bool Scene::FocusNext() {
     return true;
 }
 std::optional<std::string> Scene::FocusedAction() const {
-    return focused_ ? std::optional<std::string>(focused_->action) : std::nullopt;
+    return focused_ && IsVisible(*focused_) ? std::optional<std::string>(focused_->action) : std::nullopt;
 }
 std::optional<std::string> Scene::ActionAt(contracts::LogicalPoint point) const {
     return Hit(*root_, point);

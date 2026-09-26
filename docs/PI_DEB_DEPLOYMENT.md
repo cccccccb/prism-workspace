@@ -1,6 +1,6 @@
 # Pi Debian 安装包与物理显示会话
 
-日期：2026-09-26。当前安装版本为 **0.1.0-6 arm64**，已接入真实 BSP、图标界面、GPU 背景材料与 DSL 全局主题。统一 session/launcher/host 保持生产入口。1024×600 物理输出截图与协议检查通过；用户确认“四种主题切换及点击都正常”。
+日期：2026-09-26。当前安装版本为 **0.1.0-8 arm64**，Preferences 分为性能和外观页，增加真实 GPU 时钟、监控设置和独立明暗配色。统一 session/launcher/host 保持生产入口。30 项测试、真实 DRM 启动和八种材质/配色组合切换已通过；用户现场确认“布局与配色满意，操作正常”。0.1.0-7 的图标视觉及主要交互已经用户验收。
 
 ## 1. 发布规范
 
@@ -12,7 +12,7 @@
 
 ```sh
 tools/package-deb.sh
-sudo apt install ./dist/deb/prism-wm_0.1.0-6_arm64.deb
+sudo apt install ./dist/deb/prism-wm_0.1.0-8_arm64.deb
 sudo systemctl daemon-reload
 systemctl --user daemon-reload
 ```
@@ -53,7 +53,19 @@ sudo chvt 1
 
 不 enable 服务、不改变默认启动目标。Supervisor 回收 WM、launcher 及接管的 host；不能仅依赖 service KillMode，因为 PAM 进程可能进入 logind scope。启动前已经存在的 systemd PAM helper 归 systemd 管理，监督器不得等待它退出：helper 本身等待父监督器退出，否则会形成停止死锁。0.1.0-2 实机测试发现这一问题，0.1.0-3 修复，0.1.0-4 延续该修复；试验版 2 不作为当前部署版本。
 
-## 4. 0.1.0-6 DSL 全局主题部署与现场确认
+## 4. 0.1.0-7 Demo 视觉收尾
+
+- 运行时主题改造先提交为 `c722c88`。本轮生产包 `dist/deb/prism-wm_0.1.0-7_arm64.deb`，7534170 字节，SHA-256：`f7c75754da6a756058c364c2a4870838a967290b6e975c9de5c6e2f6543b0dd1`。安装为 `install ok installed 0.1.0-7 arm64`，`dpkg -V prism-wm` 无差异。
+- Topbar 仅保留 Prism 和时间文本；网络/供电改为图标。顶部横线使用深色细底座以对比当前壁纸亮部。Dock 按应用中心、固定 Music/Preferences、正在运行的两个 demo 分段，自然测量可见分组宽度，真实实例归并、最后实例退出后收起；没有文字标签/Active 状态。应用中心当前只预留图标，不展示应用列表。两 demo 改为图标控制、层次化标题、紧凑指标及主题选择。颜色、尺寸、间距、内外阴影仍来自 DSL 主题材料，静态横线共用冷白颜色和 4 px 厚度；没有新增动画。
+- 通用 `visible` 与 Box 的明确左右/居中锚点由 SDK 实现，没有应用名绘制分支。完整 CTest 28/28 通过；最终顶线底座资源变更后的编译器/真实模板测试 2/2 通过。模板检查含 482×420、244×420、482×204 下操作命中，Dock 零/一/二运行分组，以及四主题引用/输入轮廓。
+- 第一轮真实 V3D 统一会话完整四主题、保持 PID、错误主题恢复、新窗口继承通过（`first-session-results.json`，范围为最终锚点/Topbar 摆放修订前）。最终布局 headless 运行在 Clear 的截图发生一次 10 秒超时；当时 generation 3 已安装，WM 仍持续 commit=OK。失败日志/JSON 原样保留，没有自动重试；不得将旧成功结果或后续物理成功当作该捕获问题已修复。probe 已避免旧 results.json 冒充新一轮成功。
+- Release 的第一次已安装 DRM 会话通过首帧/Ready、已有实例激活、NewInstance、取消退出与实例订阅等完整门槛；最终改动仅为顶线 DSL/主题资源，生产二进制相同。更新最终资源时再次回收九个 Prism 进程与三个 socket，停止约 0.353 秒；重启后直接启动两 demo 并获得真实 `GL renderer=V3D 4.2.14.0` FirstPresented/BackendReady。
+- 最终物理 HDMI-A-1 为 1024×600、59.821 Hz，服务 MainPID 45029，HUD 关闭；依次切换 Tint、Clear、Square、Glass 均 Applied，WM/launcher generation 一致，两 BSP 窗口保持，4/4 截图成功且服务 PID 未变。实际截图为 `dist/validation/prism-v7-visual/physical-*.png`，本轮状态/包/回收/journal 均在同目录；前一版顶线资源结果单独保存在 `before-final-handle/`。没有启用开机自启。
+- 用户现场答复“外观满意，点击正常”，确认图标、三段 Dock、横线与烟灰玻璃外观，以及播放、中间/右侧 Dock 激活和四主题点击。输出刷新率和状态中的瞬时 FPS 不作为性能分位数结论。
+
+执行规范见 [VISUAL_TILING_REFINEMENT_PLAN.md](VISUAL_TILING_REFINEMENT_PLAN.md) 第 8 节。节点增量、分块缓存、实时 Layout 热切换与动画仍按原主线安排后续；本次不宣称 headless screencopy 间歇超时已解决。
+
+## 历史：0.1.0-6 DSL 全局主题部署与现场确认
 
 - 发布包 `dist/deb/prism-wm_0.1.0-6_arm64.deb`，7532324 字节，SHA-256：`049061b6e412fd33a2b619920375100a204d107c1a10800e75a8f06d5aa8a91e`。安装为 `install ok installed 0.1.0-6 arm64`，`dpkg -V prism-wm` 无差异。
 - Release 构建使用 Skia GLES、`BUILD_TESTING=OFF` 和 `/usr` 前缀。安装清单包含四份 `themes/<id>/theme.prism`，不含旧主题 JSON、静态生成头、测试/probe/fixture、ImGui 或旧独立客户端。WM 符号检查不包含客户端 Scene、DSL/主题编译器、SkCanvas/SkSurface。
@@ -106,3 +118,13 @@ sudo chvt 1
 0.1.0-4 发布文件为 dist/deb/prism-wm_0.1.0-4_arm64.deb（7195062 字节），SHA-256 `50c169c30e51a210e62c71d319e1e0df03ad5d43f4ef47ad6bc9d3ced13baa37`。本轮 CTest 24/24 通过，包含 Dock 不把 Accepted 当作激活成功以及真实首帧与 Ready 双门槛的回归。临时关闭旧会话 HUD 后已重新打包安装。
 
 0.1.0-4 安装后：dpkg-query 为 install ok installed 0.1.0-4 arm64、dpkg -V 无差异；get_status 确认 debug_hud=false。新的物理 probe 再次通过，五应用 V3D 实际首帧日志通过，未见 ERROR 或 commit=FAILED。用户确认遮挡消失、Play/Pause 和进度变化正常、Music active / Pref active 反馈正常；当前保留新版会话供继续演示。对应记录 prism-v4-physical-final.json、prism-v4-status.json、prism-v4-outputs.json、prism-v4-journal.log 位于 dist/validation。
+
+## 5. 0.1.0-8 设置及配色
+
+- 最终包 `dist/deb/prism-wm_0.1.0-8_arm64.deb`，7594046 字节，SHA-256 `c3c4337d079f9e060d162eb281ec64eb0aa38ce3e0bb257d597af87825d32d1a`。安装为 `install ok installed 0.1.0-8 arm64`，`dpkg -V prism-wm` 无差异。旧会话十个 PID 已全部回收；沿用 tty8/seat0，不启用自启动。
+- 诊断构建完整 CTest 30/30 通过；Release 包无 tests/probes/fixtures/ImGui，WM 链接与符号中无客户端 Scene、主题编译器或 Skia。
+- 最终优化版的物理协议门槛通过：真实 V3D 首帧与 Ready、已有实例激活、新实例、取消退出、保留 Shell 拒绝和实例流。八种材质/配色组合、保留另一个选择维度、错误包不改当前主题、请求 ID 配色冲突关闭连接均通过；WM PID 和两个 BSP 窗口保持。
+- 实际 UI 键盘选择 Appearance 与 Light 已生效，四个 Shell/demo 前景统一换色；性能/外观和播放状态截图保存在 `dist/validation/prism-v8-preferences/`。背景保持现有资源。GPU 显示真实时钟 MHz，不冒充利用率；监控暂停及采样设置经模块测试和实际 UI 检查。
+- 根据第一轮测量修复隐藏子树无用重画，并通过接口将默认 Ganesh 缓存软预算设为 32 MiB。有效空闲、125 Hz 指针、Music 进度、Square 暗和 Glass 亮测试已记录；约 223–224 MiB PSS，CPU 约 4.4–8.7%（单核 100%），没有提交失败。样本边界、孤立呈现间隔及尚未解决的实鼠标体验问题见 [PREFERENCES_AND_PERFORMANCE.md](PREFERENCES_AND_PERFORMANCE.md)。
+
+本轮用户现场答复“布局与配色满意，操作正常”，确认性能指标、监控/采样和明暗/材质操作；该新增功能验收与旧 0.1.0-7 分开记录。此确认不代表鼠标主观卡顿已完成定位。

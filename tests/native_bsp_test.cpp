@@ -168,7 +168,7 @@ int main() {
     assert(compositor->GetTreeEngine().GetFocusedNode()==focused_node);
     assert(windows[0]->GetBounds().y==44 && windows[0]->GetBounds()!=a);
     assert(Command(server,"theme")["generation"]==2);
-    assert(Command(server,"get_status")["theme"]==nlohmann::json({{"id","wm-compact"},{"generation",2}}));
+    assert(Command(server,"get_status")["theme"]==nlohmann::json({{"id","wm-compact"},{"generation",2},{"color_scheme","dark"}}));
     assert(wm::ResolveDecoration(server.GetTheme(),true,false,false).style==changed_theme.focused);
     assert(wm::ResolveDecoration(server.GetTheme(),false,false,false).style==changed_theme.normal);
     assert(!wm::ResolveDecoration(server.GetTheme(),true,false,true).style.enabled);

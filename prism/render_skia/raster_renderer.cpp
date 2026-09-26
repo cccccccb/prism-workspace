@@ -73,7 +73,7 @@ bool Validate(const contracts::DisplayList& list,
                 !std::isfinite(shadow->offset_y) || std::abs(shadow->offset_y)>16384) return false;
         } else if (auto* icon = std::get_if<contracts::DrawIcon>(&command)) {
             if (!ValidRect(icon->bounds) || icon->icon < contracts::VectorIcon::Grid ||
-                icon->icon > contracts::VectorIcon::Heart) return false;
+                icon->icon > contracts::VectorIcon::Error) return false;
         } else if (auto* image = std::get_if<contracts::DrawImage>(&command)) {
             if (!image->image || !ValidRect(image->destination)) return false;
             if(image->fit<contracts::ImageFit::Fill || image->fit>contracts::ImageFit::Cover)return false;

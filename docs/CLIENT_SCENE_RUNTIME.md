@@ -44,3 +44,16 @@ Card 叠放子项支持 `anchor: "left"/"center"/"right"`。center 子项依据�
 `ApplyTheme(snapshot, diagnostic)` 先在独立候选 Scene 中验证全部引用、布局、资源尺寸、效果和输入轮廓，再将准备好的样式值替换到现有节点。成功返回 true，包括合法的无变化更新；失败返回 false 并保留旧状态。现有 NodeId、业务 binding、动作、文本、勾选/进度值、图片 ID 与解码状态保持。主题 generation 与 DisplayList generation 分开。
 
 RenderTree 的 hover/focus 颜色和焦点线宽、Toggle 轨道/滑块圆角、滑块颜色/间距、默认内阴影偏移来自快照 Controls，后端不判断具体主题名称。主题更新统一标记布局、绘制和合成 dirty，圆角 clip、输入区域和 surface effects 随下一次 buffer commit 生效。完整会话分发、ACK 与失败恢复规则见 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md)。本节描述已接入的接口；验证结果由本轮测试记录给出。
+
+
+## 通用可见性与图标（0.1.0-7）
+
+所有组件支持 `visible: true|false` 或 `visible: $布尔绑定`，默认 true。隐藏节点及其子树不参加测量、flex 分配、间距、绘制、命中、键盘焦点、输入区域和背景效果；隐藏立即撤销旧 hover/focus，下一次布局将子树 bounds 清零。节点、资源及 binding 保留，重新显示后按当前状态测量/绘制。`Scene::IsVisible(NodeId)` 查询包含祖先的实际可见性；它与材料的 `inputShape: "visible"`（收集可见内容输入区域）是不同接口。
+
+`SetProperty`（包括通过它执行的 `SetBinding`）按修改前后的实际可见性决定是否失效。若节点在修改前后均因自身或祖先而隐藏，属性仍更新到存储、缓存样式和显式覆盖记录，节点 revision 递增；主题引用遵循正常覆盖规则，直接修改某属性会解除该属性的 token 引用，其余引用保留。这些修改不新增 Scene 的 Layout/Paint/Composite dirty 或输入轮廓失效标记。隐藏父节点下的子节点将自己的 `visible` 从 false 改为 true，也属于此情况；它的实际可见性仍为 false。
+
+可见节点的属性变化继续按 schema 失效。实际可见性从可见变隐藏或从隐藏变可见时，仍触发完整布局、绘制、合成及输入轮廓更新；隐藏时清除的旧 hover/focus 不会在重新显示时自动恢复。同一个 binding 同时命中隐藏与可见节点时，隐藏目标保存状态，可见目标正常失效，不能因存在隐藏目标而跳过整条 binding 的更新。
+
+重新显示父节点后，下一次完整 snapshot/布局会读取隐藏期间的最新文字、进度、样式、尺寸、显隐值与主题覆盖，并据此更新绘制、命中和输入轮廓。若本次只有仍然隐藏的属性更新，且没有其他待处理 dirty，`Build` 返回空，不生成 DisplayList，也不推进 DisplayList generation；其他可见更新产生的 dirty 保留。本规则完善通用可见性的失效语义，布局仍按既有全量流程执行，未引入节点增量布局或 DisplayList 分块缓存。`visual_scene_test` 覆盖隐藏更新不提交、共享 binding 的可见目标失效、重新显示后的最新几何/图元/输入，以及旧 hover/focus 不复活。
+
+通用矢量图标新增 `layers`、`rectangle`、`drop`、`wifi-off`、`error`，在契约枚举尾部追加，不改变已有图标编号。符号几何属于后端资源实现，颜色、尺寸与布局仍由 DSL/主题决定；没有 Theme ID 或应用名绘制分支。

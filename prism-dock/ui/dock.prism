@@ -1,26 +1,50 @@
 Card(height: "@shell_bottom_height", padding: "@dock_bottom_inset") {
-    HStack(width: "@dock_panel_width", height: "@dock_height", anchor: "center", spacing: "@dock_spacing",
-           padding: "@dock_padding", align: "center", justify: "center", material: "panel") {
-        VStack(width: 58, height: 60, spacing: 1, align: "center") {
-            IconButton("music", "app:launch:music", width: "@dock_icon_size", height: "@dock_icon_size",
-                       padding: "@dock_icon_padding", material: "control", foreground: "@musicAccent",
-                       borderWidth: "@panel_border_width", borderColor: "@border")
-            Text("Music", height: 11, font: "@font_caption", foreground: "@text")
-            Progress(value: $music_running, width: 14, height: 2, cornerRadius: "@indicator_radius",
-                     foreground: "@musicAccent", background: "@inactiveIndicator")
+    HStack(height: "@dock_height", anchor: "center", spacing: "@dock_group_spacing",
+           paddingX: "@dock_padding", paddingY: "@dock_padding_y", align: "center",
+           justify: "center", material: "panel") {
+        VStack(width: "@dock_icon_size", height: "@dock_slot_height", align: "center") {
+            Card(width: "@dock_icon_size", height: "@dock_icon_size", padding: "@dock_icon_padding",
+                 material: "dockTile", align: "center", justify: "center") {
+                Icon("grid", width: "@icon_size", height: "@icon_size", foreground: "@appCenter")
+            }
         }
-        Separator(width: 1, height: 42, background: "@divider")
-        VStack(width: 58, height: 60, spacing: 1, align: "center") {
-            IconButton("settings", "app:launch:settings", width: "@dock_icon_size", height: "@dock_icon_size",
-                       padding: "@dock_icon_padding", material: "control", foreground: "@settingsAccent",
-                       borderWidth: "@panel_border_width", borderColor: "@border")
-            Text("Pref", height: 11, font: "@font_caption", foreground: "@text")
-            Progress(value: $settings_running, width: 14, height: 2, cornerRadius: "@indicator_radius",
-                     foreground: "@settingsAccent", background: "@inactiveIndicator")
+        Separator(width: 1, height: "@dock_separator_height", background: "@divider")
+        HStack(width: "@dock_fixed_group_width", height: "@dock_slot_height",
+               spacing: "@dock_spacing", align: "center") {
+            VStack(width: "@dock_icon_size", height: "@dock_slot_height", align: "center") {
+                Card(width: "@dock_icon_size", height: "@dock_icon_size", justify: "end") {
+                    IconButton("music", "app:launch:music", width: "@dock_icon_size", height: "@dock_icon_size",
+                               padding: "@dock_icon_padding", material: "dockTile", foreground: "@musicAccent")
+                    Icon($music_feedback_icon, width: "@dock_feedback_size", height: "@dock_feedback_size",
+                         anchor: "right", visible: $music_feedback_visible, foreground: "@appCenter")
+                }
+            }
+            VStack(width: "@dock_icon_size", height: "@dock_slot_height", align: "center") {
+                Card(width: "@dock_icon_size", height: "@dock_icon_size", justify: "end") {
+                    IconButton("settings", "app:launch:settings", width: "@dock_icon_size", height: "@dock_icon_size",
+                               padding: "@dock_icon_padding", material: "dockTile", foreground: "@settingsAccent")
+                    Icon($settings_feedback_icon, width: "@dock_feedback_size", height: "@dock_feedback_size",
+                         anchor: "right", visible: $settings_feedback_visible, foreground: "@appCenter")
+                }
+            }
         }
-        VStack(flex: 1, spacing: 5, justify: "center", overflow: "clip") {
-            Text($running_badge, font: "@font_caption", foreground: "@mutedText")
-            Text($launch_status, font: "@status_font", foreground: "@text")
+        Separator(width: 1, height: "@dock_separator_height", visible: $running_visible, background: "@divider")
+        HStack(height: "@dock_slot_height", spacing: "@dock_spacing", align: "center",
+               justify: "center", visible: $running_visible) {
+            VStack(width: "@dock_icon_size", height: "@dock_slot_height", spacing: "@dock_indicator_gap",
+                   align: "center", visible: $music_visible) {
+                IconButton("music", "app:launch:music", width: "@dock_icon_size", height: "@dock_icon_size",
+                           padding: "@dock_icon_padding", material: "dockTile", foreground: "@musicAccent")
+                Progress(value: 1, width: "@dock_indicator_width", height: "@indicator_height",
+                         cornerRadius: "@indicator_radius", foreground: "@indicator", background: "@none")
+            }
+            VStack(width: "@dock_icon_size", height: "@dock_slot_height", spacing: "@dock_indicator_gap",
+                   align: "center", visible: $settings_visible) {
+                IconButton("settings", "app:launch:settings", width: "@dock_icon_size", height: "@dock_icon_size",
+                           padding: "@dock_icon_padding", material: "dockTile", foreground: "@settingsAccent")
+                Progress(value: 1, width: "@dock_indicator_width", height: "@indicator_height",
+                         cornerRadius: "@indicator_radius", foreground: "@indicator", background: "@none")
+            }
         }
     }
 }

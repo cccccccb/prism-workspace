@@ -146,3 +146,7 @@ python3 tests/probes/failed_worker_probe.py build-gles
 0.1.0-5 已构建并安装到 Pi，最终 CTest 26/26、Release 前缀/预存 helper 正常会话检查和四种停止/故障清理均通过；真实 launcher/host 双窗、三窗、四窗截图及 tree 尺寸验证通过。生产包无测试、旧客户端入口或 ImGui。
 
 物理 HDMI 1024×600 会话的五应用使用 V3D，backdrop capability=1，本轮 journal 无 ERROR，协议启动/激活/取消检查通过。用户确认“外观正常，以上点击都正常”，覆盖播放图标、Preferences 本窗口配色 Toggle 和 Dock 激活；截图位于 `dist/validation/prism-v5-physical.png`。全部键盘快捷键、多屏/DPI、Slider、实时比例调整及性能分位数没有据此宣称完成。完整记录见 [VISUAL_TILING_REFINEMENT_PLAN.md](VISUAL_TILING_REFINEMENT_PLAN.md) 和 [PI_DEB_DEPLOYMENT.md](PI_DEB_DEPLOYMENT.md)。
+
+### Preferences 监控与配色更新
+
+设置 demo 使用真实 CPU 差值、内存、可选 GPU 忙碌率/频率及 SoC 温度；Pi 的固定只读 firmware 查询通过受限设备 ioctl 完成，不每 tick 启动命令。监控暂停、采样周期和手动刷新由业务层管理。主题 ID 与明暗配色是同一 owner 事务中的独立 selector；重放身份包括两者，不能用同一 request ID 改换配色。协议默认请求/深色事件保持旧编码，非默认尾扩展以 version=1 与有界字符串编码；schema 2 快照公布实际配色，schema 1 保持 dark 兼容。八种组合必须经物理会话确认后记录验收。

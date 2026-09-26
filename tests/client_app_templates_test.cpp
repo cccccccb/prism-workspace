@@ -23,6 +23,11 @@ void CollectActions(const prism::runtime::Blueprint& blueprint,std::uint64_t& id
 }
 void CheckActions(prism::runtime::Scene& scene,const std::vector<ActionNode>& actions,double width,double height) {
     for (const auto& target:actions) {
+        if (!scene.IsVisible(target.node)) {
+            const auto hidden = scene.Bounds(target.node);
+            assert(hidden.width == 0 && hidden.height == 0);
+            continue;
+        }
         const auto bounds=scene.Bounds(target.node);
         assert(bounds.width>0 && bounds.height>0);
         assert(bounds.x>=0 && bounds.y>=0 && bounds.x+bounds.width<=width+0.001 &&
@@ -64,13 +69,46 @@ int main(int argc,char** argv) {
                 [&](auto key,auto value) {
                     if (!scene.AcceptsBinding(key,value)) return false;
                     scene.SetBinding(key,std::move(value)); return true;
-                },[](auto) { return 6; },[] { return 5; },[&](auto) { return theme_request++; });
+                },[](auto) { return 6; },[] { return 5; },[&](auto) { return theme_request++; },[&](auto) { return theme_request++; });
             assert(module.Start() && module.BackendReady());
             module.Action(n==3?"player:toggle":n==4?"theme:transparent":"ignored");
             if (n==4) module.Deliver(prism::contracts::ThemeEvent{0,0,prism::contracts::ThemeStatus::Current,"glass","Prism Glass"});
             module.Tick(prism::sdk::MonotonicNs()+1000000000ULL);
-            if (n==2) module.Deliver(prism::contracts::InstanceUpdate{
-                {5},{8},42,prism::contracts::InstanceChange::Running,"demo_player"});
+            if (n==4) {
+                // Both settings pages must fit every real BSP allocation, in
+                // every material/palette combination. Hidden actions must not hit.
+                for (const auto page:{"page:performance","page:appearance"}) {
+                    module.Action(page);
+                    for (const auto size:{prism::contracts::LogicalSize{482,420},
+                                         prism::contracts::LogicalSize{482,204},
+                                         prism::contracts::LogicalSize{244,420}}) {
+                        assert(scene.SetViewport(size));
+                        for (const auto* theme:{"glass","translucent","transparent","square"})
+                            for (const auto* scheme:{"dark","light"}) {
+                                assert(scene.ApplyTheme(prism::theme::LoadTheme(prism::theme::DefaultThemeRoot(),theme,theme_request++,scheme)));
+                                assert(scene.Build(prism::contracts::WindowId{1}));
+                                CheckActions(scene,actions,size.width,size.height);
+                            }
+                    }
+                }
+                module.Action("page:performance");
+                assert(scene.SetViewport({item.width,item.height}));
+            }
+            if (n==2) {
+                using Change = prism::contracts::InstanceChange;
+                const auto check = [&] {
+                    assert(scene.Build(prism::contracts::WindowId{1}));
+                    CheckActions(scene,actions,item.width,item.height);
+                };
+                // Zero, one and two running app groups must all have clickable
+                // visible entries; hiding a group must not leave stale geometry.
+                check();
+                module.Deliver(prism::contracts::InstanceUpdate{{5},{8},42,Change::Running,"demo_player"}); check();
+                module.Deliver(prism::contracts::InstanceUpdate{{5},{9},43,Change::Running,"demo_settings"}); check();
+                module.Deliver(prism::contracts::InstanceUpdate{{5},{8},42,Change::Stopped,"demo_player"}); check();
+                module.Deliver(prism::contracts::InstanceUpdate{{5},{9},43,Change::Stopped,"demo_settings"}); check();
+                module.Deliver(prism::contracts::InstanceUpdate{{5},{8},42,Change::Running,"demo_player"});
+            }
         }
         assert(scene.Build(prism::contracts::WindowId{1}));
         CheckActions(scene,actions,item.width,item.height);

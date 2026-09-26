@@ -1,15 +1,21 @@
 #pragma once
 #include "prism/contracts/display_list.hpp"
 #include <memory>
+#include <cstddef>
 
 namespace prism::render_skia {
 class RasterRenderer;
+
+struct GlesRendererOptions {
+    // Soft budget for Ganesh resources; EGL/driver and live allocations may exceed it.
+    std::size_t resource_cache_bytes{32u * 1024u * 1024u};
+};
 
 // Draws a validated DisplayList into the current GLES framebuffer.
 // EGL context, surface and buffer presentation belong to the platform layer.
 class GlesRenderer {
 public:
-    explicit GlesRenderer(const RasterRenderer& commands);
+    explicit GlesRenderer(const RasterRenderer& commands, GlesRendererOptions options = {});
     ~GlesRenderer();
     GlesRenderer(const GlesRenderer&) = delete;
     GlesRenderer& operator=(const GlesRenderer&) = delete;

@@ -25,3 +25,11 @@
 下一次呈现将同一 Scene 的 DisplayList、SurfaceEffects 和 InputRegions 应用于该 surface，WM 不接收 UI 语法或业务 binding。全局主题包由 launcher 编译与分发，SDK 不读取第二份 JSON 或静态样式头；包、ACK、失败恢复和跨进程呈现边界见 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md)。应用模块仅通过可选 `select_theme` 请求包 ID，并用 `on_theme_event` 接收实际结果。
 
 0.1.0-5 的物理 Pi 外观与输入验收属于此前静态视觉版本，见 [PI_DEB_DEPLOYMENT.md](PI_DEB_DEPLOYMENT.md)；本轮运行时主题的测试与实机结果不能由该记录替代。
+
+### 独立明暗配色
+
+`select_color_scheme("light"|"dark")` 是 Host API 的可选尾字段；主题事件的可选 `color_scheme` 尾字段报告实际配色。主题 ID 请求保留配色，配色请求保留主题 ID。旧事件前缀仍合法，缺少配色尾字段时按 dark 处理；读取前必须检查 `struct_size` 是否覆盖完整字段。界面选中态由平台确认事件更新，不根据点击猜测成功。Preferences 的监控及采样选项属于业务模块，不进入 renderer 或 WM。
+
+### GPU 缓存预算
+
+`ClientConfig::gpu_resource_cache_bytes` 是可选资源策略，统一 host 可通过同名 `HostConfig` 选项转交。未指定时采用 GLES renderer 的默认 32 MiB Ganesh 缓存预算；直接使用后端可传 `GlesRendererOptions`。该值独立于应用 ID、材质和 light/dark，不能写入主题 DSL 控制渲染器缓存。它是可预算资源的软预算，EGL、驱动、在用或非预算资源可超出；不代表全部 DRM resident 的硬上限，也不执行 glFinish 或逐帧 purge。

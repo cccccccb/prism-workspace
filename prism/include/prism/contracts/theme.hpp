@@ -51,6 +51,7 @@ struct ThemeSnapshot {
     ThemeLayout layout;
     ThemeDecoration normal, focused, fullscreen;
     ThemeControls controls;
+    std::string color_scheme{"dark"};
     bool operator==(const ThemeSnapshot&) const = default;
 };
 std::optional<double> ThemeNumberValue(const ThemeSnapshot&, std::string_view);
@@ -60,13 +61,15 @@ const ThemeMaterial* FindThemeMaterial(const ThemeSnapshot&, std::string_view);
 void ValidateTheme(const ThemeSnapshot&);
 std::vector<std::uint8_t> EncodeTheme(const ThemeSnapshot&);
 ThemeSnapshot DecodeTheme(std::span<const std::uint8_t>);
-struct ThemeRequest { std::uint64_t request{}; std::string id; }; // empty id queries the current theme
+// Empty id and scheme query; either nonempty selector preserves the other axis.
+struct ThemeRequest { std::uint64_t request{}; std::string id; std::string color_scheme{}; };
 // Received by clients after the WM and every participating host have acknowledged installation.
 enum class ThemeStatus : std::uint8_t { Current, Applied, Rejected };
 struct ThemeEvent {
     std::uint64_t request{}, generation{};
     ThemeStatus status{ThemeStatus::Current};
     std::string id, name, detail;
+    std::string color_scheme{"dark"};
 };
 struct ThemeApplied { std::uint64_t generation{}; bool success{}; std::string detail; };
 std::vector<std::uint8_t> EncodeThemeRequest(const ThemeRequest&);

@@ -2,6 +2,7 @@
 #include "prism/runtime/property.hpp"
 #include "prism/contracts/theme.hpp"
 #include <functional>
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -20,6 +21,8 @@ struct ClientConfig {
     int width{640};
     int height{400};
     std::string assets_root{}; // If set, image URIs resolve strictly beneath this root.
+    // Optional backend resource policy. No override uses the renderer default.
+    std::optional<std::size_t> gpu_resource_cache_bytes;
 };
 
 // Client-owned DSL scene, resources, Skia GLES renderer and Wayland window.

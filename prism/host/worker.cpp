@@ -41,6 +41,11 @@ int RunWorker(int fd, const std::filesystem::path& apps, const std::string& sock
         const auto id=next_launch++;
         return channel.Queue(launch::EncodeWorker(contracts::ThemeRequest{id,std::string(theme_id)})) ? id : 0;
     };
+    config.select_color_scheme=[&](std::string_view scheme) -> std::uint64_t {
+        if (!next_launch || channel.Closed()) return 0;
+        const auto id=next_launch++;
+        return channel.Queue(launch::EncodeWorker(contracts::ThemeRequest{id,{},std::string(scheme)})) ? id : 0;
+    };
     sdk::AppHost host(std::move(config));
     const auto start = sdk::MonotonicNs();
     if (!host.PrepareFrontend()) return 1;

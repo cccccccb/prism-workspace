@@ -3,6 +3,7 @@
 #include "prism/contracts/theme.hpp"
 #include "prism/launch/package.hpp"
 #include <functional>
+#include <cstddef>
 #include <memory>
 
 namespace prism::sdk {
@@ -15,6 +16,8 @@ struct HostConfig {
     std::function<std::uint64_t(std::string_view)> launch_app;
     std::function<std::uint64_t()> subscribe_instances;
     std::function<std::uint64_t(std::string_view)> select_theme;
+    std::function<std::uint64_t(std::string_view)> select_color_scheme;
+    std::optional<std::size_t> gpu_resource_cache_bytes;
     std::optional<contracts::ThemeSnapshot> initial_theme;
 };
 // Constructible in a single-thread seed. PrepareFrontend must run in the final

@@ -19,7 +19,7 @@ int main(int argc, char** argv) {
         if (arg == "--help") {
             std::cout << "Usage: prism-launcher [--apps-root DIRECTORY] [--host EXECUTABLE]\n"
                 " [--pool-size 0..32] [--max-workers 1..32] [--startup-timeout-ms 100..60000]\n"
-                " [--socket BASENAME] [--wayland SOCKET] [--themes-root DIRECTORY] [--theme ID]\n"; return 0;
+                " [--socket BASENAME] [--wayland SOCKET] [--themes-root DIRECTORY] [--theme ID] [--color-scheme dark|light]\n"; return 0;
         }
         if (arg=="--start-shell") { config.start_shell=true; continue; }
         if (++i >= argc) return 2;
@@ -27,6 +27,7 @@ int main(int argc, char** argv) {
         if (arg == "--apps-root") config.apps_root = value;
         else if (arg == "--themes-root") config.themes_root = value;
         else if (arg == "--theme") config.theme_id = value;
+        else if (arg == "--color-scheme") config.color_scheme = value;
         else if (arg == "--host") config.host = value;
         else if (arg == "--socket") config.socket_name = value;
         else if (arg == "--wayland") config.wayland = value;

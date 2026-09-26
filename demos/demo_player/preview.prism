@@ -1,7 +1,9 @@
-Card(padding: 24, material: "window", clip: true) {
-    VStack(spacing: 14, justify: "center", align: "center") {
-        Icon("music", width: 64, height: 64, foreground: "@musicAccent")
-        Text("Music", height: 28, font: "@font_heading", foreground: "@text")
-        Text("Preparing library", height: 18, font: "@font_body", foreground: "@mutedText")
+Card(padding: "@window_padding", material: "window", clip: true) {
+    VStack(spacing: 10, justify: "center", align: "center") {
+        Card(width: 72, height: 72, justify: "center", align: "center", material: "album") {
+            Icon("music", width: 32, height: 32, foreground: "@musicAccent")
+        }
+        Text("Music", height: 22, font: "@font_title", foreground: "@text")
+        Text("Preparing library", height: 14, font: "@font_caption", foreground: "@mutedText")
     }
 }
