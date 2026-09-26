@@ -54,7 +54,7 @@ SDK 连接 registry，创建 `wl_surface` 与 xdg-shell toplevel，处理首次�
 
 AST 只表示语法；长期 Scene 保存节点状态、绑定、焦点与布局；渲染数据通过独立后端接口送给 Skia。首版先覆盖固定尺寸、row/column、文字、图片、矩形、圆角和基本裁剪。属性变更至少区分 Layout、Paint、Composite；静止页面不持续提交。先用一个单线程端到端路径保证正确性，再依据测量引入 Render Tree、DisplayList chunk、缓存或渲染线程。Skia Vulkan 与 OpenGL ES 在目标设备上做功能与帧时对比后，确定实际发布后端；CPU Skia 可作为诊断路径，但不能用软件结果宣称 GPU 性能。
 
-当前检查点：独立的客户端 DSL 前端与 retained Scene 已实现基础布局、绑定、命中和 DisplayList 生成，范围及缺项见 [CLIENT_SCENE_RUNTIME.md](CLIENT_SCENE_RUNTIME.md)。已通过 CPU Skia + Wayland SHM 的真实客户端诊断路径，见 [SKIA_BACKEND_PI.md](SKIA_BACKEND_PI.md)；图片资源、完整 DSL 和 GPU 后端对比尚未完成。
+当前检查点：独立的客户端 DSL 前端与 retained Scene 已实现基础布局、绑定、命中和 DisplayList 生成，范围及缺项见 [CLIENT_SCENE_RUNTIME.md](CLIENT_SCENE_RUNTIME.md)。已通过 CPU Skia + Wayland SHM 的真实客户端诊断路径，见 [SKIA_BACKEND_PI.md](SKIA_BACKEND_PI.md)；PNG 图片资源与异步完成通知的首个检查点见 [IMAGE_RESOURCES.md](IMAGE_RESOURCES.md)；完整 DSL、资源逐出和 GPU 后端对比尚未完成。
 
 ### 第五步：迁移全部应用并一次性切换生产路径
 

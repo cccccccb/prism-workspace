@@ -11,10 +11,12 @@ contracts::Color ColorFromPacked(double value) {
     return {static_cast<std::uint8_t>(rgba >> 24), static_cast<std::uint8_t>(rgba >> 16),
             static_cast<std::uint8_t>(rgba >> 8), static_cast<std::uint8_t>(rgba)};
 }
-Blueprint Convert(const compiler::AstNode& ast) {
+Blueprint Convert(const compiler::AstNode& ast, const ResolveImage& resolve_image) {
     Blueprint out;
     using Type = compiler::BinaryNodeType;
-    switch (ast.type) {
+    if (ast.name == "Image") {
+        out.kind = Kind::Image;
+    } else switch (ast.type) {
         case Type::HStack: out.kind = Kind::Row; break;
         case Type::VStack: out.kind = Kind::Column; break;
         case Type::Card: out.kind = Kind::Box; break;
@@ -25,6 +27,12 @@ Blueprint Convert(const compiler::AstNode& ast) {
     out.text = ast.text_value;
     out.slot = ast.slot_binding;
     out.action = ast.action_value;
+    if (out.kind == Kind::Image) {
+        if (!resolve_image || ast.text_value.empty())
+            throw std::runtime_error("Image requires a resource URI and resolver");
+        out.image = resolve_image(ast.text_value);
+        if (!out.image) throw std::runtime_error("Image resource request failed: " + ast.text_value);
+    }
     out.style.spacing = ast.spacing;
     if (auto it = ast.number_props.find("width"); it != ast.number_props.end()) out.style.width = it->second;
     if (auto it = ast.number_props.find("height"); it != ast.number_props.end()) out.style.height = it->second;
@@ -39,7 +47,9 @@ Blueprint Convert(const compiler::AstNode& ast) {
         else if (modifier.name == "clip") out.style.clip = true;
         else throw std::runtime_error("Unsupported client DSL modifier: " + modifier.name);
     }
-    for (const auto& child : ast.children) out.children.push_back(Convert(*child));
+    if (out.kind == Kind::Image && !ast.children.empty())
+        throw std::runtime_error("Image cannot have children");
+    for (const auto& child : ast.children) out.children.push_back(Convert(*child, resolve_image));
     if (ast.type == Type::Button) {
         Blueprint label;
         label.kind = Kind::Text;
@@ -52,10 +62,10 @@ Blueprint Convert(const compiler::AstNode& ast) {
     return out;
 }
 } // namespace
-Blueprint ParseBlueprint(std::string_view source) {
+Blueprint ParseBlueprint(std::string_view source, ResolveImage resolve_image) {
     compiler::Lexer lexer{std::string(source)};
     auto ast = compiler::Parser(lexer.Tokenize()).Parse();
     if (!ast) throw std::runtime_error("Empty DSL document");
-    return Convert(*ast);
+    return Convert(*ast, resolve_image);
 }
 } // namespace prism::runtime

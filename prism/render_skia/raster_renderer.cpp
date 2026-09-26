@@ -2,18 +2,22 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkFont.h"
 #include "include/core/SkImageInfo.h"
+#include "include/core/SkImage.h"
 #include "include/core/SkMatrix.h"
 #include "include/core/SkPaint.h"
+#include "include/core/SkPixmap.h"
 #include "include/core/SkRRect.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkTypeface.h"
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include <hb-ft.h>
+#include <png.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -23,6 +27,7 @@ struct RasterRenderer::Impl {
     FT_Library freetype{nullptr};
     FT_Face face{nullptr};
     sk_sp<SkTypeface> typeface;
+    std::unordered_map<std::uint64_t, sk_sp<SkImage>> images;
     ~Impl() {
         if (face) FT_Done_Face(face);
         if (freetype) FT_Done_FreeType(freetype);
@@ -42,7 +47,8 @@ bool ValidRect(contracts::LogicalRect r) {
            std::isfinite(r.height) && r.width >= 0 && r.height >= 0 &&
            std::abs(r.x) <= 1e6 && std::abs(r.y) <= 1e6 && r.width <= 1e6 && r.height <= 1e6;
 }
-bool Validate(const contracts::DisplayList& list) {
+bool Validate(const contracts::DisplayList& list,
+              const std::unordered_map<std::uint64_t, sk_sp<SkImage>>& images) {
     if (!list.window || list.commands.size() > 100000) return false;
     std::vector<bool> stack;
     for (const auto& command : list.commands) {
@@ -52,7 +58,7 @@ bool Validate(const contracts::DisplayList& list) {
             if (!ValidRect(rect->bounds) || !std::isfinite(rect->radius) || rect->radius < 0) return false;
         } else if (auto* image = std::get_if<contracts::DrawImage>(&command)) {
             if (!image->image || !ValidRect(image->destination)) return false;
-            return false; // Image resource table is not implemented yet.
+            if (!images.contains(image->image.value)) return false;
         } else if (auto* run = std::get_if<contracts::DrawGlyphRun>(&command)) {
             if (run->font.value != 1 || run->glyphs.size() > 100000 ||
                 !std::isfinite(run->font_size) || run->font_size <= 0 || run->font_size > 512) return false;
@@ -86,6 +92,40 @@ RasterRenderer::RasterRenderer(std::string font_path) : impl_(std::make_unique<I
 RasterRenderer::~RasterRenderer() = default;
 bool RasterRenderer::Ready() const { return impl_->face && impl_->typeface; }
 
+std::optional<runtime::DecodedImage> RasterRenderer::DecodePng(const std::string& path) {
+    png_image png{};
+    png.version = PNG_IMAGE_VERSION;
+    if (!png_image_begin_read_from_file(&png, path.c_str())) return std::nullopt;
+    if (png.width == 0 || png.height == 0 || png.width > 4096 || png.height > 4096 ||
+        static_cast<std::size_t>(png.width) * png.height * 4 > 64 * 1024 * 1024) {
+        png_image_free(&png);
+        return std::nullopt;
+    }
+    png.format = PNG_FORMAT_RGBA;
+    runtime::DecodedImage decoded;
+    decoded.width = png.width;
+    decoded.height = png.height;
+    decoded.rgba.resize(static_cast<std::size_t>(png.width) * png.height * 4);
+    if (!png_image_finish_read(&png, nullptr, decoded.rgba.data(), 0, nullptr)) {
+        png_image_free(&png);
+        return std::nullopt;
+    }
+    png_image_free(&png);
+    return decoded;
+}
+
+bool RasterRenderer::RegisterImage(contracts::ResourceId id, const runtime::DecodedImage& image) {
+    if (!id || image.width == 0 || image.height == 0 || image.width > 4096 || image.height > 4096 ||
+        image.rgba.size() != static_cast<std::size_t>(image.width) * image.height * 4) return false;
+    auto info = SkImageInfo::Make(static_cast<int>(image.width), static_cast<int>(image.height),
+                                  kRGBA_8888_SkColorType, kUnpremul_SkAlphaType);
+    SkPixmap pixmap(info, image.rgba.data(), static_cast<std::size_t>(image.width) * 4);
+    auto sk_image = SkImages::RasterFromPixmapCopy(pixmap);
+    if (!sk_image) return false;
+    impl_->images[id.value] = std::move(sk_image);
+    return true;
+}
+
 runtime::ShapedText RasterRenderer::Shape(std::string_view text, double size) const {
     runtime::ShapedText result;
     if (!Ready() || !std::isfinite(size) || size <= 0 || size > 512) return result;
@@ -117,7 +157,7 @@ runtime::ShapedText RasterRenderer::Shape(std::string_view text, double size) co
 bool RasterRenderer::Render(const contracts::DisplayList& list, void* pixels,
                             int width, int height, int stride) const {
     if (!Ready() || !pixels || width <= 0 || height <= 0 || width > 4096 || height > 4096 ||
-        stride < width * 4 || !Validate(list)) return false;
+        stride < width * 4 || !Validate(list, impl_->images)) return false;
     const auto info = SkImageInfo::Make(width, height, kBGRA_8888_SkColorType, kOpaque_SkAlphaType);
     auto surface = SkSurfaces::WrapPixels(info, pixels, static_cast<std::size_t>(stride));
     if (!surface) return false;
@@ -153,6 +193,9 @@ bool RasterRenderer::Render(const contracts::DisplayList& list, void* pixels,
             }
             if (!glyphs.empty()) canvas->drawGlyphs(static_cast<int>(glyphs.size()), glyphs.data(),
                                                       points.data(), SkPoint::Make(0, 0), font, paint);
+        } else if (auto* image = std::get_if<contracts::DrawImage>(&command)) {
+            canvas->drawImageRect(impl_->images.at(image->image.value), ToSkRect(image->destination),
+                                  SkSamplingOptions(SkFilterMode::kLinear), nullptr);
         } else if (auto* clip = std::get_if<contracts::PushClipRect>(&command)) {
             canvas->save();
             canvas->clipRect(ToSkRect(clip->bounds));

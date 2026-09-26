@@ -13,6 +13,9 @@ struct Scene::Node {
     std::string text;
     std::string slot;
     std::string action;
+    contracts::ResourceId image{};
+    contracts::LogicalSize intrinsic_size{};
+    bool image_ready{false};
     contracts::LogicalRect bounds{};
     ShapedText shaped{};
     std::vector<std::unique_ptr<Node>> children;
@@ -50,6 +53,7 @@ std::unique_ptr<Scene::Node> Scene::MakeNode(Blueprint blueprint) {
     node->text = std::move(blueprint.text);
     node->slot = std::move(blueprint.slot);
     node->action = std::move(blueprint.action);
+    node->image = blueprint.image;
     for (auto& child : blueprint.children) node->children.push_back(MakeNode(std::move(child)));
     return node;
 }
@@ -97,12 +101,30 @@ bool Scene::SetBackground(contracts::NodeId id, contracts::Color color) {
     return true;
 }
 
+bool Scene::ImageReady(contracts::ResourceId image, contracts::LogicalSize intrinsic_size) {
+    if (!image || !ValidSize(intrinsic_size)) return false;
+    bool changed = false;
+    for (Node* node : nodes_) {
+        if (node->kind != Kind::Image || node->image != image) continue;
+        if (!node->image_ready || node->intrinsic_size.width != intrinsic_size.width ||
+            node->intrinsic_size.height != intrinsic_size.height) {
+            const bool affects_layout = node->style.width <= 0 || node->style.height <= 0;
+            node->intrinsic_size = intrinsic_size;
+            node->image_ready = true;
+            dirty_ = dirty_ | Dirty::Paint | (affects_layout ? Dirty::Layout : Dirty::None);
+            changed = true;
+        }
+    }
+    return changed;
+}
+
 void Scene::Layout(Node& node, contracts::LogicalRect bounds) {
     node.bounds = bounds;
     if (node.kind == Kind::Text) {
         node.shaped = shaper_(node.text, node.style.font_size);
         return;
     }
+    if (node.kind == Kind::Image) return;
     const double pad = std::max(0.0, node.style.padding);
     const double x = bounds.x + pad, y = bounds.y + pad;
     const double width = std::max(0.0, bounds.width - 2 * pad);
@@ -112,8 +134,12 @@ void Scene::Layout(Node& node, contracts::LogicalRect bounds) {
             auto& s = child->style;
             const double w = s.width > 0 ? std::min(s.width, width) : width;
             const double h = s.height > 0 ? std::min(s.height, height)
-                : child->kind == Kind::Text ? std::min(s.font_size * 1.4, height) : height;
-            Layout(*child, {x, y, w, h});
+                : child->kind == Kind::Text ? std::min(s.font_size * 1.4, height)
+                : child->kind == Kind::Image && child->image_ready ? std::min(child->intrinsic_size.height, height)
+                : height;
+            const double image_width = child->kind == Kind::Image && child->image_ready && s.width <= 0
+                ? std::min(child->intrinsic_size.width, width) : w;
+            Layout(*child, {x, y, image_width, h});
         }
         return;
     }
@@ -128,6 +154,8 @@ void Scene::Layout(Node& node, contracts::LogicalRect bounds) {
         const double explicit_size = row ? child->style.width : child->style.height;
         if (explicit_size > 0) fixed += explicit_size;
         else if (!row && child->kind == Kind::Text) fixed += child->style.font_size * 1.4;
+        else if (child->kind == Kind::Image && child->image_ready)
+            fixed += row ? child->intrinsic_size.width : child->intrinsic_size.height;
         else ++flexible;
     }
     const double remaining = std::max(0.0, main - total_gap - fixed);
@@ -135,11 +163,15 @@ void Scene::Layout(Node& node, contracts::LogicalRect bounds) {
     double cursor = row ? x : y;
     for (auto& child : node.children) {
         const double explicit_size = row ? child->style.width : child->style.height;
-        const double intrinsic = !row && child->kind == Kind::Text ? child->style.font_size * 1.4 : flex_size;
+        const double intrinsic = !row && child->kind == Kind::Text ? child->style.font_size * 1.4
+            : child->kind == Kind::Image && child->image_ready
+                ? (row ? child->intrinsic_size.width : child->intrinsic_size.height) : flex_size;
         const double length = std::max(0.0, std::min(explicit_size > 0 ? explicit_size : intrinsic,
             std::max(0.0, (row ? x + width : y + height) - cursor)));
         const double cross_explicit = row ? child->style.height : child->style.width;
-        const double other = std::min(cross_explicit > 0 ? cross_explicit : cross, cross);
+        const double cross_intrinsic = child->kind == Kind::Image && child->image_ready
+            ? (row ? child->intrinsic_size.height : child->intrinsic_size.width) : cross;
+        const double other = std::min(cross_explicit > 0 ? cross_explicit : cross_intrinsic, cross);
         Layout(*child, row ? contracts::LogicalRect{cursor, y, length, other}
                            : contracts::LogicalRect{x, cursor, other, length});
         cursor += length + gap;
@@ -166,6 +198,8 @@ void Scene::Paint(const Node& node, contracts::DisplayList& list) const {
         }
         list.commands.emplace_back(std::move(run));
     }
+    if (node.kind == Kind::Image && node.image_ready)
+        list.commands.emplace_back(contracts::DrawImage{node.image, node.bounds});
     for (const auto& child : node.children) Paint(*child, list);
     if (node.style.clip) list.commands.emplace_back(contracts::PopClip{});
 }

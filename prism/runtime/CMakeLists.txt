@@ -1,5 +1,5 @@
-add_library(prism_client_scene STATIC scene.cpp)
-target_link_libraries(prism_client_scene PUBLIC prism_contracts)
+add_library(prism_client_scene STATIC scene.cpp image_resources.cpp)
+target_link_libraries(prism_client_scene PUBLIC prism_contracts Threads::Threads)
 target_include_directories(prism_client_scene PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
 target_compile_features(prism_client_scene PUBLIC cxx_std_20)
 

@@ -4,6 +4,7 @@ VStack(spacing: 12, background: #182840FF) {
     }.cornerRadius(12)
     HStack(spacing: 12) {
         Button("Launch", action: "probe:launch", width: 160, height: 60, background: #4A80CAFF).cornerRadius(10)
+        Image("tests/fixtures/checker.png", width: 80, height: 80)
         Text($title, font: 20, foreground: #FFFFFFFF)
     }
 }

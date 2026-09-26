@@ -11,7 +11,7 @@
 
 namespace prism::runtime {
 
-enum class Kind { Row, Column, Box, Text };
+enum class Kind { Row, Column, Box, Text, Image };
 enum class Dirty : std::uint8_t { None = 0, Layout = 1, Paint = 2, Composite = 4 };
 constexpr Dirty operator|(Dirty a, Dirty b) {
     return static_cast<Dirty>(static_cast<unsigned>(a) | static_cast<unsigned>(b));
@@ -38,6 +38,7 @@ struct Blueprint {
     std::string text;
     std::string slot;
     std::string action;
+    contracts::ResourceId image{};
     std::vector<Blueprint> children;
 };
 
@@ -58,6 +59,7 @@ public:
     bool SetSlot(std::string_view name, std::string value);
     bool SetViewport(contracts::LogicalSize size);
     bool SetBackground(contracts::NodeId id, contracts::Color color);
+    bool ImageReady(contracts::ResourceId image, contracts::LogicalSize intrinsic_size);
     std::optional<contracts::DisplayList> Build(contracts::WindowId window);
     std::optional<std::string> ActionAt(contracts::LogicalPoint point) const;
     Dirty PendingDirty() const { return dirty_; }

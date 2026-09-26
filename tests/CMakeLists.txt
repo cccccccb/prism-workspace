@@ -52,9 +52,15 @@ target_link_libraries(wayland_lifecycle_probe PRIVATE prism_wayland_client)
 if(TARGET prism_skia_raster)
     add_executable(skia_raster_test skia_raster_test.cpp)
     target_link_libraries(skia_raster_test PRIVATE prism_skia_raster prism_client_dsl)
+    target_compile_definitions(skia_raster_test PRIVATE
+        PRISM_TEST_IMAGE="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/checker.png")
     add_test(NAME skia_raster_test COMMAND skia_raster_test)
 
     add_executable(prism_skia_wayland_probe probes/skia_wayland_probe.cpp)
     target_link_libraries(prism_skia_wayland_probe PRIVATE
         prism_skia_raster prism_client_dsl prism_wayland_client)
 endif()
+
+add_executable(image_resources_test image_resources_test.cpp)
+target_link_libraries(image_resources_test PRIVATE prism_client_dsl)
+add_test(NAME image_resources_test COMMAND image_resources_test)
