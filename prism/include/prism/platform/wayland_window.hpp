@@ -41,6 +41,11 @@ public:
     void SetPaintHandler(std::function<void(void*, int, int, int)> handler) {
         paint_handler_ = std::move(handler);
     }
+    // EGL/WSI presenter owns its buffers and calls eglSwapBuffers; the window
+    // still owns configure, frame callbacks, input, and surface lifetime.
+    void SetPresentHandler(std::function<bool(wl_display*, wl_surface*, int, int)> handler) {
+        present_handler_ = std::move(handler);
+    }
     void RequestRedraw();
     bool Pump(int timeout_ms);
     void RequestMaximize();
@@ -110,6 +115,7 @@ private:
     std::vector<std::unique_ptr<ShmBuffer>> buffers_;
     std::function<void(const contracts::WindowEvent&)> event_handler_;
     std::function<void(void*, int, int, int)> paint_handler_;
+    std::function<bool(wl_display*, wl_surface*, int, int)> present_handler_;
     contracts::WindowMetrics metrics_{};
     contracts::LogicalPoint pointer_position_{};
     int preferred_width_{640};

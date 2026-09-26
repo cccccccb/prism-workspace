@@ -313,7 +313,24 @@ void WaylandWindow::ReapBuffers() {
 }
 
 void WaylandWindow::TryRender() {
-    if (!configured_ || !dirty_ || frame_callback_ || !surface_ || !paint_handler_) return;
+    if (!configured_ || !dirty_ || frame_callback_ || !surface_ ||
+        (!paint_handler_ && !present_handler_)) return;
+    if (present_handler_) {
+        frame_callback_ = wl_surface_frame(surface_);
+        static const wl_callback_listener listener{.done = FrameDone};
+        wl_callback_add_listener(frame_callback_, &listener, this);
+        const bool presented = present_handler_(display_, surface_,
+            static_cast<int>(metrics_.buffer_size.width),
+            static_cast<int>(metrics_.buffer_size.height));
+        if (!presented) {
+            wl_callback_destroy(frame_callback_);
+            frame_callback_ = nullptr;
+            return;
+        }
+        mapped_ = true;
+        dirty_ = false;
+        return;
+    }
     ReapBuffers();
     ShmBuffer* buffer = AcquireBuffer();
     if (!buffer) return;

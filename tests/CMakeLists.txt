@@ -61,6 +61,12 @@ if(TARGET prism_skia_raster)
         prism_skia_raster prism_client_dsl prism_wayland_client)
 endif()
 
+if(TARGET prism_skia_gles)
+    add_executable(prism_skia_gles_wayland_probe probes/skia_gles_wayland_probe.cpp)
+    target_link_libraries(prism_skia_gles_wayland_probe PRIVATE
+        prism_skia_gles prism_wayland_egl prism_client_dsl)
+endif()
+
 add_executable(image_resources_test image_resources_test.cpp)
 target_link_libraries(image_resources_test PRIVATE prism_client_dsl)
 add_test(NAME image_resources_test COMMAND image_resources_test)

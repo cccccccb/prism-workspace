@@ -29,6 +29,7 @@ extern "C" {
 #include <wlr/types/wlr_output_layout.h>
 #include <wlr/types/wlr_output.h>
 #include <wlr/types/wlr_scene.h>
+#include <wlr/types/wlr_linux_dmabuf_v1.h>
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_xcursor_manager.h>
@@ -303,6 +304,12 @@ bool WlrServer::Initialize(const std::string& socket_name) {
     output_layout_ = wlr_output_layout_create(wl_display_);
     scene_ = wlr_scene_create();
     wlr_scene_attach_output_layout(scene_, output_layout_);
+    if (auto* dmabuf = wlr_linux_dmabuf_v1_create_with_renderer(wl_display_, 4, renderer_)) {
+        wlr_scene_set_linux_dmabuf_v1(scene_, dmabuf);
+        PRISM_LOG_INFO("WLR-SERVER", "linux-dmabuf-v1 enabled for GPU clients");
+    } else {
+        PRISM_LOG_INFO("WLR-SERVER", "linux-dmabuf-v1 unavailable for this renderer");
+    }
 
     // 6. Initialize 100% Native GPU Scene-Graph hierarchy
     InitSceneGraph();

@@ -20,3 +20,13 @@ target_include_directories(prism_wayland_client PUBLIC
     PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(prism_wayland_client PUBLIC prism_contracts
     ${WAYLAND_CLIENT_LIBRARIES})
+
+if(PRISM_ENABLE_GLES)
+    pkg_check_modules(PRISM_WAYLAND_EGL REQUIRED IMPORTED_TARGET wayland-egl)
+    pkg_check_modules(PRISM_EGL REQUIRED IMPORTED_TARGET egl)
+    pkg_check_modules(PRISM_GLES REQUIRED IMPORTED_TARGET glesv2)
+    add_library(prism_wayland_egl STATIC wayland_egl_surface.cpp)
+    target_include_directories(prism_wayland_egl PUBLIC "${CMAKE_SOURCE_DIR}/prism/include")
+    target_link_libraries(prism_wayland_egl PUBLIC
+        prism_wayland_client PkgConfig::PRISM_EGL PkgConfig::PRISM_WAYLAND_EGL PkgConfig::PRISM_GLES)
+endif()

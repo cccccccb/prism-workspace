@@ -5,11 +5,13 @@
 #include <memory>
 #include <string>
 #include <string_view>
+class SkCanvas;
 
 namespace prism::render_skia {
+class GlesRenderer;
 
-// Diagnostic CPU backend. No Skia types escape this API; GPU backends will
-// consume the same DisplayList after a target-device comparison.
+// Diagnostic CPU backend and shared command/font/image owner for GLES.
+// No Skia types escape its public API.
 class RasterRenderer {
 public:
     explicit RasterRenderer(std::string font_path);
@@ -26,6 +28,8 @@ public:
     contracts::ResourceId FontId() const { return contracts::ResourceId{1}; }
 
 private:
+    friend class GlesRenderer;
+    bool Replay(const contracts::DisplayList& list, SkCanvas* canvas) const;
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

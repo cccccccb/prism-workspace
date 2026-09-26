@@ -156,12 +156,16 @@ runtime::ShapedText RasterRenderer::Shape(std::string_view text, double size) co
 
 bool RasterRenderer::Render(const contracts::DisplayList& list, void* pixels,
                             int width, int height, int stride) const {
-    if (!Ready() || !pixels || width <= 0 || height <= 0 || width > 4096 || height > 4096 ||
-        stride < width * 4 || !Validate(list, impl_->images)) return false;
+    if (!pixels || width <= 0 || height <= 0 || width > 4096 || height > 4096 ||
+        stride < width * 4) return false;
     const auto info = SkImageInfo::Make(width, height, kBGRA_8888_SkColorType, kOpaque_SkAlphaType);
     auto surface = SkSurfaces::WrapPixels(info, pixels, static_cast<std::size_t>(stride));
     if (!surface) return false;
-    SkCanvas* canvas = surface->getCanvas();
+    return Replay(list, surface->getCanvas());
+}
+
+bool RasterRenderer::Replay(const contracts::DisplayList& list, SkCanvas* canvas) const {
+    if (!Ready() || !canvas || !Validate(list, impl_->images)) return false;
     canvas->clear(SK_ColorBLACK);
     for (const auto& command : list.commands) {
         if (auto* rect = std::get_if<contracts::FillRect>(&command)) {

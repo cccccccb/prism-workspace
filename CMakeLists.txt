@@ -42,6 +42,7 @@ add_compile_definitions(WLR_USE_UNSTABLE)
 
 find_package(Threads REQUIRED)
 include(CTest)
+option(PRISM_ENABLE_GLES "Build Skia Ganesh GLES backend" OFF)
 
 # 1. Core Framework Subdirectory
 add_subdirectory(prism/contracts)

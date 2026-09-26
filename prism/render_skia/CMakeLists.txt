@@ -1,14 +1,15 @@
 set(PRISM_SKIA_ROOT "" CACHE PATH "Pinned Skia source/build root")
+set(PRISM_SKIA_VARIANT "PrismCPU" CACHE STRING "Skia GN output variant")
 if(NOT PRISM_SKIA_ROOT)
     message(STATUS "Skia renderer disabled (set PRISM_SKIA_ROOT)")
     return()
 endif()
-set(PRISM_SKIA_LIBRARY "${PRISM_SKIA_ROOT}/out/PrismCPU/libskia.a" CACHE FILEPATH "Skia static library")
+set(PRISM_SKIA_LIBRARY "${PRISM_SKIA_ROOT}/out/${PRISM_SKIA_VARIANT}/libskia.a")
 if(NOT EXISTS "${PRISM_SKIA_ROOT}/include/core/SkCanvas.h" OR NOT EXISTS "${PRISM_SKIA_LIBRARY}")
     message(FATAL_ERROR "Skia headers or ${PRISM_SKIA_LIBRARY} missing; build pinned Skia first")
 endif()
 foreach(SKIA_SUPPORT_LIBRARY IN ITEMS libskcms.a libwuffs.a)
-    if(NOT EXISTS "${PRISM_SKIA_ROOT}/out/PrismCPU/${SKIA_SUPPORT_LIBRARY}")
+    if(NOT EXISTS "${PRISM_SKIA_ROOT}/out/${PRISM_SKIA_VARIANT}/${SKIA_SUPPORT_LIBRARY}")
         message(FATAL_ERROR "Missing Skia support archive ${SKIA_SUPPORT_LIBRARY}")
     endif()
 endforeach()
@@ -21,7 +22,21 @@ target_include_directories(prism_skia_raster PRIVATE "${PRISM_SKIA_ROOT}")
 target_include_directories(prism_skia_raster PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
 target_link_libraries(prism_skia_raster PUBLIC prism_client_scene
     "${PRISM_SKIA_LIBRARY}"
-    "${PRISM_SKIA_ROOT}/out/PrismCPU/libskcms.a"
-    "${PRISM_SKIA_ROOT}/out/PrismCPU/libwuffs.a"
+    "${PRISM_SKIA_ROOT}/out/${PRISM_SKIA_VARIANT}/libskcms.a"
+    "${PRISM_SKIA_ROOT}/out/${PRISM_SKIA_VARIANT}/libwuffs.a"
     PkgConfig::PRISM_HARFBUZZ PkgConfig::PRISM_FREETYPE
     PkgConfig::PRISM_FONTCONFIG PkgConfig::PRISM_PNG)
+
+if(PRISM_ENABLE_GLES)
+    if(NOT PRISM_SKIA_VARIANT STREQUAL "PrismGLES")
+        message(FATAL_ERROR "PRISM_ENABLE_GLES requires PRISM_SKIA_VARIANT=PrismGLES")
+    endif()
+    pkg_check_modules(PRISM_GLES_RENDER REQUIRED IMPORTED_TARGET glesv2)
+    pkg_check_modules(PRISM_EGL_RENDER REQUIRED IMPORTED_TARGET egl)
+    pkg_check_modules(PRISM_GLX_LINK REQUIRED IMPORTED_TARGET gl)
+    add_library(prism_skia_gles STATIC gles_renderer.cpp)
+    target_include_directories(prism_skia_gles PRIVATE "${PRISM_SKIA_ROOT}")
+    target_include_directories(prism_skia_gles PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
+    target_link_libraries(prism_skia_gles PUBLIC prism_skia_raster
+        PkgConfig::PRISM_GLES_RENDER PkgConfig::PRISM_EGL_RENDER PkgConfig::PRISM_GLX_LINK)
+endif()

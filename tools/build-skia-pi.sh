@@ -25,6 +25,11 @@ if [[ "$(git -C "$SKIA_CHECKOUT/third_party/externals/wuffs" rev-parse HEAD)" !=
     exit 1
 fi
 cd "$SKIA_CHECKOUT"
-gn gen out/PrismCPU --root=. --args='is_official_build=true is_debug=false skia_enable_tools=false skia_enable_pdf=false skia_enable_svg=false skia_enable_ganesh=false skia_enable_graphite=false skia_use_gl=false skia_use_vulkan=false skia_use_dawn=false skia_use_icu=false skia_use_harfbuzz=false skia_use_fontconfig=true skia_use_freetype=true skia_use_libpng_decode=false skia_use_libpng_encode=true skia_use_libjpeg_turbo_decode=false skia_use_libjpeg_turbo_encode=false skia_use_libwebp_decode=false skia_use_libwebp_encode=false skia_use_expat=false skia_use_zlib=false'
-ninja -C out/PrismCPU -j2 skia
-printf 'Built %s/out/PrismCPU/libskia.a\n' "$SKIA_CHECKOUT"
+case "${1:-cpu}" in
+    cpu) variant=PrismCPU; ganesh=false; gl=false ;;
+    gles) variant=PrismGLES; ganesh=true; gl=true ;;
+    *) echo "usage: $0 [cpu|gles]" >&2; exit 2 ;;
+esac
+gn gen "out/$variant" --root=. --args="is_official_build=true is_debug=false skia_enable_tools=false skia_enable_pdf=false skia_enable_svg=false skia_enable_ganesh=$ganesh skia_enable_graphite=false skia_use_gl=$gl skia_use_vulkan=false skia_use_dawn=false skia_use_icu=false skia_use_harfbuzz=false skia_use_fontconfig=true skia_use_freetype=true skia_use_libpng_decode=false skia_use_libpng_encode=true skia_use_libjpeg_turbo_decode=false skia_use_libjpeg_turbo_encode=false skia_use_libwebp_decode=false skia_use_libwebp_encode=false skia_use_expat=false skia_use_zlib=false"
+ninja -C "out/$variant" -j2 skia
+printf 'Built %s/out/%s/libskia.a\n' "$SKIA_CHECKOUT" "$variant"

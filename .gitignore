@@ -4,6 +4,7 @@
 
 # Build Output & Artifacts
 build/
+/build-gles/
 /build-contracts/
 /build-prod/
 bin/
