@@ -1,6 +1,6 @@
 set(PRISM_SKIA_ROOT "" CACHE PATH "Pinned Skia source/build root")
 if(NOT PRISM_SKIA_ROOT)
-    message(STATUS "Skia diagnostic target disabled (set PRISM_SKIA_ROOT)")
+    message(STATUS "Skia renderer disabled (set PRISM_SKIA_ROOT)")
     return()
 endif()
 set(PRISM_SKIA_LIBRARY "${PRISM_SKIA_ROOT}/out/PrismCPU/libskia.a" CACHE FILEPATH "Skia static library")
@@ -25,9 +25,3 @@ target_link_libraries(prism_skia_raster PUBLIC prism_client_scene
     "${PRISM_SKIA_ROOT}/out/PrismCPU/libwuffs.a"
     PkgConfig::PRISM_HARFBUZZ PkgConfig::PRISM_FREETYPE
     PkgConfig::PRISM_FONTCONFIG PkgConfig::PRISM_PNG)
-add_executable(prism_skia_wayland_probe skia_wayland_probe.cpp)
-target_link_libraries(prism_skia_wayland_probe PRIVATE prism_skia_raster prism_client_dsl prism_wayland_client)
-
-add_executable(skia_raster_test "${CMAKE_SOURCE_DIR}/tests/skia_raster_test.cpp")
-target_link_libraries(skia_raster_test PRIVATE prism_skia_raster prism_client_dsl)
-add_test(NAME skia_raster_test COMMAND skia_raster_test)

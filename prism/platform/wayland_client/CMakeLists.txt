@@ -20,6 +20,3 @@ target_include_directories(prism_wayland_client PUBLIC
     PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(prism_wayland_client PUBLIC prism_contracts
     ${WAYLAND_CLIENT_LIBRARIES})
-
-add_executable(wayland_lifecycle_probe lifecycle_probe.cpp)
-target_link_libraries(wayland_lifecycle_probe PRIVATE prism_wayland_client)

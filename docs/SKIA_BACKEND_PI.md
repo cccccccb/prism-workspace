@@ -18,7 +18,9 @@ ctest --test-dir build --output-on-failure
 
 ```sh
 WLR_BACKENDS=headless WLR_RENDERER=pixman ./build/prism/prism-wm
-./build/prism/render_skia/prism_skia_wayland_probe wayland-prism-0 prism/render_skia/fixtures/probe.prism
+./build/tests/prism_skia_wayland_probe wayland-prism-0 tests/fixtures/skia_probe.prism
 ```
 
 Pi 上已测得两次 configure（640×400、1280×614）、三次 buffer commit 与两次 frame callback；WM 确认映射、解除映射和销毁。`skia_raster_test` 检查背景/圆角像素以及无效命令拒绝，客户端 Scene 单元测试检查按钮 action 命中。完整 CTest 为 10/10 通过。下一阶段接图片和更完整的 DSL 语义，再测 V3D 的 Vulkan 与 GLES；只有实测后才选发布后端。
+
+手工 probe 与其 DSL 样例只存在于 `tests/probes/` 和 `tests/fixtures/`，仅 `BUILD_TESTING=ON` 时构建；`prism/render_skia/` 只包含可复用渲染库。生产构建使用 `-DBUILD_TESTING=OFF`，不会生成 probe 或单元测试可执行文件。

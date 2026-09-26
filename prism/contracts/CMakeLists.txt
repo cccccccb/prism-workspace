@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     project(prism_contracts LANGUAGES CXX)
+    include(CTest)
 endif()
 
 # This target must configure and compile without Wayland, wlroots, Skia or ImGui.
@@ -30,9 +31,8 @@ foreach(CONTRACT_HEADER IN LISTS CONTRACT_HEADERS)
     endif()
 endforeach()
 
-if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-    add_executable(prism_contracts_smoke tests/contracts_smoke.cpp)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND BUILD_TESTING)
+    add_executable(prism_contracts_smoke "${CMAKE_CURRENT_LIST_DIR}/../../tests/contracts_smoke.cpp")
     target_link_libraries(prism_contracts_smoke PRIVATE prism_contracts)
-    enable_testing()
     add_test(NAME prism_contracts_smoke COMMAND prism_contracts_smoke)
 endif()

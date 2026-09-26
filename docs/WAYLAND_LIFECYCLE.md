@@ -22,7 +22,7 @@ WLR_BACKENDS=headless WLR_RENDERER=pixman ./build/prism/prism-wm
 再在另一个终端运行：
 
 ```sh
-./build/prism/platform/wayland_client/wayland_lifecycle_probe wayland-prism-0
+./build/tests/wayland_lifecycle_probe wayland-prism-0
 ```
 
 看到 `configure`、`buffer commit` 和 `frame_done` 计数表示真实客户端已映射并收到帧回调。此 probe 会请求最大化并自行退出。

@@ -41,7 +41,7 @@ find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
 add_compile_definitions(WLR_USE_UNSTABLE)
 
 find_package(Threads REQUIRED)
-enable_testing()
+include(CTest)
 
 # 1. Core Framework Subdirectory
 add_subdirectory(prism/contracts)
@@ -53,8 +53,10 @@ add_subdirectory(prism)
 # 2. Demos Subdirectory
 add_subdirectory(demos)
 
-# 3. Tests Subdirectory
-add_subdirectory(tests)
+# 3. Tests and manual diagnostics are excluded from production builds.
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
 
 # 4. Shell Standalone Projects (Desktop, TopBar, Dock)
 add_subdirectory(prism-desktop)
