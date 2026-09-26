@@ -1,11 +1,12 @@
 {
+  "format_version": 1,
+  "runtime_abi": 1,
   "app_id": "demo_player",
   "name": "Prism Music Studio",
-  "version": "1.0.0",
-  "exec": "demo_player",
-  "window": {
-    "width": 960,
-    "height": 640
-  },
-  "ui": "master.prism"
+  "version": "0.1.0",
+  "ui": "master.prism",
+  "preview": "preview.prism",
+  "module": "player.so",
+  "assets": "assets",
+  "window": {"width": 960, "height": 720}
 }

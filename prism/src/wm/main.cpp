@@ -2,8 +2,6 @@
 #include "prism/wm/layer_type.hpp"
 #include "prism/wm/wlr_server.hpp"
 #include "prism/ipc/ipc_server.hpp"
-#include "prism/layout/fluid_split_strategy.hpp"
-#include "prism/layout/mission_control_strategy.hpp"
 #include "prism/core/logging.hpp"
 #include <thread>
 #include <chrono>
@@ -12,7 +10,8 @@
 #include <signal.h>
 #include <atomic>
 #include <csignal>
-#include <fstream>
+#include <charconv>
+#include <sys/prctl.h>
 
 using namespace prism;
 
@@ -24,10 +23,19 @@ static void SigIntHandler(int sig) {
 }
 
 int main(int argc, char* argv[]) {
-#ifndef PRISM_HAS_SHELL_CLIENTS
-    PRISM_LOG_ERROR("WM-MAIN", "Desktop requires the Skia GLES client build");
-    return 1;
-#endif
+    int control_fd=-1, parent_pid=0;
+    for (int i=1;i<argc;++i) {
+        std::string_view option(argv[i]);
+        if (++i>=argc) return 2;
+        std::string_view value(argv[i]); int number{};
+        auto [end,error]=std::from_chars(value.data(),value.data()+value.size(),number);
+        if (error!=std::errc{} || end!=value.data()+value.size() || number<=0) return 2;
+        if (option=="--control-fd") control_fd=number;
+        else if (option=="--parent-pid") parent_pid=number; else return 2;
+    }
+    if (parent_pid) {
+        if (prctl(PR_SET_PDEATHSIG,SIGTERM) || getppid()!=parent_pid) return 1;
+    }
     signal(SIGINT, SigIntHandler);
     signal(SIGTERM, SigIntHandler);
 
@@ -41,11 +49,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // 2. Set Mac Mission Control Overview Strategy wrapping Mac Fluid Split (Decorator Pattern)
-    auto split = std::make_unique<layout::MacFluidSplitStrategy>(0.5f);
-    auto mc = std::make_unique<layout::MissionControlStrategy>(std::move(split));
-    wm->SetLayoutStrategy(std::move(mc));
-
     // 3. Initialize wlroots Wayland Server Engine (Sway architecture)
     wm::WlrServer server(wm);
     if (!server.Initialize("wayland-prism-0")) {
@@ -53,27 +56,13 @@ int main(int argc, char* argv[]) {
         return 1;
     } else {
         setenv("WAYLAND_DISPLAY", server.GetSocketName().c_str(), 1);
-        // Write readiness probe file early: Wayland & IPC sockets are already listening!
-        {
-            std::ofstream ready_out("/tmp/prism.ready");
-            ready_out << "READY " << getpid() << " " << server.GetSocketName() << "\n";
-            ready_out.flush();
-        }
-        const char* xdg_run = getenv("XDG_RUNTIME_DIR");
-        if (xdg_run) {
-            std::ofstream xdg_ready(std::string(xdg_run) + "/prism.ready");
-            xdg_ready << "READY " << getpid() << " " << server.GetSocketName() << "\n";
-            xdg_ready.flush();
-        }
-        PRISM_LOG_INFO("WM-MAIN", "PrismWM readiness flag written to /tmp/prism.ready and XDG_RUNTIME_DIR");
-        PRISM_LOG_INFO("WM-MAIN", "Exported WAYLAND_DISPLAY=%s to environment for child processes", server.GetSocketName().c_str());
-
         server.Start();
     }
 
-    if (!server.StartShellClients()) {
-        PRISM_LOG_ERROR("WM-MAIN", "Failed to start shell clients");
-        return 1;
+    if (!server.IsRunning()) return 1;
+    if (control_fd>=0) {
+        try { server.AttachControl(control_fd,parent_pid); }
+        catch (const std::exception& error) { PRISM_LOG_ERROR("WM-MAIN","%s",error.what()); return 1; }
     }
     if (g_running.load()) {
         PRISM_LOG_INFO("WM-MAIN", "=========================================================");
@@ -86,18 +75,14 @@ int main(int argc, char* argv[]) {
 
         // Sway architecture: pure event-driven dispatching.
         // Rendering and animations are driven at the display's native refresh rate in HandleOutputFrame.
-        while (g_running.load()) {
+        while (g_running.load() && server.ControlHealthy()) {
             server.RunEventLoopIteration(100);
         }
     }
 
     PRISM_LOG_INFO("WM-MAIN", "Received stop signal -> Shutting down Compositor...");
-    unlink("/tmp/prism.ready");
-    if (const char* xdg = getenv("XDG_RUNTIME_DIR")) {
-        unlink((std::string(xdg) + "/prism.ready").c_str());
-    }
     server.Stop();
 
     PRISM_LOG_INFO("WM-MAIN", "Multi-Window Compositor execution completed cleanly.");
-    return 0;
+    return server.ControlHealthy() ? 0 : 1;
 }

@@ -18,6 +18,12 @@
 5. **性能数字必须来自可复现测量。** 首帧、静态唤醒、resize、输入到呈现、文字、图片、blur、内存和温度分阶段测量，记录 p50/p95/p99；CPU 绘制微基准和 headless pixman 结果都不能替代物理显示上的 V3D 测试。
 6. **迁移分支与发布边界不同。** `tests/` 放单测、probe 和验证 DSL；生产模块只放可复用代码。开发分支允许旧路径和新诊断链路共存以逐项验收；发布切换时一次删除 ImGui、WM 内应用渲染及旧状态差分绘制，不发布两条生产 UI 路径。
 
+7. **统一生产 host 和会话。** 五个自研应用均采用 DSL/资产包 + 纯业务 C ABI 模块，统一 prism-app-host 接管前端。session supervisor 建立可信 launcher↔WM 控制 FD，launcher 在 WM 登记真实 PID/instance/role 并获确认后绑定 worker；WM 用内核连接凭据、pidfd 和一次性登记授权 Shell。Dock 通过实例订阅启动/激活应用，不派生进程；生产入口不保留五个独立 SDK 主循环。协议、故障清理与物理部署边界见 [SESSION_LAUNCH_RUNTIME.md](SESSION_LAUNCH_RUNTIME.md)。
+8. **真实窗口几何只有一个来源。** 本轮已将普通 XDG view 生命周期与 managed Window/TreeEngine 对接，BSP 目标几何驱动 configure、可见性和焦点；Shell 不进入平铺树。共享 Shell 保留带和 gap 决定 work area，删除按窗口数量横向均分的真实布局路径。显式 fullscreen、方向焦点/交换和工作区操作由同一真实窗口记录处理；不伪造共享内存客户端或恢复第二套焦点状态。
+9. **主题是类型化共享配置。** `resources/themes/prism-glass.json` 生成纯契约 `prism/contracts/theme_tokens.hpp`。WM 引用几何/装饰常量；SDK 解析 `"@tokenName"` 为经 Schema 校验的数值或 RGBA 颜色。五应用以图标为主、文字辅助，使用同一向量图标和控件实现；保留当前壁纸，不新增花哨动画。全局运行时主题切换尚未实现，Settings 外观开关只实际改变自身窗口配色。
+10. **毛玻璃由 compositor 采样下层内容。** 本轮已接入 `prism_surface_effects_v1` 的版本化、能力协商、surface-local 逻辑像素区域与 commit 生效契约。SDK 将布局完成的区域/圆角/模糊半径交给 Wayland 平台；WM 只处理效果数据，在 GLES pass 中采样该 surface 下层场景、进行两次可分离模糊并组合圆角材料/装饰。客户端 Skia 仅绘制本地 tint、控件及卡片边框/阴影。缺少扩展能力时保留透明 tint；不读取壁纸制作假背景模糊，不采样自身或更上层 surface。
+11. **代码检查点与实机验收分别记录。** BSP、共享 tokens、图标玻璃主题与背景材料已随 0.1.0-5 部署，最终 CTest 26/26、真实 host 双/三/四窗树与截图以及 V3D 背景更新检查通过；用户确认 1024×600 当前单输出“外观正常，以上点击都正常”。现场覆盖播放图标、Preferences 本窗口配色和 Dock 激活，不扩展为全部键盘快捷键或多屏/DPI 验收。Music 仍为演示曲库和模拟播放进度，没有音频解码/输出。Slider、全局主题、交互调整分割比例、动效优化、节点增量布局、分块缓存和零拷贝专项仍为后续工作。记录见 [VISUAL_TILING_REFINEMENT_PLAN.md](VISUAL_TILING_REFINEMENT_PLAN.md) 和 [PI_DEB_DEPLOYMENT.md](PI_DEB_DEPLOYMENT.md)。
+
 ------------------------------------------------------------------------
 
 ## 1. 目标与非目标

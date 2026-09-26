@@ -9,8 +9,18 @@ add_custom_command(
     VERBATIM
 )
 
+set(PRESENTATION_XML "${WAYLAND_PROTOCOLS_DIR}/stable/presentation-time/presentation-time.xml")
+set(PRESENTATION_HEADER "${CMAKE_CURRENT_BINARY_DIR}/presentation-time-client-protocol.h")
+set(PRESENTATION_CODE "${CMAKE_CURRENT_BINARY_DIR}/presentation-time-protocol.c")
+add_custom_command(OUTPUT "${PRESENTATION_HEADER}" "${PRESENTATION_CODE}"
+    COMMAND "${WAYLAND_SCANNER}" client-header "${PRESENTATION_XML}" "${PRESENTATION_HEADER}"
+    COMMAND "${WAYLAND_SCANNER}" private-code "${PRESENTATION_XML}" "${PRESENTATION_CODE}"
+    DEPENDS "${PRESENTATION_XML}" VERBATIM)
+
 add_library(prism_wayland_client STATIC
     wayland_window.cpp
+    "${PRESENTATION_HEADER}"
+    "${PRESENTATION_CODE}"
     "${XDG_CLIENT_HEADER}"
     "${XDG_CLIENT_CODE}"
 )
@@ -19,7 +29,7 @@ target_include_directories(prism_wayland_client PUBLIC
     ${WAYLAND_CLIENT_INCLUDE_DIRS}
     PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(prism_wayland_client PUBLIC prism_contracts
-    ${WAYLAND_CLIENT_LIBRARIES})
+    prism_surface_protocol ${WAYLAND_CLIENT_LIBRARIES})
 
 if(PRISM_ENABLE_GLES)
     pkg_check_modules(PRISM_WAYLAND_EGL REQUIRED IMPORTED_TARGET wayland-egl)

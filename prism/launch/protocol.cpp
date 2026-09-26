@@ -67,7 +67,7 @@ void Check(const LaunchRequest& launch) {
 }
 void Check(const LaunchEvent& event) {
     Require(event.request.value != 0, "Zero launch request ID");
-    Require(static_cast<unsigned>(event.milestone) <= static_cast<unsigned>(LaunchMilestone::Exited), "Unknown launch milestone");
+    Require(static_cast<unsigned>(event.milestone) <= static_cast<unsigned>(LaunchMilestone::Activated), "Unknown launch milestone");
     Require(static_cast<unsigned>(event.error) <= static_cast<unsigned>(LaunchError::SessionEnded), "Unknown launch error");
     Require((event.milestone == LaunchMilestone::Failed) == (event.error != LaunchError::None), "Inconsistent launch result");
     Require(event.instance.value != 0 || (event.milestone == LaunchMilestone::Failed && !event.pid), "Event needs an instance ID");
@@ -88,6 +88,19 @@ std::vector<std::uint8_t> EncodeMessage(const LaunchMessage& message) {
         request = launch->request.value;
         Put(payload, static_cast<std::uint8_t>(launch->mode), 1);
         Text(payload, launch->app_id);
+    } else if (const auto* cancel = std::get_if<contracts::LaunchCancel>(&message)) {
+        Require(cancel->request.value != 0, "Zero cancellation request ID");
+        type = 3;
+        request = cancel->request.value;
+    } else if (const auto* subscribe=std::get_if<contracts::InstanceSubscribe>(&message)) {
+        Require(subscribe->request.value,"Zero subscription ID"); type=4; request=subscribe->request.value;
+    } else if (const auto* update=std::get_if<contracts::InstanceUpdate>(&message)) {
+        Require(update->request.value && static_cast<unsigned>(update->change)<=3,"Invalid instance update");
+        const bool entry=update->change==InstanceChange::Running || update->change==InstanceChange::Stopped;
+        Require(entry ? (update->instance.value && update->pid && ValidAppId(update->app_id)) :
+            (!update->instance.value && !update->pid && update->app_id.empty()),"Invalid instance identity");
+        type=5; request=update->request.value; instance=update->instance.value;
+        Put(payload,update->pid,4); Put(payload,static_cast<unsigned>(update->change),1); Text(payload,update->app_id);
     } else {
         type = 2;
         const auto& event = std::get<contracts::LaunchEvent>(message);
@@ -117,12 +130,12 @@ std::size_t FrameSize(std::span<const std::uint8_t> bytes) {
     Require(reader.Get(4) == kMagic, "Invalid launch message magic");
     Require(reader.Get(2) == contracts::kLaunchProtocolVersion, "Unsupported launch protocol version");
     const auto type = reader.Get(2);
-    Require(type == 1 || type == 2, "Unknown launch message type");
+    Require(type >= 1 && type <= 5, "Unknown launch message type");
     const auto length = reader.Get(4);
     Require(length <= contracts::kMaxLaunchPayload, "Launch payload exceeds limit");
     Require(reader.Get(8) != 0, "Zero launch request ID");
     const auto instance = reader.Get(8);
-    Require(type != 1 || instance == 0, "Request cannot choose an instance ID");
+    Require(type == 2 || type == 5 || instance == 0, "Request cannot choose an instance ID");
     return kLaunchHeaderSize + length;
 }
 
@@ -136,6 +149,15 @@ LaunchMessage DecodeMessage(std::span<const std::uint8_t> bytes) {
     const contracts::RequestId request{header.Get(8)};
     const contracts::InstanceId instance{header.Get(8)};
     Reader body(bytes.subspan(kLaunchHeaderSize));
+    if (type==4) { Require(body.Done(),"Subscription cannot contain payload"); return InstanceSubscribe{request}; }
+    if (type==5) {
+        InstanceUpdate update{request,instance,static_cast<std::uint32_t>(body.Get(4)),static_cast<InstanceChange>(body.Get(1)),body.Text()};
+        Require(body.Done(),"Trailing subscription payload"); EncodeMessage(update); return update;
+    }
+    if (type == 3) {
+        Require(body.Done(), "Cancellation cannot contain payload");
+        return contracts::LaunchCancel{request};
+    }
     if (type == 1) {
         contracts::LaunchRequest launch{request, {}, static_cast<contracts::LaunchMode>(body.Get(1))};
         launch.app_id = body.Text();

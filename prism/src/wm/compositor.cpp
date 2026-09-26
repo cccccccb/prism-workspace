@@ -19,9 +19,6 @@ bool Compositor::Initialize() {
         decoration_spec_ = decoration::TilingDecorationSpec::CreateDefault();
     }
 
-    // Default to Mac Fluid Split Layout strategy (Strategy Pattern)
-    SetLayoutStrategy(std::make_unique<layout::MacFluidSplitStrategy>(0.5f));
-
     running_ = true;
     return true;
 }
@@ -29,6 +26,7 @@ bool Compositor::Initialize() {
 void Compositor::OnPointerMotion(float x, float y, float dx, float dy) {
     cursor_x_ = x;
     cursor_y_ = y;
+    if (std::any_of(windows_.begin(), windows_.end(), [](const auto& win) { return win->IsNative(); })) return;
 
     if (is_dragging_divider_) {
         // Interactive divider drag: recalculate ratio dynamically
@@ -46,6 +44,7 @@ void Compositor::OnPointerMotion(float x, float y, float dx, float dy) {
 }
 
 void Compositor::OnPointerButton(uint32_t button, bool pressed) {
+    if (std::any_of(windows_.begin(), windows_.end(), [](const auto& win) { return win->IsNative(); })) return;
     if (button == 1 || button == 272 /* BTN_LEFT */) {
         if (pressed) {
             // Check if clicking near the split divider
@@ -145,6 +144,7 @@ void Compositor::DestroyWindow(const std::shared_ptr<Window>& win) {
     if (win->GetLayerType() == LayerType::App) {
         tree_engine_.RemoveWindow(win);
     }
+    SynchronizeFocus();
     PRISM_LOG_INFO("WM", "Destroyed managed window '%s' on Layer '%s'",
                    win->GetAppId().c_str(), LayerTypeToString(win->GetLayerType()));
 }
@@ -157,6 +157,9 @@ void Compositor::SetLayoutStrategy(std::unique_ptr<layout::LayoutStrategy> strat
 }
 
 void Compositor::Tick(float dt) {
+    // Native configure targets are arranged by WlrServer against the Shell
+    // work area. Never apply the old model's independent fullscreen geometry.
+    if (std::any_of(windows_.begin(), windows_.end(), [](const auto& win) { return win->IsNative(); })) return;
     // 1. Step layout animation physics & apply window geometry
     if (IsInMissionControl()) {
         if (layout_strategy_) {
@@ -251,22 +254,15 @@ bool Compositor::MoveFocus(tree::Direction dir) {
 bool Compositor::SwitchWorkspace(const std::string& name) {
     bool ok = tree_engine_.SwitchWorkspace(name);
     if (ok) {
-        auto win = tree_engine_.GetFocusedWindow();
-        if (win) {
-            for (size_t i = 0; i < windows_.size(); ++i) {
-                if (windows_[i] == win) {
-                    focused_window_index_ = static_cast<int>(i);
-                    windows_[i]->SetFocused(true);
-                } else {
-                    windows_[i]->SetFocused(false);
-                }
-            }
-        }
+        SynchronizeFocus();
     }
     return ok;
 }
 
 bool Compositor::SetTreeLayout(tree::LayoutMode mode) {
+    if (mode == tree::LayoutMode::SplitHorizontal || mode == tree::LayoutMode::SplitVertical) {
+        return tree_engine_.SplitFocused(mode);
+    }
     auto focused = tree_engine_.GetFocusedNode();
     if (!focused) {
         auto ws = tree_engine_.GetActiveWorkspace();
@@ -280,6 +276,33 @@ bool Compositor::SetTreeLayout(tree::LayoutMode mode) {
 
 bool Compositor::SwapFocusDirection(tree::Direction dir) {
     return tree_engine_.SwapFocusDirection(dir);
+}
+
+std::shared_ptr<Window> Compositor::ManageNativeWindow(const std::string& app_id,
+    const std::string& title, int pid, std::uint64_t instance) {
+    auto win = std::make_shared<Window>(app_id, title, core::Rect{}, nullptr);
+    win->SetNative(true);
+    win->UpdateIdentity(app_id, title, pid, instance);
+    windows_.push_back(win);
+    if (layer_manager_.RegisterWindow(win, LayerType::App) != LayerRegisterResult::Success) {
+        windows_.pop_back();
+        return nullptr;
+    }
+    auto mode = tree_engine_.GetActiveWorkspace()->GetRootContainer()->GetLayoutMode();
+    if (auto focused = tree_engine_.GetFocusedNode())
+        if (auto parent = focused->GetParentContainer()) mode = parent->GetLayoutMode();
+    tree_engine_.InsertWindow(win, mode == tree::LayoutMode::SplitVertical ? tree::Direction::Down : tree::Direction::Right);
+    SynchronizeFocus();
+    return win;
+}
+
+void Compositor::SynchronizeFocus() {
+    auto focused = tree_engine_.GetFocusedWindow();
+    focused_window_index_ = -1;
+    for (std::size_t i = 0; i < windows_.size(); ++i) {
+        windows_[i]->SetFocused(windows_[i] == focused);
+        if (windows_[i] == focused) focused_window_index_ = static_cast<int>(i);
+    }
 }
 
 } // namespace prism::wm

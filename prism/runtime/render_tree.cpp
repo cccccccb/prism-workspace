@@ -1,5 +1,6 @@
 #include "prism/runtime/render_tree.hpp"
 #include <stdexcept>
+#include <algorithm>
 
 namespace prism::runtime {
 namespace {
@@ -32,19 +33,43 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot& snapshot, const RenderT
         node.id = source.id;
         node.bounds = source.bounds;
         node.clip = source.style.clip;
+        node.clip = node.clip || source.style.overflow == "clip";
+        node.clip_radius = source.style.radius;
         node.children = source.children;
         node.source_revision = source.revision;
         node.render_generation = old ? old->render_generation + 1 : 1;
+        if (source.style.shadow_color.a && source.style.shadow_blur > 0)
+            node.visuals.emplace_back(ShadowVisual{source.style.radius,source.style.shadow_blur,
+                source.style.shadow_y,source.style.shadow_color,false});
         if (source.style.background.a) {
             if (source.style.radius > 0)
                 node.visuals.emplace_back(RoundedRectVisual{source.style.radius, source.style.background});
             else node.visuals.emplace_back(RectVisual{source.style.background});
         }
+        if (source.hovered)
+            node.visuals.emplace_back(RoundedRectVisual{source.style.radius,{255,255,255,28}});
+        if (source.style.inner_shadow_color.a && source.style.inner_shadow_blur > 0)
+            node.visuals.emplace_back(ShadowVisual{source.style.radius,source.style.inner_shadow_blur,
+                1,source.style.inner_shadow_color,true});
+        if (source.style.border_width > 0 && source.style.border_color.a)
+            node.visuals.emplace_back(BorderVisual{source.style.radius,source.style.border_width,source.style.border_color});
+        if(source.focused) node.visuals.emplace_back(BorderVisual{source.style.radius,2,{120,180,255,230}});
         if (source.kind == Kind::Text && !source.shaped.glyphs.empty())
             node.visuals.emplace_back(TextVisual{source.shaped, source.style.font_size,
                                                 source.style.foreground});
         if (source.kind == Kind::Image && source.image_ready)
-            node.visuals.emplace_back(ImageVisual{source.image});
+            node.visuals.emplace_back(ImageVisual{source.image,source.style.image_fit});
+        if ((source.kind == Kind::Icon || source.kind == Kind::IconButton) && !source.icon.empty()) {
+            constexpr std::string_view names[] = {"grid", "music", "settings", "folder", "terminal", "play", "pause",
+                "previous", "next", "volume", "wifi", "battery", "search", "sun", "moon", "power", "check", "chevron", "refresh", "cpu", "memory", "heart"};
+            const auto it=std::find(std::begin(names),std::end(names),source.icon);
+            if (it!=std::end(names)) node.visuals.emplace_back(IconVisual{
+                static_cast<contracts::VectorIcon>(it-std::begin(names)),source.style.foreground,source.style.padding});
+        }
+        if (source.kind==Kind::Progress)
+            node.visuals.emplace_back(ProgressVisual{source.value,source.style.radius,source.style.foreground});
+        if (source.kind==Kind::Toggle)
+            node.visuals.emplace_back(ToggleVisual{source.checked,source.style.foreground});
         tree.nodes.push_back(std::move(node));
     }
     return tree;

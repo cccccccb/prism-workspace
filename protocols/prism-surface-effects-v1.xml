@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="prism_surface_effects_v1">
+  <copyright>Copyright 2026 Prism contributors. MIT license.</copyright>
+  <interface name="prism_surface_effect_manager_v1" version="1">
+    <description summary="typed compositor background effects">
+      Describes logical surface-local rounded rectangles. Effects sample only
+      scene content below this surface. State is double buffered and applies
+      with the next wl_surface.commit. Unsupported compositors leave client
+      alpha/tint unchanged. No DSL, draw list or business action is transmitted.
+    </description>
+    <request name="destroy" type="destructor"/>
+    <request name="get_surface_effect">
+      <arg name="id" type="new_id" interface="prism_surface_effect_v1"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+    <event name="capabilities"><arg name="backdrop" type="uint"/></event>
+  </interface>
+  <interface name="prism_surface_effect_v1" version="1">
+    <enum name="error"><entry name="invalid_region" value="0" summary="invalid or excessive region"/><entry name="surface_gone" value="1" summary="surface no longer exists"/></enum>
+    <request name="destroy" type="destructor"/>
+    <request name="clear"/>
+    <request name="add_region">
+      <description summary="append pending region">
+        Maximum eight regions. Width/height must be positive and at most 8192;
+        x/y are within +/-8192 logical pixels. Radius is 0..256 and blur radius
+        is 0..48 logical pixels. Requests become visible atomically on commit.
+      </description>
+      <arg name="x" type="fixed"/><arg name="y" type="fixed"/>
+      <arg name="width" type="fixed"/><arg name="height" type="fixed"/>
+      <arg name="corner_radius" type="fixed"/><arg name="blur_radius" type="fixed"/>
+    </request>
+  </interface>
+</protocol>

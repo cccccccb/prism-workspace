@@ -19,6 +19,9 @@ struct Scene::Node {
     std::uint64_t allowed_properties{UINT64_MAX};
     std::string text;
     std::string action;
+    std::string icon;
+    double value{0};
+    bool checked{false};
     contracts::ResourceId image{};
     contracts::LogicalSize intrinsic_size{};
     bool image_ready{false};
@@ -47,7 +50,21 @@ bool ValidPropertyValue(DslProperty id, const PropertyValue& value) {
         }
         case StoredValueType::Color: return std::holds_alternative<contracts::Color>(value);
         case StoredValueType::Boolean: return std::holds_alternative<bool>(value);
-        case StoredValueType::String: return std::holds_alternative<std::string>(value);
+        case StoredValueType::String: {
+            const auto* text = std::get_if<std::string>(&value);
+            if (!text) return false;
+            if (id == DslProperty::Align) return *text == "start" || *text == "center" || *text == "end" || *text == "stretch";
+            if (id == DslProperty::Justify) return *text == "start" || *text == "center" || *text == "end" || *text == "spaceBetween";
+            if (id == DslProperty::Anchor) return *text == "fill" || *text == "left" || *text == "center" || *text == "right";
+            if (id == DslProperty::Overflow) return *text == "visible" || *text == "clip";
+            if (id == DslProperty::ImageFit) return *text == "fill" || *text == "contain" || *text == "cover";
+            if (id == DslProperty::Icon) {
+                constexpr std::string_view icons[] = {"grid", "music", "settings", "folder", "terminal", "play", "pause",
+                    "previous", "next", "volume", "wifi", "battery", "search", "sun", "moon", "power", "check", "chevron", "refresh", "cpu", "memory", "heart"};
+                return std::find(std::begin(icons), std::end(icons), *text) != std::end(icons);
+            }
+            return true;
+        }
         case StoredValueType::Resource: return std::holds_alternative<contracts::ResourceId>(value) &&
             static_cast<bool>(std::get<contracts::ResourceId>(value));
     }
@@ -100,6 +117,31 @@ void Scene::ApplyCachedProperty(Node& node, DslProperty id, const PropertyValue&
         case DslProperty::Clip: node.style.clip = std::get<bool>(value); break;
         case DslProperty::Text: node.text = std::get<std::string>(value); break;
         case DslProperty::Action: node.action = std::get<std::string>(value); break;
+        case DslProperty::Align: node.style.align = std::get<std::string>(value); break;
+        case DslProperty::Justify: node.style.justify = std::get<std::string>(value); break;
+        case DslProperty::Anchor: node.style.anchor = std::get<std::string>(value); break;
+        case DslProperty::Overflow: node.style.overflow = std::get<std::string>(value); break;
+        case DslProperty::Flex: node.style.flex = std::get<double>(value); break;
+        case DslProperty::Inset: node.style.inset = std::get<double>(value); break;
+        case DslProperty::PaddingX: node.style.padding_x = std::get<double>(value); break;
+        case DslProperty::PaddingY: node.style.padding_y = std::get<double>(value); break;
+        case DslProperty::BorderWidth: node.style.border_width = std::get<double>(value); break;
+        case DslProperty::BorderColor: node.style.border_color = std::get<contracts::Color>(value); break;
+        case DslProperty::ShadowBlur: node.style.shadow_blur = std::get<double>(value); break;
+        case DslProperty::ShadowY: node.style.shadow_y = std::get<double>(value); break;
+        case DslProperty::ShadowColor: node.style.shadow_color = std::get<contracts::Color>(value); break;
+        case DslProperty::InnerShadowBlur: node.style.inner_shadow_blur = std::get<double>(value); break;
+        case DslProperty::InnerShadowColor: node.style.inner_shadow_color = std::get<contracts::Color>(value); break;
+        case DslProperty::BackdropBlur: node.style.backdrop_blur = std::get<double>(value); break;
+        case DslProperty::Icon: node.icon = std::get<std::string>(value); break;
+        case DslProperty::Value: node.value = std::get<double>(value); break;
+        case DslProperty::Checked: node.checked = std::get<bool>(value); break;
+        case DslProperty::ImageFit: {
+            const auto& name = std::get<std::string>(value);
+            node.style.image_fit = name == "contain" ? contracts::ImageFit::Contain :
+                name == "cover" ? contracts::ImageFit::Cover : contracts::ImageFit::Fill;
+            break;
+        }
         case DslProperty::Source:
             node.image = std::get<contracts::ResourceId>(value);
             node.image_ready = false;
@@ -122,6 +164,36 @@ PropertyValue Scene::CurrentProperty(const Node& node, DslProperty id) const {
         case DslProperty::Text: return node.text;
         case DslProperty::Action: return node.action;
         case DslProperty::Source: return node.image;
+        case DslProperty::Align: return node.style.align;
+        case DslProperty::Justify: return node.style.justify;
+        case DslProperty::Anchor: return node.style.anchor;
+        case DslProperty::Overflow: return node.style.overflow;
+        case DslProperty::Flex: return node.style.flex;
+        case DslProperty::Inset: return node.style.inset;
+        case DslProperty::PaddingX: return node.style.padding_x;
+        case DslProperty::PaddingY: return node.style.padding_y;
+        case DslProperty::BorderWidth: return node.style.border_width;
+        case DslProperty::BorderColor: return node.style.border_color;
+        case DslProperty::ShadowBlur: return node.style.shadow_blur;
+        case DslProperty::ShadowY: return node.style.shadow_y;
+        case DslProperty::ShadowColor: return node.style.shadow_color;
+        case DslProperty::InnerShadowBlur: return node.style.inner_shadow_blur;
+        case DslProperty::InnerShadowColor: return node.style.inner_shadow_color;
+        case DslProperty::BackdropBlur: return node.style.backdrop_blur;
+        case DslProperty::Icon: return node.icon;
+        case DslProperty::Value: return node.value;
+        case DslProperty::Checked: return node.checked;
+        case DslProperty::ImageFit: return std::string(node.style.image_fit==contracts::ImageFit::Cover ? "cover" :
+            node.style.image_fit==contracts::ImageFit::Contain ? "contain" : "fill");
+        default: {
+            const auto found = node.properties.find(id);
+            if (found != node.properties.end()) return found->second;
+            const auto* spec = FindProperty(id);
+            if (spec->stored_type == StoredValueType::String) return std::string{};
+            if (spec->stored_type == StoredValueType::Color) return contracts::Color{0,0,0,0};
+            if (spec->stored_type == StoredValueType::Boolean) return false;
+            return 0.0;
+        }
     }
     return {};
 }
@@ -142,6 +214,14 @@ bool Scene::SetSlot(std::string_view name, std::string value) {
     return SetBinding(name, std::move(value));
 }
 
+bool Scene::AcceptsBinding(std::string_view name, const PropertyValue& value) const {
+    auto it = bindings_.find(std::string(name));
+    if (it == bindings_.end()) return false;
+    for (const auto& target : it->second)
+        if (!ValidPropertyValue(target.property, value)) return false;
+    return true;
+}
+
 bool Scene::SetBinding(std::string_view name, PropertyValue value) {
     auto it = bindings_.find(std::string(name));
     if (it == bindings_.end()) return false;
@@ -157,11 +237,19 @@ bool Scene::SetProperty(contracts::NodeId id, DslProperty property, PropertyValu
     Node* node = Find(id);
     if (!node || !(node->allowed_properties & PropertyBit(property)) ||
         !ValidPropertyValue(property, value)) return false;
-    if (CurrentProperty(*node, property) == value) return false;
+    const auto previous=CurrentProperty(*node,property);
+    if (previous == value) return false;
     node->properties[property] = value;
     ApplyCachedProperty(*node, property, value);
     const Dirty affected = FindProperty(property)->affects;
+    const bool input_shape=Has(affected,Dirty::Layout) || property==DslProperty::Radius ||
+        property==DslProperty::Clip || property==DslProperty::Overflow ||
+        (property==DslProperty::Background && bool(std::get<contracts::Color>(previous).a)!=bool(std::get<contracts::Color>(value).a)) ||
+        (property==DslProperty::BackdropBlur && (std::get<double>(previous)>0)!=(std::get<double>(value)>0)) ||
+        (property==DslProperty::Action && std::get<std::string>(previous).empty()!=std::get<std::string>(value).empty());
+    if(input_shape)input_dirty_=true;
     dirty_ = dirty_ | affected;
+    if(input_shape && affected==Dirty::None)dirty_=dirty_|Dirty::Composite;
     if (affected != Dirty::None) ++node->revision;
     return true;
 }
@@ -170,6 +258,7 @@ bool Scene::SetViewport(contracts::LogicalSize size) {
     if (!ValidSize(size)) return false;
     if (viewport_.width != size.width || viewport_.height != size.height) {
         viewport_ = size;
+        input_dirty_=true;
         dirty_ = dirty_ | Dirty::Layout | Dirty::Paint;
     }
     return true;
@@ -189,6 +278,7 @@ bool Scene::ImageReady(contracts::ResourceId image, contracts::LogicalSize intri
             const bool affects_layout = node->style.width <= 0 || node->style.height <= 0;
             node->intrinsic_size = intrinsic_size;
             node->image_ready = true;
+            input_dirty_=true;
             ++node->revision;
             dirty_ = dirty_ | Dirty::Paint | (affects_layout ? Dirty::Layout : Dirty::None);
             changed = true;
@@ -208,6 +298,11 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window) {
         item.kind = node->kind;
         item.style = node->style;
         item.text = node->text;
+        item.icon = node->icon;
+        item.value = node->value;
+        item.checked = node->checked;
+        item.hovered = node == hovered_;
+        item.focused = node == focused_;
         item.image = node->image;
         item.intrinsic_size = node->intrinsic_size;
         item.image_ready = node->image_ready;
@@ -219,6 +314,7 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window) {
     }
     if (Has(dirty_, Dirty::Layout)) {
         LayoutEngine::Compute(snapshot, viewport_, shaper_);
+        input_dirty_=true;
         for (const auto& item : snapshot.nodes) {
             Node* node = nodes_[item.id.index];
             node->bounds = item.bounds;
@@ -234,12 +330,172 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window) {
 }
 
 std::optional<std::string> Scene::Hit(const Node& node, contracts::LogicalPoint point) const {
-    if (!Inside(node.bounds, point)) return std::nullopt;
+    const bool inside=Inside(node.bounds,point);
+    if (!inside && (node.style.clip || node.style.overflow=="clip")) return std::nullopt;
+    const double radius = std::min({node.style.radius, node.bounds.width / 2, node.bounds.height / 2});
+    if (radius > 0 && (node.style.clip || node.style.overflow == "clip" || !node.action.empty())) {
+        const double cx = std::clamp(point.x, node.bounds.x + radius, node.bounds.x + node.bounds.width - radius);
+        const double cy = std::clamp(point.y, node.bounds.y + radius, node.bounds.y + node.bounds.height - radius);
+        if ((point.x-cx)*(point.x-cx)+(point.y-cy)*(point.y-cy) > radius*radius) return std::nullopt;
+    }
     for (auto it = node.children.rbegin(); it != node.children.rend(); ++it) {
         if (auto action = Hit(**it, point)) return action;
     }
-    if (!node.action.empty()) return node.action;
+    if (inside && !node.action.empty()) return node.action;
     return std::nullopt;
+}
+std::vector<contracts::SurfaceEffectRegion> Scene::SurfaceEffects() const {
+    std::vector<contracts::SurfaceEffectRegion> result;
+    using Shape=contracts::SurfaceInputRegion;
+    using Rect=contracts::LogicalRect;
+    const auto normalized=[](Shape shape) {
+        shape.corner_radius=std::clamp(shape.corner_radius,0.0,
+            std::min(shape.bounds.width,shape.bounds.height)/2);
+        return shape;
+    };
+    const auto same=[](Rect a,Rect b) {
+        return a.x==b.x && a.y==b.y && a.width==b.width && a.height==b.height;
+    };
+    const auto inside=[](contracts::LogicalPoint point,Shape shape) {
+        const auto& b=shape.bounds;
+        if(point.x<b.x || point.y<b.y || point.x>b.x+b.width || point.y>b.y+b.height)return false;
+        const auto r=shape.corner_radius;
+        const auto x=std::clamp(point.x,b.x+r,b.x+b.width-r);
+        const auto y=std::clamp(point.y,b.y+r,b.y+b.height-r);
+        return (point.x-x)*(point.x-x)+(point.y-y)*(point.y-y)<=r*r+1e-7;
+    };
+    const auto contains=[&](Shape outer,Rect box) {
+        return inside({box.x,box.y},outer) && inside({box.x+box.width,box.y},outer) &&
+            inside({box.x,box.y+box.height},outer) && inside({box.x+box.width,box.y+box.height},outer);
+    };
+    const auto intersect=[&](Shape a,Shape b)->std::optional<Shape> {
+        const double x=std::max(a.bounds.x,b.bounds.x),y=std::max(a.bounds.y,b.bounds.y);
+        const Rect box{x,y,std::max(0.0,std::min(a.bounds.x+a.bounds.width,b.bounds.x+b.bounds.width)-x),
+            std::max(0.0,std::min(a.bounds.y+a.bounds.height,b.bounds.y+b.bounds.height)-y)};
+        if(box.width==0 || box.height==0)return std::nullopt;
+        if(same(a.bounds,b.bounds))return Shape{box,std::max(a.corner_radius,b.corner_radius)};
+        if(same(box,a.bounds) && contains(b,a.bounds))return a;
+        if(same(box,b.bounds) && contains(a,b.bounds))return b;
+        if(contains(a,box) && contains(b,box))return Shape{box,0};
+        // The v1 protocol has one uniform-radius rounded rectangle. Cropping
+        // its curved corners, or combining offset curved clips, can produce
+        // asymmetric masks that cannot be transmitted faithfully.
+        throw std::runtime_error("Unsupported backdrop clipping: intersection is not a v1 rounded rectangle");
+    };
+    std::vector<Shape> clips{{{0,0,viewport_.width,viewport_.height},0}};
+    const auto collect=[&](const auto& self,const Node& node)->void {
+        if(node.bounds.width<=0 || node.bounds.height<=0)return;
+        const bool clipped=node.style.clip || node.style.overflow=="clip";
+        if(clipped)clips.push_back(normalized({node.bounds,node.style.radius}));
+        if(node.style.backdrop_blur>0) {
+            std::optional<Shape> shape=normalized({node.bounds,node.style.radius});
+            for(const auto& clip:clips) {
+                shape=intersect(*shape,clip);
+                if(!shape)break;
+            }
+            if(shape) {
+                const auto& b=shape->bounds;
+                if(std::abs(b.x)>8192 || std::abs(b.y)>8192 || b.width>8192 || b.height>8192)
+                    throw std::runtime_error("Unsupported backdrop bounds: v1 maximum is 8192 logical pixels");
+                result.push_back({b,shape->corner_radius,node.style.backdrop_blur});
+            }
+        }
+        for(const auto& child:node.children)self(self,*child);
+        if(clipped)clips.pop_back();
+    };
+    collect(collect,*root_);
+    if(result.size()>8) throw std::length_error("Surface effect region limit is 8");
+    return result;
+}
+const std::vector<contracts::SurfaceInputRegion>& Scene::InputRegions() const {
+    if(!input_dirty_)return input_regions_;
+    input_regions_.clear();
+    using Shape=contracts::SurfaceInputRegion;
+    using Rect=contracts::LogicalRect;
+    const auto same=[](Rect a,Rect b) {return a.x==b.x && a.y==b.y && a.width==b.width && a.height==b.height;};
+    const auto intersect=[](Rect a,Rect b) {
+        const auto x=std::max(a.x,b.x),y=std::max(a.y,b.y);
+        return Rect{x,y,std::max(0.0,std::min(a.x+a.width,b.x+b.width)-x),
+            std::max(0.0,std::min(a.y+a.height,b.y+b.height)-y)};
+    };
+    std::vector<Shape> clips;
+    const auto add=[&](Shape shape) {
+        auto bounds=shape.bounds;
+        double radius=shape.corner_radius;
+        bool identical=true,rectangular=radius==0;
+        for(const auto& clip:clips) {
+            bounds=intersect(bounds,clip.bounds);
+            identical=identical && same(shape.bounds,clip.bounds);
+            rectangular=rectangular && clip.corner_radius==0;
+            radius=std::max(radius,clip.corner_radius);
+        }
+        if(bounds.width<=0 || bounds.height<=0)return;
+        if(clips.empty() || identical || rectangular) {
+            input_regions_.push_back({bounds,rectangular?0:radius});
+            return;
+        }
+        // Arbitrary rounded intersections are not themselves rounded rects.
+        // Resolve the exact logical-pixel input mask once, using the same
+        // pixel-center convention as the Wayland region rasterizer.
+        const auto span=[](Shape region,double y) {
+            const auto& b=region.bounds;
+            const double r=std::clamp(region.corner_radius,0.0,std::min(b.width,b.height)/2);
+            const double edge=std::min(y-b.y,b.y+b.height-y);
+            double inset=0;
+            if(edge<r)inset=r-std::sqrt(std::max(0.0,r*r-(r-edge)*(r-edge)));
+            return std::pair{b.x+inset,b.x+b.width-inset};
+        };
+        for(int y=static_cast<int>(std::ceil(bounds.y));y<static_cast<int>(std::floor(bounds.y+bounds.height));++y) {
+            auto [left,right]=span(shape,y+.5);
+            for(const auto& clip:clips) {
+                const auto [a,b]=span(clip,y+.5);
+                left=std::max(left,a);right=std::min(right,b);
+            }
+            const double first=std::ceil(left),last=std::floor(right);
+            if(last>first)input_regions_.push_back({{first,double(y),last-first,1},0});
+        }
+    };
+    const auto collect=[&](const auto& self,const Node& node)->void {
+        if(node.bounds.width<=0 || node.bounds.height<=0)return;
+        const bool clipped=node.style.clip || node.style.overflow=="clip";
+        if(clipped)clips.push_back({node.bounds,node.style.radius});
+        const bool material=node.style.background.a || node.style.backdrop_blur>0 ||
+            !node.action.empty() || node.kind==Kind::Image;
+        if(material)add({node.bounds,node.style.radius});
+        // A material clip already covers all visible descendants. A visible
+        // overflow child can extend the union beyond its parent's region.
+        if(!(material && clipped))for(const auto& child:node.children)self(self,*child);
+        if(clipped)clips.pop_back();
+    };
+    collect(collect,*root_);
+    input_dirty_=false;
+    return input_regions_;
+}
+bool Scene::SetPointer(contracts::LogicalPoint point) {
+    Node* next=nullptr;
+    const auto action=ActionAt(point);
+    if(action) for(auto it=nodes_.rbegin();it!=nodes_.rend();++it)
+        if((*it)->action==*action && Inside((*it)->bounds,point)) {next=*it;break;}
+    if(next==hovered_)return false;
+    if(hovered_)++hovered_->revision;
+    hovered_=next;
+    if(hovered_)++hovered_->revision;
+    dirty_=dirty_|Dirty::Paint;
+    return true;
+}
+bool Scene::FocusNext() {
+    std::vector<Node*> actions;
+    for(auto* node:nodes_)if(!node->action.empty())actions.push_back(node);
+    if(actions.empty())return false;
+    const auto it=std::find(actions.begin(),actions.end(),focused_);
+    Node* next=it==actions.end() || std::next(it)==actions.end() ? actions.front() : *std::next(it);
+    if(focused_)++focused_->revision;
+    focused_=next;++focused_->revision;
+    dirty_=dirty_|Dirty::Paint;
+    return true;
+}
+std::optional<std::string> Scene::FocusedAction() const {
+    return focused_ ? std::optional<std::string>(focused_->action) : std::nullopt;
 }
 std::optional<std::string> Scene::ActionAt(contracts::LogicalPoint point) const {
     return Hit(*root_, point);

@@ -10,6 +10,10 @@ struct SnapshotNode {
     Kind kind{Kind::Box};
     Style style{};
     std::string text;
+    std::string icon;
+    double value{0};
+    bool checked{false};
+    bool hovered{false}, focused{false};
     contracts::ResourceId image{};
     contracts::LogicalSize intrinsic_size{};
     bool image_ready{false};

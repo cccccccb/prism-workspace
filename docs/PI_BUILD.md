@@ -27,7 +27,7 @@ Pi 4B 上建议先用 `-j2`，避免并行 C++ 编译占满内存。构建过程
 
 ```sh
 WLR_BACKENDS=headless WLR_RENDERER=pixman \
-  XDG_RUNTIME_DIR=/run/user/$(id -u) ./build/prism/prism-wm
+  XDG_RUNTIME_DIR=/run/user/$(id -u) ./build/bin/prism-wm
 ```
 
 看到 `Wayland display listening on wayland-prism-0` 和 `commit=OK` 表示服务端与输出帧正常运行。按 Ctrl+C 停止。此检查验证软件渲染和 Wayland 服务端；实际 DRM/KMS 显示输出还需要在本地图形会话或 TTY 上单独验证。
@@ -41,3 +41,7 @@ sudo apt install nlohmann-json3-dev
 ```
 
 业务模块 ABI 为纯 C；prism/contracts 仍可独立构建，无 JSON/Wayland/Skia 依赖。实际启动恢复进度见 [APP_LAUNCH_CONTRACT.md](APP_LAUNCH_CONTRACT.md)。
+
+## 统一会话入口
+
+Skia GLES 构建的正式入口是 build-gles/bin/prism-session-runtime；原始 prism-wm 仅提供无 Shell 的诊断会话。统一 host/包/服务启动与授权规范见 [SESSION_LAUNCH_RUNTIME.md](SESSION_LAUNCH_RUNTIME.md)。

@@ -58,6 +58,16 @@ int main() {
         for (auto name : {"main.prism", "preview.prism", "backend.so"}) std::ofstream(root / "app" / name) << "fixture";
         const auto package = LoadPackage(root / "app");
         assert(package.root == fs::canonical(root / "app") && package.preview);
+        fs::create_directory(root / "registry");
+        fs::copy(root / "app", root / "registry/org.prism.music", fs::copy_options::recursive);
+        assert(LoadRegisteredPackage(root / "registry", "org.prism.music").manifest.app_id == "org.prism.music");
+        Reject([&] { LoadRegisteredPackage(root / "registry", "../app"); });
+        try { LoadRegisteredPackage(root / "registry", "missing"); assert(false); }
+        catch (const LaunchFailure& error) { assert(error.Code() == prism::contracts::LaunchError::UnknownApplication); }
+        fs::create_directory_symlink(root / "app", root / "registry/escape");
+        Reject([&] { LoadRegisteredPackage(root / "registry", "escape"); });
+        fs::create_directory_symlink(root / "registry/org.prism.music", root / "registry/mismatch");
+        Reject([&] { LoadRegisteredPackage(root / "registry", "mismatch"); });
         fs::remove(root / "app/main.prism");
         std::ofstream(root / "outside.prism") << "outside";
         fs::create_symlink(root / "outside.prism", root / "app/main.prism");

@@ -1,4 +1,6 @@
 #include "prism/wm/wlr_server.hpp"
+#include "prism/wm/surface_effects.hpp"
+#include "prism/wm/xdg_view.hpp"
 #include "prism/ipc/ipc_server.hpp"
 #include "prism/ipc/channel.hpp"
 #include "prism/core/logging.hpp"
@@ -23,8 +25,11 @@ extern "C" {
 #include <wlr/types/wlr_compositor.h>
 #include <wlr/types/wlr_subcompositor.h>
 #include <wlr/types/wlr_output_layout.h>
+#include <wlr/types/wlr_xdg_output_v1.h>
 #include <wlr/types/wlr_output.h>
 #include <wlr/types/wlr_scene.h>
+#include <wlr/types/wlr_presentation_time.h>
+#include <wlr/types/wlr_screencopy_v1.h>
 #include <wlr/types/wlr_linux_dmabuf_v1.h>
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/types/wlr_cursor.h>
@@ -49,40 +54,38 @@ extern "C" {
 #include <cmath>
 #include <iomanip>
 #include <algorithm>
-#include <spawn.h>
+#include <sys/syscall.h>
+#include <poll.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <array>
+#include <nlohmann/json.hpp>
+#include <optional>
 
-extern char** environ;
+
 
 namespace prism::wm {
 
-struct WlrXdgView {
-    WlrServer* server{nullptr};
-    struct wlr_xdg_toplevel* toplevel{nullptr};
-    struct wlr_scene_tree* scene_tree{nullptr};
-    struct wl_listener map{};
-    struct wl_listener commit{};
-    struct wl_listener unmap{};
-    struct wl_listener destroy{};
-    struct wl_listener request_maximize{};
-    struct wl_listener request_fullscreen{};
-    int x{0};
-    int y{0};
-    int width{640};
-    int height{400};
-    bool mapped{false};
-    int shell_role{0}; // 0 ordinary, 1 desktop, 2 topbar, 3 dock
+WlrXdgView::WlrXdgView() {
+    for (auto* listener : {&map, &commit, &unmap, &destroy, &request_maximize,
+         &request_fullscreen, &set_title, &set_app_id}) wl_list_init(&listener->link);
+}
+WlrXdgView::~WlrXdgView() {
+    for (auto* listener : {&map, &commit, &unmap, &destroy, &request_maximize,
+         &request_fullscreen, &set_title, &set_app_id}) wl_list_remove(&listener->link);
+}
 
-    ~WlrXdgView() {
-        wl_list_remove(&map.link);
-        wl_list_remove(&commit.link);
-        wl_list_remove(&unmap.link);
-        wl_list_remove(&destroy.link);
-        wl_list_remove(&request_maximize.link);
-        wl_list_remove(&request_fullscreen.link);
-    }
-};
+static void UpdateCommittedGeometry(WlrXdgView* view) {
+    if (!view->managed || !view->mapped) return;
+    // xdg_surface.current.geometry only contains an explicitly supplied client
+    // rectangle. The effective geometry also supports clients that omit it.
+    wlr_box geometry{};
+    wlr_xdg_surface_get_geometry(view->toplevel->base, &geometry);
+    // wlr_scene_xdg_surface already compensates for the local geometry origin,
+    // so the view position is the global origin of this effective rectangle.
+    view->managed->SetCommittedBounds({static_cast<float>(view->x), static_cast<float>(view->y),
+        static_cast<float>(geometry.width), static_cast<float>(geometry.height)});
+}
 
 struct WlrKeyboardBinding {
     WlrServer* server{nullptr};
@@ -90,6 +93,7 @@ struct WlrKeyboardBinding {
     struct wl_listener key{};
     struct wl_listener modifiers{};
     struct wl_listener destroy{};
+    std::array<bool, 768> consumed_keys{};
 
     ~WlrKeyboardBinding() {
         wl_list_remove(&key.link);
@@ -256,10 +260,16 @@ bool WlrServer::Initialize(const std::string& socket_name) {
     // 4. Compositor & Subcompositor globals
     wlr_compositor_ = wlr_compositor_create(wl_display_, 5, renderer_);
     subcompositor_ = wlr_subcompositor_create(wl_display_);
+    if (!wlr_presentation_create(wl_display_, backend_)) {
+        PRISM_LOG_ERROR("WLR-SERVER", "Failed to create presentation feedback global");
+        return false;
+    }
     wlr_data_device_manager_create(wl_display_);
+    wlr_screencopy_manager_v1_create(wl_display_);
 
     // 5. Output layout & Hardware Scene graph
     output_layout_ = wlr_output_layout_create(wl_display_);
+    wlr_xdg_output_manager_v1_create(wl_display_,output_layout_);
     scene_ = wlr_scene_create();
     wlr_scene_attach_output_layout(scene_, output_layout_);
     if (auto* dmabuf = wlr_linux_dmabuf_v1_create_with_renderer(wl_display_, 4, renderer_)) {
@@ -271,6 +281,7 @@ bool WlrServer::Initialize(const std::string& socket_name) {
 
     // 6. Initialize 100% Native GPU Scene-Graph hierarchy
     InitSceneGraph();
+    surface_effects_=std::make_unique<SurfaceEffects>(wl_display_,renderer_,allocator_);
 
     // 7. XDG Shell Protocol (Wayland Window Standard Protocol)
     xdg_shell_ = wlr_xdg_shell_create(wl_display_, 3);
@@ -404,7 +415,7 @@ bool WlrServer::Initialize(const std::string& socket_name) {
             std::ostringstream ss;
             ss << "{\n"
                << "  \"status\": \"ok\",\n"
-               << "  \"version\": \"Project PrismWM 0.1.0 (wlroots 0.17 Native)\",\n"
+               << "  \"version\": \"Project PrismWM 0.1.0 (wlroots 0.18 Native)\",\n"
                << "  \"fps\": " << std::fixed << std::setprecision(1) << current_fps_ << ",\n"
                << "  \"frame_count\": " << frame_count_ << ",\n"
                << "  \"outputs_count\": " << outputs_.size() << ",\n"
@@ -440,200 +451,97 @@ bool WlrServer::Initialize(const std::string& socket_name) {
         ipc_server_->RegisterHandler("set_debug", debug_handler);
         ipc_server_->RegisterHandler("debug", debug_handler);
 
-        // Command 4: set_layout / layout: <split|mission_control|overview|splith|splitv|tabbed|stacked|toggle>
+        // Production controls operate on the same records as real XDG surfaces.
         auto layout_handler = [this](const std::string&, const std::vector<std::string>& args) {
-            if (args.empty()) {
-                return std::string("{\"status\": \"error\", \"message\": \"Usage: layout <split|overview|splith|splitv|tabbed|stacked|toggle>\"}");
-            }
-            if (compositor_) {
-                if (args[0] == "toggle") {
-                    compositor_->ToggleMissionControl();
-                } else if (args[0] == "mission_control" || args[0] == "overview") {
-                    compositor_->SetMissionControl(true);
-                } else if (args[0] == "split" || args[0] == "normal") {
-                    compositor_->SetMissionControl(false);
-                } else if (args[0] == "splith" || args[0] == "split_horizontal") {
-                    compositor_->SetMissionControl(false);
-                    compositor_->SetTreeLayout(tree::LayoutMode::SplitHorizontal);
-                } else if (args[0] == "splitv" || args[0] == "split_vertical") {
-                    compositor_->SetMissionControl(false);
-                    compositor_->SetTreeLayout(tree::LayoutMode::SplitVertical);
-                } else if (args[0] == "tabbed" || args[0] == "tabs") {
-                    compositor_->SetMissionControl(false);
-                    compositor_->SetTreeLayout(tree::LayoutMode::Tabbed);
-                } else if (args[0] == "stacked" || args[0] == "stack") {
-                    compositor_->SetMissionControl(false);
-                    compositor_->SetTreeLayout(tree::LayoutMode::Stacked);
-                }
-            }
-            for (auto& out : outputs_) {
-                if (out && out->wlr_output) wlr_output_schedule_frame(out->wlr_output);
-            }
-            return std::string("{\"status\": \"ok\", \"layout\": \"") + args[0] + "\"}";
+            if (args.empty()) return std::string("{\"status\":\"error\",\"message\":\"Usage: layout splith|splitv\"}");
+            tree::LayoutMode mode;
+            if (args[0] == "splith" || args[0] == "h" || args[0] == "horizontal") mode = tree::LayoutMode::SplitHorizontal;
+            else if (args[0] == "splitv" || args[0] == "v" || args[0] == "vertical") mode = tree::LayoutMode::SplitVertical;
+            else return std::string("{\"status\":\"error\",\"message\":\"Unsupported native layout\"}");
+            const bool ok = compositor_ && compositor_->SetTreeLayout(mode);
+            ArrangeXdgViews(); SynchronizeXdgFocus();
+            return nlohmann::json{{"status", ok ? "ok" : "error"}, {"layout", args[0]}}.dump();
         };
         ipc_server_->RegisterHandler("set_layout", layout_handler);
         ipc_server_->RegisterHandler("layout", layout_handler);
+        ipc_server_->RegisterHandler("split", layout_handler);
 
-        // Command: focus <left|right|up|down|h|j|k|l>
-        auto focus_handler = [this](const std::string&, const std::vector<std::string>& args) {
-            if (args.empty()) {
-                return std::string("{\"status\": \"error\", \"message\": \"Usage: focus <left|right|up|down>\"}");
-            }
-            if (!compositor_) return std::string("{\"status\": \"error\", \"message\": \"No compositor\"}");
-            tree::Direction dir = tree::Direction::Right;
-            if (args[0] == "left" || args[0] == "h") dir = tree::Direction::Left;
-            else if (args[0] == "right" || args[0] == "l") dir = tree::Direction::Right;
-            else if (args[0] == "up" || args[0] == "k") dir = tree::Direction::Up;
-            else if (args[0] == "down" || args[0] == "j") dir = tree::Direction::Down;
-
-            bool moved = compositor_->MoveFocus(dir);
-            for (auto& out : outputs_) {
-                if (out && out->wlr_output) wlr_output_schedule_frame(out->wlr_output);
-            }
-            return std::string("{\"status\": \"") + (moved ? "ok" : "no_change") +
-                   "\", \"direction\": \"" + args[0] + "\"}";
+        auto parse_direction = [](const std::vector<std::string>& args) -> std::optional<tree::Direction> {
+            if (args.empty()) return {};
+            if (args[0] == "left" || args[0] == "h") return tree::Direction::Left;
+            if (args[0] == "right" || args[0] == "l") return tree::Direction::Right;
+            if (args[0] == "up" || args[0] == "k") return tree::Direction::Up;
+            if (args[0] == "down" || args[0] == "j") return tree::Direction::Down;
+            return {};
+        };
+        auto focus_handler = [this, parse_direction](const std::string&, const std::vector<std::string>& args) {
+            const auto dir = parse_direction(args);
+            if (!dir) return std::string("{\"status\":\"error\",\"message\":\"Usage: focus left|right|up|down\"}");
+            const bool moved = compositor_ && !(focused_xdg_view_ && focused_xdg_view_->fullscreen) && compositor_->MoveFocus(*dir);
+            ArrangeXdgViews(); SynchronizeXdgFocus();
+            return nlohmann::json{{"status", moved ? "ok" : "no_change"}, {"direction", args[0]}}.dump();
         };
         ipc_server_->RegisterHandler("focus", focus_handler);
-
-        // Command: swap <left|right|up|down|h|j|k|l>
-        auto swap_handler = [this](const std::string&, const std::vector<std::string>& args) {
-            if (args.empty()) {
-                return std::string("{\"status\": \"error\", \"message\": \"Usage: swap <left|right|up|down>\"}");
-            }
-            if (!compositor_) return std::string("{\"status\": \"error\", \"message\": \"No compositor\"}");
-            tree::Direction dir = tree::Direction::Right;
-            if (args[0] == "left" || args[0] == "h") dir = tree::Direction::Left;
-            else if (args[0] == "right" || args[0] == "l") dir = tree::Direction::Right;
-            else if (args[0] == "up" || args[0] == "k") dir = tree::Direction::Up;
-            else if (args[0] == "down" || args[0] == "j") dir = tree::Direction::Down;
-
-            bool swapped = compositor_->SwapFocusDirection(dir);
-            for (auto& out : outputs_) {
-                if (out && out->wlr_output) wlr_output_schedule_frame(out->wlr_output);
-            }
-            return std::string("{\"status\": \"") + (swapped ? "ok" : "no_change") +
-                   "\", \"direction\": \"" + args[0] + "\"}";
-        };
-        ipc_server_->RegisterHandler("swap", swap_handler);
-
-        // Command: workspace <name> / ws <name>
+        ipc_server_->RegisterHandler("swap", [this, parse_direction](const std::string&, const std::vector<std::string>& args) {
+            const auto dir = parse_direction(args);
+            if (!dir) return std::string("{\"status\":\"error\",\"message\":\"Usage: swap left|right|up|down\"}");
+            const bool swapped = compositor_ && compositor_->SwapFocusDirection(*dir);
+            ArrangeXdgViews(); SynchronizeXdgFocus();
+            return nlohmann::json{{"status", swapped ? "ok" : "no_change"}, {"direction", args[0]}}.dump();
+        });
         auto ws_handler = [this](const std::string&, const std::vector<std::string>& args) {
-            if (!compositor_) return std::string("{\"status\": \"error\", \"message\": \"No compositor\"}");
-            if (args.empty()) {
-                auto ws = compositor_->GetTreeEngine().GetActiveWorkspace();
-                return std::string("{\"status\": \"ok\", \"active_workspace\": \"") + (ws ? ws->GetName() : "1") + "\"}";
-            }
-            bool ok = compositor_->SwitchWorkspace(args[0]);
-            for (auto& out : outputs_) {
-                if (out && out->wlr_output) wlr_output_schedule_frame(out->wlr_output);
-            }
-            return std::string("{\"status\": \"") + (ok ? "ok" : "error") + "\", \"workspace\": \"" + args[0] + "\"}";
+            if (!compositor_) return std::string("{\"status\":\"error\"}");
+            if (args.empty()) return nlohmann::json{{"status", "ok"},
+                {"active_workspace", compositor_->GetTreeEngine().GetActiveWorkspace()->GetName()}}.dump();
+            const bool ok = compositor_->SwitchWorkspace(args[0]);
+            ArrangeXdgViews(); SynchronizeXdgFocus();
+            return nlohmann::json{{"status", ok ? "ok" : "error"}, {"workspace", args[0]}}.dump();
         };
         ipc_server_->RegisterHandler("workspace", ws_handler);
         ipc_server_->RegisterHandler("ws", ws_handler);
-
-        // Command: tree / get_tree (Sway / i3 architecture container tree dump)
+        ipc_server_->RegisterHandler("move_workspace", [this](const std::string&, const std::vector<std::string>& args) {
+            if (args.empty() || !compositor_) return std::string("{\"status\":\"error\"}");
+            auto& tree = compositor_->GetTreeEngine();
+            const bool ok = tree.MoveWindowToWorkspace(tree.GetFocusedWindow(), args[0]);
+            ArrangeXdgViews(); SynchronizeXdgFocus();
+            return nlohmann::json{{"status", ok ? "ok" : "error"}, {"workspace", args[0]}}.dump();
+        });
         auto tree_handler = [this](const std::string&, const std::vector<std::string>&) {
-            if (!compositor_) return std::string("{\"status\": \"error\", \"message\": \"No compositor\"}");
+            if (!compositor_) return std::string("{\"status\":\"error\"}");
             return compositor_->GetTreeEngine().DumpTreeJson();
         };
         ipc_server_->RegisterHandler("tree", tree_handler);
         ipc_server_->RegisterHandler("get_tree", tree_handler);
-
-        // Command 8: set_theme / theme: <theme_path | nordic | default | minimal>
-        auto set_theme_handler = [this](const std::string&, const std::vector<std::string>& args) {
-            if (args.empty()) {
-                std::string cur_name = decoration_spec_ ? decoration_spec_->theme_name : "none";
-                return std::string("{\"status\": \"ok\", \"current_theme\": \"") + cur_name + "\"}";
-            }
-            std::string theme_arg = args[0];
-            std::shared_ptr<decoration::TilingDecorationSpec> new_spec = nullptr;
-            if (theme_arg == "nordic" || theme_arg == "NordicGlass") {
-                new_spec = decoration::TilingDecorationSpec::CreateNordicGlass();
-            } else if (theme_arg == "default" || theme_arg == "DefaultTilingGlass") {
-                new_spec = decoration::TilingDecorationSpec::CreateDefault();
-            } else if (theme_arg == "minimal" || theme_arg == "MinimalI3") {
-                new_spec = decoration::TilingDecorationSpec::CreateMinimalI3();
-            } else {
-                return std::string("{\"status\": \"error\", \"message\": \"Use a registered WM theme\"}");
-            }
-
-            if (!new_spec) {
-                return std::string("{\"status\": \"error\", \"message\": \"Failed to load theme: ") + theme_arg + "\"}";
-            }
-
-            decoration_spec_ = new_spec;
-            if (compositor_) {
-                compositor_->SetDecorationSpec(decoration_spec_);
-                for (auto& win : compositor_->GetWindows()) {
-                    if (auto* dec = win->GetDecorator()) {
-                        dec->SetSpec(decoration_spec_);
-                    }
-                }
-            }
-
-            for (auto& out : outputs_) {
-                if (out && out->wlr_output) {
-                    wlr_output_schedule_frame(out->wlr_output);
-                }
-            }
-
-            PRISM_LOG_INFO("WLR-SERVER", "Applied new Tiling Decoration Theme: '%s'", decoration_spec_->theme_name.c_str());
-            return std::string("{\"status\": \"ok\", \"message\": \"Theme switched successfully\", \"theme\": \"") +
-                   decoration_spec_->theme_name + "\"}";
+        auto close_handler = [this](const std::string&, const std::vector<std::string>&) {
+            const bool ok = focused_xdg_view_ != nullptr;
+            CloseFocusedXdgView();
+            return nlohmann::json{{"status", ok ? "ok" : "no_change"}}.dump();
         };
-        ipc_server_->RegisterHandler("set_theme", set_theme_handler);
-        ipc_server_->RegisterHandler("theme", set_theme_handler);
+        ipc_server_->RegisterHandler("close", close_handler);
+        ipc_server_->RegisterHandler("kill", close_handler);
 
-        // Command: fold [window_index]
-        ipc_server_->RegisterHandler("fold", [this](const std::string&, const std::vector<std::string>& args) {
-            if (!compositor_) return std::string("{\"status\": \"error\", \"message\": \"No compositor\"}");
-            const auto& windows = compositor_->GetWindows();
-            if (windows.empty()) return std::string("{\"status\": \"error\", \"message\": \"No windows open\"}");
+        // Production uses one generated theme shared with client SDK tokens.
+        auto theme_handler=[](const std::string&,const std::vector<std::string>& args) {
+            if(!args.empty()) return nlohmann::json{{"status","unsupported"},{"message","Runtime global theme switching is not implemented"}}.dump();
+            return nlohmann::json{{"status","ok"},{"current_theme","Prism Glass"},{"format_version",contracts::theme::kFormatVersion}}.dump();
+        };
+        ipc_server_->RegisterHandler("theme",theme_handler);
+        ipc_server_->RegisterHandler("set_theme",theme_handler);
 
-            int idx = compositor_->GetFocusedWindowIndex();
-            if (!args.empty()) {
-                try {
-                    idx = std::clamp(std::stoi(args[0]), 0, static_cast<int>(windows.size() - 1));
-                } catch (...) {}
-            }
-            auto* dec = windows[idx]->GetDecorator();
-            if (!dec) return std::string("{\"status\": \"error\", \"message\": \"No decorator attached\"}");
-
-            dec->ToggleFold();
-            for (auto& out : outputs_) {
-                if (out && out->wlr_output) wlr_output_schedule_frame(out->wlr_output);
-            }
-            return std::string("{\"status\": \"ok\", \"window_index\": ") + std::to_string(idx) +
-                   ", \"folded\": " + (dec->IsFolded() ? "true" : "false") + "}";
+        ipc_server_->RegisterHandler("fold", [](const std::string&, const std::vector<std::string>&) {
+            return std::string("{\"status\":\"error\",\"message\":\"Fold is not implemented for native BSP windows\"}");
         });
 
-        // Command: fullscreen [window_index] / monocle
         auto fs_handler = [this](const std::string&, const std::vector<std::string>& args) {
-            if (!compositor_) return std::string("{\"status\": \"error\", \"message\": \"No compositor\"}");
-            const auto& windows = compositor_->GetWindows();
-            if (windows.empty()) return std::string("{\"status\": \"error\", \"message\": \"No windows open\"}");
-
-            int idx = compositor_->GetFocusedWindowIndex();
+            if (!focused_xdg_view_) return std::string("{\"status\":\"no_change\"}");
+            bool enabled = !focused_xdg_view_->fullscreen;
             if (!args.empty()) {
-                try {
-                    idx = std::clamp(std::stoi(args[0]), 0, static_cast<int>(windows.size() - 1));
-                } catch (...) {}
+                if (args[0] == "on" || args[0] == "enable") enabled = true;
+                else if (args[0] == "off" || args[0] == "disable") enabled = false;
+                else if (args[0] != "toggle") return std::string("{\"status\":\"error\"}");
             }
-            auto* dec = windows[idx]->GetDecorator();
-            if (!dec) return std::string("{\"status\": \"error\", \"message\": \"No decorator attached\"}");
-
-            core::Rect screen{0.0f, 30.0f, 1920.0f, 1050.0f};
-            if (!outputs_.empty() && outputs_[0]->wlr_output) {
-                screen = core::Rect{0.0f, 30.0f, static_cast<float>(outputs_[0]->wlr_output->width),
-                                   static_cast<float>(outputs_[0]->wlr_output->height - 30)};
-            }
-            dec->ToggleFullscreen(screen);
-            for (auto& out : outputs_) {
-                if (out && out->wlr_output) wlr_output_schedule_frame(out->wlr_output);
-            }
-            return std::string("{\"status\": \"ok\", \"window_index\": ") + std::to_string(idx) +
-                   ", \"fullscreen\": " + (dec->IsFullscreen() ? "true" : "false") + "}";
+            SetXdgFullscreen(focused_xdg_view_, enabled);
+            return nlohmann::json{{"status", "ok"}, {"fullscreen", enabled}}.dump();
         };
         ipc_server_->RegisterHandler("fullscreen", fs_handler);
         ipc_server_->RegisterHandler("monocle", fs_handler);
@@ -755,32 +663,79 @@ void WlrServer::Start() {
                    socket_name_.c_str(), created ? 1 : 0);
 }
 
-bool WlrServer::StartShellClients() {
-    if (!shell_clients_.empty()) return false;
-    const auto executable_dir = std::filesystem::canonical("/proc/self/exe").parent_path();
-    int role = 0;
-    for (const char* name : {"prism-desktop", "prism-topbar", "prism-dock"}) {
-        ++role;
-        auto path = executable_dir / name;
-        if (!std::filesystem::exists(path)) path = executable_dir.parent_path() / name / name;
-        std::string command = path.string();
-        pid_t pid = -1;
-        char* args[] = {command.data(), nullptr};
-        if (posix_spawn(&pid, command.c_str(), nullptr, nullptr, args, environ) != 0) return false;
-        shell_clients_.emplace(pid, role);
+WlrServer::Registration::~Registration() { if (pidfd>=0) close(pidfd); }
+void WlrServer::AttachControl(int fd, int parent_pid) {
+    launch::VerifyControlPeer(fd,parent_pid);
+    control_=std::make_unique<launch::Stream>(fd,launch::ControlFrameSize);
+    std::array<std::uint8_t,8> random{}; launch::RandomBytes(random);
+    for (auto byte:random) control_session_=(control_session_<<8)|byte;
+    if (!control_session_) throw std::runtime_error("Zero session nonce");
+    launch::ControlMessage ready; ready.permit.session=control_session_;
+    ready.permit.pid=getpid(); ready.success=true;
+    control_->Queue(launch::EncodeControl(ready)); control_->Flush();
+}
+void WlrServer::NotifyView(WlrXdgView* view, launch::ControlType type) {
+    if (!control_ || !view->instance) return;
+    launch::ControlMessage message; message.type=type; message.permit.session=control_session_;
+    message.permit.instance={view->instance}; message.permit.pid=view->pid;
+    message.permit.role=static_cast<contracts::WindowRole>(view->shell_role);
+    message.success=true;
+    if (!control_->Queue(launch::EncodeControl(message))) control_failed_=true;
+}
+void WlrServer::PumpControl() {
+    if (!control_) return;
+    try {
+        for (const auto& frame:control_->Receive()) {
+            auto m=launch::DecodeControl(frame); const auto& p=m.permit;
+            if (p.session!=control_session_) throw std::runtime_error("Wrong WM session");
+            if (m.type==launch::ControlType::Grant) {
+                bool occupied=false;
+                for (const auto& [pid,r]:registrations_) {
+                    if (r->permit.instance==p.instance || (p.role!=contracts::WindowRole::Toplevel && r->permit.role==p.role)) occupied=true;
+                }
+                m.type=launch::ControlType::Registered; m.success=false;
+                if (p.pid && p.request.value && p.instance.value && !occupied && !registrations_.contains(p.pid) &&
+                    p.expires_ns>launch::MonotonicNs()) {
+                    auto r=std::make_unique<Registration>(); r->permit=p;
+                    r->pidfd=syscall(SYS_pidfd_open,p.pid,0);
+                    pollfd dead{r->pidfd,POLLIN,0};
+                    if (r->pidfd>=0 && poll(&dead,1,0)==0) {
+                        if (p.role!=contracts::WindowRole::Toplevel) r->guard=std::make_unique<launch::ShellPermitGuard>(p);
+                        registrations_.emplace(p.pid,std::move(r)); m.success=true;
+                    }
+                }
+                control_->Queue(launch::EncodeControl(m));
+            } else if (m.type==launch::ControlType::Revoke) {
+                auto r=registrations_.find(p.pid);
+                if (r!=registrations_.end() && r->second->permit.instance==p.instance) {
+                    registrations_.erase(r);
+                    wl_client* client=nullptr;
+                    for (const auto& view:xdg_views_) if (view->instance==p.instance.value && view->pid==static_cast<pid_t>(p.pid)) {
+                        client=wl_resource_get_client(view->toplevel->base->surface->resource); break;
+                    }
+                    if (client) wl_client_destroy(client);
+                }
+            } else if (m.type==launch::ControlType::Activate) {
+                m.type=launch::ControlType::Activated; m.success=false;
+                for (const auto& view:xdg_views_) if (view->instance==p.instance.value && view->pid==static_cast<pid_t>(p.pid) && view->mapped && !view->shell_role) {
+                    FocusXdgView(view.get()); m.success=true; break;
+                }
+                control_->Queue(launch::EncodeControl(m));
+            } else throw std::runtime_error("Unexpected launcher control message");
+        }
+        control_->Flush();
+        if (control_->Closed()) control_failed_=true;
+    } catch (const std::exception& error) {
+        PRISM_LOG_ERROR("WLR-CONTROL", "%s",error.what()); control_failed_=true; control_->Close();
     }
-    return true;
 }
 
 void WlrServer::Stop() {
-    if (!running_) return;
+    if (!wl_display_) return;
     running_ = false;
-    for (const auto& [pid, role] : shell_clients_) {
-        kill(pid, SIGTERM);
-        waitpid(pid, nullptr, 0);
-    }
-    shell_clients_.clear();
+    registrations_.clear();
     if (wl_display_) wl_display_destroy_clients(wl_display_);
+    surface_effects_.reset();
 
     focused_xdg_view_ = nullptr;
     xdg_views_.clear();
@@ -834,7 +789,9 @@ void WlrServer::Stop() {
 
 void WlrServer::RunEventLoopIteration(int timeout_ms) {
     if (!wl_event_loop_ || !wl_display_) return;
+    PumpControl();
     wl_event_loop_dispatch(wl_event_loop_, timeout_ms);
+    PumpControl();
     wl_display_flush_clients(wl_display_);
 }
 
@@ -926,20 +883,33 @@ void WlrServer::HandleNewInput(struct wlr_input_device* device) {
 
 void WlrServer::HandleNewXdgToplevel(struct wlr_xdg_toplevel* toplevel) {
     if (!toplevel || !windows_tree_) return;
-    auto view = std::make_unique<WlrXdgView>();
-    view->server = this;
-    view->toplevel = toplevel;
-    pid_t peer = -1;
-    wl_client_get_credentials(wl_resource_get_client(toplevel->base->surface->resource),
-                              &peer, nullptr, nullptr);
-    if (auto authorized = shell_clients_.find(peer); authorized != shell_clients_.end()) {
-        const bool occupied = std::any_of(xdg_views_.begin(), xdg_views_.end(), [&](const auto& v) {
-            return v->shell_role == authorized->second;
-        });
-        if (!occupied) view->shell_role = authorized->second;
+    auto* client=wl_resource_get_client(toplevel->base->surface->resource);
+    pid_t peer=-1; uid_t uid{};
+    wl_client_get_credentials(client,&peer,&uid,nullptr);
+    std::uint64_t instance{}; int role{};
+    if (auto found=registrations_.find(peer); found!=registrations_.end() && !found->second->consumed) {
+        auto& r=*found->second; pollfd dead{r.pidfd,POLLIN,0};
+        if (uid!=geteuid() || poll(&dead,1,0)!=0 || r.permit.expires_ns<=launch::MonotonicNs() ||
+            (r.guard && !r.guard->Consume(r.permit,launch::MonotonicNs()))) {
+            // A registered launch must fail if its identity expires; silently
+            // mapping it as an ordinary window would conceal a Shell failure.
+            wl_client_post_implementation_error(client,"Prism launch registration expired or invalid");
+            return;
+        }
+        r.consumed=true; instance=r.permit.instance.value; role=static_cast<int>(r.permit.role);
     }
-    view->x = 80 + static_cast<int>(xdg_views_.size()) * 40;
-    view->y = 80 + static_cast<int>(xdg_views_.size()) * 40;
+    auto view=std::make_unique<WlrXdgView>();
+    view->server=this; view->toplevel=toplevel; view->instance=instance;
+    view->pid=peer; view->shell_role=role;
+    view->x = 0;
+    view->y = 0;
+    if (role) {
+        const int width = !outputs_.empty() && outputs_[0]->wlr_output ? outputs_[0]->wlr_output->width : 1280;
+        const int height = !outputs_.empty() && outputs_[0]->wlr_output ? outputs_[0]->wlr_output->height : 720;
+        const auto bounds = theme_.ShellRect(role, width, height);
+        view->x = static_cast<int>(bounds.x); view->y = static_cast<int>(bounds.y);
+        view->width = static_cast<int>(bounds.width); view->height = static_cast<int>(bounds.height);
+    }
     auto* parent = view->shell_role == 1 ? background_tree_
         : view->shell_role > 1 ? chrome_tree_ : windows_tree_;
     view->scene_tree = wlr_scene_xdg_surface_create(parent, toplevel->base);
@@ -960,8 +930,21 @@ void WlrServer::HandleNewXdgToplevel(struct wlr_xdg_toplevel* toplevel) {
         auto* item = WlContainerOf<WlrXdgView>(listener, offsetof(WlrXdgView, commit));
         if (item->toplevel->base->initial_commit)
             wlr_xdg_toplevel_set_size(item->toplevel, item->width, item->height);
+        UpdateCommittedGeometry(item);
     };
     wl_signal_add(&toplevel->base->surface->events.commit, &view->commit);
+    view->set_title.notify = [](wl_listener* listener, void*) {
+        auto* item = WlContainerOf<WlrXdgView>(listener, offsetof(WlrXdgView, set_title));
+        if (item->managed) item->managed->UpdateIdentity(item->toplevel->app_id ? item->toplevel->app_id : "",
+            item->toplevel->title ? item->toplevel->title : "", item->pid, item->instance);
+    };
+    view->set_app_id.notify = [](wl_listener* listener, void*) {
+        auto* item = WlContainerOf<WlrXdgView>(listener, offsetof(WlrXdgView, set_app_id));
+        if (item->managed) item->managed->UpdateIdentity(item->toplevel->app_id ? item->toplevel->app_id : "",
+            item->toplevel->title ? item->toplevel->title : "", item->pid, item->instance);
+    };
+    wl_signal_add(&toplevel->events.set_title, &view->set_title);
+    wl_signal_add(&toplevel->events.set_app_id, &view->set_app_id);
     PRISM_LOG_INFO("WLR-XDG", "New XDG toplevel registered: title='%s' app_id='%s'",
                    toplevel->title ? toplevel->title : "(untitled)",
                    toplevel->app_id ? toplevel->app_id : "(none)");
@@ -971,126 +954,225 @@ void WlrServer::HandleNewXdgToplevel(struct wlr_xdg_toplevel* toplevel) {
 
 void WlrServer::HandleXdgMap(WlrXdgView* view) {
     view->mapped = true;
-    wlr_scene_node_set_enabled(&view->scene_tree->node, true);
-    if (!view->shell_role) FocusXdgView(view);
+    if (!view->shell_role && compositor_) {
+        view->managed = compositor_->ManageNativeWindow(view->toplevel->app_id ? view->toplevel->app_id : "",
+            view->toplevel->title ? view->toplevel->title : "", view->pid, view->instance);
+        view->fullscreen = view->toplevel->requested.fullscreen;
+        view->maximized = view->toplevel->requested.maximized;
+        if (view->managed) view->managed->SetFullscreen(view->fullscreen);
+    }
+    NotifyView(view, launch::ControlType::Mapped);
     ArrangeXdgViews();
-    PRISM_LOG_INFO("WLR-XDG", "Mapped XDG toplevel: %s", view->toplevel->title ? view->toplevel->title : "(untitled)");
-    PRISM_LOG_INFO("WLR-XDG", "Mapped app_id='%s' shell role=%d",
-        view->toplevel->app_id ? view->toplevel->app_id : "", view->shell_role);
+    if (!view->shell_role) FocusXdgView(view);
+    else SynchronizeXdgFocus();
+    PRISM_LOG_INFO("WLR-XDG", "Mapped app_id='%s' shell role=%d pid=%d",
+        view->toplevel->app_id ? view->toplevel->app_id : "", view->shell_role, view->pid);
 }
 
 void WlrServer::HandleXdgUnmap(WlrXdgView* view) {
+    if (dragged_xdg_view_ == view) dragged_xdg_view_ = nullptr;
     view->mapped = false;
+    view->visible = false;
+    NotifyView(view, launch::ControlType::Unmapped);
     wlr_scene_node_set_enabled(&view->scene_tree->node, false);
+    if (view->managed && compositor_) { compositor_->DestroyWindow(view->managed); view->managed.reset(); }
     if (focused_xdg_view_ == view) {
         focused_xdg_view_ = nullptr;
         wlr_seat_keyboard_notify_clear_focus(seat_);
     }
-    if (seat_->pointer_state.focused_surface == view->toplevel->base->surface) {
+    if (seat_->pointer_state.focused_surface == view->toplevel->base->surface)
         wlr_seat_pointer_notify_clear_focus(seat_);
-    }
     ArrangeXdgViews();
-    PRISM_LOG_INFO("WLR-XDG", "Unmapped XDG toplevel");
+    SynchronizeXdgFocus();
 }
 
 void WlrServer::HandleXdgDestroy(WlrXdgView* view) {
-    if (focused_xdg_view_ == view) focused_xdg_view_ = nullptr;
+    if (dragged_xdg_view_ == view) dragged_xdg_view_ = nullptr;
+    if (view->managed && compositor_) { compositor_->DestroyWindow(view->managed); view->managed.reset(); }
+    if (focused_xdg_view_ == view) {
+        focused_xdg_view_ = nullptr;
+        wlr_seat_keyboard_notify_clear_focus(seat_);
+    }
     auto it = std::find_if(xdg_views_.begin(), xdg_views_.end(),
         [view](const auto& item) { return item.get() == view; });
     if (it != xdg_views_.end()) xdg_views_.erase(it);
     ArrangeXdgViews();
-    PRISM_LOG_INFO("WLR-XDG", "Destroyed XDG toplevel record");
+    SynchronizeXdgFocus();
+}
+
+void WlrServer::SetXdgFullscreen(WlrXdgView* view, bool enabled) {
+    if (!view || view->shell_role) return;
+    view->fullscreen = enabled;
+    if (view->managed) view->managed->SetFullscreen(enabled);
+    wlr_xdg_toplevel_set_fullscreen(view->toplevel, enabled);
+    if (enabled) FocusXdgView(view);
+    ArrangeXdgViews();
 }
 
 void WlrServer::HandleXdgMaximize(WlrXdgView* view) {
-    if (!view || !view->toplevel) return;
-    if (view->shell_role) return;
-    const bool fullscreen = view->toplevel->requested.fullscreen;
-    const bool maximized = view->toplevel->requested.maximized;
-    const bool expanded = fullscreen || maximized;
-    int out_width = 1280;
-    int out_height = 720;
-    if (!outputs_.empty() && outputs_[0]->wlr_output) {
-        out_width = outputs_[0]->wlr_output->width;
-        out_height = outputs_[0]->wlr_output->height;
-    }
-    view->x = expanded ? 0 : 80;
-    view->y = expanded ? (fullscreen ? 0 : 34) : 80;
-    view->width = expanded ? out_width : 640;
-    view->height = expanded ? std::max(1, out_height - (fullscreen ? 0 : 106)) : 400;
-    wlr_scene_node_set_position(&view->scene_tree->node, view->x, view->y);
-    wlr_xdg_toplevel_set_maximized(view->toplevel, maximized);
-    wlr_xdg_toplevel_set_fullscreen(view->toplevel, fullscreen);
-    wlr_xdg_toplevel_set_size(view->toplevel, view->width, view->height);
-    if (!expanded) ArrangeXdgViews();
-    PRISM_LOG_INFO("WLR-XDG", "Configured XDG toplevel size %dx%d", view->width, view->height);
+    if (!view || !view->toplevel || view->shell_role) return;
+    view->maximized = view->toplevel->requested.maximized;
+    wlr_xdg_toplevel_set_maximized(view->toplevel, view->maximized);
+    // Maximization keeps the existing tile: tiled clients cannot overlap their
+    // neighbours. Explicit fullscreen is a separate, reversible workspace mode.
+    SetXdgFullscreen(view, view->toplevel->requested.fullscreen);
 }
 
 void WlrServer::ArrangeXdgViews() {
-    const int shell_width = !outputs_.empty() ? outputs_[0]->wlr_output->width : 1280;
-    const int shell_height = !outputs_.empty() ? outputs_[0]->wlr_output->height : 720;
-    for (auto& view : xdg_views_) {
-        if (!view->shell_role) continue;
-        const int width = view->shell_role == 3 ? std::min(800, shell_width) : shell_width;
-        const int height = view->shell_role == 1 ? shell_height : view->shell_role == 2 ? 38 : 72;
-        view->x = view->shell_role == 3 ? (shell_width - width) / 2 : 0;
-        view->y = view->shell_role == 3 ? shell_height - height : 0;
-        if (view->width != width || view->height != height) {
-            view->width = width;
-            view->height = height;
-            wlr_xdg_toplevel_set_size(view->toplevel, width, height);
+    if (!compositor_) return;
+    const int width = !outputs_.empty() && outputs_[0]->wlr_output ? outputs_[0]->wlr_output->width : 1280;
+    const int height = !outputs_.empty() && outputs_[0]->wlr_output ? outputs_[0]->wlr_output->height : 720;
+    compositor_->SetScreenSize(width, height);
+    auto spec = *decoration_spec_;
+    spec.gaps.inner = theme_.inner_gap;
+    spec.gaps.outer = theme_.outer_gap;
+    spec.gaps.smart_gaps = false;
+    auto& engine = compositor_->GetTreeEngine();
+    engine.Arrange(theme_.WorkArea(width, height), spec);
+    const auto active = engine.GetActiveWorkspace();
+    WlrXdgView* fullscreen = nullptr;
+    for (const auto& view : xdg_views_) {
+        if (!view->mapped || !view->managed) continue;
+        auto node = engine.FindViewForWindow(view->managed);
+        if (node && node->GetWorkspace() == active && view->fullscreen) {
+            fullscreen = view.get();
+            if (view.get() == focused_xdg_view_) break;
         }
-        wlr_scene_node_set_position(&view->scene_tree->node, view->x, view->y);
     }
-    std::vector<WlrXdgView*> tiled;
     for (auto& view : xdg_views_) {
-        if (view->mapped && !view->shell_role && !view->toplevel->requested.maximized &&
-            !view->toplevel->requested.fullscreen) tiled.push_back(view.get());
+        core::Rect bounds{};
+        if (view->shell_role) {
+            bounds = theme_.ShellRect(view->shell_role, width, height);
+            view->visible = view->mapped && (!fullscreen || view->shell_role == 1);
+        } else if (view->managed) {
+            auto node = engine.FindViewForWindow(view->managed);
+            const bool in_workspace = node && node->GetWorkspace() == active;
+            view->visible = view->mapped && in_workspace && (!fullscreen || fullscreen == view.get());
+            if (fullscreen == view.get()) bounds = {0, 0, static_cast<float>(width), static_cast<float>(height)};
+            else if (node) bounds = node->bounds;
+            view->managed->SetBounds(bounds);
+            view->managed->SetVisible(view->visible);
+        } else { view->visible = false; }
+        wlr_scene_node_set_enabled(&view->scene_tree->node, view->visible);
+        if (!view->shell_role && !view->managed) continue;
+        const int x = static_cast<int>(std::round(bounds.x));
+        const int y = static_cast<int>(std::round(bounds.y));
+        const int w = std::max(1, static_cast<int>(std::round(bounds.width)));
+        const int h = std::max(1, static_cast<int>(std::round(bounds.height)));
+        view->x = x; view->y = y;
+        wlr_scene_node_set_position(&view->scene_tree->node, x, y);
+        // Pure topology swaps can move a view without asking the client to
+        // resize or commit. Keep the committed size and displayed origin current.
+        UpdateCommittedGeometry(view.get());
+        if (view->width != w || view->height != h) {
+            view->width = w; view->height = h;
+            wlr_xdg_toplevel_set_size(view->toplevel, w, h);
+        }
+        if (!view->shell_role) {
+            const std::uint32_t edges = view->fullscreen ? 0 : WLR_EDGE_TOP | WLR_EDGE_BOTTOM | WLR_EDGE_LEFT | WLR_EDGE_RIGHT;
+            if (edges != view->tiled_edges) {
+                view->tiled_edges = edges;
+                wlr_xdg_toplevel_set_tiled(view->toplevel, edges);
+            }
+        }
     }
-    if (tiled.empty()) return;
-    const int out_width = !outputs_.empty() && outputs_[0]->wlr_output
-        ? outputs_[0]->wlr_output->width : 1280;
-    const int out_height = !outputs_.empty() && outputs_[0]->wlr_output
-        ? outputs_[0]->wlr_output->height : 720;
-    const int top = 34;
-    const int usable_height = std::max(1, out_height - 106);
-    for (std::size_t i = 0; i < tiled.size(); ++i) {
-        auto* view = tiled[i];
-        const int left = static_cast<int>(i * static_cast<std::size_t>(out_width) / tiled.size());
-        const int right = static_cast<int>((i + 1) * static_cast<std::size_t>(out_width) / tiled.size());
-        const int width = std::max(1, right - left);
-        if (view->x == left && view->y == top && view->width == width &&
-            view->height == usable_height) continue;
-        view->x = left;
-        view->y = top;
-        view->width = width;
-        view->height = usable_height;
-        wlr_scene_node_set_position(&view->scene_tree->node, left, top);
-        wlr_xdg_toplevel_set_tiled(view->toplevel,
-            WLR_EDGE_TOP | WLR_EDGE_BOTTOM | WLR_EDGE_LEFT | WLR_EDGE_RIGHT);
-        wlr_xdg_toplevel_set_size(view->toplevel, width, usable_height);
-    }
+    UpdateXdgPointerFocus(static_cast<uint32_t>(core::CurrentTimeNs() / 1000000));
+    for (auto& out : outputs_) if (out && out->wlr_output) wlr_output_schedule_frame(out->wlr_output);
+}
+
+void WlrServer::SynchronizeXdgFocus() {
+    if (!compositor_) return;
+    compositor_->SynchronizeFocus();
+    const auto win = compositor_->GetTreeEngine().GetFocusedWindow();
+    for (auto& view : xdg_views_) if (win && view->managed == win && view->visible) { FocusXdgView(view.get()); return; }
+    if (focused_xdg_view_ && focused_xdg_view_->toplevel)
+        wlr_xdg_toplevel_set_activated(focused_xdg_view_->toplevel, false);
+    focused_xdg_view_ = nullptr;
+    wlr_seat_keyboard_notify_clear_focus(seat_);
 }
 
 void WlrServer::FocusXdgView(WlrXdgView* view) {
-    if (!view || !view->mapped || view->shell_role) return;
-    if (focused_xdg_view_ && focused_xdg_view_ != view && focused_xdg_view_->toplevel) {
-        wlr_xdg_toplevel_set_activated(focused_xdg_view_->toplevel, false);
+    if (!view || !view->mapped || view->shell_role || !view->managed) return;
+    const auto node = compositor_->GetTreeEngine().FindViewForWindow(view->managed);
+    if (!node) return;
+    // Activating an existing instance switches to its actual workspace.
+    bool rearrange = node->GetWorkspace() != compositor_->GetTreeEngine().GetActiveWorkspace();
+    for (auto& other : xdg_views_) {
+        if (other.get() == view || !other->managed || !other->fullscreen) continue;
+        const auto other_node = compositor_->GetTreeEngine().FindViewForWindow(other->managed);
+        if (other_node && other_node->GetWorkspace() == node->GetWorkspace()) {
+            other->fullscreen = false;
+            other->managed->SetFullscreen(false);
+            wlr_xdg_toplevel_set_fullscreen(other->toplevel, false);
+            rearrange = true;
+        }
     }
+    compositor_->GetTreeEngine().SetFocusedWindow(view->managed);
+    compositor_->SynchronizeFocus();
+    if (rearrange) ArrangeXdgViews();
+    if (!view->visible) return;
+    const bool changed = focused_xdg_view_ != view;
+    if (focused_xdg_view_ && changed && focused_xdg_view_->toplevel)
+        wlr_xdg_toplevel_set_activated(focused_xdg_view_->toplevel, false);
     focused_xdg_view_ = view;
     wlr_scene_node_raise_to_top(&view->scene_tree->node);
-    wlr_xdg_toplevel_set_activated(view->toplevel, true);
-    if (auto* keyboard = wlr_seat_get_keyboard(seat_)) {
+    if (changed) wlr_xdg_toplevel_set_activated(view->toplevel, true);
+    if (auto* keyboard = wlr_seat_get_keyboard(seat_); keyboard && (changed || seat_->keyboard_state.focused_surface != view->toplevel->base->surface))
         wlr_seat_keyboard_notify_enter(seat_, view->toplevel->base->surface,
-                                       keyboard->keycodes, keyboard->num_keycodes,
-                                       &keyboard->modifiers);
-    }
+            keyboard->keycodes, keyboard->num_keycodes, &keyboard->modifiers);
 }
 
 void WlrServer::HandleKeyboardKey(WlrKeyboardBinding* binding, void* data) {
-    auto* event = static_cast<struct wlr_keyboard_key_event*>(data);
+    auto* event = static_cast<wlr_keyboard_key_event*>(data);
     wlr_seat_set_keyboard(seat_, binding->keyboard);
-    wlr_seat_keyboard_notify_key(seat_, event->time_msec, event->keycode, event->state);
+    bool handled = false;
+    if (event->state == WL_KEYBOARD_KEY_STATE_RELEASED && event->keycode < binding->consumed_keys.size()) {
+        handled = binding->consumed_keys[event->keycode];
+        binding->consumed_keys[event->keycode] = false;
+    }
+    const auto mods = wlr_keyboard_get_modifiers(binding->keyboard);
+    if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED && (mods & WLR_MODIFIER_LOGO)) {
+        const xkb_keysym_t* symbols{};
+        const auto layout = xkb_state_key_get_layout(binding->keyboard->xkb_state, event->keycode + 8);
+        const int count = xkb_keymap_key_get_syms_by_level(binding->keyboard->keymap, event->keycode + 8, layout, 0, &symbols);
+        for (int i = 0; i < count && !handled; ++i) {
+            tree::Direction direction{};
+            bool directional = true;
+            switch (symbols[i]) {
+                case XKB_KEY_Left: case XKB_KEY_h: direction = tree::Direction::Left; break;
+                case XKB_KEY_Right: case XKB_KEY_l: direction = tree::Direction::Right; break;
+                case XKB_KEY_Up: case XKB_KEY_k: direction = tree::Direction::Up; break;
+                case XKB_KEY_Down: case XKB_KEY_j: direction = tree::Direction::Down; break;
+                default: directional = false;
+            }
+            if (directional) {
+                if (mods & WLR_MODIFIER_SHIFT) compositor_->SwapFocusDirection(direction);
+                else if (!(focused_xdg_view_ && focused_xdg_view_->fullscreen)) compositor_->MoveFocus(direction);
+                handled = true;
+            } else if (symbols[i] == XKB_KEY_v) {
+                compositor_->SetTreeLayout(tree::LayoutMode::SplitVertical); handled = true;
+            } else if (symbols[i] == XKB_KEY_b) {
+                compositor_->SetTreeLayout(tree::LayoutMode::SplitHorizontal); handled = true;
+            } else if (symbols[i] == XKB_KEY_f) {
+                if (focused_xdg_view_) SetXdgFullscreen(focused_xdg_view_, !focused_xdg_view_->fullscreen);
+                handled = true;
+            } else if ((mods & WLR_MODIFIER_SHIFT) && (symbols[i] == XKB_KEY_q || symbols[i] == XKB_KEY_Q)) {
+                CloseFocusedXdgView(); handled = true;
+            } else if (symbols[i] >= XKB_KEY_1 && symbols[i] <= XKB_KEY_9) {
+                const auto name = std::to_string(symbols[i]-XKB_KEY_1+1);
+                if (mods & WLR_MODIFIER_SHIFT) {
+                    compositor_->GetTreeEngine().MoveWindowToWorkspace(compositor_->GetTreeEngine().GetFocusedWindow(), name);
+                    compositor_->SynchronizeFocus();
+                } else compositor_->SwitchWorkspace(name);
+                handled = true;
+            }
+        }
+        if (handled) {
+            if (event->keycode < binding->consumed_keys.size()) binding->consumed_keys[event->keycode] = true;
+            ArrangeXdgViews(); SynchronizeXdgFocus();
+        }
+    }
+    if (!handled) wlr_seat_keyboard_notify_key(seat_, event->time_msec, event->keycode, event->state);
 }
 
 void WlrServer::HandleKeyboardModifiers(WlrKeyboardBinding* binding) {
@@ -1152,6 +1234,39 @@ void WlrServer::HandleCursorMotionAbsolute(uint32_t time_msec, double x, double 
 }
 
 void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t state) {
+    WlrXdgView* pointed = nullptr;
+    if (seat_->pointer_state.focused_surface) {
+        auto* surface = wlr_surface_get_root_surface(seat_->pointer_state.focused_surface);
+        auto* top = wlr_xdg_toplevel_try_from_wlr_surface(surface);
+        for (auto& view : xdg_views_) if (view->toplevel == top && view->visible && !view->shell_role) pointed = view.get();
+    }
+    auto* keyboard = wlr_seat_get_keyboard(seat_);
+    if (button == 272 && state == WLR_BUTTON_PRESSED && pointed && !pointed->fullscreen && keyboard &&
+        (wlr_keyboard_get_modifiers(keyboard) & WLR_MODIFIER_LOGO)) {
+        FocusXdgView(pointed);
+        dragged_xdg_view_ = pointed;
+        return;
+    }
+    if (button == 272 && state == WLR_BUTTON_RELEASED && dragged_xdg_view_) {
+        auto* source = dragged_xdg_view_;
+        dragged_xdg_view_ = nullptr;
+        if (pointed && pointed != source && !pointed->fullscreen) {
+            auto& tree = compositor_->GetTreeEngine();
+            auto target = tree.FindViewForWindow(pointed->managed);
+            auto source_node = tree.FindViewForWindow(source->managed);
+            const double dx = (cursor_->x-pointed->x)/std::max(1, pointed->width)-0.5;
+            const double dy = (cursor_->y-pointed->y)/std::max(1, pointed->height)-0.5;
+            if (std::abs(dx) < 0.18 && std::abs(dy) < 0.18) tree.SwapNodes(source_node, target);
+            else {
+                const auto direction = std::abs(dx) > std::abs(dy)
+                    ? (dx < 0 ? tree::Direction::Left : tree::Direction::Right)
+                    : (dy < 0 ? tree::Direction::Up : tree::Direction::Down);
+                if (tree.RemoveWindow(source->managed)) tree.InsertWindow(source->managed, direction, target);
+            }
+            ArrangeXdgViews(); SynchronizeXdgFocus();
+        }
+        return;
+    }
     if (state == WLR_BUTTON_PRESSED && seat_->pointer_state.focused_surface) {
         auto* top = wlr_xdg_toplevel_try_from_wlr_surface(seat_->pointer_state.focused_surface);
         for (auto& view : xdg_views_) {
@@ -1175,6 +1290,7 @@ void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t
                 const auto& windows = compositor_->GetWindows();
                 for (size_t i = 0; i < windows.size(); ++i) {
                     auto& win = windows[i];
+                    if (win->IsNative()) continue;
                     auto b = win->GetBounds();
                     if (cursor_->x >= b.x && cursor_->x <= b.x + b.width &&
                         cursor_->y >= b.y && cursor_->y <= b.y + b.height) {
@@ -1292,14 +1408,10 @@ void WlrServer::InitSceneGraph() {
 
 
 
-    // Split Divider (Vertical line & pill handle)
-    const float div_line_color[4] = {1.0f, 1.0f, 1.0f, 0.18f};
-    split_divider_line_ = wlr_scene_rect_create(chrome_tree_, 2, 1050, div_line_color);
-    const float div_pill_color[4] = {0.0f, 0.48f, 1.0f, 0.95f}; // Apple Blue pill
-    split_divider_pill_ = wlr_scene_rect_create(chrome_tree_, 6, 42, div_pill_color);
-
     // 4. Layer 3: HUD (Debug Performance Overlay)
     hud_tree_ = wlr_scene_tree_create(&scene_->tree);
+    wlr_scene_node_set_enabled(&hud_tree_->node,
+        compositor_ && compositor_->IsDebugHudEnabled());
     const float hud_bg[4] = {0.05f, 0.07f, 0.09f, 0.92f};
     hud_bg_rect_ = wlr_scene_rect_create(hud_tree_, 440, 160, hud_bg);
     const float hud_border[4] = {0.35f, 0.65f, 1.0f, 1.0f}; // Neon cyan accent
@@ -1309,85 +1421,14 @@ void WlrServer::InitSceneGraph() {
     wlr_scene_node_set_position(&hud_status_pill_->node, 16, 16);
     wlr_scene_node_set_position(&hud_tree_->node, 18, 44);
 
-    // 5. Layer 4: Tiling Drag Overlay (Drop-Zone visualization)
-    drag_manager_ = std::make_unique<decoration::TilingDragManager>(decoration_spec_);
-    drag_manager_->AttachToScene(chrome_tree_);
 
 }
 
 void WlrServer::UpdateSceneGraph(int width, int height, float dt) {
-    if (width <= 0 || height <= 0) return;
-
-    const int dock_y = height - 72;
-    // 4. Desktop Windows & Modular Tiling Window Decorator System
-    if (compositor_) {
-        const auto& windows = compositor_->GetWindows();
-        size_t app_win_count = 0;
-        for (const auto& w : windows) {
-            if (w->GetLayerType() == LayerType::App) app_win_count++;
-        }
-
-        for (size_t i = 0; i < windows.size(); ++i) {
-            auto& win = windows[i];
-            if (win->GetLayerType() != LayerType::App) continue;
-
-            if (!win->GetDecorator()) {
-                auto decorator = std::make_unique<decoration::TilingWindowDecorator>(win.get(), decoration_spec_);
-                decorator->AttachToScene(windows_tree_);
-                win->SetDecorator(std::move(decorator));
-            }
-
-            // Sync focus and layout geometry via TilingWindowDecorator
-            bool is_focused = (static_cast<int>(i) == compositor_->GetFocusedWindowIndex());
-            win->SetFocused(is_focused);
-            auto* dec = win->GetDecorator();
-            if (dec) {
-                dec->SetFocused(is_focused);
-                if (!dec->IsFullscreen()) {
-                    if (dec->GetMotionController().GetTargetBounds() != win->GetBounds()) {
-                        dec->AnimateToBounds(win->GetBounds(), decoration::MotionType::SplitMove);
-                    }
-                }
-                dec->StepAnimation(dt);
-            }
-        }
-
-        // 5. Split Divider
-        float mc_prog = 0.0f;
-        layout::MacFluidSplitStrategy* split_strat = nullptr;
-        if (auto mc = dynamic_cast<layout::MissionControlStrategy*>(compositor_->GetLayoutStrategy())) {
-            mc_prog = mc->GetProgress();
-            split_strat = dynamic_cast<layout::MacFluidSplitStrategy*>(mc->GetBaseStrategy());
-        } else {
-            split_strat = dynamic_cast<layout::MacFluidSplitStrategy*>(compositor_->GetLayoutStrategy());
-        }
-
-        bool show_divider = (split_strat && mc_prog < 0.2f && app_win_count >= 2);
-        wlr_scene_node_set_enabled(&split_divider_line_->node, show_divider);
-        wlr_scene_node_set_enabled(&split_divider_pill_->node, show_divider);
-        if (show_divider) {
-            int div_x = static_cast<int>(width * split_strat->GetCurrentRatio());
-            wlr_scene_rect_set_size(split_divider_line_, 2, dock_y - 34);
-            wlr_scene_node_set_position(&split_divider_line_->node, div_x - 1, 34);
-            wlr_scene_node_set_position(&split_divider_pill_->node, div_x - 3, (34 + dock_y) / 2 - 21);
-        }
-
-        // 6. Debug HUD
-        bool hud_enabled = compositor_->IsDebugHudEnabled();
-        wlr_scene_node_set_enabled(&hud_tree_->node, hud_enabled);
-        if (hud_enabled && hud_status_pill_) {
-            if (current_fps_ >= 50.0f) {
-                const float c[4] = {0.25f, 0.73f, 0.31f, 1.0f}; // Green
-                wlr_scene_rect_set_color(hud_status_pill_, c);
-            } else if (current_fps_ >= 30.0f) {
-                const float c[4] = {0.82f, 0.60f, 0.13f, 1.0f}; // Yellow
-                wlr_scene_rect_set_color(hud_status_pill_, c);
-            } else {
-                const float c[4] = {0.97f, 0.32f, 0.29f, 1.0f}; // Red
-                wlr_scene_rect_set_color(hud_status_pill_, c);
-            }
-        }
-    }
+    if (width<=0 || height<=0 || !hud_tree_) return;
+    // Real XDG view geometry is owned exclusively by the BSP arrangement.
+    // Decoration/material buffers are composed by SurfaceEffects below views.
+    wlr_scene_node_set_enabled(&hud_tree_->node,compositor_ && compositor_->IsDebugHudEnabled());
 }
 
 void WlrServer::HandleOutputFrame(WlrOutput* output) {
@@ -1417,6 +1458,8 @@ void WlrServer::HandleOutputFrame(WlrOutput* output) {
     if (out_w > 0 && out_h > 0) {
         // 1. Update Hardware GPU Scene-graph layout (Windows, Divider, Dock, HUD)
         UpdateSceneGraph(out_w, out_h, dt);
+        if(surface_effects_){std::vector<WlrXdgView*> views;for(auto& view:xdg_views_)views.push_back(view.get());
+            surface_effects_->Update(scene_,views,focused_xdg_view_);}
 
         // 2. Hardware-accelerated GPU render & commit (wlr_scene natively dispatches GLES2 render pass & Direct Scanout!)
         uint64_t t_gpu_start = core::CurrentTimeNs();

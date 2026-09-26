@@ -168,6 +168,8 @@ bool ContainerNode::AutoPrune() {
 
     if (children.size() == 1 && p->type == NodeType::Container) {
         auto only_child = children[0];
+        only_child->width_fraction = width_fraction;
+        only_child->height_fraction = height_fraction;
         p->ReplaceChild(shared_from_this(), only_child);
         return true;
     }

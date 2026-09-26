@@ -20,6 +20,7 @@ add_library(prism_core
     src/wm/window.cpp
     src/wm/compositor.cpp
     src/wm/wlr_server.cpp
+    src/wm/surface_effects.cpp
     src/wm/layer_manager.cpp
     src/decoration/tiling_decoration_spec.cpp
     src/decoration/tiling_window_decorator.cpp
@@ -66,6 +67,8 @@ target_include_directories(prism_core PUBLIC
     ${XKBCOMMON_INCLUDE_DIRS}
 )
 target_link_libraries(prism_core PUBLIC
+    prism_contracts
+    prism_surface_protocol
     Threads::Threads
     rt
     PkgConfig::WLROOTS
@@ -78,6 +81,8 @@ target_link_libraries(prism_core PUBLIC
     ${PIXMAN_LIBRARIES}
     ${XKBCOMMON_LIBRARIES}
 )
+pkg_check_modules(PRISM_WM_GLES REQUIRED IMPORTED_TARGET glesv2)
+target_link_libraries(prism_core PRIVATE PkgConfig::PRISM_WM_GLES)
 
 # A production compositor must never compile client UI parsers or renderers.
 get_target_property(PRISM_WM_SOURCES prism_core SOURCES)
@@ -112,21 +117,7 @@ add_executable(prism-compiler
 target_include_directories(prism-compiler PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(prism-compiler PRIVATE prism_aot_tools)
 
-# 4. Daemon: prism-launcher (Zygote Daemon)
-add_executable(prism-launcher
-    src/launcher/zygote_server.cpp
-    src/launcher/main.cpp
-)
-target_include_directories(prism-launcher PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(prism-launcher PRIVATE prism_core dl)
-
-# 5. Daemon: prism-invoker (App Dispatcher & Validator)
-add_executable(prism-invoker
-    src/invoker/launch_pipeline.cpp
-    src/invoker/main.cpp
-)
-target_include_directories(prism-invoker PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(prism-invoker PRIVATE prism_core prism_aot_tools)
+# Launcher/invoker are independent launch targets in prism/launcher_runtime.
 
 # 6. Compositor: prism-wm (Window Manager & Compositor Core)
 add_executable(prism-wm
@@ -134,9 +125,7 @@ add_executable(prism-wm
 )
 target_include_directories(prism-wm PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(prism-wm PRIVATE prism_core)
-if(TARGET prism_client_app)
-    target_compile_definitions(prism-wm PRIVATE PRISM_HAS_SHELL_CLIENTS=1)
-endif()
+
 
 # 7. Packaging Tool: prism-pack (.prismpkg manager)
 add_executable(prism-pack
@@ -151,3 +140,7 @@ add_executable(prism-msg
 )
 target_include_directories(prism-msg PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(prism-msg PRIVATE prism_core)
+
+target_link_libraries(prism_core PUBLIC prism_control)
+
+set_target_properties(prism-wm PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")

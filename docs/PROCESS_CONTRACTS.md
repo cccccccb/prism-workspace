@@ -81,3 +81,9 @@ flowchart LR
 ## 统一启动与业务模块契约
 
 启动请求/结果、目录包、C 业务 ABI、实例里程碑、Shell 凭证与会话生命周期以 [APP_LAUNCH_CONTRACT.md](APP_LAUNCH_CONTRACT.md) 为准；它们不复用旧共享内存 IPC 对象。启动基础实现位于 prism_launch，无 WM/客户端 parser/渲染依赖。当前 codec 与状态校验已实现，真实服务/授权接入仍按恢复计划推进。
+
+第三步常驻服务/worker/SDK 实现现已接入，私有 worker FD 与公开同用户请求通道的边界、真实回收及超时规范见 [LAUNCHER_WORKER_POOL.md](LAUNCHER_WORKER_POOL.md)。公共 socket 不授予 Shell 角色；下一步单独建立可信 launcher↔WM 控制通道，并完成生产入口切换。
+
+## 2026-09-26 第四步更新
+
+五个应用已统一迁到 host 模块/目录包；可信 WM 控制通道、Shell 一次性登记与 pidfd、真实 Activated 事件、Dock 映射实例订阅和 session supervisor 已接入。此前未切换描述为历史检查点。当前物理安装仍待第五步部署；细则见 [SESSION_LAUNCH_RUNTIME.md](SESSION_LAUNCH_RUNTIME.md)。

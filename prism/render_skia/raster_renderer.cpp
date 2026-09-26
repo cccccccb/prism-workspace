@@ -5,6 +5,10 @@
 #include "include/core/SkImage.h"
 #include "include/core/SkMatrix.h"
 #include "include/core/SkPaint.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkMaskFilter.h"
+#include "include/core/SkBlurTypes.h"
+#include "vector_icons.hpp"
 #include "include/core/SkPixmap.h"
 #include "include/core/SkRRect.h"
 #include "include/core/SkSurface.h"
@@ -60,8 +64,19 @@ bool Validate(const contracts::DisplayList& list,
             if (!ValidRect(rect->bounds)) return false;
         } else if (auto* rect = std::get_if<contracts::FillRoundedRect>(&command)) {
             if (!ValidRect(rect->bounds) || !std::isfinite(rect->radius) || rect->radius < 0) return false;
+        } else if (auto* rect = std::get_if<contracts::StrokeRoundedRect>(&command)) {
+            if (!ValidRect(rect->bounds) || !std::isfinite(rect->radius) || rect->radius < 0 ||
+                !std::isfinite(rect->width) || rect->width < 0 || rect->width > 512) return false;
+        } else if (auto* shadow = std::get_if<contracts::RoundedRectShadow>(&command)) {
+            if (!ValidRect(shadow->bounds) || !std::isfinite(shadow->radius) || shadow->radius < 0 ||
+                !std::isfinite(shadow->blur) || shadow->blur < 0 || shadow->blur > 512 ||
+                !std::isfinite(shadow->offset_y) || std::abs(shadow->offset_y)>16384) return false;
+        } else if (auto* icon = std::get_if<contracts::DrawIcon>(&command)) {
+            if (!ValidRect(icon->bounds) || icon->icon < contracts::VectorIcon::Grid ||
+                icon->icon > contracts::VectorIcon::Heart) return false;
         } else if (auto* image = std::get_if<contracts::DrawImage>(&command)) {
             if (!image->image || !ValidRect(image->destination)) return false;
+            if(image->fit<contracts::ImageFit::Fill || image->fit>contracts::ImageFit::Cover)return false;
             if (!images.contains(image->image.value)) return false;
         } else if (auto* run = std::get_if<contracts::DrawGlyphRun>(&command)) {
             if (!run->font || !fonts.contains(run->font.value) || run->glyphs.size() > 100000 ||
@@ -71,6 +86,9 @@ bool Validate(const contracts::DisplayList& list,
                     !std::isfinite(glyph.origin.y)) return false;
         } else if (auto* clip = std::get_if<contracts::PushClipRect>(&command)) {
             if (!ValidRect(clip->bounds) || stack.size() >= 256) return false;
+            stack.push_back(true);
+        } else if (auto* clip = std::get_if<contracts::PushClipRoundedRect>(&command)) {
+            if (!ValidRect(clip->bounds) || !std::isfinite(clip->radius) || clip->radius < 0 || stack.size() >= 256) return false;
             stack.push_back(true);
         } else if (auto* transform = std::get_if<contracts::PushTransform>(&command)) {
             if (stack.size() >= 256) return false;
@@ -160,7 +178,9 @@ runtime::ShapedText RasterRenderer::Shape(contracts::ResourceId id, std::string_
     unsigned count = 0;
     auto* infos = hb_buffer_get_glyph_infos(buffer, &count);
     auto* positions = hb_buffer_get_glyph_positions(buffer, &count);
-    double cursor_x = 0, cursor_y = size;
+    const double ascent = entry->second.face->size->metrics.ascender / 64.0;
+    const double descent = -entry->second.face->size->metrics.descender / 64.0;
+    double cursor_x = 0, cursor_y = ascent;
     result.glyphs.reserve(count);
     for (unsigned i = 0; i < count; ++i) {
         result.glyphs.push_back({infos[i].codepoint,
@@ -169,7 +189,7 @@ runtime::ShapedText RasterRenderer::Shape(contracts::ResourceId id, std::string_
         cursor_y -= positions[i].y_advance / 64.0;
     }
     result.width = std::max(0.0, cursor_x);
-    result.height = size * 1.4;
+    result.height = ascent + descent;
     hb_buffer_destroy(buffer);
     hb_font_destroy(font);
     return result;
@@ -179,7 +199,7 @@ bool RasterRenderer::Render(const contracts::DisplayList& list, void* pixels,
                             int width, int height, int stride) const {
     if (!pixels || width <= 0 || height <= 0 || width > 4096 || height > 4096 ||
         stride < width * 4) return false;
-    const auto info = SkImageInfo::Make(width, height, kBGRA_8888_SkColorType, kOpaque_SkAlphaType);
+    const auto info = SkImageInfo::Make(width, height, kBGRA_8888_SkColorType, kPremul_SkAlphaType);
     auto surface = SkSurfaces::WrapPixels(info, pixels, static_cast<std::size_t>(stride));
     if (!surface) return false;
     return Replay(list, surface->getCanvas());
@@ -187,7 +207,7 @@ bool RasterRenderer::Render(const contracts::DisplayList& list, void* pixels,
 
 bool RasterRenderer::Replay(const contracts::DisplayList& list, SkCanvas* canvas) const {
     if (!Ready() || !canvas || !Validate(list, impl_->images, impl_->fonts)) return false;
-    canvas->clear(SK_ColorBLACK);
+    canvas->clear(SK_ColorTRANSPARENT);
     for (const auto& command : list.commands) {
         if (auto* rect = std::get_if<contracts::FillRect>(&command)) {
             SkPaint paint;
@@ -202,6 +222,31 @@ bool RasterRenderer::Replay(const contracts::DisplayList& list, SkCanvas* canvas
             rounded.setRectXY(ToSkRect(rect->bounds), static_cast<SkScalar>(rect->radius),
                               static_cast<SkScalar>(rect->radius));
             canvas->drawRRect(rounded, paint);
+        } else if (auto* rect = std::get_if<contracts::StrokeRoundedRect>(&command)) {
+            SkPaint paint; paint.setAntiAlias(true); paint.setColor(ToSkColor(rect->color));
+            paint.setStyle(SkPaint::kStroke_Style); paint.setStrokeWidth(rect->width);
+            auto bounds=ToSkRect(rect->bounds); bounds.inset(rect->width/2,rect->width/2);
+            SkRRect rounded; rounded.setRectXY(bounds,std::max(0.0,rect->radius-rect->width/2),std::max(0.0,rect->radius-rect->width/2));
+            canvas->drawRRect(rounded,paint);
+        } else if (auto* shadow = std::get_if<contracts::RoundedRectShadow>(&command)) {
+            SkPaint paint; paint.setAntiAlias(true); paint.setColor(ToSkColor(shadow->color));
+            if (shadow->blur>0) paint.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle,shadow->blur));
+            auto bounds=ToSkRect(shadow->bounds);
+            SkRRect rounded; rounded.setRectXY(bounds,shadow->radius,shadow->radius);
+            if (shadow->inset) {
+                canvas->save(); canvas->clipRRect(rounded,true);
+                SkPath outside; auto expanded=bounds; expanded.outset(3*shadow->blur+std::abs(shadow->offset_y)+4,
+                    3*shadow->blur+std::abs(shadow->offset_y)+4);
+                outside.addRect(expanded);
+                bounds.offset(0,shadow->offset_y);rounded.setRectXY(bounds,shadow->radius,shadow->radius);
+                outside.addRRect(rounded);outside.setFillType(SkPathFillType::kEvenOdd);
+                canvas->drawPath(outside,paint);canvas->restore();
+            } else {
+                bounds.offset(0,shadow->offset_y);rounded.setRectXY(bounds,shadow->radius,shadow->radius);
+                canvas->drawRRect(rounded,paint);
+            }
+        } else if (auto* icon=std::get_if<contracts::DrawIcon>(&command)) {
+            ReplayIcon(canvas,*icon);
         } else if (auto* run = std::get_if<contracts::DrawGlyphRun>(&command)) {
             SkFont font(impl_->fonts.at(run->font.value).typeface, static_cast<SkScalar>(run->font_size));
             SkPaint paint;
@@ -219,11 +264,27 @@ bool RasterRenderer::Replay(const contracts::DisplayList& list, SkCanvas* canvas
             if (!glyphs.empty()) canvas->drawGlyphs(static_cast<int>(glyphs.size()), glyphs.data(),
                                                       points.data(), SkPoint::Make(0, 0), font, paint);
         } else if (auto* image = std::get_if<contracts::DrawImage>(&command)) {
-            canvas->drawImageRect(impl_->images.at(image->image.value), ToSkRect(image->destination),
-                                  SkSamplingOptions(SkFilterMode::kLinear), nullptr);
+            auto resource=impl_->images.at(image->image.value);
+            auto destination=ToSkRect(image->destination);
+            if (image->fit==contracts::ImageFit::Contain) {
+                const double scale=std::min(destination.width()/resource->width(),destination.height()/resource->height());
+                const auto width=resource->width()*scale,height=resource->height()*scale;
+                destination=SkRect::MakeXYWH(destination.x()+(destination.width()-width)/2,
+                    destination.y()+(destination.height()-height)/2,width,height);
+            }
+            if (image->fit==contracts::ImageFit::Cover) {
+                if(destination.width()==0 || destination.height()==0)continue;
+                const double scale=std::max(destination.width()/resource->width(),destination.height()/resource->height());
+                const auto width=destination.width()/scale,height=destination.height()/scale;
+                const auto source=SkRect::MakeXYWH((resource->width()-width)/2,(resource->height()-height)/2,width,height);
+                canvas->drawImageRect(resource,source,destination,SkSamplingOptions(SkFilterMode::kLinear),nullptr,SkCanvas::kStrict_SrcRectConstraint);
+            } else canvas->drawImageRect(resource,destination,SkSamplingOptions(SkFilterMode::kLinear),nullptr);
         } else if (auto* clip = std::get_if<contracts::PushClipRect>(&command)) {
             canvas->save();
             canvas->clipRect(ToSkRect(clip->bounds));
+        } else if (auto* clip = std::get_if<contracts::PushClipRoundedRect>(&command)) {
+            canvas->save();SkRRect rounded;rounded.setRectXY(ToSkRect(clip->bounds),clip->radius,clip->radius);
+            canvas->clipRRect(rounded,true);
         } else if (auto* transform = std::get_if<contracts::PushTransform>(&command)) {
             canvas->save();
             const auto& v = transform->values;

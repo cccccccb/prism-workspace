@@ -13,6 +13,7 @@ public:
     bool RuntimeReady() const { return runtime_ready_; }
     bool FirstPresented() const { return presented_; }
     bool BackendReady() const { return backend_ready_; }
+    bool Activated() const { return activated_; }
     bool Terminal() const { return failed_ || exited_; }
     std::uint32_t Pid() const { return pid_; }
     std::optional<std::int32_t> ExitCode() const {
@@ -25,7 +26,7 @@ private:
     std::uint32_t pid_{};
     std::int32_t exit_code_{};
     bool accepted_{}, assigned_{}, runtime_ready_{}, configured_{}, presented_{};
-    bool backend_ready_{}, failed_{}, exited_{};
+    bool activated_{}, backend_ready_{}, failed_{}, exited_{};
     contracts::LaunchError error_{contracts::LaunchError::None};
 };
 } // namespace prism::launch

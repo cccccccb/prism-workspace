@@ -14,7 +14,10 @@ constexpr bool Has(Dirty value, Dirty bit) {
 }
 enum class DslProperty {
     Width, Height, Font, Spacing, Background, Foreground,
-    Padding, Radius, Clip, Action, Text, Source
+    Padding, Radius, Clip, Action, Text, Source,
+    Align, Justify, Flex, Inset, PaddingX, PaddingY, Anchor, Overflow,
+    BorderWidth, BorderColor, ShadowBlur, ShadowY, ShadowColor,
+    InnerShadowBlur, InnerShadowColor, Icon, Value, Checked, ImageFit, BackdropBlur
 };
 using PropertyValue = std::variant<double, bool, std::string, contracts::Color, contracts::ResourceId>;
 struct PropertyAssignment {

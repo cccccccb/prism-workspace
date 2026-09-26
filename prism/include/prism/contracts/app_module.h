@@ -23,7 +23,8 @@ typedef struct PrismStringViewV1 {
 enum PrismValueKindV1 {
     PRISM_VALUE_STRING_V1 = 1,
     PRISM_VALUE_NUMBER_V1 = 2,
-    PRISM_VALUE_BOOL_V1 = 3
+    PRISM_VALUE_BOOL_V1 = 3,
+    PRISM_VALUE_COLOR_V1 = 4 /* straight-alpha 0xRRGGBBAA */
 };
 typedef struct PrismValueV1 {
     uint32_t kind;
@@ -31,6 +32,7 @@ typedef struct PrismValueV1 {
         PrismStringViewV1 string;
         double number;
         uint32_t boolean;
+        uint32_t rgba;
     } as;
 } PrismValueV1;
 
@@ -46,6 +48,8 @@ typedef struct PrismHostApiV1 {
     uint64_t (*launch_app)(void*, PrismStringViewV1);
     /* One-shot tick, delay in monotonic nanoseconds; zero means accepted. */
     int32_t (*schedule_tick)(void*, uint64_t);
+    /* Optional tail: subscribe once to mapped ordinary window instances. */
+    uint64_t (*subscribe_instances)(void*);
 } PrismHostApiV1;
 
 typedef struct PrismAppInitV1 {
@@ -71,6 +75,15 @@ typedef struct PrismLaunchEventV1 {
     PrismStringViewV1 detail;
 } PrismLaunchEventV1;
 
+typedef struct PrismInstanceEventV1 {
+    uint32_t struct_size;
+    uint64_t subscription_id;
+    uint64_t instance_id;
+    uint32_t pid;
+    uint32_t change; /* Reset=0, Running=1, Stopped=2, SnapshotDone=3 */
+    PrismStringViewV1 app_id;
+} PrismInstanceEventV1;
+
 typedef struct PrismAppModuleV1 {
     uint32_t struct_size;
     uint32_t abi_version;
@@ -81,6 +94,7 @@ typedef struct PrismAppModuleV1 {
     void (*on_action)(void*, PrismStringViewV1);
     void (*on_tick)(void*, uint64_t monotonic_ns);
     void (*on_launch_event)(void*, const PrismLaunchEventV1*);
+    void (*on_instance_event)(void*, const PrismInstanceEventV1*);
 } PrismAppModuleV1;
 
 typedef const PrismAppModuleV1* (*PrismAppEntryV1)(void);

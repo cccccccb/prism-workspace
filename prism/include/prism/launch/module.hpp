@@ -10,9 +10,9 @@ public:
     ~AppModule();
     AppModule(const AppModule&) = delete;
     AppModule& operator=(const AppModule&) = delete;
-    const PrismAppModuleV1& Api() const { return *api_; }
+    const PrismAppModuleV1& Api() const { return api_; }
 private:
     void* handle_{};
-    const PrismAppModuleV1* api_{};
+    PrismAppModuleV1 api_{};
 };
 } // namespace prism::launch

@@ -18,9 +18,19 @@ struct LaunchRequest {
     LaunchMode mode{LaunchMode::ActivateOrCreate};
     bool operator==(const LaunchRequest&) const = default;
 };
+struct LaunchCancel { RequestId request; bool operator==(const LaunchCancel&) const = default; };
+struct InstanceSubscribe { RequestId request; };
+enum class InstanceChange : std::uint8_t { Reset=0, Running, Stopped, SnapshotDone };
+struct InstanceUpdate {
+    RequestId request;
+    InstanceId instance;
+    std::uint32_t pid{};
+    InstanceChange change{InstanceChange::Reset};
+    std::string app_id;
+};
 enum class LaunchMilestone : std::uint8_t {
     Accepted = 0, WorkerAssigned, RuntimeReady, SurfaceConfigured,
-    FirstPresented, BackendReady, Failed, Exited
+    FirstPresented, BackendReady, Failed, Exited, Activated
 };
 enum class LaunchError : std::uint16_t {
     None = 0, InvalidRequest, UnknownApplication, InvalidPackage,

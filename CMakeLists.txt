@@ -47,48 +47,49 @@ option(PRISM_ENABLE_GLES "Build Skia Ganesh GLES backend" OFF)
 # 1. Core Framework Subdirectory
 add_subdirectory(prism/contracts)
 add_subdirectory(prism/launch)
+add_subdirectory(prism/platform/protocols)
 add_subdirectory(prism/platform/wayland_client)
 add_subdirectory(prism/runtime)
 add_subdirectory(prism/render_skia)
 add_subdirectory(prism)
+add_subdirectory(prism/host)
+add_subdirectory(prism/launcher_runtime)
+include(cmake/PrismAppPackage.cmake)
 
 # 2. Demos Subdirectory
 if(TARGET prism_client_app)
     add_subdirectory(demos)
 endif()
 
-# 3. Tests and manual diagnostics are excluded from production builds.
-if(BUILD_TESTING)
-    add_subdirectory(tests)
-endif()
-
-# 4. Shell Standalone Projects (Desktop, TopBar, Dock)
+# 3. Pure business modules and their DSL/assets packages
 if(TARGET prism_client_app)
     add_subdirectory(prism-desktop)
     add_subdirectory(prism-topbar)
     add_subdirectory(prism-dock)
 endif()
 
+# 4. Tests and manual diagnostics are excluded from production builds.
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
+
+
 # ==============================================================================
 # 5. Installation Rules & Debian Packaging (CPack)
 # ==============================================================================
 include(GNUInstallDirs)
 
-# Install Core & Shell Binaries
+# Install platform binaries
 install(TARGETS
     prism-wm
     prism-launcher
+    prism-session-runtime
     prism-invoker
     prism-msg
     prism-pack
     prism-compiler
     DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
-
-if(TARGET prism_client_app)
-    install(TARGETS prism-desktop prism-topbar prism-dock demo_player demo_settings
-        DESTINATION ${CMAKE_INSTALL_BINDIR})
-endif()
 
 # Install Session Entry Script
 install(PROGRAMS session/prism-session
@@ -109,33 +110,13 @@ install(FILES resources/systemd/prism-demo@.service
     DESTINATION lib/systemd/system
 )
 
-# Install Wallpapers & Assets
-install(DIRECTORY resources/wallpapers/
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/prism/wallpapers
-)
-
-# Install DSL UI Templates
-install(FILES prism-desktop/ui/desktop.prism
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/prism/ui
-)
-install(FILES prism-topbar/ui/topbar.prism
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/prism/ui
-)
-install(FILES prism-dock/ui/dock.prism
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/prism/ui
-)
-install(FILES demos/demo_player/master.prism
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/prism/ui RENAME demo_player.prism)
-install(FILES demos/demo_settings/master.prism
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/prism/ui RENAME demo_settings.prism)
-
 # CPack Debian Package Configuration
 set(CPACK_GENERATOR "DEB")
 set(CPACK_PACKAGE_NAME "prism-wm")
 set(CPACK_PACKAGE_VENDOR "Project Prism Team")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Project Prism: Wayland Compositor and Skia GLES Desktop Clients")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-set(CPACK_DEBIAN_PACKAGE_RELEASE "1")
+set(CPACK_DEBIAN_PACKAGE_RELEASE "5")
 set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
 set(CPACK_STRIP_FILES ON)
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)

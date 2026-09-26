@@ -1,6 +1,7 @@
 #include "prism/runtime/dsl_frontend.hpp"
 #include "prism/runtime/dsl_schema.hpp"
 #include "prism/runtime/dsl_syntax.hpp"
+#include "prism/runtime/theme_tokens.hpp"
 #include <cmath>
 #include <stdexcept>
 #include <string>
@@ -31,6 +32,18 @@ void Apply(Blueprint& out, const PropertySpec& spec, const SyntaxValue& value,
            int line, const ResolveImage& resolve_image) {
     if (auto* binding = std::get_if<BindingValue>(&value.data)) {
         out.bindings.push_back({binding->name, spec.id});
+        return;
+    }
+    if (const auto* token = std::get_if<std::string>(&value.data); token && token->starts_with("@")) {
+        const auto resolved = ResolveThemeToken(std::string_view(*token).substr(1));
+        if (!resolved) Error(line, "unknown theme token: " + *token);
+        SyntaxValue expanded;
+        if (auto* number = std::get_if<double>(&*resolved)) expanded.data = *number;
+        else if (auto* color = std::get_if<contracts::Color>(&*resolved))
+            expanded.data = ColorValue{(uint32_t(color->r) << 24) | (uint32_t(color->g) << 16) |
+                (uint32_t(color->b) << 8) | color->a};
+        else Error(line, "unsupported theme token type: " + *token);
+        Apply(out, spec, expanded, line, resolve_image);
         return;
     }
     if (!CorrectType(spec.type, value)) Error(line, "wrong value type for '" + std::string(spec.name) + "'");
@@ -81,10 +94,10 @@ Blueprint Convert(const SyntaxNode& node, const ResolveImage& resolve_image) {
         if (argument.name.empty()) {
             if (!component->has_positional) Error(argument.line, node.name + " has no positional argument");
             ++positional_count;
-            const auto* spec = positional_count == 2 && component->creates_label
+            const auto* spec = positional_count == 2 && (component->creates_label || component->kind == Kind::IconButton)
                 ? FindProperty("action")
-                : component->positional == DslProperty::Source ? FindProperty("source") : FindProperty("text");
-            if (positional_count > (component->creates_label ? 2U : 1U))
+                : FindProperty(component->positional);
+            if (positional_count > ((component->creates_label || component->kind == Kind::IconButton) ? 2U : 1U))
                 Error(argument.line, "too many positional arguments for " + node.name);
             assign(spec->name, argument.value, argument.line);
         } else assign(argument.name, argument.value, argument.line);
@@ -94,8 +107,7 @@ Blueprint Convert(const SyntaxNode& node, const ResolveImage& resolve_image) {
             assign("clip", SyntaxValue{{true}}, modifier.line);
             continue;
         }
-        if (modifier.name != "padding" && modifier.name != "cornerRadius" && modifier.name != "clip")
-            Error(modifier.line, "unsupported client DSL modifier: " + modifier.name);
+        if (!FindProperty(modifier.name)) Error(modifier.line, "unsupported client DSL modifier: " + modifier.name);
         if (modifier.arguments.size() != 1 || !modifier.arguments.front().name.empty())
             Error(modifier.line, "modifier requires one positional value: " + modifier.name);
         assign(modifier.name, modifier.arguments.front().value, modifier.line);
@@ -131,6 +143,17 @@ Blueprint Convert(const SyntaxNode& node, const ResolveImage& resolve_image) {
 } // namespace
 
 Blueprint ParseBlueprint(std::string_view source, ResolveImage resolve_image) {
-    return Convert(ParseSyntax(source), resolve_image);
+    auto result=Convert(ParseSyntax(source), resolve_image);
+    std::size_t regions=0;
+    const auto count=[&](const auto& self,const Blueprint& node)->void {
+        bool effect=false;
+        for(const auto& property:node.properties) if(property.id==DslProperty::BackdropBlur &&
+            std::get<double>(property.value)>0)effect=true;
+        for(const auto& binding:node.bindings)if(binding.target==DslProperty::BackdropBlur)effect=true;
+        if(effect && ++regions>8)throw std::runtime_error("DSL surface effect region limit is 8");
+        for(const auto& child:node.children)self(self,child);
+    };
+    count(count,result);
+    return result;
 }
 } // namespace prism::runtime

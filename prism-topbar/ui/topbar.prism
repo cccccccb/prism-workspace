@@ -1,8 +1,20 @@
-HStack(height: 38, spacing: 8, padding: 5, background: #141822E8) {
-    Text("PRISM", width: 90, font: 16)
-    Button("Apps", width: 84, action: "launcher:toggle", background: #34465FFF)
-    Text($clock_time, width: 220, font: 16)
-    Text($net_status, width: 130, font: 16)
-    Text($bat_status, width: 90, font: 16)
-    Button("Alerts", width: 80, action: "notifications:toggle", background: #34465FFF)
+Card(height: "@shell_top_height", padding: "@topbar_inset") {
+    Card(height: "@topbar_height", paddingX: 12, paddingY: 5,
+         background: "@panelTint", cornerRadius: "@panel_radius",
+         borderWidth: 1, borderColor: "@border", shadowBlur: 8, shadowY: 2,
+         shadowColor: "@shadow", innerShadowBlur: 1, innerShadowColor: "@innerShadow",
+         backdropBlur: "@blur_radius", justify: "center") {
+        HStack(width: 140, anchor: "left", align: "center", spacing: 8, overflow: "clip") {
+            Icon("grid", width: 20, height: 20, foreground: "@text")
+            Text("Prism", font: "@font_body", foreground: "@text")
+        }
+        Text($clock_time, anchor: "center", font: 13, foreground: "@text")
+        HStack(width: 192, anchor: "right", align: "center", spacing: 7, overflow: "clip") {
+            Icon("wifi", width: 18, height: 18, foreground: "@mutedText")
+            Text($net_status, width: 72, font: "@font_caption", foreground: "@mutedText")
+            Separator(width: 1, height: 16, background: "@divider")
+            Icon($power_icon, width: 20, height: 18, foreground: "@mutedText")
+            Text($bat_status, width: 32, font: "@font_caption", foreground: "@mutedText")
+        }
+    }
 }

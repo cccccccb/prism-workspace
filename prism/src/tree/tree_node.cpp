@@ -3,6 +3,7 @@
 #include "prism/tree/tree_container.hpp"
 #include "prism/wm/window.hpp"
 #include <sstream>
+#include <nlohmann/json.hpp>
 
 namespace prism::tree {
 
@@ -103,13 +104,25 @@ std::string TreeNode::ToJson(bool is_focused) const {
 
 std::string ViewNode::ToJson(bool is_focused) const {
     std::ostringstream ss;
+    const auto target = window_ && window_->IsNative() ? window_->GetBounds() : bounds;
     ss << "{\"id\":" << reinterpret_cast<uintptr_t>(this)
        << ",\"type\":\"view\""
-       << ",\"name\":\"" << (window_ ? window_->GetTitle() : "") << "\""
-       << ",\"app_id\":\"" << (window_ ? window_->GetAppId() : "") << "\""
-       << ",\"focused\":" << (is_focused ? "true" : "false")
-       << ",\"rect\":{\"x\":" << bounds.x << ",\"y\":" << bounds.y
+       << ",\"name\":" << nlohmann::json(window_ ? window_->GetTitle() : "").dump()
+       << ",\"app_id\":" << nlohmann::json(window_ ? window_->GetAppId() : "").dump()
+       << ",\"focused\":" << (window_ && window_->IsFocused() ? "true" : "false")
+       << ",\"native\":" << (window_ && window_->IsNative() ? "true" : "false")
+       << ",\"pid\":" << (window_ ? window_->GetPid() : 0)
+       << ",\"instance\":" << (window_ ? window_->GetInstance() : 0)
+       << ",\"visible\":" << (window_ && window_->IsVisible() ? "true" : "false")
+       << ",\"fullscreen\":" << (window_ && window_->IsFullscreen() ? "true" : "false")
+       << ",\"rect\":{\"x\":" << target.x << ",\"y\":" << target.y
+       << ",\"width\":" << target.width << ",\"height\":" << target.height << "}"
+       << ",\"tile_rect\":{\"x\":" << bounds.x << ",\"y\":" << bounds.y
        << ",\"width\":" << bounds.width << ",\"height\":" << bounds.height << "}"
+       << ",\"committed_rect\":{\"x\":" << (window_ ? window_->GetCommittedBounds().x : 0)
+       << ",\"y\":" << (window_ ? window_->GetCommittedBounds().y : 0)
+       << ",\"width\":" << (window_ ? window_->GetCommittedBounds().width : 0)
+       << ",\"height\":" << (window_ ? window_->GetCommittedBounds().height : 0) << "}"
        << ",\"fraction\":{\"width\":" << width_fraction << ",\"height\":" << height_fraction << "}"
        << "}";
     return ss.str();

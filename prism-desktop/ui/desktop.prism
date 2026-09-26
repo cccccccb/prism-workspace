@@ -1,6 +1,3 @@
 Card(background: #182339FF) {
-    Image("wallpapers/anime_girl.png")
-    Card(width: 420, height: 48, padding: 10, background: #182339CC) {
-        Text($wallpaper_title, font: 18)
-    }
+    Image("wallpapers/anime_girl.png", fit: "cover")
 }

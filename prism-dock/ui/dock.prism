@@ -1,10 +1,29 @@
-HStack(height: 72, spacing: 8, padding: 8, background: #181C26E8) {
-    Button("Apps", width: 72, action: "dock:launcher", background: #34465FFF)
-    Button("Files", width: 76, action: "app:launch:files", background: #34465FFF)
-    Button("Term", width: 76, action: "app:launch:terminal", background: #34465FFF)
-    Button("Web", width: 76, action: "app:launch:browser", background: #34465FFF)
-    Button("Code", width: 76, action: "app:launch:editor", background: #34465FFF)
-    Button("Music", width: 76, action: "app:launch:music", background: #34465FFF)
-    Button("Pref", width: 76, action: "app:launch:settings", background: #34465FFF)
-    Text($running_badge, width: 120, font: 15)
+Card(height: "@shell_bottom_height", padding: "@dock_bottom_inset") {
+    HStack(width: 340, height: "@dock_height", anchor: "center", spacing: 12,
+           padding: 8, align: "center", justify: "center", background: "@panelTint",
+           cornerRadius: "@panel_radius", borderWidth: 1, borderColor: "@border",
+           shadowBlur: 10, shadowY: 2, shadowColor: "@shadow",
+           innerShadowBlur: 1, innerShadowColor: "@innerShadow", backdropBlur: "@blur_radius") {
+        VStack(width: 58, height: 60, spacing: 1, align: "center") {
+            IconButton("music", "app:launch:music", width: 44, height: 44, padding: 9,
+                       background: "@controlTint", foreground: "@musicAccent",
+                       cornerRadius: "@control_radius", borderWidth: 1, borderColor: "@border")
+            Text("Music", height: 11, font: "@font_caption", foreground: "@text")
+            Progress(value: $music_running, width: 14, height: 2, cornerRadius: 1,
+                     foreground: "@musicAccent", background: "@inactiveIndicator")
+        }
+        Separator(width: 1, height: 42, background: "@divider")
+        VStack(width: 58, height: 60, spacing: 1, align: "center") {
+            IconButton("settings", "app:launch:settings", width: 44, height: 44, padding: 9,
+                       background: "@controlTint", foreground: "@settingsAccent",
+                       cornerRadius: "@control_radius", borderWidth: 1, borderColor: "@border")
+            Text("Pref", height: 11, font: "@font_caption", foreground: "@text")
+            Progress(value: $settings_running, width: 14, height: 2, cornerRadius: 1,
+                     foreground: "@settingsAccent", background: "@inactiveIndicator")
+        }
+        VStack(flex: 1, spacing: 5, justify: "center", overflow: "clip") {
+            Text($running_badge, font: "@font_caption", foreground: "@mutedText")
+            Text($launch_status, font: 12, foreground: "@text")
+        }
+    }
 }

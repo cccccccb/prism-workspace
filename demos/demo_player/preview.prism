@@ -1,0 +1,8 @@
+Card(padding: 24, background: "@windowTint", cornerRadius: "@window_radius",
+     clip: true, backdropBlur: "@blur_radius") {
+    VStack(spacing: 14, justify: "center", align: "center") {
+        Icon("music", width: 64, height: 64, foreground: "@musicAccent")
+        Text("Music", height: 28, font: "@font_heading", foreground: "@text")
+        Text("Preparing library", height: 18, font: "@font_body", foreground: "@mutedText")
+    }
+}

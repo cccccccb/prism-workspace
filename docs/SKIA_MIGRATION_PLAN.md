@@ -92,4 +92,12 @@ AST 只表示语法；长期 Scene 保存节点状态、绑定、焦点与布局
 
 ### 启动恢复第一步检查点
 
-已落地包/ABI/消息/状态与凭证检查基础，规范见 [APP_LAUNCH_CONTRACT.md](APP_LAUNCH_CONTRACT.md)。接下来进入统一 host 与一个真实 demo；launcher worker 池和生产会话切换仍未实现。
+已落地包/ABI/消息/状态与凭证检查基础，规范见 [APP_LAUNCH_CONTRACT.md](APP_LAUNCH_CONTRACT.md)。统一 host 与音乐 demo 包也已接入，详见 [APP_HOST_RUNTIME.md](APP_HOST_RUNTIME.md)；launcher worker 池也已实现，生产会话切换仍未实现。
+
+第三步待命池与常驻启动服务已实现，旧 sh 调度源码已删除，见 [LAUNCHER_WORKER_POOL.md](LAUNCHER_WORKER_POOL.md)。下一步按恢复计划统一切换五应用、Shell 授权、Dock/session 与真实窗口激活。
+
+## 2026-09-26 第四步更新
+
+五个应用已统一迁到 host 模块/目录包；可信 WM 控制通道、Shell 一次性登记与 pidfd、真实 Activated 事件、Dock 映射实例订阅和 session supervisor 已接入。此前未切换描述为历史检查点。第五步 0.1.0-3 已部署到物理 Pi，显示确认正常，交互遮挡原因已定位（默认 HUD），0.1.0-4 已修复并安装，现场复核已通过；细则见 [SESSION_LAUNCH_RUNTIME.md](SESSION_LAUNCH_RUNTIME.md)。
+
+第五步最新发布检查点：0.1.0-4 已安装到物理 Pi，dpkg 完整性检查通过，默认 HUD 关闭；真实 V3D 首帧及创建/激活/取消/实例流复测通过。本轮 CTest 24/24 通过。现场输入复核已通过，规范和包路径见 PI_DEB_DEPLOYMENT.md。

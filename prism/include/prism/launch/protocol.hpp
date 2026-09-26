@@ -7,7 +7,7 @@
 #include <vector>
 
 namespace prism::launch {
-using LaunchMessage = std::variant<contracts::LaunchRequest, contracts::LaunchEvent>;
+using LaunchMessage = std::variant<contracts::LaunchRequest, contracts::LaunchEvent, contracts::LaunchCancel, contracts::InstanceSubscribe, contracts::InstanceUpdate>;
 inline constexpr std::size_t kLaunchHeaderSize = 28;
 // Explicit big-endian byte encoding, never memcpy a C++/C ABI object.
 std::vector<std::uint8_t> EncodeMessage(const LaunchMessage& message);

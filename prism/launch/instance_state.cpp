@@ -10,8 +10,9 @@ bool InstanceState::Apply(const contracts::LaunchEvent& event) {
     using contracts::LaunchMilestone;
     using contracts::LaunchError;
     if (exited_ || event.request != request_ || event.instance != instance_) return false;
-    if (static_cast<unsigned>(event.milestone) > static_cast<unsigned>(LaunchMilestone::Exited) ||
+    if (static_cast<unsigned>(event.milestone) > static_cast<unsigned>(LaunchMilestone::Activated) ||
         static_cast<unsigned>(event.error) > static_cast<unsigned>(LaunchError::SessionEnded)) return false;
+    if (activated_ && event.milestone!=LaunchMilestone::Exited && event.milestone!=LaunchMilestone::Failed) return false;
     if (failed_ && event.milestone != LaunchMilestone::Exited) return false;
     if (event.milestone != LaunchMilestone::Exited && event.exit_code != 0) return false;
     if (event.exit_code < -64 || event.exit_code > 255) return false;
@@ -52,6 +53,9 @@ bool InstanceState::Apply(const contracts::LaunchEvent& event) {
         if (!runtime_ready_ || backend_ready_) return false;
         backend_ready_ = true;
         return true;
+    case LaunchMilestone::Activated:
+        if (activated_ || runtime_ready_) return false;
+        activated_=true; return true;
     case LaunchMilestone::Exited:
         exited_ = true;
         exit_code_ = event.exit_code;

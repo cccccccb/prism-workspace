@@ -28,6 +28,10 @@ public:
         const std::string& channel_name,
         LayerType layer = LayerType::App
     );
+    // Real Wayland clients require a management record, never a SHM IPC host.
+    std::shared_ptr<Window> ManageNativeWindow(const std::string& app_id,
+        const std::string& title, int pid, std::uint64_t instance);
+    void SynchronizeFocus();
 
     // Swap layout strategy dynamically (Strategy Pattern)
     void SetLayoutStrategy(std::unique_ptr<layout::LayoutStrategy> strategy);
@@ -108,7 +112,7 @@ private:
     int focused_window_index_{0};
     bool running_{false};
     bool draw_software_cursor_{false};
-    bool debug_hud_enabled_{true};
+    bool debug_hud_enabled_{false};
     float last_fps_{0.0f};
     float last_dt_{0.016f};
     uint64_t frame_count_{0};

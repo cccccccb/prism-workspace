@@ -28,5 +28,6 @@ bool ValidAppId(std::string_view id);
 AppManifest ParseManifest(std::string_view json);
 // Directory-package baseline. Resolves existing resources beneath root.
 // Package files must remain immutable for the lifetime of a launched instance.
+AppPackage LoadRegisteredPackage(const std::filesystem::path& apps_root, std::string_view app_id);
 AppPackage LoadPackage(const std::filesystem::path& root);
 } // namespace prism::launch

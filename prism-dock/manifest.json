@@ -1,0 +1,14 @@
+{
+  "format_version": 1,
+  "runtime_abi": 1,
+  "app_id": "prism_dock",
+  "name": "Prism Dock",
+  "version": "0.1.0",
+  "ui": "master.prism",
+  "module": "dock.so",
+  "assets": "assets",
+  "window": {
+    "width": 620,
+    "height": 100
+  }
+}

@@ -1,0 +1,15 @@
+# Packages contain DSL/assets and pure business modules; prism-app-host owns UI.
+function(prism_app_package target app_id source ui module)
+    add_library(${target} MODULE ${source})
+    target_link_libraries(${target} PRIVATE prism_contracts)
+    set(package "${CMAKE_BINARY_DIR}/share/prism/apps/${app_id}")
+    set_target_properties(${target} PROPERTIES PREFIX "" OUTPUT_NAME "${module}"
+        CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON LIBRARY_OUTPUT_DIRECTORY "${package}")
+    file(MAKE_DIRECTORY "${package}/assets")
+    configure_file(manifest.json "${package}/manifest.json" COPYONLY)
+    configure_file("${ui}" "${package}/master.prism" COPYONLY)
+    install(TARGETS ${target} LIBRARY DESTINATION "share/prism/apps/${app_id}")
+    install(FILES manifest.json DESTINATION "share/prism/apps/${app_id}")
+    install(FILES "${ui}" DESTINATION "share/prism/apps/${app_id}" RENAME master.prism)
+    install(DIRECTORY "${package}/assets" DESTINATION "share/prism/apps/${app_id}")
+endfunction()

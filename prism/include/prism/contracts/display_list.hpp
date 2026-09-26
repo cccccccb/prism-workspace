@@ -28,9 +28,25 @@ struct FillRoundedRect {
     Color color{};
 };
 
+struct StrokeRoundedRect { LogicalRect bounds{}; double radius{0}; double width{1}; Color color{}; };
+struct RoundedRectShadow {
+    LogicalRect bounds{};
+    double radius{0};
+    double blur{0}; // Gaussian sigma in logical pixels
+    double offset_y{0};
+    Color color{};
+    bool inset{false};
+};
+// SDK vector resources; these are geometric icons, independent of installed fonts.
+enum class VectorIcon { Grid, Music, Settings, Folder, Terminal, Play, Pause, Previous,
+    Next, Volume, Wifi, Battery, Search, Sun, Moon, Power, Check, Chevron, Refresh, Cpu, Memory, Heart };
+struct DrawIcon { VectorIcon icon{VectorIcon::Grid}; LogicalRect bounds{}; Color color{}; };
+enum class ImageFit { Fill, Contain, Cover };
+
 struct DrawImage {
     ResourceId image{};
     LogicalRect destination{};
+    ImageFit fit{ImageFit::Fill};
 };
 
 struct GlyphPlacement {
@@ -46,6 +62,7 @@ struct DrawGlyphRun {
 };
 
 struct PushClipRect { LogicalRect bounds{}; };
+struct PushClipRoundedRect { LogicalRect bounds{}; double radius{0}; };
 struct PopClip {};
 
 // Row-major 2D affine transform: [a, c, tx, b, d, ty].
@@ -54,13 +71,16 @@ struct PushTransform {
 };
 struct PopTransform {};
 
-using DrawCommand = std::variant<FillRect, FillRoundedRect, DrawImage,
-    DrawGlyphRun, PushClipRect, PopClip, PushTransform, PopTransform>;
+using DrawCommand = std::variant<FillRect, FillRoundedRect, StrokeRoundedRect,
+    RoundedRectShadow, DrawIcon, DrawImage, DrawGlyphRun, PushClipRect,
+    PushClipRoundedRect, PopClip, PushTransform, PopTransform>;
 
 // In-process, ordered renderer input. Logical coordinates map to the target canvas;
 // caller owns any output scale. Clips/transforms use matched, nested push/pop pairs.
 // Font/image ResourceIds must be registered with the renderer before replay and stay
 // registered through replay. Never serialize this C++ object across IPC.
+// Every target is cleared transparent; CPU BGRA8888 and GLES RGBA8888 output
+// contain premultiplied alpha. Colors and decoded images remain straight alpha.
 struct DisplayList {
     WindowId window{};
     std::uint64_t generation{0};

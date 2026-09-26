@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# WM owns the Wayland socket and launches the authorized Shell clients.
+# The supervisor owns WM/launcher; launcher assigns authorized host instances.
 set -euo pipefail
 
 case "${1:-}" in
@@ -51,5 +51,5 @@ if [[ -z "${WLR_RENDER_DRM_DEVICE:-}" && -z "${WAYLAND_DISPLAY:-}" &&
 fi
 
 session_bin_dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
-[[ -x "$session_bin_dir/prism-wm" ]] || { echo 'prism-session: sibling prism-wm binary is missing' >&2; exit 1; }
-exec "$session_bin_dir/prism-wm"
+[[ -x "$session_bin_dir/prism-session-runtime" ]] || { echo 'prism-session: sibling prism-session-runtime binary is missing' >&2; exit 1; }
+exec "$session_bin_dir/prism-session-runtime"

@@ -33,7 +33,8 @@ int main() {
     bool red = false;
     for (auto pixel : pixels) if (pixel == 0xFFFF0000) red = true;
     assert(red);
-    assert(pixels[36 * 120] == 0xFF102030); // rounded card corner remains background
+    const auto card=scene.Bounds({2,1});
+    assert(pixels[static_cast<int>(card.y)*120] == 0xFF102030); // rounded corner remains background
     assert(pixels[90] == 0xFFFF0000); // PNG resource reached Skia drawImageRect
     auto alternate = *list;
     for (auto& command : alternate.commands)
@@ -54,4 +55,28 @@ int main() {
     invalid.commands.push_back(prism::contracts::PopClip{});
     assert(!renderer.Render(invalid, pixels.data(), 120, 80, 120 * 4));
     assert(!renderer.Render(*list, pixels.data(), 0, 80, 120 * 4));
+    // Transparent surfaces use premultiplied alpha, including diagnostic CPU
+    // targets. This is observable at rounded corners and below the glass tint.
+    prism::contracts::DisplayList glass;
+    glass.window={1};
+    glass.commands.emplace_back(prism::contracts::FillRect{{10,10,20,20},{255,0,0,128}});
+    assert(renderer.Render(glass,pixels.data(),120,80,120*4));
+    assert(pixels[0]==0 && pixels[15*120+15]==0x80800000);
+    glass.commands.clear();
+    glass.commands.emplace_back(prism::contracts::PushClipRoundedRect{{10,10,20,20},8});
+    glass.commands.emplace_back(prism::contracts::FillRect{{0,0,120,80},{255,255,255,255}});
+    glass.commands.emplace_back(prism::contracts::PopClip{});
+    assert(renderer.Render(glass,pixels.data(),120,80,120*4));
+    assert(pixels[10*120+10]==0 && pixels[20*120+20]==0xFFFFFFFF);
+    glass.commands.clear();
+    glass.commands.emplace_back(prism::contracts::RoundedRectShadow{{30,30,20,20},5,4,3,{0,0,0,128},false});
+    glass.commands.emplace_back(prism::contracts::DrawIcon{prism::contracts::VectorIcon::Music,{32,32,16,16},{255,255,255,255}});
+    assert(renderer.Render(glass,pixels.data(),120,80,120*4));
+    assert(pixels[0]==0 && (pixels[52*120+40]>>24)>0);
+    bool vector_white=false;for(auto pixel:pixels)if((pixel&0xFFFFFF)==0xFFFFFF)vector_white=true;
+    assert(vector_white);
+    glass.commands.clear();
+    glass.commands.emplace_back(prism::contracts::DrawImage{{2},{10,10,20,10},prism::contracts::ImageFit::Contain});
+    assert(renderer.Render(glass,pixels.data(),120,80,120*4));
+    assert(pixels[15*120+10]==0 && (pixels[15*120+16]>>24)==255);
 }

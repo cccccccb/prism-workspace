@@ -57,11 +57,14 @@ int main() {
     assert(bound.SetViewport({120, 80}));
     assert(bound.Build(contracts::WindowId{1}));
     assert(!bound.SetBackground(bound.RootId(), contracts::Color{0, 0, 0, 0}));
+    assert(!bound.AcceptsBinding("missing", std::string("value")));
+    assert(!bound.AcceptsBinding("surface", std::string("wrong type")));
     assert(!bound.SetBinding("surface", std::string("wrong type")));
     assert(bound.PendingDirty() == runtime::Dirty::None);
     assert(bound.SetBinding("surface", contracts::Color{1, 2, 3, 255}));
     assert(bound.PendingDirty() == runtime::Dirty::Paint);
     assert(bound.Build(contracts::WindowId{1}));
+    assert(bound.AcceptsBinding("surface", contracts::Color{1, 2, 3, 255}));
     assert(!bound.SetBinding("surface", contracts::Color{1, 2, 3, 255}));
     assert(bound.SetBinding("label", std::string("Hello")));
     assert(runtime::Has(bound.PendingDirty(), runtime::Dirty::Layout));

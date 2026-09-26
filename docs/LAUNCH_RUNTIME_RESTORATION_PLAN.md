@@ -1,6 +1,6 @@
 # 统一客户端运行时与预热启动架构修订
 
-日期：2026-09-26。状态：第一步的包/ABI/消息编解码/里程碑/Shell 凭证校验基础已实现，具体规范见 [APP_LAUNCH_CONTRACT.md](APP_LAUNCH_CONTRACT.md)；统一 host、预热 worker 池与实际启动服务尚未实现。本文修订前一轮将启动优化留待后续的安排：恢复平台启动链列入当前主线，并先于视觉扩展实施。
+日期：2026-09-26。状态：包/ABI/消息/里程碑基础、统一 host、待命池、五应用与可信会话入口已实现并验证，见 APP_LAUNCH_CONTRACT.md、APP_HOST_RUNTIME.md、LAUNCHER_WORKER_POOL.md 和 SESSION_LAUNCH_RUNTIME.md。第六步 BSP、共享 tokens 与图标玻璃主题已随 0.1.0-5 部署，当前 1024×600 现场外观及主要点击确认通过。本文修订前一轮将启动优化留待后续的安排：恢复平台启动链列入当前主线，并先于视觉扩展实施。
 
 ## 1. 应当恢复的目标
 
@@ -106,7 +106,34 @@ BackendReady 与 FirstPresented 是可独立发生的里程碑，上图不规定
 ## 9. 实施状态与下一门槛
 
 - 第一步：已建立独立 prism_launch 目标，实现目录包严格校验、纯 C 业务模块 ABI 与加载器、启动消息编码/解码、实例里程碑状态机、一次性 Shell 凭证消费检查。规范以 APP_LAUNCH_CONTRACT.md 为准。
-- 第二步：下一步接入统一 host 与一个真实 demo 业务模块，拆分 CPU/资源线程/Wayland/EGL 初始化，接管 SDK 事件循环；接入 Preview、BackendReady 和实际呈现反馈。
-- 第三至六步：待实现。现有 launcher 的阻塞文本 IPC、sh 执行与直接 spawn 路径尚未切换，不能宣称预热池已恢复。
+- 第二步：已接入统一 prism-app-host 与音乐 demo 模块/目录包；分离 host 构造、字体/资源线程准备、包/surface 绑定和延迟 EGL 初始化；host 接管事件循环、动作/绑定/tick、Preview 同 surface 切换与 BackendReady；FirstPresented 使用真实 presentation-time 回调。边界及验收见 APP_HOST_RUNTIME.md。
+- 第三步：已实现提前 spawn 同一 host 的待命池、就绪/分配/收缩/补充/回收、完整非阻塞分帧 IPC、公共 SDK/模块 Launch API、取消、进程外 watchdog 与会话清理；旧 Zygote/sh 调度源码已移除。GPU 预热仍未实现；WM 激活随后在第四步接入，见 LAUNCHER_WORKER_POOL.md。
+- 第四步：已接入可信控制 FD、pidfd 角色登记、真实窗口激活、实例订阅、四个剩余业务模块与统一 session supervisor；验证记录见 SESSION_LAUNCH_RUNTIME.md。
+- 第五步：0.1.0-3 已完成打包、安装和 DRM/V3D 运行；创建/激活/取消/实例流与正常停止回收通过。0.1.0-4 修复 HUD 遮挡并补充 Dock 反馈后，用户确认显示与播放切换、Dock 激活反馈均正常；完整启动性能分位数仍待测量。见 PI_DEB_DEPLOYMENT.md。
+- 第六步：BSP、共享主题 tokens、图标玻璃五应用界面和 compositor 背景材料已随 0.1.0-5 打包部署；26/26 测试、真实 host 双/三/四窗树与截图、V3D 背景更新检查，以及 1024×600 现场外观/主要点击通过。具体范围及后续项见 VISUAL_TILING_REFINEMENT_PLAN.md。
 
-第一步本机验证：新增启动相关检查与契约 smoke 共 6/6 通过；prism/contracts 独立 C/C++ 构建与测试 2/2 通过。C fixture 真正动态加载并完成状态/Ready 回调。测试模块及验证源码均在 tests/，无安装规则。本轮不重打 deb，不切换当前 Pi 演示的启动链；统一 host 与预热服务仍是后续门槛。
+第一步本机验证：新增启动相关检查与契约 smoke 共 6/6 通过；prism/contracts 独立 C/C++ 构建与测试 2/2 通过。C fixture 真正动态加载并完成状态/Ready 回调。测试模块及验证源码均在 tests/，无安装规则。本轮不重打 deb，不切换当前 Pi 演示的启动链；以上为第一步的验证记录；第二步已接入 host，预热服务仍是下一门槛。
+
+第二步本机验证：GLES 全量构建成功，CTest 19/19 通过；独立 headless host 检查覆盖 Preview 同 surface、实际首帧、无 Preview 的 Ready 顺序、Preview 后 ABI 失败和正常退出；五客户端 V3D 回归与临时安装隔离检查通过。规范及复现见 APP_HOST_RUNTIME.md。该记录为第二步验收；第三步的 launcher 池/传输/生命周期现已接入，下一门槛为第四步的五应用与 Shell/Dock/session/WM 激活切换。
+
+第三步最终验证：GLES 构建成功，CTest 21/21 通过；完整 launcher_pool_probe 验证提前准备 PID 不被 exec 替换、池管理、公共/私有 API、取消/崩溃/外部超时、会话及异常父退出、残留 socket 重启。临时安装内容隔离通过，尚未部署 Pi 实物会话；完整规范与观察见 LAUNCHER_WORKER_POOL.md。下一步进入第四步，不将未接入的 WM 激活或 Shell 身份报告为完成。
+
+第四步会话验证：GLES 构建、CTest 24/24、独立 V3D/headless 统一 session 和 launcher 池回归均通过。覆盖三个 Shell 角色、真实窗口激活、Dock 状态源和正常/WM/launcher/Shell 故障清理，详细记录见 SESSION_LAUNCH_RUNTIME.md。生产 Release 构建与临时安装清单通过；从安装前缀运行统一会话通过，无旧入口或测试内容。重复/死亡/过期登记与自报失败后阻塞回收探针通过。下一步部署新 deb 到物理 Pi。
+
+第五步部署补充：安装包不含旧客户端入口或测试；修复 PAMName=login 启动前已存在的 helper 与 supervisor 相互等待导致的停止超时。带预存 helper 的正常/WM/launcher/Shell 故障回收检查均通过，真实服务停止约 0.347 秒且 Result=success。实机输入反馈与详细记录见 PI_DEB_DEPLOYMENT.md。
+
+### 实机交互问题修订（0.1.0-4）
+
+现场反馈定位到默认开启的 WM HUD：其 x=18/y=44/440×160 覆盖 Music 控件，输入仍到达下面的客户端，导致状态实际变化但看不见。生产默认关闭 HUD，场景节点在首次提交前就禁用，不闪现。诊断开关仅显式启用。Dock 增加 Opening/active/ready/failed 文字反馈：active 只由 WM Activated 驱动，ready 必须同时收到真实 FirstPresented 与 BackendReady，Accepted 不视为完成。该反馈是 Dock 业务绑定，WM 不接收应用 UI。0.1.0-4 的 Settings Theme 当时仅切换 demo 文字，不宣称全局换色。该版已安装，用户确认遮挡消失、播放切换和 Dock 反馈正常。
+
+第五步发布检查点（历史 0.1.0-4）：已安装到物理 Pi，dpkg 完整性检查通过，默认 HUD 关闭；真实 V3D 首帧及创建/激活/取消/实例流复测通过。该阶段 CTest 24/24 通过。现场输入复核已通过，规范和包路径见 PI_DEB_DEPLOYMENT.md。
+
+### 第六步发布检查点（0.1.0-5）
+
+统一 host、预热池、会话授权和业务隔离路径保持单一生产入口。本轮将真实 XDG view 接入同一 BSP 树，增加方向焦点/交换、工作区与显式 fullscreen；共享主题 JSON 生成纯契约，客户端 DSL 与 WM 使用同一几何/颜色参数。SDK 增加透明清屏、通用布局、向量图标、基础控件、描边及阴影；compositor 通过私有 surface-effect 契约实现下层 GLES 背景材料。五应用采用静态图标玻璃布局，没有新增花哨动画。
+
+Settings 外观开关实际改变本窗口 tint、文字颜色和图标，不影响其他实例或 WM；全局主题服务尚未实现。Music 的前后曲、播放状态和进度仍是 demo 业务，无真实音频。
+
+0.1.0-5 已安装物理 Pi；最终 CTest 26/26，Release 安装清单和前缀/预存 PAM helper 正常检查、四种停止/故障回收均通过。真实 host 双/三/四窗截图与树尺寸、V3D 下层模糊与变化传播检查通过。生产包未安装测试、旧客户端或 ImGui。
+
+现场输出 HDMI 1024×600，五应用使用 V3D，背景能力为 1，本轮 journal 无 ERROR，协议门槛通过。用户确认“外观正常，以上点击都正常”，包括播放图标、Preferences 本窗口配色和 Dock 激活；新截图为 `dist/validation/prism-v5-physical.png`。这完成当前单输出静态视觉与主要点击的发布门槛；全部键盘快捷键、多屏/DPI、Slider、实时比例调整、音频、全局主题和性能分位数继续按后续范围处理。详见 VISUAL_TILING_REFINEMENT_PLAN.md 与 PI_DEB_DEPLOYMENT.md。

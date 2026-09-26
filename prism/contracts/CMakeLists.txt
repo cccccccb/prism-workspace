@@ -8,8 +8,22 @@ endif()
 # This target must configure and compile without Wayland, wlroots, Skia or ImGui.
 add_library(prism_contracts INTERFACE)
 target_compile_features(prism_contracts INTERFACE cxx_std_20)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(PRISM_THEME_SOURCE "${CMAKE_CURRENT_LIST_DIR}/../../resources/themes/prism-glass.json")
+set(PRISM_THEME_GENERATOR "${CMAKE_CURRENT_LIST_DIR}/../../tools/generate-theme.py")
+set(PRISM_CONTRACT_GENERATED_INCLUDE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${PRISM_THEME_SOURCE}" "${PRISM_THEME_GENERATOR}")
+execute_process(COMMAND "${Python3_EXECUTABLE}" "${PRISM_THEME_GENERATOR}"
+    "${PRISM_THEME_SOURCE}" "${PRISM_CONTRACT_GENERATED_INCLUDE}/prism/contracts/theme_tokens.hpp"
+    RESULT_VARIABLE PRISM_THEME_RESULT)
+if(NOT PRISM_THEME_RESULT EQUAL 0)
+    message(FATAL_ERROR "Cannot generate the Prism theme contract")
+endif()
 target_include_directories(prism_contracts INTERFACE
+    "${PRISM_CONTRACT_GENERATED_INCLUDE}"
     "${CMAKE_CURRENT_LIST_DIR}/../include")
+install(FILES "${PRISM_THEME_SOURCE}" DESTINATION share/prism/themes)
 get_target_property(CONTRACT_LINK_LIBRARIES prism_contracts INTERFACE_LINK_LIBRARIES)
 if(CONTRACT_LINK_LIBRARIES)
     message(FATAL_ERROR "prism_contracts must not link external or project libraries")

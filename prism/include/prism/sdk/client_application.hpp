@@ -18,6 +18,7 @@ struct ClientConfig {
     std::string font_path;
     int width{640};
     int height{400};
+    std::string assets_root{}; // If set, image URIs resolve strictly beneath this root.
 };
 
 // Client-owned DSL scene, resources, Skia GLES renderer and Wayland window.
@@ -29,6 +30,10 @@ public:
     ClientApplication(const ClientApplication&) = delete;
     ClientApplication& operator=(const ClientApplication&) = delete;
 
+    // Worker-only construction initializes font and image threads; no Wayland/GPU yet.
+    bool FrontendReady() const;
+    bool ConfigureWindow(ClientConfig config); // Before Open only, common font unchanged.
+    bool ReplaceUi(std::string_view dsl_source); // Keeps the same surface and EGL context.
     bool Open(std::string_view dsl_source);
     bool Pump(int timeout_ms);
     bool SetSlot(std::string_view name, std::string value);
@@ -38,7 +43,9 @@ public:
     bool IsMapped() const;
     int ConfigureCount() const;
     int FrameDoneCount() const;
-    int PresentedCount() const;
+    int PresentedCount() const; // Compatibility: swap submissions, not actual presentation.
+    bool HasPresentationFeedback() const;
+    int PresentationCount() const;
     int RequestedImageCount() const;
     int LoadedImageCount() const;
     std::string GlRenderer() const;

@@ -1,3 +1,9 @@
+# 应用迁移状态
+
+当前恢复计划第四步：五个应用均为纯 C ABI 业务模块 + DSL/资产包，统一 prism-app-host 管理前端；独立客户端可执行入口已移除。生产 session 源码已接入 supervisor/launcher，物理安装待第五步。见 [SESSION_LAUNCH_RUNTIME.md](SESSION_LAUNCH_RUNTIME.md)。
+
+## 之前的 Skia 迁移检查点（历史记录）
+
 # 应用切换至客户端 Skia
 
 demo_player、demo_settings、desktop、topbar、dock 现统一链接 `prism_client_app`，在各自进程内解析 DSL、维护绑定、shaping、解码资源并通过 Ganesh GLES/EGL 提交 Wayland surface。模板从源码目录或安装目录加载；安装包包含五个应用与模板。
@@ -35,3 +41,11 @@ python3 tests/probes/client_suite_probe.py build-gles
 探针启动独立 headless 会话，检查五个 surface 的映射，并让一个普通客户端伪造 `prism_topbar` app_id，检查其仍是普通角色；测试结束后清理进程。该探针不进入安装包。
 
 Pi 实测：CPU 诊断配置完整构建、CTest 12/12；GLES 完整构建、CTest 13/13。构建目录与临时安装前缀均通过五应用套件探针，客户端使用 `V3D 4.2.14.0`。安装套件探针报告 `configure=2 frame=2 presented=3 images=1/1`。WM 二进制符号检查未发现 ImGui、客户端 compiler/Scene/runtime 或 Skia；安装清单不包含测试与 probe。迁移检查点的验收范围为 headless 会话。后续已完成 deb 安装、物理 HDMI/V3D 呈现与用户现场显示确认，见 [PI_DEB_DEPLOYMENT.md](PI_DEB_DEPLOYMENT.md)；参考图中的完整视觉与真实 BSP 接入仍未完成，后续规范见 [VISUAL_TILING_REFINEMENT_PLAN.md](VISUAL_TILING_REFINEMENT_PLAN.md)。
+
+## 统一 Host 迁移进度（2026-09-26）
+
+音乐 demo 已将所有业务转入纯 ABI 模块 player.so，以新版目录包交给 prism-app-host；旧 demo_player 可执行名只是 exec 适配器，已不链接 Skia/SDK。其余四个应用仍使用上一阶段 SDK 入口，待 launcher 与 Shell 授权完成后一起切换。第一段记录的是 Skia 迁移检查点，不能据此认为 host/预热启动已全部完成。详见 APP_HOST_RUNTIME.md。
+
+音乐 exec 适配器及其余四个 SDK 自有循环已在第四步移除；本节之前的“待迁移”描述仅记录当时状态。
+
+第五步最新发布检查点：0.1.0-4 已安装到物理 Pi，dpkg 完整性检查通过，默认 HUD 关闭；真实 V3D 首帧及创建/激活/取消/实例流复测通过。本轮 CTest 24/24 通过。现场输入复核已通过，规范和包路径见 PI_DEB_DEPLOYMENT.md。

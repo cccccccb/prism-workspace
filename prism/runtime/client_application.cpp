@@ -11,6 +11,8 @@
 #include <stdexcept>
 #include <utility>
 #include <variant>
+#include <set>
+#include <cstdio>
 
 namespace prism::sdk {
 std::optional<std::string> LoadUiSource(std::string_view installed_name,
@@ -30,6 +32,8 @@ struct ClientApplication::Impl {
         : config(std::move(value)), commands(config.font_path),
           resources(render_skia::RasterRenderer::DecodePng) {}
 
+    bool LoadScene(std::string_view source);
+    std::set<std::uint64_t> scene_images;
     ClientConfig config;
     render_skia::RasterRenderer commands;
     runtime::ImageResources resources;
@@ -51,35 +55,90 @@ ClientApplication::ClientApplication(ClientConfig config)
     : impl_(std::make_unique<Impl>(std::move(config))) {}
 ClientApplication::~ClientApplication() { Close(); }
 
-bool ClientApplication::Open(std::string_view dsl_source) {
-    auto& app = *impl_;
-    if (app.opened_once || !app.commands.Ready() ||
-        app.config.app_id.empty()) return false;
+bool ClientApplication::Impl::LoadScene(std::string_view dsl_source) {
+    auto& app = *this;
+    std::set<std::uint64_t> images;
     try {
-        app.scene = std::make_unique<runtime::Scene>(runtime::ParseBlueprint(dsl_source,
+        auto next = std::make_unique<runtime::Scene>(runtime::ParseBlueprint(dsl_source,
             [&](std::string_view uri) {
                 ++app.requested_images;
                 std::string path(uri);
-                if (!std::filesystem::exists(path)) {
+                if (!app.config.assets_root.empty()) {
+                    const std::filesystem::path relative(path);
+                    if (relative.is_absolute() || path.find('\\') != std::string::npos)
+                        throw std::invalid_argument("Invalid package image URI");
+                    for (const auto& part : relative)
+                        if (part == "..") throw std::invalid_argument("Image traversal");
+                    const auto root = std::filesystem::canonical(app.config.assets_root);
+                    const auto resolved = std::filesystem::canonical(root / relative);
+                    auto a = root.begin(), b = resolved.begin();
+                    for (; a != root.end() && b != resolved.end() && *a == *b; ++a, ++b) {}
+                    if (a != root.end() || !std::filesystem::is_regular_file(resolved))
+                        throw std::invalid_argument("Image outside package assets");
+                    path = resolved.string();
+                } else if (!std::filesystem::exists(path)) {
                     const auto development = std::filesystem::path("resources") / path;
                     const auto installed = std::filesystem::canonical("/proc/self/exe")
                         .parent_path().parent_path() / "share/prism" / path;
                     if (std::filesystem::exists(development)) path = development.string();
                     else if (std::filesystem::exists(installed)) path = installed.string();
                 }
-                return app.resources.Request(std::move(path));
+                auto id = app.resources.Request(std::move(path));
+                images.insert(id.value);
+                return id;
             }),
             [&](std::string_view text, double size) { return app.commands.Shape(text, size); },
             app.commands.FontId());
+        if (app.window.IsConfigured()) next->SetViewport(app.window.Metrics().logical_size);
+        for (auto value : images) {
+            const contracts::ResourceId id{value};
+            if (app.resources.State(id) == runtime::ImageState::Failed)
+                throw std::runtime_error("Package image unavailable");
+            if (const auto* image = app.resources.Get(id)) {
+                if (!app.commands.RegisterImage(id, *image) ||
+                    !next->ImageReady(id, {static_cast<double>(image->width), static_cast<double>(image->height)}))
+                    throw std::runtime_error("Cached image registration failed");
+            }
+        }
+        app.scene = std::move(next);
+        app.scene_images = std::move(images);
+        app.last_list.reset();
     } catch (const std::exception&) {
-        app.scene.reset();
         return false;
     }
+    return true;
+}
+
+bool ClientApplication::FrontendReady() const { return impl_->commands.Ready(); }
+bool ClientApplication::ConfigureWindow(ClientConfig config) {
+    if (impl_->opened_once || config.font_path != impl_->config.font_path) return false;
+    impl_->config = std::move(config);
+    return true;
+}
+bool ClientApplication::ReplaceUi(std::string_view source) {
+    if (!impl_->opened_once || !impl_->LoadScene(source)) return false;
+    impl_->window.RequestRedraw(true);
+    return true;
+}
+
+bool ClientApplication::Open(std::string_view dsl_source) {
+    auto& app = *impl_;
+    if (app.opened_once || !app.commands.Ready() ||
+        app.config.app_id.empty()) return false;
+    if (!app.LoadScene(dsl_source)) return false;
     app.window.SetEventHandler([&app](const contracts::WindowEvent& event) {
         if (auto* configure = std::get_if<contracts::ConfigureEvent>(&event)) {
             app.scene->SetViewport(configure->metrics.logical_size);
+        } else if (auto* motion = std::get_if<contracts::PointerMotionEvent>(&event)) {
+            if(app.scene->SetPointer(motion->position)) app.window.RequestRedraw(true);
+        } else if (auto* key = std::get_if<contracts::KeyEvent>(&event)) {
+            if(key->state==contracts::ButtonState::Pressed) {
+                if(key->physical_key==0x2B && app.scene->FocusNext()) app.window.RequestRedraw(true);
+                else if((key->physical_key==0x28 || key->physical_key==0x2C) && app.on_action)
+                    if(auto action=app.scene->FocusedAction()) app.on_action(*action);
+            }
         } else if (auto* button = std::get_if<contracts::PointerButtonEvent>(&event)) {
-            if (button->state == contracts::ButtonState::Pressed && app.on_action) {
+            if (button->state == contracts::ButtonState::Pressed && button->button==contracts::PointerButton::Primary && app.on_action) {
                 if (auto action = app.scene->ActionAt(button->position)) app.on_action(*action);
             }
         }
@@ -94,6 +153,14 @@ bool ClientApplication::Open(std::string_view dsl_source) {
         if (!app.renderer || !app.renderer->Ready() || !app.egl.Resize(width, height) ||
             !app.egl.MakeCurrent()) { app.failed = true; return false; }
         if (auto next = app.scene->Build(contracts::WindowId{1})) app.last_list = std::move(next);
+        try {
+            app.window.SetSurfaceEffects(app.scene->SurfaceEffects());
+        } catch(const std::exception& error) {
+            std::fprintf(stderr,"[prism-sdk] surface effect request rejected: %s\n",error.what());
+            app.failed=true;
+            return false;
+        }
+        app.window.SetInputRegions(app.scene->InputRegions());
         if (!app.last_list || !app.renderer->Render(*app.last_list, width, height) ||
             !app.egl.Swap()) { app.failed = true; return false; }
         ++app.presented;
@@ -112,6 +179,7 @@ bool ClientApplication::Pump(int timeout_ms) {
     auto& app = *impl_;
     if (!app.scene || app.failed || !app.window.Pump(timeout_ms)) return false;
     for (const auto& update : app.resources.Poll()) {
+        if (!app.scene_images.contains(update.id.value)) continue;
         if (update.state != runtime::ImageState::Ready) { app.failed = true; continue; }
         const auto* image = app.resources.Get(update.id);
         if (!image || !app.commands.RegisterImage(update.id, *image) ||
@@ -120,7 +188,7 @@ bool ClientApplication::Pump(int timeout_ms) {
             continue;
         }
         ++app.loaded_images;
-        app.window.RequestRedraw();
+        app.window.RequestRedraw(true);
     }
     return !app.failed;
 }
@@ -129,8 +197,9 @@ bool ClientApplication::SetSlot(std::string_view name, std::string value) {
 }
 bool ClientApplication::SetBinding(std::string_view name, runtime::PropertyValue value) {
     auto& app = *impl_;
-    if (!app.scene || !app.scene->SetBinding(name, std::move(value))) return false;
-    if (app.scene->PendingDirty() != runtime::Dirty::None) app.window.RequestRedraw();
+    if (!app.scene || !app.scene->AcceptsBinding(name, value)) return false;
+    app.scene->SetBinding(name, std::move(value));
+    if (app.scene->PendingDirty() != runtime::Dirty::None) app.window.RequestRedraw(true);
     return true;
 }
 void ClientApplication::OnAction(std::function<void(std::string_view)> callback) {
@@ -141,6 +210,8 @@ bool ClientApplication::IsMapped() const { return impl_->window.IsMapped(); }
 int ClientApplication::ConfigureCount() const { return impl_->window.ConfigureCount(); }
 int ClientApplication::FrameDoneCount() const { return impl_->window.FrameDoneCount(); }
 int ClientApplication::PresentedCount() const { return impl_->presented; }
+bool ClientApplication::HasPresentationFeedback() const { return impl_->window.HasPresentationFeedback(); }
+int ClientApplication::PresentationCount() const { return impl_->window.PresentationCount(); }
 int ClientApplication::RequestedImageCount() const { return impl_->requested_images; }
 int ClientApplication::LoadedImageCount() const { return impl_->loaded_images; }
 std::string ClientApplication::GlRenderer() const { return impl_->gl_renderer; }

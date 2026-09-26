@@ -42,6 +42,8 @@ compile_commands.json
 # Logs, Dumps & Temp Files
 *.log
 *.tmp
+__pycache__/
+*.py[cod]
 # Only root-level crash dumps; unanchored patterns hide prism/*/core/ source files.
 /core
 /core.*

@@ -3,6 +3,7 @@
 #include <cmath>
 #include <limits>
 #include <sstream>
+#include <nlohmann/json.hpp>
 
 namespace prism::tree {
 
@@ -42,7 +43,7 @@ bool TreeEngine::SwitchWorkspace(const std::string& name) {
         if (!views.empty()) {
             SetFocus(views[0]);
         } else {
-            focused_node_.reset();
+            SetFocus(nullptr);
         }
     }
 
@@ -163,7 +164,9 @@ bool TreeEngine::RemoveWindow(const std::shared_ptr<wm::Window>& win) {
     auto parent = view->GetParent();
     if (!parent) return false;
 
+    auto workspace = view->GetWorkspace();
     bool was_focused = (focused_node_.lock() == view);
+    if (workspace && workspace->focused_inactive_child.lock() == view) workspace->focused_inactive_child.reset();
     parent->RemoveChild(view);
 
     // Prune redundant container nodes up the tree
@@ -171,7 +174,7 @@ bool TreeEngine::RemoveWindow(const std::shared_ptr<wm::Window>& win) {
     while (cur && cur->type == NodeType::Container) {
         auto con = std::dynamic_pointer_cast<ContainerNode>(cur);
         auto next_p = cur->GetParent();
-        if (con && con != active_workspace_->GetRootContainer()) {
+        if (con && workspace && con != workspace->GetRootContainer()) {
             if (!con->AutoPrune()) break;
         }
         cur = next_p;
@@ -188,7 +191,7 @@ bool TreeEngine::RemoveWindow(const std::shared_ptr<wm::Window>& win) {
         if (!remaining_views.empty()) {
             SetFocus(remaining_views.back());
         } else {
-            focused_node_.reset();
+            SetFocus(nullptr);
         }
     }
 
@@ -312,6 +315,12 @@ bool TreeEngine::SetLayoutMode(std::shared_ptr<TreeNode> target, LayoutMode mode
 }
 
 void TreeEngine::SetFocus(std::shared_ptr<TreeNode> node) {
+    if (node && node->GetWorkspace() != active_workspace_) return;
+    for (const auto& workspace : workspaces_) {
+        std::vector<std::shared_ptr<TreeNode>> views;
+        workspace->CollectViews(views);
+        for (const auto& view : views) if (auto win = view->GetWindow()) win->SetFocused(view == node);
+    }
     if (!node) {
         focused_node_.reset();
         return;
@@ -320,14 +329,56 @@ void TreeEngine::SetFocus(std::shared_ptr<TreeNode> node) {
     if (auto ws = node->GetWorkspace()) {
         ws->focused_inactive_child = node;
     }
-    if (auto p = node->GetParentContainer()) {
-        p->SetActiveChildIndex(p->GetChildIndex(node));
+    auto child = node;
+    while (auto p = child->GetParentContainer()) {
+        p->SetActiveChildIndex(p->GetChildIndex(child));
+        child = p;
     }
 }
 
 void TreeEngine::SetFocusedWindow(const std::shared_ptr<wm::Window>& win) {
     auto view = FindViewForWindow(win);
-    if (view) SetFocus(view);
+    if (view) {
+        if (auto workspace = view->GetWorkspace(); workspace && workspace != active_workspace_)
+            SwitchWorkspace(workspace->GetName());
+        SetFocus(view);
+    }
+}
+
+bool TreeEngine::SplitFocused(LayoutMode mode) {
+    if (mode != LayoutMode::SplitHorizontal && mode != LayoutMode::SplitVertical) return false;
+    auto target = focused_node_.lock();
+    if (!target) {
+        if (!active_workspace_) return false;
+        active_workspace_->GetRootContainer()->SetLayoutMode(mode);
+        return true;
+    }
+    auto parent = target->GetParentContainer();
+    if (!parent) return false;
+    if (parent->children.size() == 1) { parent->SetLayoutMode(mode); return true; }
+    auto container = std::make_shared<ContainerNode>(mode);
+    container->width_fraction = target->width_fraction;
+    container->height_fraction = target->height_fraction;
+    parent->ReplaceChild(target, container);
+    container->AddChild(target);
+    container->NormalizeFractions();
+    SetFocus(target);
+    return true;
+}
+
+bool TreeEngine::MoveWindowToWorkspace(const std::shared_ptr<wm::Window>& win, const std::string& name) {
+    auto view = FindViewForWindow(win);
+    if (!view || name.empty()) return false;
+    auto destination = GetOrCreateWorkspace(name);
+    if (view->GetWorkspace() == destination) return true;
+    if (!RemoveWindow(win)) return false;
+    // Keep the same view node identity when only its workspace changes.
+    view->width_fraction = 0;
+    view->height_fraction = 0;
+    destination->GetRootContainer()->AddChild(view);
+    destination->GetRootContainer()->NormalizeFractions();
+    destination->focused_inactive_child = view;
+    return true;
 }
 
 std::shared_ptr<wm::Window> TreeEngine::GetFocusedWindow() const {
@@ -445,8 +496,8 @@ std::shared_ptr<ViewNode> TreeEngine::FindViewForWindow(const std::shared_ptr<wm
 std::string TreeEngine::DumpTreeJson() const {
     std::ostringstream ss;
     auto focused = focused_node_.lock();
-    ss << "{\"type\":\"root\",\"active_workspace\":\""
-       << (active_workspace_ ? active_workspace_->GetName() : "") << "\""
+    ss << "{\"type\":\"root\",\"active_workspace\":"
+       << nlohmann::json(active_workspace_ ? active_workspace_->GetName() : "").dump()
        << ",\"focused_id\":" << (focused ? reinterpret_cast<uintptr_t>(focused.get()) : 0)
        << ",\"workspaces\":[";
     for (size_t i = 0; i < workspaces_.size(); ++i) {

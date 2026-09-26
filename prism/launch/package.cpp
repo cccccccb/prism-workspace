@@ -130,4 +130,20 @@ AppPackage LoadPackage(const std::filesystem::path& directory) {
         throw LaunchFailure(contracts::LaunchError::InvalidPackage, error.what());
     }
 }
+AppPackage LoadRegisteredPackage(const std::filesystem::path& apps_root, std::string_view app_id) {
+    if (!ValidAppId(app_id)) throw LaunchFailure(contracts::LaunchError::InvalidRequest, "Invalid application ID");
+    const auto root = std::filesystem::canonical(apps_root);
+    const auto candidate = root / app_id;
+    if (!std::filesystem::exists(candidate))
+        throw LaunchFailure(contracts::LaunchError::UnknownApplication, "Application is not registered");
+    const auto resolved = std::filesystem::canonical(candidate);
+    auto a = root.begin(), b = resolved.begin();
+    for (; a != root.end() && b != resolved.end() && *a == *b; ++a, ++b) {}
+    if (a != root.end() || resolved == root)
+        throw LaunchFailure(contracts::LaunchError::InvalidPackage, "Application escapes registry root");
+    auto package = LoadPackage(resolved);
+    if (package.manifest.app_id != app_id)
+        throw LaunchFailure(contracts::LaunchError::InvalidPackage, "Registry application ID mismatch");
+    return package;
+}
 } // namespace prism::launch

@@ -1,11 +1,14 @@
 {
+  "format_version": 1,
+  "runtime_abi": 1,
   "app_id": "demo_settings",
-  "name": "System Preferences",
-  "version": "1.0.0",
-  "exec": "demo_settings",
+  "name": "Prism System Preferences",
+  "version": "0.1.0",
+  "ui": "master.prism",
+  "module": "settings.so",
+  "assets": "assets",
   "window": {
     "width": 960,
-    "height": 640
-  },
-  "ui": "master.prism"
+    "height": 720
+  }
 }

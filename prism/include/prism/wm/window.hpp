@@ -37,6 +37,19 @@ public:
     const std::string& GetTitle() const { return title_; }
     const core::Rect& GetBounds() const { return bounds_; }
     std::shared_ptr<ipc::Channel> GetChannel() const { return channel_; }
+    void UpdateIdentity(std::string app_id, std::string title, int pid, std::uint64_t instance) {
+        app_id_ = std::move(app_id); title_ = std::move(title); pid_ = pid; instance_ = instance;
+    }
+    int GetPid() const { return pid_; }
+    std::uint64_t GetInstance() const { return instance_; }
+    void SetNative(bool value) { native_ = value; }
+    bool IsNative() const { return native_; }
+    void SetCommittedBounds(core::Rect value) { committed_bounds_ = value; }
+    const core::Rect& GetCommittedBounds() const { return committed_bounds_; }
+    void SetVisible(bool value) { visible_ = value; }
+    bool IsVisible() const { return visible_; }
+    void SetFullscreen(bool value) { fullscreen_ = value; }
+    bool IsFullscreen() const { return fullscreen_; }
 
 private:
 
@@ -44,6 +57,10 @@ private:
     std::string title_;
     core::Rect bounds_;
     std::shared_ptr<ipc::Channel> channel_;
+    core::Rect committed_bounds_{};
+    int pid_{};
+    std::uint64_t instance_{};
+    bool native_{}, visible_{true}, fullscreen_{};
 
     LayerType layer_type_{LayerType::App};
     float exclusive_margin_{0.0f};

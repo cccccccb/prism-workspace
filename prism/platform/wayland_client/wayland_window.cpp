@@ -1,7 +1,10 @@
 #include "prism/platform/wayland_window.hpp"
 #include "xdg-shell-client-protocol.h"
+#include "presentation-time-client-protocol.h"
+#include "prism-surface-effects-client.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
@@ -77,6 +80,19 @@ void WaylandWindow::RegistryGlobal(void* data, wl_registry* registry,
     if (std::strcmp(interface, wl_compositor_interface.name) == 0) {
         self.compositor_ = static_cast<wl_compositor*>(wl_registry_bind(
             registry, name, &wl_compositor_interface, std::min(version, 4u)));
+    } else if (std::strcmp(interface, wp_presentation_interface.name) == 0) {
+        self.presentation_ = static_cast<wp_presentation*>(wl_registry_bind(
+            registry, name, &wp_presentation_interface, 1));
+        static const wp_presentation_listener listener{.clock_id = PresentationClock};
+        wp_presentation_add_listener(self.presentation_, &listener, &self);
+    } else if (std::strcmp(interface, prism_surface_effect_manager_v1_interface.name) == 0) {
+        self.effect_manager_=static_cast<prism_surface_effect_manager_v1*>(wl_registry_bind(
+            registry,name,&prism_surface_effect_manager_v1_interface,1));
+        static const prism_surface_effect_manager_v1_listener listener{
+            .capabilities=[](void* data,prism_surface_effect_manager_v1*,uint32_t supported) {
+                static_cast<WaylandWindow*>(data)->backdrop_supported_=supported!=0;
+            }};
+        prism_surface_effect_manager_v1_add_listener(self.effect_manager_,&listener,&self);
     } else if (std::strcmp(interface, wl_shm_interface.name) == 0) {
         self.shm_ = static_cast<wl_shm*>(wl_registry_bind(
             registry, name, &wl_shm_interface, 1));
@@ -184,7 +200,11 @@ void WaylandWindow::PointerEnter(void* data, wl_pointer*, std::uint32_t,
     self.Emit(contracts::PointerMotionEvent{contracts::WindowId{1},
                                             self.pointer_position_, NowNs()});
 }
-void WaylandWindow::PointerLeave(void*, wl_pointer*, std::uint32_t, wl_surface*) {}
+void WaylandWindow::PointerLeave(void* data, wl_pointer*, std::uint32_t, wl_surface*) {
+    auto& self=*static_cast<WaylandWindow*>(data);
+    self.pointer_position_={-1,-1};
+    self.Emit(contracts::PointerMotionEvent{contracts::WindowId{1},self.pointer_position_,NowNs()});
+}
 void WaylandWindow::PointerMotion(void* data, wl_pointer*, std::uint32_t,
                                   wl_fixed_t x, wl_fixed_t y) {
     auto& self = *static_cast<WaylandWindow*>(data);
@@ -284,7 +304,7 @@ WaylandWindow::ShmBuffer* WaylandWindow::AcquireBuffer() {
     }
     wl_shm_pool* pool = wl_shm_create_pool(shm_, fd, static_cast<int>(bytes));
     wl_buffer* handle = pool ? wl_shm_pool_create_buffer(pool, 0, width, height,
-                                                        width * 4, WL_SHM_FORMAT_XRGB8888) : nullptr;
+                                                        width * 4, WL_SHM_FORMAT_ARGB8888) : nullptr;
     if (pool) wl_shm_pool_destroy(pool);
     close(fd);
     if (!handle) {
@@ -311,6 +331,36 @@ void WaylandWindow::ReapBuffers() {
     });
 }
 
+void WaylandWindow::PresentationClock(void*, wp_presentation*, std::uint32_t) {}
+void WaylandWindow::PresentationOutput(void*, struct wp_presentation_feedback*, wl_output*) {}
+void WaylandWindow::FinishPresentation(struct wp_presentation_feedback* feedback) {
+    std::erase(feedbacks_, feedback);
+    wp_presentation_feedback_destroy(feedback);
+}
+void WaylandWindow::PresentationDone(void* data, struct wp_presentation_feedback* feedback,
+    std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t,
+    std::uint32_t, std::uint32_t, std::uint32_t) {
+    auto& self = *static_cast<WaylandWindow*>(data);
+    ++self.presentation_count_;
+    self.FinishPresentation(feedback);
+}
+void WaylandWindow::PresentationDiscarded(void* data, struct wp_presentation_feedback* feedback) {
+    auto& self = *static_cast<WaylandWindow*>(data);
+    ++self.discarded_count_;
+    self.FinishPresentation(feedback);
+    // A discarded startup frame must not leave a static UI without another attempt.
+    if (!self.presentation_count_) self.dirty_ = true;
+}
+void WaylandWindow::TrackPresentation() {
+    if (!presentation_ || feedbacks_.size() >= 8) return;
+    auto* feedback = wp_presentation_feedback(presentation_, surface_);
+    static const wp_presentation_feedback_listener listener{
+        .sync_output = PresentationOutput, .presented = PresentationDone,
+        .discarded = PresentationDiscarded};
+    wp_presentation_feedback_add_listener(feedback, &listener, this);
+    feedbacks_.push_back(feedback);
+}
+
 void WaylandWindow::TryRender() {
     if (!configured_ || !dirty_ || frame_callback_ || !surface_ ||
         (!paint_handler_ && !present_handler_)) return;
@@ -318,6 +368,7 @@ void WaylandWindow::TryRender() {
         frame_callback_ = wl_surface_frame(surface_);
         static const wl_callback_listener listener{.done = FrameDone};
         wl_callback_add_listener(frame_callback_, &listener, this);
+        TrackPresentation();
         const bool presented = present_handler_(display_, surface_,
             static_cast<int>(metrics_.buffer_size.width),
             static_cast<int>(metrics_.buffer_size.height));
@@ -340,14 +391,15 @@ void WaylandWindow::TryRender() {
     frame_callback_ = wl_surface_frame(surface_);
     static const wl_callback_listener listener{.done = FrameDone};
     wl_callback_add_listener(frame_callback_, &listener, this);
+    TrackPresentation();
     wl_surface_commit(surface_);
     mapped_ = true;
     dirty_ = false;
 }
 
-void WaylandWindow::RequestRedraw() {
+void WaylandWindow::RequestRedraw(bool deferred) {
     dirty_ = true;
-    TryRender();
+    if (!deferred) TryRender();
 }
 
 bool WaylandWindow::Open(const std::string& socket_name, const std::string& app_id,
@@ -389,6 +441,7 @@ bool WaylandWindow::Open(const std::string& socket_name, const std::string& app_
 
 bool WaylandWindow::Pump(int timeout_ms) {
     if (!display_) return false;
+    TryRender(); // Flush deferred UI changes as one frame before waiting.
     while (wl_display_prepare_read(display_) != 0) {
         if (wl_display_dispatch_pending(display_) < 0) return false;
     }
@@ -421,10 +474,49 @@ void WaylandWindow::RequestMaximize() {
     if (toplevel_) xdg_toplevel_set_maximized(toplevel_);
 }
 
+void WaylandWindow::SetSurfaceEffects(std::span<const contracts::SurfaceEffectRegion> regions) {
+    if (!surface_ || !effect_manager_ || !backdrop_supported_) return;
+    std::vector<contracts::SurfaceEffectRegion> next(regions.begin(),regions.end());
+    if (next==sent_effects_) return;
+    if (!surface_effect_) surface_effect_=prism_surface_effect_manager_v1_get_surface_effect(effect_manager_,surface_);
+    prism_surface_effect_v1_clear(surface_effect_);
+    for (const auto& region:next) prism_surface_effect_v1_add_region(surface_effect_,
+        wl_fixed_from_double(region.bounds.x),wl_fixed_from_double(region.bounds.y),
+        wl_fixed_from_double(region.bounds.width),wl_fixed_from_double(region.bounds.height),
+        wl_fixed_from_double(region.corner_radius),wl_fixed_from_double(region.blur_radius));
+    sent_effects_=std::move(next);
+}
+
+void WaylandWindow::SetInputRegions(std::span<const contracts::SurfaceInputRegion> regions) {
+    if (!surface_ || !compositor_) return;
+    std::vector<contracts::SurfaceInputRegion> next(regions.begin(),regions.end());
+    if(input_sent_ && next==sent_input_)return;
+    auto* input=wl_compositor_create_region(compositor_);
+    for(const auto& shape:next){const auto& b=shape.bounds;
+        const double radius=std::clamp(shape.corner_radius,0.0,std::min(b.width,b.height)/2);
+        const int first=std::max(0,int(std::ceil(b.y))),last=std::min(int(metrics_.logical_size.height),int(std::floor(b.y+b.height)));
+        for(int y=first;y<last;++y){double inset=0;const double edge=std::min(y+.5-b.y,b.y+b.height-y-.5);
+            if(edge<radius)inset=radius-std::sqrt(std::max(0.0,radius*radius-(radius-edge)*(radius-edge)));
+            const int left=std::max(0,int(std::ceil(b.x+inset))),right=std::min(int(metrics_.logical_size.width),int(std::floor(b.x+b.width-inset)));
+            if(right>left)wl_region_add(input,left,y,right-left,1);
+        }
+    }
+    wl_surface_set_input_region(surface_,input);wl_region_destroy(input);
+    sent_input_=std::move(next);input_sent_=true;
+}
+
 void WaylandWindow::Close() {
+    for (auto* feedback : feedbacks_) wp_presentation_feedback_destroy(feedback);
+    feedbacks_.clear();
+    if (presentation_) wp_presentation_destroy(presentation_);
+    presentation_ = nullptr;
     if (frame_callback_) wl_callback_destroy(frame_callback_);
     frame_callback_ = nullptr;
     buffers_.clear();
+    if (surface_effect_) prism_surface_effect_v1_destroy(surface_effect_);
+    if (effect_manager_) prism_surface_effect_manager_v1_destroy(effect_manager_);
+    surface_effect_=nullptr; effect_manager_=nullptr; backdrop_supported_=false; sent_effects_.clear();
+    sent_input_.clear();input_sent_=false;
     if (toplevel_) xdg_toplevel_destroy(toplevel_);
     if (xdg_surface_) xdg_surface_destroy(xdg_surface_);
     if (surface_) wl_surface_destroy(surface_);

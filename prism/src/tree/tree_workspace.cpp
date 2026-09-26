@@ -1,5 +1,6 @@
 #include "prism/tree/tree_workspace.hpp"
 #include <sstream>
+#include <nlohmann/json.hpp>
 
 namespace prism::tree {
 
@@ -43,7 +44,7 @@ std::string WorkspaceNode::ToJson(bool is_focused) const {
     std::ostringstream ss;
     ss << "{\"id\":" << id_
        << ",\"type\":\"workspace\""
-       << ",\"name\":\"" << name_ << "\""
+       << ",\"name\":" << nlohmann::json(name_).dump()
        << ",\"active\":" << (is_active_ ? "true" : "false")
        << ",\"focused\":" << (is_focused ? "true" : "false")
        << ",\"rect\":{\"x\":" << bounds.x << ",\"y\":" << bounds.y

@@ -373,6 +373,28 @@ int main() {
     TestSwapDirection();
     TestDumpTreeJson();
     TestDragToSplitSimulation();
+    // Removing a background workspace's final client must retain its root.
+    // A later activation must not restore a removed node or stale focus flag.
+    {
+        TreeEngine engine;
+        auto a=std::make_shared<wm::Window>("a", "A", core::Rect{}, nullptr);
+        auto b=std::make_shared<wm::Window>("b", "B", core::Rect{}, nullptr);
+        engine.InsertWindow(a);
+        auto first=engine.GetActiveWorkspace();
+        engine.SwitchWorkspace("2");
+        engine.InsertWindow(b);
+        assert(engine.RemoveWindow(a));
+        assert(first->GetRootContainer()->GetParent()==first);
+        assert(engine.GetFocusedWindow()==b && b->IsFocused());
+        engine.SwitchWorkspace("1");
+        assert(!engine.GetFocusedWindow() && !b->IsFocused());
+        engine.InsertWindow(a);
+        assert(first->GetViewCount()==1);
+        assert(engine.MoveWindowToWorkspace(a,"2"));
+        assert(first->GetViewCount()==0 && !engine.GetFocusedWindow());
+        engine.SetFocusedWindow(a);
+        assert(engine.GetActiveWorkspace()->GetName()=="2" && engine.GetFocusedWindow()==a);
+    }
 
     std::cout << "\n>>> ALL 10 MULTI-LEVEL RECURSIVE BSP TREE TESTS PASSED CLEANLY! <<<\n";
     return 0;

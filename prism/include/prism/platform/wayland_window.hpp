@@ -1,6 +1,8 @@
 #pragma once
 
 #include "prism/contracts/events.hpp"
+#include "prism/contracts/surface_effect.hpp"
+#include <span>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -18,9 +20,13 @@ struct wl_pointer;
 struct wl_keyboard;
 struct wl_surface;
 struct wl_callback;
+struct wp_presentation;
+struct wp_presentation_feedback;
 struct xdg_wm_base;
 struct xdg_surface;
 struct xdg_toplevel;
+struct prism_surface_effect_manager_v1;
+struct prism_surface_effect_v1;
 
 namespace prism::platform {
 
@@ -46,15 +52,20 @@ public:
     void SetPresentHandler(std::function<bool(wl_display*, wl_surface*, int, int)> handler) {
         present_handler_ = std::move(handler);
     }
-    void RequestRedraw();
+    void RequestRedraw(bool deferred = false);
     bool Pump(int timeout_ms);
     void RequestMaximize();
+    void SetSurfaceEffects(std::span<const contracts::SurfaceEffectRegion> regions);
+    void SetInputRegions(std::span<const contracts::SurfaceInputRegion> regions);
     void Close();
 
     bool IsConfigured() const { return configured_; }
     bool IsMapped() const { return mapped_; }
     bool IsCloseRequested() const { return close_requested_; }
     int ConfigureCount() const { return configure_count_; }
+    bool HasPresentationFeedback() const { return presentation_ != nullptr; }
+    int PresentationCount() const { return presentation_count_; }
+    int DiscardedCount() const { return discarded_count_; }
     int FrameDoneCount() const { return frame_done_count_; }
     int PointerEnterCount() const { return pointer_enter_count_; }
     int PointerButtonCount() const { return pointer_button_count_; }
@@ -94,11 +105,22 @@ private:
     static void FrameDone(void*, wl_callback*, std::uint32_t);
     static void BufferRelease(void*, wl_buffer*);
 
+    static void PresentationClock(void*, wp_presentation*, std::uint32_t);
+    static void PresentationOutput(void*, wp_presentation_feedback*, wl_output*);
+    static void PresentationDone(void*, wp_presentation_feedback*, std::uint32_t, std::uint32_t,
+        std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t);
+    static void PresentationDiscarded(void*, wp_presentation_feedback*);
+    void TrackPresentation();
+    void FinishPresentation(wp_presentation_feedback*);
     ShmBuffer* AcquireBuffer();
     void Emit(contracts::WindowEvent event);
     void TryRender();
     void ReapBuffers();
 
+    wp_presentation* presentation_{nullptr};
+    std::vector<wp_presentation_feedback*> feedbacks_;
+    int presentation_count_{0};
+    int discarded_count_{0};
     wl_display* display_{nullptr};
     wl_registry* registry_{nullptr};
     wl_compositor* compositor_{nullptr};
@@ -109,6 +131,12 @@ private:
     wl_keyboard* keyboard_{nullptr};
     xdg_wm_base* shell_{nullptr};
     wl_surface* surface_{nullptr};
+    prism_surface_effect_manager_v1* effect_manager_{};
+    prism_surface_effect_v1* surface_effect_{};
+    bool backdrop_supported_{};
+    std::vector<contracts::SurfaceEffectRegion> sent_effects_;
+    std::vector<contracts::SurfaceInputRegion> sent_input_;
+    bool input_sent_{};
     xdg_surface* xdg_surface_{nullptr};
     xdg_toplevel* toplevel_{nullptr};
     wl_callback* frame_callback_{nullptr};

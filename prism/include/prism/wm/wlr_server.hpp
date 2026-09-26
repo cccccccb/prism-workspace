@@ -3,6 +3,7 @@
 #include "prism/core/noncopyable.hpp"
 #include "prism/core/types.hpp"
 #include "prism/wm/compositor.hpp"
+#include "prism/wm/theme.hpp"
 #include "prism/decoration/tiling_decoration_spec.hpp"
 #include "prism/decoration/tiling_drag_manager.hpp"
 
@@ -11,6 +12,8 @@
 #include <vector>
 #include <map>
 #include <sys/types.h>
+#include "prism/launch/control_protocol.hpp"
+#include "prism/launch/stream.hpp"
 
 #include <wayland-server-core.h>
 
@@ -70,6 +73,7 @@ struct OutputInfo {
 class WlrServer;
 struct WlrXdgView;
 struct WlrKeyboardBinding;
+class SurfaceEffects;
 
 struct WlrOutput {
     WlrOutput(struct wlr_output* out, WlrServer* server);
@@ -108,7 +112,8 @@ public:
 
     bool Initialize(const std::string& socket_name = "");
     void Start();
-    bool StartShellClients();
+    void AttachControl(int fd, int parent_pid);
+    bool ControlHealthy() const { return !control_failed_; }
     void Stop();
 
     void RunEventLoopIteration(int timeout_ms = 0);
@@ -159,6 +164,8 @@ private:
     void UpdateSceneGraph(int width, int height, float dt = 0.016f);
     void FocusXdgView(WlrXdgView* view);
     void ArrangeXdgViews();
+    void SynchronizeXdgFocus();
+    void SetXdgFullscreen(WlrXdgView* view, bool enabled);
     void UpdateXdgPointerFocus(uint32_t time_msec);
 
     WlrServerSignals signals_{};
@@ -224,9 +231,24 @@ private:
 
     std::vector<std::unique_ptr<WlrOutput>> outputs_;
     std::vector<std::unique_ptr<WlrXdgView>> xdg_views_;
-    std::map<pid_t, int> shell_clients_;
+    std::unique_ptr<SurfaceEffects> surface_effects_;
+    struct Registration {
+        launch::ShellPermit permit;
+        int pidfd{-1};
+        bool consumed{};
+        std::unique_ptr<launch::ShellPermitGuard> guard;
+        ~Registration();
+    };
+    void PumpControl();
+    void NotifyView(WlrXdgView* view, launch::ControlType type);
+    std::unique_ptr<launch::Stream> control_;
+    std::map<pid_t, std::unique_ptr<Registration>> registrations_;
+    std::uint64_t control_session_{};
+    bool control_failed_{};
     std::vector<std::unique_ptr<WlrKeyboardBinding>> keyboards_;
     WlrXdgView* focused_xdg_view_{nullptr};
+    WlrXdgView* dragged_xdg_view_{nullptr};
+    ThemeGeometry theme_{};
     uint64_t last_frame_time_ns_{0};
     float current_fps_{0.0f};
     uint64_t frame_count_{0};

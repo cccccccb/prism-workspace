@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <vector>
+#include <utility>
 
 int main() {
     constexpr int width = 32, height = 24;
@@ -52,6 +53,19 @@ int main() {
         // this exact comparison so backend-specific antialiasing can vary.
         if (x == 8 || x == 19 || y == 6 || y == 15) continue;
         assert(c[2] == g[0] && c[1] == g[1] && c[0] == g[2] && c[3] == g[3]);
+    }
+    list.commands.clear();
+    list.commands.emplace_back(prism::contracts::PushClipRoundedRect{{4,4,24,16},6});
+    list.commands.emplace_back(prism::contracts::FillRect{{0,0,width,height},{200,100,40,128}});
+    list.commands.emplace_back(prism::contracts::PopClip{});
+    assert(cpu.Render(list,cpu_pixels.data(),width,height,width*4));
+    assert(gpu.Render(list,width,height));
+    glReadPixels(0,0,width,height,GL_RGBA,GL_UNSIGNED_BYTE,gpu_pixels.data());
+    assert(glGetError()==GL_NO_ERROR);
+    for(const auto point: {std::pair{0,0},std::pair{16,12},std::pair{4,4}}) {
+        const auto* c=&cpu_pixels[(point.second*width+point.first)*4];
+        const auto* g=&gpu_pixels[((height-point.second-1)*width+point.first)*4];
+        assert(c[2]==g[0] && c[1]==g[1] && c[0]==g[2] && c[3]==g[3]);
     }
     gpu.Close();
     assert(eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));

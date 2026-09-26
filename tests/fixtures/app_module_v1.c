@@ -36,6 +36,6 @@ static const PrismAppModuleV1 module = {
 #else
     destroy,
 #endif
-    action, NULL, NULL
+    action, NULL, NULL, NULL
 };
 const PrismAppModuleV1* prism_app_module_v1(void) { return &module; }

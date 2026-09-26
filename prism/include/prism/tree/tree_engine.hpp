@@ -38,6 +38,8 @@ public:
     bool SwapNodes(std::shared_ptr<TreeNode> a, std::shared_ptr<TreeNode> b);
     bool SwapFocusDirection(Direction dir);
     bool SetLayoutMode(std::shared_ptr<TreeNode> target, LayoutMode mode);
+    bool SplitFocused(LayoutMode mode);
+    bool MoveWindowToWorkspace(const std::shared_ptr<wm::Window>& win, const std::string& name);
 
     // Focus & Navigation
     void SetFocus(std::shared_ptr<TreeNode> node);
