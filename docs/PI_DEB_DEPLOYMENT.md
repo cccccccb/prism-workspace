@@ -80,7 +80,7 @@ XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-prism-0 demo_settings
 - 物理会话客户端探针通过：`GL renderer=V3D 4.2.14.0`、`configure=2 frame=2 presented=3 images=1/1`。探针仍从源码树中的诊断构建执行，未安装到系统。
 - 修复初始 modeset 后立即提交造成的 pending page-flip：由 `wlr_output_schedule_frame()` 调度首帧。最终启动日志 `Native GPU Frame 1 ... commit=OK`，检查期间没有 `ERROR` 或 `commit=FAILED`。
 - 最终日志确认 desktop/topbar/dock、音乐和设置五个生产 surface 映射，六个生产进程均以用户 ss 运行。WM 服务为 `prism-demo@ss.service`；两个示例由用户 transient 服务 `prism-demo-player.service` / `prism-demo-settings.service` 运行，工作目录为 `/`，验证安装资源无需源码目录。
-- 当前留下实机会话供现场查看；未开启开机自启。远程日志确认映射和提交，显示器上的实际视觉效果及物理鼠标/键盘交互仍需现场确认；本轮不声称已完成完整性能验收或零拷贝验收。
+- 当前留下实机会话供现场查看；未开启开机自启。远程日志确认映射和提交；用户现场确认显示器画面正常，能够看到顶部栏、底部 Dock、音乐和设置两个应用。物理鼠标/键盘交互仍需验证；本轮不声称已完成完整性能验收或零拷贝验收。
 
 本轮独立示例服务的可重复启动命令（结束已有同名服务后再执行）：
 
