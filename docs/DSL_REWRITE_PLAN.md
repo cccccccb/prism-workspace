@@ -27,3 +27,11 @@ Scene 持有每个节点的属性存储与绑定索引，`SetProperty`、`SetBin
 这一步仍以整棵 Scene 重新布局或生成 DisplayList，尚未做节点级 dirty 传播、布局边界或 Render Tree；这些属于第三段。图片资源就绪事件单独处理其固有尺寸变化。
 
 Pi 上 CPU 和 GLES 配置分别完整构建，CTest 各 12/12 通过；通过新属性存储和绑定索引的 headless V3D 客户端仍报告 `frame=2 presented=3 images=1/1`。
+
+## 第三段当前结果
+
+Scene 的 `Build` 现在把稳定 NodeId、属性派生状态和上次几何复制为 `SceneSnapshot`。`LayoutEngine` 单独计算布局与文字 shaping；Scene 只在 Layout dirty 时调用它，并将结果写回用于命中。`RenderTreeBuilder` 从 snapshot 构造带来源版本、几何、裁剪及视觉图元的 Render Tree，复用来源与几何均未变化的节点记录。`DisplayListBuilder` 单独遍历 Render Tree 生成命令；Scene 不再直接生成绘制命令。
+
+当前复用是结构边界，尚不是完整增量渲染：每次需要提交时仍复制整棵 snapshot、构造 Render Tree 并生成整张 DisplayList；节点级 dirty 传播、布局边界、DisplayList 分块缓存和遮挡裁剪需要在 Pi 实测后逐步加入。仅改绘制属性时跳过布局和 shaping，动作变化仅更新命中状态而不提交。新增独立 Render Tree 与 DisplayList 单元测试，验证命令顺序和节点版本复用。
+
+Pi 上 CPU 与 GLES 配置均完整构建、CTest 各 13/13 通过；headless V3D 客户端探针报告 `GL renderer=V3D 4.2.14.0`、`configure=2 frame=2 presented=3 images=1/1`。

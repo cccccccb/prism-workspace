@@ -13,6 +13,7 @@
 #include <map>
 
 namespace prism::runtime {
+struct RenderTree;
 
 enum class Kind { Row, Column, Box, Text, Image };
 struct Style {
@@ -68,8 +69,6 @@ private:
     Node* Find(contracts::NodeId id) const;
     void ApplyCachedProperty(Node& node, DslProperty property, const PropertyValue& value);
     PropertyValue CurrentProperty(const Node& node, DslProperty property) const;
-    void Layout(Node& node, contracts::LogicalRect bounds);
-    void Paint(const Node& node, contracts::DisplayList& list) const;
     std::optional<std::string> Hit(const Node& node, contracts::LogicalPoint point) const;
 
     std::unique_ptr<Node> root_;
@@ -81,6 +80,7 @@ private:
     std::unordered_map<std::string, std::vector<BindingTarget>> bindings_;
     Dirty dirty_{Dirty::Layout | Dirty::Paint};
     std::uint64_t generation_{0};
+    std::unique_ptr<RenderTree> render_tree_;
 };
 
 } // namespace prism::runtime

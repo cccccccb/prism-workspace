@@ -6,6 +6,8 @@
 
 `SetSlot` 是带类型的 `SetBinding` 的字符串便捷入口；Scene 的属性存储依据 schema 元数据决定 Layout/Paint dirty，背景色变化只标记 Paint，viewport 变化标记 Layout/Paint。`Build` 在无变化时返回空，不产生新的提交。输出是进程内 DisplayList。文字 glyph id 与位置由调用方提供的 shaping 接口生成；Skia 后端现提供 HarfBuzz + FreeType 实现。固定尺寸与均分的 Row/Column、基础裁剪、圆角和文字命令已通过单元测试。
 
+构建链路现为 Scene snapshot → `LayoutEngine` → `RenderTreeBuilder` → `DisplayListBuilder`。Layout dirty 才重新计算几何与文字；Render Tree 保存视觉图元、裁剪、来源版本，并复用未变节点记录。当前 DisplayList 仍在每次提交时完整生成，增量布局和分块缓存尚未实现。
+
 此文件记录 Scene 首个检查点。后续已加入 Skia CPU 诊断后端、HarfBuzz 字体排版和真实 Wayland 测试窗口，见 [SKIA_BACKEND_PI.md](SKIA_BACKEND_PI.md)。PNG 图片资源的首个异步检查点见 [IMAGE_RESOURCES.md](IMAGE_RESOURCES.md)；GLES GPU 后端及复用客户端入口见 [SKIA_GLES_PI.md](SKIA_GLES_PI.md) 和 [CLIENT_APP_SDK.md](CLIENT_APP_SDK.md)。
 
 验证：

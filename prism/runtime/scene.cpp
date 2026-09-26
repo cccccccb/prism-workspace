@@ -1,5 +1,9 @@
 #include "prism/runtime/scene.hpp"
 #include "prism/runtime/dsl_schema.hpp"
+#include "prism/runtime/scene_snapshot.hpp"
+#include "prism/runtime/layout_engine.hpp"
+#include "prism/runtime/render_tree.hpp"
+#include "prism/runtime/display_list_builder.hpp"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -20,6 +24,7 @@ struct Scene::Node {
     bool image_ready{false};
     contracts::LogicalRect bounds{};
     ShapedText shaped{};
+    std::uint64_t revision{1};
     std::vector<std::unique_ptr<Node>> children;
 };
 
@@ -155,7 +160,9 @@ bool Scene::SetProperty(contracts::NodeId id, DslProperty property, PropertyValu
     if (CurrentProperty(*node, property) == value) return false;
     node->properties[property] = value;
     ApplyCachedProperty(*node, property, value);
-    dirty_ = dirty_ | FindProperty(property)->affects;
+    const Dirty affected = FindProperty(property)->affects;
+    dirty_ = dirty_ | affected;
+    if (affected != Dirty::None) ++node->revision;
     return true;
 }
 
@@ -182,6 +189,7 @@ bool Scene::ImageReady(contracts::ResourceId image, contracts::LogicalSize intri
             const bool affects_layout = node->style.width <= 0 || node->style.height <= 0;
             node->intrinsic_size = intrinsic_size;
             node->image_ready = true;
+            ++node->revision;
             dirty_ = dirty_ | Dirty::Paint | (affects_layout ? Dirty::Layout : Dirty::None);
             changed = true;
         }
@@ -189,99 +197,38 @@ bool Scene::ImageReady(contracts::ResourceId image, contracts::LogicalSize intri
     return changed;
 }
 
-void Scene::Layout(Node& node, contracts::LogicalRect bounds) {
-    node.bounds = bounds;
-    if (node.kind == Kind::Text) {
-        node.shaped = shaper_(node.text, node.style.font_size);
-        return;
-    }
-    if (node.kind == Kind::Image) return;
-    const double pad = std::max(0.0, node.style.padding);
-    const double x = bounds.x + pad, y = bounds.y + pad;
-    const double width = std::max(0.0, bounds.width - 2 * pad);
-    const double height = std::max(0.0, bounds.height - 2 * pad);
-    if (node.kind == Kind::Box) {
-        for (auto& child : node.children) {
-            auto& s = child->style;
-            const double w = s.width > 0 ? std::min(s.width, width) : width;
-            const double h = s.height > 0 ? std::min(s.height, height)
-                : child->kind == Kind::Text ? std::min(s.font_size * 1.4, height)
-                : child->kind == Kind::Image && child->image_ready ? std::min(child->intrinsic_size.height, height)
-                : height;
-            const double image_width = child->kind == Kind::Image && child->image_ready && s.width <= 0
-                ? std::min(child->intrinsic_size.width, width) : w;
-            Layout(*child, {x, y, image_width, h});
-        }
-        return;
-    }
-    const bool row = node.kind == Kind::Row;
-    const double main = row ? width : height;
-    const double cross = row ? height : width;
-    const double gap = std::max(0.0, node.style.spacing);
-    const double total_gap = gap * (node.children.empty() ? 0 : node.children.size() - 1);
-    double fixed = 0;
-    std::size_t flexible = 0;
-    for (const auto& child : node.children) {
-        const double explicit_size = row ? child->style.width : child->style.height;
-        if (explicit_size > 0) fixed += explicit_size;
-        else if (!row && child->kind == Kind::Text) fixed += child->style.font_size * 1.4;
-        else if (child->kind == Kind::Image && child->image_ready)
-            fixed += row ? child->intrinsic_size.width : child->intrinsic_size.height;
-        else ++flexible;
-    }
-    const double remaining = std::max(0.0, main - total_gap - fixed);
-    const double flex_size = flexible ? remaining / flexible : 0;
-    double cursor = row ? x : y;
-    for (auto& child : node.children) {
-        const double explicit_size = row ? child->style.width : child->style.height;
-        const double intrinsic = !row && child->kind == Kind::Text ? child->style.font_size * 1.4
-            : child->kind == Kind::Image && child->image_ready
-                ? (row ? child->intrinsic_size.width : child->intrinsic_size.height) : flex_size;
-        const double length = std::max(0.0, std::min(explicit_size > 0 ? explicit_size : intrinsic,
-            std::max(0.0, (row ? x + width : y + height) - cursor)));
-        const double cross_explicit = row ? child->style.height : child->style.width;
-        const double cross_intrinsic = child->kind == Kind::Image && child->image_ready
-            ? (row ? child->intrinsic_size.height : child->intrinsic_size.width) : cross;
-        const double other = std::min(cross_explicit > 0 ? cross_explicit : cross_intrinsic, cross);
-        Layout(*child, row ? contracts::LogicalRect{cursor, y, length, other}
-                           : contracts::LogicalRect{x, cursor, other, length});
-        cursor += length + gap;
-    }
-}
-
-void Scene::Paint(const Node& node, contracts::DisplayList& list) const {
-    if (node.bounds.width <= 0 || node.bounds.height <= 0) return;
-    if (node.style.clip) list.commands.emplace_back(contracts::PushClipRect{node.bounds});
-    if (node.style.background.a) {
-        if (node.style.radius > 0)
-            list.commands.emplace_back(contracts::FillRoundedRect{node.bounds, node.style.radius, node.style.background});
-        else list.commands.emplace_back(contracts::FillRect{node.bounds, node.style.background});
-    }
-    if (node.kind == Kind::Text && !node.shaped.glyphs.empty()) {
-        contracts::DrawGlyphRun run;
-        run.font = font_;
-        run.color = node.style.foreground;
-        run.font_size = node.style.font_size;
-        for (auto glyph : node.shaped.glyphs) {
-            glyph.origin.x += node.bounds.x;
-            glyph.origin.y += node.bounds.y;
-            run.glyphs.push_back(glyph);
-        }
-        list.commands.emplace_back(std::move(run));
-    }
-    if (node.kind == Kind::Image && node.image_ready)
-        list.commands.emplace_back(contracts::DrawImage{node.image, node.bounds});
-    for (const auto& child : node.children) Paint(*child, list);
-    if (node.style.clip) list.commands.emplace_back(contracts::PopClip{});
-}
-
 std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window) {
     if (!window || !ValidSize(viewport_) || dirty_ == Dirty::None) return std::nullopt;
-    if (Has(dirty_, Dirty::Layout)) Layout(*root_, {0, 0, viewport_.width, viewport_.height});
-    contracts::DisplayList list;
-    list.window = window;
-    list.generation = ++generation_;
-    Paint(*root_, list);
+    SceneSnapshot snapshot;
+    snapshot.root = root_->id;
+    snapshot.nodes.reserve(nodes_.size());
+    for (const Node* node : nodes_) {
+        SnapshotNode item;
+        item.id = node->id;
+        item.kind = node->kind;
+        item.style = node->style;
+        item.text = node->text;
+        item.image = node->image;
+        item.intrinsic_size = node->intrinsic_size;
+        item.image_ready = node->image_ready;
+        item.bounds = node->bounds;
+        item.shaped = node->shaped;
+        item.revision = node->revision;
+        for (const auto& child : node->children) item.children.push_back(child->id);
+        snapshot.nodes.push_back(std::move(item));
+    }
+    if (Has(dirty_, Dirty::Layout)) {
+        LayoutEngine::Compute(snapshot, viewport_, shaper_);
+        for (const auto& item : snapshot.nodes) {
+            Node* node = nodes_[item.id.index];
+            node->bounds = item.bounds;
+            node->shaped = item.shaped;
+        }
+    }
+    auto next = RenderTreeBuilder::Build(snapshot, render_tree_.get());
+    auto list = DisplayListBuilder::Build(next, window, font_, generation_ + 1);
+    render_tree_ = std::make_unique<RenderTree>(std::move(next));
+    ++generation_;
     dirty_ = Dirty::None;
     return list;
 }

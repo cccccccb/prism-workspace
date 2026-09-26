@@ -6,7 +6,9 @@
 using namespace prism;
 
 int main() {
-    auto shape = [](std::string_view text, double size) {
+    int shape_calls = 0;
+    auto shape = [&shape_calls](std::string_view text, double size) {
+        ++shape_calls;
         runtime::ShapedText result;
         result.width = text.size() * size * 0.5;
         result.height = size * 1.4;
@@ -44,7 +46,9 @@ int main() {
     assert(!scene.Build(contracts::WindowId{1}));
     assert(scene.SetBackground(scene.RootId(), {20, 30, 40, 255}));
     assert(scene.PendingDirty() == runtime::Dirty::Paint);
+    const int before_paint = shape_calls;
     assert(scene.Build(contracts::WindowId{1}));
+    assert(shape_calls == before_paint);
     assert(!scene.SetViewport({0, 120}));
     assert(!scene.Build(contracts::WindowId{1}));
     assert(scene.Bounds({999, 1}).width == 0);
@@ -66,6 +70,15 @@ int main() {
     assert(runtime::Has(bound.PendingDirty(), runtime::Dirty::Layout));
     assert(!bound.SetBinding("size", 0.0));
     assert(!bound.SetProperty(bound.RootId(), runtime::DslProperty::Font, 18.0));
+    runtime::Scene action_scene(runtime::ParseBlueprint(
+        "Button(\"Go\", action: \"one\")"), shape, contracts::ResourceId{7});
+    assert(action_scene.SetViewport({100, 50}));
+    assert(action_scene.Build(contracts::WindowId{1}));
+    assert(action_scene.SetProperty(action_scene.RootId(), runtime::DslProperty::Action,
+        std::string("two")));
+    assert(action_scene.PendingDirty() == runtime::Dirty::None);
+    assert(!action_scene.Build(contracts::WindowId{1}));
+    assert(action_scene.ActionAt({10, 10}) == "two");
     bool rejected = false;
     try { (void)runtime::ParseBlueprint("Slider($value)"); }
     catch (const std::runtime_error&) { rejected = true; }
