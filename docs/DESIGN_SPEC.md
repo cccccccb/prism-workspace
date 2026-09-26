@@ -338,6 +338,8 @@ int main(int argc, char* argv[]) {
 
 ## 10. 独立平铺窗口修饰器系统与 DSL 主题体系 (Tiling Window Decoration & DSL Theme System)
 
+> 2026-09-26 修订：本节旧 AOT/mmap 热重载描述是历史方案。新的生产实现以 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md) 为准：单一主题 DSL →纯值快照→launcher 分发给 WM/host，保留客户端状态，支持运行时切换。WM 不解析 DSL。旧 `.prismb` 样例不作为本版接口或性能保证。
+
 ### 10.1 核心设计理念
 为严格践行类 i3 / Sway 平铺管理器的哲学，PrismWM 彻底摒弃传统浮动窗口的 8 方向自由边框缩放与无序堆叠：
 - **纯粹平铺约束**：窗口几何由平铺树严格计算分配，修饰器系统只负责外观装饰与平铺交互；

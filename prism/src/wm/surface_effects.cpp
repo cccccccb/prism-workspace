@@ -1,7 +1,7 @@
 #include "prism/wm/surface_effects.hpp"
 #include "prism/wm/xdg_view.hpp"
 #include "prism/contracts/surface_effect.hpp"
-#include "prism/contracts/theme_tokens.hpp"
+#include "prism/wm/theme.hpp"
 #include "prism/core/logging.hpp"
 #include "prism-surface-effects-server.h"
 extern "C" {
@@ -83,13 +83,15 @@ struct Buffer {
 struct Paint {
     wlr_scene_tree* tree{};wlr_scene_buffer* node{};
     std::unique_ptr<Buffer> source,intermediate,result;
-    int width{},height{};std::uint64_t key{};
+    int width{},height{};std::uint64_t key{},generation{};
     ~Paint(){if(tree)wlr_scene_node_destroy(&tree->node);}
 };
 struct Walk {
     wlr_scene_node* target{};wlr_scene_node* skip{};wlr_renderer* renderer{};wlr_render_pass* pass{};
     double origin_x{},origin_y{},scale{1};bool stopped{};std::uint64_t hash{1469598103934665603ULL};
-    const std::set<wlr_scene_node*>* excluded{};std::vector<wlr_texture*> textures;
+    const std::set<wlr_scene_node*>* excluded{};
+    const std::map<wlr_scene_buffer*,std::uint64_t>* paint_generations{};
+    std::vector<wlr_texture*> textures;
     Walk(wlr_scene_node* target_node,wlr_scene_node* skip_node,wlr_renderer* r,
          wlr_render_pass* render_pass=nullptr,double x=0,double y=0,double factor=1)
         :target(target_node),skip(skip_node),renderer(r),pass(render_pass),
@@ -109,6 +111,7 @@ struct Walk {
             if(!b->buffer && !cached)return;
             Hash(&b->buffer,sizeof(b->buffer));Hash(&cached,sizeof(cached));Hash(&b->opacity,sizeof(b->opacity));Hash(&b->src_box,sizeof(b->src_box));Hash(&b->dst_width,sizeof(b->dst_width));Hash(&b->dst_height,sizeof(b->dst_height));Hash(&b->transform,sizeof(b->transform));
             if(auto* s=wlr_scene_surface_try_from_buffer(b))Hash(&s->surface->current.seq,sizeof(s->surface->current.seq));
+            if(paint_generations)if(auto it=paint_generations->find(b);it!=paint_generations->end())Hash(&it->second,sizeof(it->second));
             if(pass){auto* tex=cached?cached:wlr_texture_from_buffer(renderer,b->buffer);if(!tex)return;
                 wlr_render_texture_options o{};o.texture=tex;o.src_box=b->src_box;o.transform=b->transform;o.alpha=&b->opacity;
                 o.dst_box={int(std::floor((x-origin_x)*scale)),int(std::floor((y-origin_y)*scale)),int(std::ceil((b->dst_width?b->dst_width:tex->width)*scale)),int(std::ceil((b->dst_height?b->dst_height:tex->height)*scale))};wlr_render_pass_add_texture(pass,&o);if(!cached)textures.push_back(tex);}}
@@ -161,7 +164,7 @@ struct SurfaceEffects::Impl {
         // Initialize imported render target before creating its sampling texture.
         auto* pass=wlr_renderer_begin_buffer_pass(renderer,result->buffer,nullptr);if(!pass)return {};wlr_render_rect_options clear{};clear.box={0,0,width,height};clear.blend_mode=WLR_RENDER_BLEND_MODE_NONE;wlr_render_pass_add_rect(pass,&clear);if(!wlr_render_pass_submit(pass))return {};
         result->texture=wlr_texture_from_buffer(renderer,result->buffer);if(!result->texture)return {};return result;}
-    bool Draw(Buffer& target,Buffer& source,GLuint program,int width,int height,const Region* region=nullptr,double padding=0,bool focused=false,bool decoration=false){
+    bool Draw(Buffer& target,Buffer& source,GLuint program,int width,int height,const Region* region=nullptr,double padding=0,const contracts::ThemeDecoration* decoration=nullptr){
         auto* pass=wlr_renderer_begin_buffer_pass(renderer,target.buffer,nullptr);if(!pass)return false;
         wlr_gles2_texture_attribs attrib{};wlr_gles2_texture_get_attribs(source.texture,&attrib);
         if(attrib.target!=GL_TEXTURE_2D){wlr_render_pass_submit(pass);return false;}
@@ -170,10 +173,10 @@ struct SurfaceEffects::Impl {
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
         glUniform1i(glGetUniformLocation(program,"image"),0);
         if(region){glUniform2f(glGetUniformLocation(program,"size"),width,height);glUniform4f(glGetUniformLocation(program,"box"),padding,padding,region->bounds.width,region->bounds.height);
-            glUniform1f(glGetUniformLocation(program,"radius"),std::min({region->corner_radius,region->bounds.width/2,region->bounds.height/2}));glUniform1f(glGetUniformLocation(program,"shadow"),decoration?contracts::theme::kShadowRadius:0);glUniform1f(glGetUniformLocation(program,"blur_enabled"),region->blur_radius>0?1:0);
-            const auto border=focused?contracts::theme::kAccent:contracts::theme::kBorder;
-            glUniform1f(glGetUniformLocation(program,"border_width"),decoration?contracts::theme::kWindowBorderWidth:0);glUniform4f(glGetUniformLocation(program,"border_color"),border.r/255.f,border.g/255.f,border.b/255.f,decoration?border.a/255.f:0);
-            const auto shade=contracts::theme::kShadow;glUniform4f(glGetUniformLocation(program,"shadow_color"),shade.r/255.f,shade.g/255.f,shade.b/255.f,shade.a/255.f);glUniform1f(glGetUniformLocation(program,"shadow_offset"),contracts::theme::kShadowOffsetY);}
+            glUniform1f(glGetUniformLocation(program,"radius"),std::min({region->corner_radius,region->bounds.width/2,region->bounds.height/2}));glUniform1f(glGetUniformLocation(program,"shadow"),decoration?decoration->shadow_blur:0);glUniform1f(glGetUniformLocation(program,"blur_enabled"),region->blur_radius>0?1:0);
+            const auto border=decoration?decoration->border:contracts::Color{};
+            glUniform1f(glGetUniformLocation(program,"border_width"),decoration?decoration->border_width:0);glUniform4f(glGetUniformLocation(program,"border_color"),border.r/255.f,border.g/255.f,border.b/255.f,decoration?border.a/255.f:0);
+            const auto shade=decoration?decoration->shadow:contracts::Color{};glUniform4f(glGetUniformLocation(program,"shadow_color"),shade.r/255.f,shade.g/255.f,shade.b/255.f,shade.a/255.f);glUniform1f(glGetUniformLocation(program,"shadow_offset"),decoration?decoration->shadow_y:0);}
         static const GLfloat quad[]{0,0,1,0,0,1,1,1};glEnableVertexAttribArray(0);glVertexAttribPointer(0,2,GL_FLOAT,GL_FALSE,0,quad);glDrawArrays(GL_TRIANGLE_STRIP,0,4);glDisableVertexAttribArray(0);glUseProgram(0);glBindTexture(GL_TEXTURE_2D,0);
         bool ok=glGetError()==GL_NO_ERROR;return wlr_render_pass_submit(pass)&&ok;
     }
@@ -186,37 +189,104 @@ struct SurfaceEffects::Impl {
         glUniform2f(glGetUniformLocation(blur,"step_size"),horizontal?radius/(6.46*source.buffer->width):0,horizontal?0:radius/(6.46*source.buffer->height));
         static const GLfloat quad[]{0,0,1,0,0,1,1,1};glEnableVertexAttribArray(0);glVertexAttribPointer(0,2,GL_FLOAT,GL_FALSE,0,quad);glDrawArrays(GL_TRIANGLE_STRIP,0,4);glDisableVertexAttribArray(0);glUseProgram(0);glBindTexture(GL_TEXTURE_2D,0);bool ok=glGetError()==GL_NO_ERROR;return wlr_render_pass_submit(pass)&&ok;
     }
-    void Update(wlr_scene* scene,std::span<WlrXdgView* const> views,WlrXdgView* focused){if(!supported)return;std::set<wlr_surface*> alive;
-        for(auto* view:views){if(!view->mapped || !view->visible)continue;auto* surface=view->toplevel->base->surface;alive.insert(surface);
-            std::vector<Region> regions;if(auto it=states.find(surface);it!=states.end())regions=it->second->current;
-            if(view->fullscreen)regions.clear();
-            bool frame=view->shell_role==0 && !view->fullscreen;
-            auto is_frame=[&](const Region& r){return frame && std::abs(r.bounds.x)<.01 && std::abs(r.bounds.y)<.01 && std::abs(r.bounds.width-view->width)<.01 && std::abs(r.bounds.height-view->height)<.01;};
-            if(frame && std::none_of(regions.begin(),regions.end(),is_frame))regions.insert(regions.begin(),{{0,0,double(view->width),double(view->height)},contracts::theme::kWindowRadius,0});
-            auto& list=paints[surface];while(list.size()>regions.size())list.pop_back();
-            for(std::size_t i=0;i<regions.size();++i){const auto& r=regions[i];if(i==list.size())list.push_back(std::make_unique<Paint>());auto& p=*list[i];
+    void Update(wlr_scene* scene,std::span<WlrXdgView* const> views,WlrXdgView* focused,
+                const contracts::ThemeSnapshot* theme) {
+        if(!supported)return;
+        std::set<wlr_surface*> alive;
+        std::map<wlr_scene_node*,WlrXdgView*> by_node;
+        for(auto* view:views)if(view->mapped && view->visible) {
+            alive.insert(view->toplevel->base->surface);
+            by_node.emplace(&view->scene_tree->node,view);
+        }
+        // Retire hidden materials before sampling, otherwise old workspace
+        // paints could appear as backdrop siblings of a now hidden client.
+        for(auto it=paints.begin();it!=paints.end();)if(!alive.contains(it->first))it=paints.erase(it);else ++it;
+        std::map<wlr_scene_buffer*,std::uint64_t> paint_generations;
+        for(const auto& [surface,list]:paints)for(const auto& paint:list)
+            if(paint->node)paint_generations[paint->node]=paint->generation;
+        std::vector<WlrXdgView*> ordered;
+        auto visit=[&](auto&& self,wlr_scene_node* node)->void {
+            if(auto it=by_node.find(node);it!=by_node.end())ordered.push_back(it->second);
+            if(node->type==WLR_SCENE_NODE_TREE) {
+                auto* tree=wlr_scene_tree_from_node(node);wlr_scene_node* child;
+                wl_list_for_each(child,&tree->children,link)self(self,child);
+            }
+        };
+        visit(visit,&scene->tree.node);
+        // Resolve and paint in actual lower-to-upper scene order. A reused GPU
+        // buffer carries a content generation, not just its stable pointer.
+        for(auto* view:ordered) {
+            auto* surface=view->toplevel->base->surface;
+            const auto state=ResolveDecoration(theme,view==focused,view->fullscreen,view->shell_role!=0);
+            const auto& style=state.style;
+            std::vector<Region> regions;
+            if(auto it=states.find(surface);it!=states.end())regions=it->second->current;
+            auto is_frame=[&](const Region& r){return style.enabled && std::abs(r.bounds.x)<.01 && std::abs(r.bounds.y)<.01 && std::abs(r.bounds.width-view->width)<.01 && std::abs(r.bounds.height-view->height)<.01;};
+            if(style.enabled && std::none_of(regions.begin(),regions.end(),is_frame))
+                regions.insert(regions.begin(),{{0,0,double(view->width),double(view->height)},style.radius,0});
+            auto& list=paints[surface];
+            while(list.size()>regions.size()) {paint_generations.erase(list.back()->node);list.pop_back();}
+            for(std::size_t i=0;i<regions.size();++i) {
+                auto r=regions[i];
                 const bool decoration=is_frame(r);
-                const int padding=static_cast<int>(std::ceil(std::max(r.blur_radius,decoration?contracts::theme::kShadowRadius:0)));int w=int(std::ceil(r.bounds.width))+2*padding,h=int(std::ceil(r.bounds.height))+2*padding;
-                if(w<=0||h<=0||w>8192||h>8192)continue;
-                if(!p.tree){p.tree=wlr_scene_tree_create(view->scene_tree->node.parent);wlr_scene_node_place_below(&p.tree->node,&view->scene_tree->node);p.node=wlr_scene_buffer_create(p.tree,nullptr);p.node->point_accepts_input=[](wlr_scene_buffer*,double*,double*){return false;};}
-                wlr_scene_node_set_enabled(&p.tree->node,true);wlr_scene_node_place_below(&p.tree->node,&view->scene_tree->node);
-                int x=view->x+int(std::floor(r.bounds.x))-padding,y=view->y+int(std::floor(r.bounds.y))-padding;wlr_scene_node_set_position(&p.tree->node,x,y);
-                std::set<wlr_scene_node*> own;for(const auto& paint:list)if(paint->tree)own.insert(&paint->tree->node);
-                Walk walk{&view->scene_tree->node,&p.tree->node,renderer};walk.excluded=&own;if(r.blur_radius>0)walk.Node(&scene->tree.node);walk.Hash(&r.bounds,sizeof(r.bounds));walk.Hash(&r.corner_radius,sizeof(r.corner_radius));walk.Hash(&r.blur_radius,sizeof(r.blur_radius));walk.Hash(&decoration,sizeof(decoration));bool active=view==focused;walk.Hash(&active,sizeof(active));walk.Hash(&x,sizeof(x));walk.Hash(&y,sizeof(y));
+                if(decoration)r.corner_radius=style.radius;
+                if(i==list.size())list.push_back(std::make_unique<Paint>());
+                auto& p=*list[i];
+                const double decoration_extent=decoration?std::max(style.border_width,style.shadow_blur+std::abs(style.shadow_y)):0;
+                const int padding=int(std::ceil(std::max(r.blur_radius,decoration_extent)));
+                const int w=int(std::ceil(r.bounds.width))+2*padding,h=int(std::ceil(r.bounds.height))+2*padding;
+                if(w<=0||h<=0||w>8192||h>8192) {if(p.tree)wlr_scene_node_set_enabled(&p.tree->node,false);continue;}
+                if(!p.tree) {
+                    p.tree=wlr_scene_tree_create(view->scene_tree->node.parent);
+                    p.node=wlr_scene_buffer_create(p.tree,nullptr);
+                    p.node->point_accepts_input=[](wlr_scene_buffer*,double*,double*){return false;};
+                }
+                wlr_scene_node_set_enabled(&p.tree->node,true);
+                wlr_scene_node_place_below(&p.tree->node,&view->scene_tree->node);
+                const int x=view->x+int(std::floor(r.bounds.x))-padding,y=view->y+int(std::floor(r.bounds.y))-padding;
+                wlr_scene_node_set_position(&p.tree->node,x,y);
+                std::set<wlr_scene_node*> own;
+                for(const auto& paint:list)if(paint->tree)own.insert(&paint->tree->node);
+                Walk walk{&view->scene_tree->node,&p.tree->node,renderer};
+                walk.excluded=&own;walk.paint_generations=&paint_generations;
+                if(r.blur_radius>0)walk.Node(&scene->tree.node);
+                walk.Hash(&r.bounds,sizeof(r.bounds));walk.Hash(&r.corner_radius,sizeof(r.corner_radius));
+                walk.Hash(&r.blur_radius,sizeof(r.blur_radius));walk.Hash(&decoration,sizeof(decoration));
+                walk.Hash(&state.generation,sizeof(state.generation));
+                // Hash individual fields to avoid compiler padding in structs.
+                walk.Hash(&style.enabled,sizeof(style.enabled));walk.Hash(&style.radius,sizeof(style.radius));
+                walk.Hash(&style.border_width,sizeof(style.border_width));walk.Hash(&style.border,sizeof(style.border));
+                walk.Hash(&style.shadow_blur,sizeof(style.shadow_blur));walk.Hash(&style.shadow_y,sizeof(style.shadow_y));
+                walk.Hash(&style.shadow,sizeof(style.shadow));walk.Hash(&x,sizeof(x));walk.Hash(&y,sizeof(y));
                 if(p.key==walk.hash&&p.width==w&&p.height==h)continue;
-                if(p.width!=w||p.height!=h||!p.source||!p.intermediate||!p.result){p.source=Allocate((w+1)/2,(h+1)/2);p.intermediate=Allocate((w+1)/2,(h+1)/2);p.result=Allocate(w,h);p.width=w;p.height=h;if(!p.source||!p.intermediate||!p.result){PRISM_LOG_ERROR("SURFACE-EFFECT","Buffer allocation failed");wlr_scene_node_set_enabled(&p.tree->node,false);continue;}}
-                if(r.blur_radius>0){auto* pass=wlr_renderer_begin_buffer_pass(renderer,p.source->buffer,nullptr);if(!pass){wlr_scene_node_set_enabled(&p.tree->node,false);PRISM_LOG_ERROR("SURFACE-EFFECT","Capture pass failed");continue;}wlr_render_rect_options clear{};clear.box={0,0,p.source->buffer->width,p.source->buffer->height};clear.blend_mode=WLR_RENDER_BLEND_MODE_NONE;wlr_render_pass_add_rect(pass,&clear);
-                    Walk capture{&view->scene_tree->node,&p.tree->node,renderer,pass,double(x),double(y),.5};capture.excluded=&own;capture.Node(&scene->tree.node);if(!wlr_render_pass_submit(pass)||!Blur(*p.intermediate,*p.source,r.blur_radius/2,true)||!Blur(*p.source,*p.intermediate,r.blur_radius/2,false)){wlr_scene_node_set_enabled(&p.tree->node,false);PRISM_LOG_ERROR("SURFACE-EFFECT","Capture or blur submission failed");continue;}}
-                if(!Draw(*p.result,*p.source,material,w,h,&r,padding,active,decoration)){wlr_scene_node_set_enabled(&p.tree->node,false);PRISM_LOG_ERROR("SURFACE-EFFECT","Material pass failed");continue;}
+                if(p.width!=w||p.height!=h||!p.source||!p.intermediate||!p.result) {
+                    p.source=Allocate((w+1)/2,(h+1)/2);p.intermediate=Allocate((w+1)/2,(h+1)/2);p.result=Allocate(w,h);
+                    p.width=w;p.height=h;
+                    if(!p.source||!p.intermediate||!p.result) {PRISM_LOG_ERROR("SURFACE-EFFECT","Buffer allocation failed");wlr_scene_node_set_enabled(&p.tree->node,false);continue;}
+                }
+                if(r.blur_radius>0) {
+                    auto* pass=wlr_renderer_begin_buffer_pass(renderer,p.source->buffer,nullptr);
+                    if(!pass) {wlr_scene_node_set_enabled(&p.tree->node,false);PRISM_LOG_ERROR("SURFACE-EFFECT","Capture pass failed");continue;}
+                    wlr_render_rect_options clear{};clear.box={0,0,p.source->buffer->width,p.source->buffer->height};
+                    clear.blend_mode=WLR_RENDER_BLEND_MODE_NONE;wlr_render_pass_add_rect(pass,&clear);
+                    Walk capture{&view->scene_tree->node,&p.tree->node,renderer,pass,double(x),double(y),.5};
+                    capture.excluded=&own;capture.paint_generations=&paint_generations;capture.Node(&scene->tree.node);
+                    if(!wlr_render_pass_submit(pass)||!Blur(*p.intermediate,*p.source,r.blur_radius/2,true)||!Blur(*p.source,*p.intermediate,r.blur_radius/2,false)) {
+                        wlr_scene_node_set_enabled(&p.tree->node,false);PRISM_LOG_ERROR("SURFACE-EFFECT","Capture or blur submission failed");continue;
+                    }
+                }
+                if(!Draw(*p.result,*p.source,material,w,h,&r,padding,decoration?&style:nullptr)) {
+                    wlr_scene_node_set_enabled(&p.tree->node,false);PRISM_LOG_ERROR("SURFACE-EFFECT","Material pass failed");continue;
+                }
                 wlr_scene_buffer_set_buffer(p.node,p.result->buffer);p.key=walk.hash;
-                if(++generated<=12)PRISM_LOG_INFO("SURFACE-EFFECT","Rendered region %dx%d blur=%.1f lower-scene-only shell=%d",w,h,r.blur_radius,view->shell_role);
+                p.generation=++generated;paint_generations[p.node]=p.generation;
+                if(generated<=12)PRISM_LOG_INFO("SURFACE-EFFECT","Rendered region %dx%d blur=%.1f lower-scene-only shell=%d",w,h,r.blur_radius,view->shell_role);
             }
         }
-        for(auto it=paints.begin();it!=paints.end();)if(!alive.contains(it->first))it=paints.erase(it);else ++it;
     }
 };
 SurfaceEffects::SurfaceEffects(wl_display* d,wlr_renderer* r,wlr_allocator* a):impl_(std::make_unique<Impl>(d,r,a)){}
 SurfaceEffects::~SurfaceEffects()=default;
 bool SurfaceEffects::Supported()const{return impl_->supported;}
-void SurfaceEffects::Update(wlr_scene* s,std::span<WlrXdgView* const> v,WlrXdgView* f){impl_->Update(s,v,f);}
+void SurfaceEffects::Update(wlr_scene* s,std::span<WlrXdgView* const> v,WlrXdgView* f,const contracts::ThemeSnapshot* t){impl_->Update(s,v,f,t);}
 }

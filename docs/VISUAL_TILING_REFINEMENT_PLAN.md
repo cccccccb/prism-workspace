@@ -1,6 +1,6 @@
 # 参考图驱动的视觉与平铺主线
 
-日期：2026-09-26。状态：BSP、共享主题与图标玻璃界面已随 0.1.0-5 部署到 Pi；本轮自动检查与 1024×600 现场外观/主要点击验收通过。
+日期：2026-09-26。状态：基础 BSP 与图标玻璃界面已随 0.1.0-5 部署并通过 1024×600 现场验收；DSL 全局主题已随 0.1.0-6 部署，四种主题切换及主要点击通过现场确认。
 
 本计划承接 Skia 应用迁移和 Pi deb 演示。此前 0.1.0-4 的“画面正常”仅确认显示链路。本轮按参考图完成静态图标玻璃主题及 BSP 并部署 0.1.0-5，用户确认“外观正常，以上点击都正常”；具体验证范围见第 6 节。
 
@@ -120,7 +120,9 @@ Shell 布局、保留空间与应用 work area 共用类型化配置。接通真
 
 ### 单一主题源与几何
 
-`resources/themes/prism-glass.json` 是主题参数的唯一源。构建时 `tools/generate-theme.py` 生成纯契约头 `prism/contracts/theme_tokens.hpp`，只包含逻辑像素数值、直通 RGBA 颜色及名称表。WM 引用几何和装饰常量；客户端 DSL 通过 `"@tokenName"` 引用同一参数，由 SDK 按 Schema 解析为类型化属性。未知 token、类型不匹配或非法数值必须报错。WM 不读取 DSL、AST、控件或 DisplayList。
+当前源码以 `resources/themes/<id>/theme.prism` 为唯一主题源，删除旧 JSON、Python 常量生成器和生成头路径。纯主题编译器与应用编译器共享词法/语法实现，产生纯值 `ThemeSnapshot`；统一 launcher 向 WM 与既有 host 分发快照，按 ACK 完成通知或恢复。客户端 DSL 保留 `"@tokenName"` 引用，并以 `material: "window"` / `"panel"` 等语义材料取得样式；主题切换不重建业务模块或丢失绑定。未知 token、类型不匹配或非法数值报错。WM 只接收几何/装饰快照，不读取 DSL、AST、控件或 DisplayList。规范见 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md)，包语法见 [THEME_AUTHORING.md](THEME_AUTHORING.md)。
+
+首批主题为 `glass`、`translucent`、`transparent`、`square`，分别组合磨砂、半透明、全透明与直角效果，不在 SDK/WM 按主题 ID 分支。四包保持相同几何；当前热切换拒绝改变 Layout，待配置/提交感知事务完善后开放。
 
 当前基础尺寸：Topbar surface 保留 52，面板高 32、内缩 10；Dock surface 保留 100，面板高 76、底部留白 12，surface 请求宽 620；普通窗口 outer gap 14、inner gap 12、圆角 12。manifest 中窗口尺寸是初始请求，Shell 的实际几何与工作区由共享主题契约决定。客户端局部卡片及 Shell 面板绘制自身边框/阴影；普通窗口外围装饰归 WM，客户端不叠加第二套窗口外框。
 
@@ -132,7 +134,7 @@ Shell 布局、保留空间与应用 work area 共用类型化配置。接通真
 | Topbar | 圆角玻璃面板，左右图标与真实系统状态，时钟以面板中心锚定；窄屏时侧区裁剪，不移动时钟中心 |
 | Dock | 居中悬浮面板，两个真实入口 Music/Pref；使用向量图标、辅助名称和细运行指示，不添加未实现的 Apps/Files/Term 功能入口 |
 | Music | 图标导航、播放/暂停及上一首/下一首、可见进度条；保留真实模块状态绑定。此业务仍是演示曲库与模拟播放进度，未实现音频解码/输出 |
-| Settings | CPU/内存图标与真实 `/proc` 指标、进度条、刷新按钮；外观开关切换本窗口 tint/文字配色及 sun/moon 图标，明确显示 `This window only`，不宣称实现了全局主题服务 |
+| Settings | CPU/内存图标与真实 `/proc` 指标、进度条、刷新按钮；四个外观入口请求全局主题包，由 Current/Applied/Rejected 事件更新状态。删除业务模块中的局部配色；没有主题服务时明确显示不可用 |
 
 Dock 的细运行指示依据平台订阅的已映射普通实例计算，并按 app ID 归并；重复事件不会多计，同一应用还有其他实例时关闭一个实例不熄灭指示。成功创建请求与真正展示/激活的反馈仍分开显示，保留 `Opening`、`ready`、`active` 或失败结果。
 
@@ -146,13 +148,13 @@ Dock 的细运行指示依据平台订阅的已映射普通实例计算，并按
 
 客户端请求 `backdropBlur` 后，只绘制自身半透明 tint 和前景；WM 必须读取该区域下层场景并完成真实 GPU 背景采样与模糊。客户端不重复读取壁纸并制作假模糊。透光区域、圆角、阴影外扩与输入区域须在同一坐标/提交语义下验证。
 
-本轮主题源、五应用模板、Dock 实例分组、Settings 局部外观、SDK 通用布局/图标/控件/透明效果、真实 XDG view 与 TreeEngine 的映射、私有 surface-effect 协议及 compositor GLES 背景材料路径已构建并随 0.1.0-5 部署。客户端仍使用 Skia GLES，WM 的背景 pass 不链接 Skia 或客户端 DSL。
+0.1.0-5 已部署五应用模板、Dock 实例分组、当时的 Settings 局部外观、SDK 通用布局/图标/控件/透明效果、真实 XDG view 与 TreeEngine 的映射、私有 surface-effect 协议及 compositor GLES 背景材料路径。后续源码新增 DSL 主题包、Scene 引用/材料更新、WM 快照与统一会话协议，Settings 当前模板已改为全局选择入口；新增能力已通过 28/28 CTest、真实 V3D 统一会话测试及 0.1.0-6 的实机切换/点击验收。客户端仍使用 Skia GLES，WM 的背景 pass 不链接 Skia 或客户端 DSL。
 
 代码层 BSP 已支持横/纵嵌套分割、方向焦点/交换、工作区切换/移动、关闭与显式 fullscreen；Shell 不进入普通窗口树。Super + 鼠标拖放改变树拓扑或交换 tile，拖拽实时调整分割比例仍待后续实现。当前静态主题无新增转场、放大、弹跳或移动动画。
 
-本轮 deb 打包、生产安装清单、物理 Pi 部署、1024×600 截图和现场主要交互确认已完成；具体记录见第 6 节。全局运行时主题切换、应用抽屉、Slider、实时分割比例调整、真实音频播放、零拷贝结论及性能分位数不在本轮完成范围内。
+0.1.0-5 的 deb 打包、生产安装清单、物理 Pi 部署、1024×600 截图和现场主要交互确认已完成；具体历史记录见第 6 节。新增全局运行时主题已完成隔离验证、Release 打包及 0.1.0-6 实机验收，记录见 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md) 第 6 节。应用抽屉、Slider、实时分割比例调整、真实音频播放、零拷贝结论及性能分位数继续留待后续。
 
-## 6. 0.1.0-5 验证与现场确认
+## 6. 0.1.0-5 验证与现场确认（历史）
 
 - 最终 CTest 26/26 通过，覆盖共享主题解析、透明/视觉控件、模板与真实业务绑定、基础布局/命中及窗口树。
 - 隔离的真实 launcher/host 会话保存双窗、三窗、四窗截图及 tree 尺寸，确认真实客户端接入同一 BSP。测试工具与素材均留在 `tests/`。
@@ -162,3 +164,7 @@ Dock 的细运行指示依据平台订阅的已映射普通实例计算，并按
 - 现场用户确认“外观正常，以上点击都正常”：播放图标切换、Preferences 本窗口配色 Toggle、Dock 激活均正常。实际截图保存在 `dist/validation/prism-v5-physical.png`，发布详情见 [PI_DEB_DEPLOYMENT.md](PI_DEB_DEPLOYMENT.md)。
 
 现场确认范围为当前单输出 1024×600 的静态主题及上述主要点击；未宣称所有键盘快捷键、多屏/DPI、Slider、实时分割比例调整、真实音频或全局主题切换已验收。动画、节点增量布局、分块缓存及专项性能优化继续后续安排。
+
+## 7. 后续：DSL 运行时装饰主题
+
+用户验收 0.1.0-5 外观后明确要求将写死样式改为可切换主题；该视觉版本已先提交为 `cf8d9ad`。当前源码已接入纯契约/编译器、四主题包、客户端引用与材料、WM 快照、统一会话分发、Settings 选择及隔离测试入口；统一构建/验证、0.1.0-6 deb 安装与新版现场确认均已完成。按 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md) 第 5 节执行验收，包接口见 [THEME_AUTHORING.md](THEME_AUTHORING.md)。主题控制效果组合；SDK/WM 提供通用接口，不按主题 ID 分支。

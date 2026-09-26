@@ -25,6 +25,7 @@ struct SnapshotNode {
 struct SceneSnapshot {
     contracts::NodeId root{};
     std::vector<SnapshotNode> nodes;
+    contracts::ThemeControls controls{{0,0,0,0},{0,0,0,0},{0,0,0,0}};
     const SnapshotNode& Get(contracts::NodeId id) const;
     SnapshotNode& Get(contracts::NodeId id);
 };

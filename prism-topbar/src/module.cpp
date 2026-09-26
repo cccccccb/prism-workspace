@@ -38,6 +38,6 @@ void* Create(const PrismAppInitV1* init) noexcept {
 }
 void Destroy(void* instance) noexcept { delete static_cast<Topbar*>(instance); }
 void Tick(void* instance,std::uint64_t) noexcept { try { static_cast<Topbar*>(instance)->Update(); } catch (...) {} }
-const PrismAppModuleV1 api{sizeof(api),PRISM_APP_ABI_V1,Create,Destroy,nullptr,Tick,nullptr,nullptr};
+const PrismAppModuleV1 api{sizeof(api),PRISM_APP_ABI_V1,Create,Destroy,nullptr,Tick,nullptr,nullptr,nullptr};
 }
 extern "C" PRISM_APP_EXPORT const PrismAppModuleV1* prism_app_module_v1() { return &api; }

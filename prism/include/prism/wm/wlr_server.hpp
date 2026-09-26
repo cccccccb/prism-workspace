@@ -4,7 +4,6 @@
 #include "prism/core/types.hpp"
 #include "prism/wm/compositor.hpp"
 #include "prism/wm/theme.hpp"
-#include "prism/decoration/tiling_decoration_spec.hpp"
 #include "prism/decoration/tiling_drag_manager.hpp"
 
 #include <string>
@@ -114,6 +113,9 @@ public:
     void Start();
     void AttachControl(int fd, int parent_pid);
     bool ControlHealthy() const { return !control_failed_; }
+    // Called on the Wayland event loop. Validation precedes all state changes.
+    contracts::ThemeApplied InstallTheme(const contracts::ThemeSnapshot& theme);
+    const contracts::ThemeSnapshot* GetTheme() const { return theme_snapshot_.get(); }
     void Stop();
 
     void RunEventLoopIteration(int timeout_ms = 0);
@@ -226,7 +228,6 @@ private:
     struct wlr_scene_rect* hud_border_rect_{nullptr};
     struct wlr_scene_rect* hud_status_pill_{nullptr};
 
-    std::shared_ptr<decoration::TilingDecorationSpec> decoration_spec_;
     std::unique_ptr<decoration::TilingDragManager> drag_manager_;
 
     std::vector<std::unique_ptr<WlrOutput>> outputs_;
@@ -249,6 +250,7 @@ private:
     WlrXdgView* focused_xdg_view_{nullptr};
     WlrXdgView* dragged_xdg_view_{nullptr};
     ThemeGeometry theme_{};
+    std::shared_ptr<const contracts::ThemeSnapshot> theme_snapshot_;
     uint64_t last_frame_time_ns_{0};
     float current_fps_{0.0f};
     uint64_t frame_count_{0};

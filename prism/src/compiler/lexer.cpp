@@ -82,16 +82,19 @@ Token Lexer::ScanString() {
 
 Token Lexer::ScanNumber() {
     size_t start = cursor_;
+    const bool negative=Peek()=='-';
+    if (negative) Advance();
+    const auto numeric_start=cursor_;
     if (Peek() == '0' && cursor_ + 1 < source_.size() && (source_[cursor_ + 1] == 'x' || source_[cursor_ + 1] == 'X')) {
         Advance(); // '0'
         Advance(); // 'x'
         while (!IsAtEnd() && std::isxdigit(Peek())) {
             Advance();
         }
-        if (strict_ && cursor_ == start + 2)
+        if (strict_ && cursor_ == numeric_start + 2)
             throw std::runtime_error("DSL line " + std::to_string(line_) + ": invalid hex number");
         std::string text = source_.substr(start, cursor_ - start);
-        double val = static_cast<double>(std::strtoull(text.c_str(), nullptr, 16));
+        double val = static_cast<double>(std::strtoull(text.c_str()+(negative?1:0), nullptr, 16))*(negative?-1:1);
         return Token{TokenType::NumberLiteral, text, val, line_};
     }
     while (!IsAtEnd() && (std::isdigit(Peek()) || Peek() == '.')) {
@@ -139,7 +142,7 @@ std::vector<Token> Lexer::Tokenize() {
             tokens.push_back(ScanString());
         } else if (c == '#') {
             tokens.push_back(ScanHexColor());
-        } else if (std::isdigit(c)) {
+        } else if (std::isdigit(c) || (c=='-' && cursor_+1<source_.size() && std::isdigit(source_[cursor_+1]))) {
             tokens.push_back(ScanNumber());
         } else {
             Advance();

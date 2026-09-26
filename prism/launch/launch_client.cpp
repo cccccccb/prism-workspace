@@ -52,6 +52,17 @@ std::uint64_t LaunchClient::SubscribeInstances() {
 std::vector<contracts::InstanceUpdate> LaunchClient::TakeInstanceUpdates() {
     auto result=std::move(updates_); updates_.clear(); return result;
 }
+std::uint64_t LaunchClient::SelectTheme(std::string id) {
+    if (!Connect() || !next_request_) return 0;
+    const auto request=next_request_++;
+    try {
+        if (!stream_->Queue(launch::EncodeMessage(contracts::ThemeRequest{request,std::move(id)}))) return 0;
+        stream_->Flush(); return Connected() ? request : 0;
+    } catch (...) { return 0; }
+}
+std::vector<contracts::ThemeEvent> LaunchClient::TakeThemeEvents() {
+    auto result=std::move(themes_); themes_.clear(); return result;
+}
 bool LaunchClient::Cancel(contracts::RequestId request) {
     if (!Connected()) return false;
     try {
@@ -71,6 +82,8 @@ std::vector<contracts::LaunchEvent> LaunchClient::Pump(int timeout) {
         if (const auto* event=std::get_if<contracts::LaunchEvent>(&message)) events.push_back(*event);
         else if (const auto* update=std::get_if<contracts::InstanceUpdate>(&message)) {
             if (updates_.size()>=4096) { stream_->Close(); break; } updates_.push_back(*update);
+        } else if (const auto* theme=std::get_if<contracts::ThemeEvent>(&message)) {
+            if (themes_.size()>=256) {stream_->Close();break;} themes_.push_back(*theme);
         } else { stream_->Close(); break; }
     }
     return events;

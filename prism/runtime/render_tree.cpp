@@ -46,14 +46,15 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot& snapshot, const RenderT
                 node.visuals.emplace_back(RoundedRectVisual{source.style.radius, source.style.background});
             else node.visuals.emplace_back(RectVisual{source.style.background});
         }
-        if (source.hovered)
-            node.visuals.emplace_back(RoundedRectVisual{source.style.radius,{255,255,255,28}});
+        if (source.hovered && snapshot.controls.hover.a)
+            node.visuals.emplace_back(RoundedRectVisual{source.style.radius,snapshot.controls.hover});
         if (source.style.inner_shadow_color.a && source.style.inner_shadow_blur > 0)
             node.visuals.emplace_back(ShadowVisual{source.style.radius,source.style.inner_shadow_blur,
-                1,source.style.inner_shadow_color,true});
+                source.style.inner_shadow_y,source.style.inner_shadow_color,true});
         if (source.style.border_width > 0 && source.style.border_color.a)
             node.visuals.emplace_back(BorderVisual{source.style.radius,source.style.border_width,source.style.border_color});
-        if(source.focused) node.visuals.emplace_back(BorderVisual{source.style.radius,2,{120,180,255,230}});
+        if(source.focused && snapshot.controls.focus_width > 0 && snapshot.controls.focus.a)
+            node.visuals.emplace_back(BorderVisual{source.style.radius,snapshot.controls.focus_width,snapshot.controls.focus});
         if (source.kind == Kind::Text && !source.shaped.glyphs.empty())
             node.visuals.emplace_back(TextVisual{source.shaped, source.style.font_size,
                                                 source.style.foreground});
@@ -69,7 +70,7 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot& snapshot, const RenderT
         if (source.kind==Kind::Progress)
             node.visuals.emplace_back(ProgressVisual{source.value,source.style.radius,source.style.foreground});
         if (source.kind==Kind::Toggle)
-            node.visuals.emplace_back(ToggleVisual{source.checked,source.style.foreground});
+            node.visuals.emplace_back(ToggleVisual{source.checked,source.style.foreground,snapshot.controls});
         tree.nodes.push_back(std::move(node));
     }
     return tree;

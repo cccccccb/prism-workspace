@@ -1,5 +1,6 @@
 #include "prism/tree/tree_workspace.hpp"
 #include <sstream>
+#include <cmath>
 #include <nlohmann/json.hpp>
 
 namespace prism::tree {
@@ -21,14 +22,18 @@ void WorkspaceNode::Arrange(const core::Rect& screen_area, int inner_gap, int ou
     if (!root_container_ || !root_container_->HasChildren()) return;
 
     size_t count = GetViewCount();
-    int eff_outer = outer_gap;
-    int eff_inner = inner_gap;
+    int eff_outer = std::max(0, outer_gap);
+    int eff_inner = std::max(0, inner_gap);
 
     // Smart gaps: single window expands to full screen boundary
     if (smart_gaps && count == 1) {
         eff_outer = 0;
         eff_inner = 0;
     }
+    // A valid theme can request gaps larger than a small output/work area.
+    // Keep at least one logical pixel available before recursively splitting.
+    const float shorter = std::max(0.0f, std::min(screen_area.width, screen_area.height));
+    eff_outer = std::min(eff_outer, static_cast<int>(std::max(0.0f, std::floor((shorter-1.0f)/2.0f))));
 
     core::Rect usable_area{
         screen_area.x + static_cast<float>(eff_outer),

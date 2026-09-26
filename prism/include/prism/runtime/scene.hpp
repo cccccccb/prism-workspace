@@ -2,6 +2,7 @@
 
 #include "prism/contracts/display_list.hpp"
 #include "prism/contracts/surface_effect.hpp"
+#include "prism/contracts/theme.hpp"
 #include "prism/runtime/property.hpp"
 #include <cstdint>
 #include <functional>
@@ -39,15 +40,19 @@ struct Style {
     double shadow_blur{0}, shadow_y{0};
     contracts::Color shadow_color{0, 0, 0, 0};
     double inner_shadow_blur{0};
+    double inner_shadow_y{0};
     contracts::Color inner_shadow_color{0, 0, 0, 0};
     double backdrop_blur{0};
     contracts::ImageFit image_fit{contracts::ImageFit::Fill};
+    std::string material;
+    std::string input_shape{"visible"};
 };
 
 struct Blueprint {
     Kind kind{Kind::Box};
     std::vector<PropertyAssignment> properties;
     std::vector<PropertyBinding> bindings;
+    std::vector<ThemeRef> theme_refs;
     std::uint64_t allowed_properties{UINT64_MAX};
     std::vector<Blueprint> children;
 };
@@ -62,7 +67,8 @@ using ShapeText = std::function<ShapedText(std::string_view, double)>;
 
 class Scene {
 public:
-    explicit Scene(Blueprint root, ShapeText shaper, contracts::ResourceId font = {});
+    explicit Scene(Blueprint root, ShapeText shaper, contracts::ResourceId font = {},
+                   std::optional<contracts::ThemeSnapshot> theme = {});
     ~Scene();
     Scene(const Scene&) = delete;
     Scene& operator=(const Scene&) = delete;
@@ -70,6 +76,9 @@ public:
     bool AcceptsBinding(std::string_view name, const PropertyValue& value) const;
     bool SetBinding(std::string_view name, PropertyValue value);
     bool SetProperty(contracts::NodeId id, DslProperty property, PropertyValue value);
+    // Validates a detached candidate before changing the retained scene.
+    bool ApplyTheme(const contracts::ThemeSnapshot&, std::string* diagnostic = nullptr);
+    std::uint64_t ThemeGeneration() const { return theme_ ? theme_->generation : 0; }
     bool SetViewport(contracts::LogicalSize size);
     bool SetBackground(contracts::NodeId id, contracts::Color color);
     bool ImageReady(contracts::ResourceId image, contracts::LogicalSize intrinsic_size);
@@ -88,6 +97,7 @@ public:
 private:
     struct Node;
     std::unique_ptr<Node> MakeNode(Blueprint blueprint);
+    Blueprint CurrentBlueprint(const Node&) const;
     Node* Find(contracts::NodeId id) const;
     void ApplyCachedProperty(Node& node, DslProperty property, const PropertyValue& value);
     PropertyValue CurrentProperty(const Node& node, DslProperty property) const;
@@ -107,6 +117,7 @@ private:
     Node* focused_{nullptr};
     mutable bool input_dirty_{true};
     mutable std::vector<contracts::SurfaceInputRegion> input_regions_;
+    std::optional<contracts::ThemeSnapshot> theme_;
 };
 
 } // namespace prism::runtime

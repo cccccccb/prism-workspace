@@ -22,7 +22,7 @@ AppModule::AppModule(const std::filesystem::path& file) {
         api_.struct_size=sizeof(api_); api_.abi_version=source->abi_version;
 #define COPY_FIELD(field) if (source->struct_size>=offsetof(PrismAppModuleV1,field)+sizeof(source->field)) api_.field=source->field
         COPY_FIELD(create); COPY_FIELD(destroy); COPY_FIELD(on_action); COPY_FIELD(on_tick);
-        COPY_FIELD(on_launch_event); COPY_FIELD(on_instance_event);
+        COPY_FIELD(on_launch_event); COPY_FIELD(on_instance_event); COPY_FIELD(on_theme_event);
 #undef COPY_FIELD
         if (!api_.create || !api_.destroy)
             throw LaunchFailure(contracts::LaunchError::UnsupportedAbi,"Module create/destroy missing");

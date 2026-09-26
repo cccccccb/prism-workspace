@@ -4,10 +4,12 @@
 #include "prism/runtime/layout_engine.hpp"
 #include "prism/runtime/render_tree.hpp"
 #include "prism/runtime/display_list_builder.hpp"
+#include "prism/runtime/theme_tokens.hpp"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <utility>
+#include <set>
 
 namespace prism::runtime {
 
@@ -16,6 +18,8 @@ struct Scene::Node {
     Kind kind{Kind::Box};
     Style style{};
     std::map<DslProperty, PropertyValue> properties;
+    std::set<DslProperty> explicit_properties;
+    std::vector<ThemeRef> theme_refs;
     std::uint64_t allowed_properties{UINT64_MAX};
     std::string text;
     std::string action;
@@ -57,6 +61,7 @@ bool ValidPropertyValue(DslProperty id, const PropertyValue& value) {
             if (id == DslProperty::Justify) return *text == "start" || *text == "center" || *text == "end" || *text == "spaceBetween";
             if (id == DslProperty::Anchor) return *text == "fill" || *text == "left" || *text == "center" || *text == "right";
             if (id == DslProperty::Overflow) return *text == "visible" || *text == "clip";
+            if (id == DslProperty::InputShape) return *text == "visible" || *text == "bounds";
             if (id == DslProperty::ImageFit) return *text == "fill" || *text == "contain" || *text == "cover";
             if (id == DslProperty::Icon) {
                 constexpr std::string_view icons[] = {"grid", "music", "settings", "folder", "terminal", "play", "pause",
@@ -74,9 +79,11 @@ bool ValidPropertyValue(DslProperty id, const PropertyValue& value) {
 
 Scene::~Scene() = default;
 
-Scene::Scene(Blueprint root, ShapeText shaper, contracts::ResourceId font)
-    : shaper_(std::move(shaper)), font_(font) {
+Scene::Scene(Blueprint root, ShapeText shaper, contracts::ResourceId font,
+             std::optional<contracts::ThemeSnapshot> theme)
+    : shaper_(std::move(shaper)), font_(font), theme_(std::move(theme)) {
     if (!shaper_) throw std::invalid_argument("Scene requires a text shaper");
+    if (theme_) contracts::ValidateTheme(*theme_);
     root_ = MakeNode(std::move(root));
 }
 
@@ -88,20 +95,108 @@ std::unique_ptr<Scene::Node> Scene::MakeNode(Blueprint blueprint) {
     nodes_.push_back(raw);
     node->kind = blueprint.kind;
     node->allowed_properties = blueprint.allowed_properties;
+    if (theme_) node->style.inner_shadow_y = theme_->controls.inner_shadow_y;
+    for (const auto& property : blueprint.properties) if (property.id == DslProperty::Material) {
+        if (!theme_) throw std::invalid_argument("Material requires a theme snapshot");
+        const auto* name = std::get_if<std::string>(&property.value);
+        const auto* material = name ? contracts::FindThemeMaterial(*theme_, *name) : nullptr;
+        if (!material) throw std::invalid_argument("Unknown theme material");
+        const PropertyAssignment values[] = {
+            {DslProperty::Background, material->tint}, {DslProperty::Radius, material->radius},
+            {DslProperty::BackdropBlur, material->backdrop_blur},
+            {DslProperty::BorderWidth, material->border_width}, {DslProperty::BorderColor, material->border},
+            {DslProperty::ShadowBlur, material->shadow_blur}, {DslProperty::ShadowY, material->shadow_y},
+            {DslProperty::ShadowColor, material->shadow}, {DslProperty::InnerShadowBlur, material->inner_shadow_blur},
+            {DslProperty::InnerShadowY, material->inner_shadow_y}, {DslProperty::InnerShadowColor, material->inner_shadow},
+            {DslProperty::InputShape, std::string(material->input_shape == contracts::ThemeInputShape::Bounds ? "bounds" : "visible")}};
+        for (const auto& value : values) {
+            if (!(node->allowed_properties & PropertyBit(value.id)) || !ValidPropertyValue(value.id, value.value))
+                throw std::invalid_argument("Material is not supported by this component");
+            node->properties[value.id] = value.value;
+            ApplyCachedProperty(*node, value.id, value.value);
+        }
+    }
     for (auto& property : blueprint.properties) {
         if (!ValidPropertyValue(property.id, property.value) ||
             !(node->allowed_properties & PropertyBit(property.id)))
             throw std::invalid_argument("Invalid Blueprint property");
         node->properties[property.id] = property.value;
+        node->explicit_properties.insert(property.id);
         ApplyCachedProperty(*node, property.id, property.value);
+    }
+    for (const auto& ref : blueprint.theme_refs) {
+        if (!theme_) throw std::invalid_argument("Theme reference requires a theme snapshot: " + ref.name);
+        const auto value = ResolveThemeToken(*theme_, ref.name);
+        if (!value || !ValidPropertyValue(ref.target, *value) ||
+            !(node->allowed_properties & PropertyBit(ref.target)))
+            throw std::invalid_argument("Invalid theme token for property: " + ref.name);
+        node->properties[ref.target] = *value;
+        node->explicit_properties.insert(ref.target);
+        ApplyCachedProperty(*node, ref.target, *value);
+        node->theme_refs.push_back(ref);
     }
     for (auto& binding : blueprint.bindings) {
         if (binding.name.empty() || !(node->allowed_properties & PropertyBit(binding.target)))
             throw std::invalid_argument("Invalid Blueprint binding");
         bindings_[binding.name].push_back({raw, binding.target});
+        node->explicit_properties.insert(binding.target);
     }
     for (auto& child : blueprint.children) node->children.push_back(MakeNode(std::move(child)));
     return node;
+}
+
+Blueprint Scene::CurrentBlueprint(const Node& node) const {
+    Blueprint result;
+    result.kind = node.kind;
+    result.allowed_properties = node.allowed_properties;
+    result.theme_refs = node.theme_refs;
+    for (const auto id : node.explicit_properties) {
+        if (std::any_of(node.theme_refs.begin(), node.theme_refs.end(),
+                        [id](const ThemeRef& ref) { return ref.target == id; })) continue;
+        result.properties.push_back({id, CurrentProperty(node, id)});
+    }
+    for (const auto& child : node.children) result.children.push_back(CurrentBlueprint(*child));
+    return result;
+}
+
+bool Scene::ApplyTheme(const contracts::ThemeSnapshot& theme, std::string* diagnostic) {
+    try {
+        contracts::ValidateTheme(theme);
+        if (theme_ && *theme_ == theme) {
+            if (diagnostic) diagnostic->clear();
+            return true;
+        }
+        Scene candidate(CurrentBlueprint(*root_), shaper_, font_, theme);
+        for (std::size_t i = 0; i < nodes_.size(); ++i) {
+            candidate.nodes_[i]->intrinsic_size = nodes_[i]->intrinsic_size;
+            candidate.nodes_[i]->image_ready = nodes_[i]->image_ready;
+        }
+        if (ValidSize(viewport_)) {
+            candidate.SetViewport(viewport_);
+            (void)candidate.Build({1});
+            (void)candidate.SurfaceEffects();
+            (void)candidate.InputRegions();
+        } else {
+            const auto count = std::count_if(candidate.nodes_.begin(), candidate.nodes_.end(),
+                [](const Node* node) { return node->style.backdrop_blur > 0; });
+            if (count > 8) throw std::length_error("Surface effect region limit is 8");
+        }
+        // All potentially failing work is complete. Swap prepared value objects
+        // into the retained nodes; IDs, actions, bindings and resource IDs stay.
+        theme_.swap(candidate.theme_);
+        for (std::size_t i = 0; i < nodes_.size(); ++i) {
+            std::swap(nodes_[i]->style, candidate.nodes_[i]->style);
+            nodes_[i]->properties.swap(candidate.nodes_[i]->properties);
+            ++nodes_[i]->revision;
+        }
+        dirty_ = dirty_ | Dirty::Layout | Dirty::Paint | Dirty::Composite;
+        input_dirty_ = true;
+        if (diagnostic) diagnostic->clear();
+        return true;
+    } catch (const std::exception& error) {
+        if (diagnostic) *diagnostic = error.what();
+        return false;
+    }
 }
 
 void Scene::ApplyCachedProperty(Node& node, DslProperty id, const PropertyValue& value) {
@@ -131,8 +226,11 @@ void Scene::ApplyCachedProperty(Node& node, DslProperty id, const PropertyValue&
         case DslProperty::ShadowY: node.style.shadow_y = std::get<double>(value); break;
         case DslProperty::ShadowColor: node.style.shadow_color = std::get<contracts::Color>(value); break;
         case DslProperty::InnerShadowBlur: node.style.inner_shadow_blur = std::get<double>(value); break;
+        case DslProperty::InnerShadowY: node.style.inner_shadow_y = std::get<double>(value); break;
         case DslProperty::InnerShadowColor: node.style.inner_shadow_color = std::get<contracts::Color>(value); break;
         case DslProperty::BackdropBlur: node.style.backdrop_blur = std::get<double>(value); break;
+        case DslProperty::Material: node.style.material = std::get<std::string>(value); break;
+        case DslProperty::InputShape: node.style.input_shape = std::get<std::string>(value); break;
         case DslProperty::Icon: node.icon = std::get<std::string>(value); break;
         case DslProperty::Value: node.value = std::get<double>(value); break;
         case DslProperty::Checked: node.checked = std::get<bool>(value); break;
@@ -157,6 +255,9 @@ PropertyValue Scene::CurrentProperty(const Node& node, DslProperty id) const {
         case DslProperty::Font: return node.style.font_size;
         case DslProperty::Spacing: return node.style.spacing;
         case DslProperty::Padding: return node.style.padding;
+        case DslProperty::Material: return node.style.material;
+        case DslProperty::InputShape: return node.style.input_shape;
+        case DslProperty::InnerShadowY: return node.style.inner_shadow_y;
         case DslProperty::Radius: return node.style.radius;
         case DslProperty::Background: return node.style.background;
         case DslProperty::Foreground: return node.style.foreground;
@@ -235,15 +336,17 @@ bool Scene::SetBinding(std::string_view name, PropertyValue value) {
 
 bool Scene::SetProperty(contracts::NodeId id, DslProperty property, PropertyValue value) {
     Node* node = Find(id);
-    if (!node || !(node->allowed_properties & PropertyBit(property)) ||
+    if (!node || property == DslProperty::Material || !(node->allowed_properties & PropertyBit(property)) ||
         !ValidPropertyValue(property, value)) return false;
     const auto previous=CurrentProperty(*node,property);
     if (previous == value) return false;
     node->properties[property] = value;
+    node->explicit_properties.insert(property);
+    std::erase_if(node->theme_refs, [property](const ThemeRef& ref) { return ref.target == property; });
     ApplyCachedProperty(*node, property, value);
     const Dirty affected = FindProperty(property)->affects;
     const bool input_shape=Has(affected,Dirty::Layout) || property==DslProperty::Radius ||
-        property==DslProperty::Clip || property==DslProperty::Overflow ||
+        property==DslProperty::Clip || property==DslProperty::Overflow || property==DslProperty::InputShape ||
         (property==DslProperty::Background && bool(std::get<contracts::Color>(previous).a)!=bool(std::get<contracts::Color>(value).a)) ||
         (property==DslProperty::BackdropBlur && (std::get<double>(previous)>0)!=(std::get<double>(value)>0)) ||
         (property==DslProperty::Action && std::get<std::string>(previous).empty()!=std::get<std::string>(value).empty());
@@ -290,6 +393,7 @@ bool Scene::ImageReady(contracts::ResourceId image, contracts::LogicalSize intri
 std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window) {
     if (!window || !ValidSize(viewport_) || dirty_ == Dirty::None) return std::nullopt;
     SceneSnapshot snapshot;
+    if (theme_) snapshot.controls = theme_->controls;
     snapshot.root = root_->id;
     snapshot.nodes.reserve(nodes_.size());
     for (const Node* node : nodes_) {
@@ -459,7 +563,7 @@ const std::vector<contracts::SurfaceInputRegion>& Scene::InputRegions() const {
         if(node.bounds.width<=0 || node.bounds.height<=0)return;
         const bool clipped=node.style.clip || node.style.overflow=="clip";
         if(clipped)clips.push_back({node.bounds,node.style.radius});
-        const bool material=node.style.background.a || node.style.backdrop_blur>0 ||
+        const bool material=node.style.input_shape=="bounds" || node.style.background.a || node.style.backdrop_blur>0 ||
             !node.action.empty() || node.kind==Kind::Image;
         if(material)add({node.bounds,node.style.radius});
         // A material clip already covers all visible descendants. A visible

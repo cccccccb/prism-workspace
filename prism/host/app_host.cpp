@@ -3,6 +3,7 @@
 #include "prism/sdk/module_session.hpp"
 #include "prism/sdk/launch_client.hpp"
 #include "prism/launch/error.hpp"
+#include "prism/theme/compiler.hpp"
 #include <fstream>
 #include <iterator>
 #include <unistd.h>
@@ -67,9 +68,18 @@ struct AppHost::Impl {
                 if (config.subscribe_instances) return config.subscribe_instances();
                 if (!launches) launches=std::make_unique<LaunchClient>();
                 return launches->SubscribeInstances();
+            }, [this](std::string_view id) {
+                if (config.select_theme) return config.select_theme(id);
+                if (!launches) launches=std::make_unique<LaunchClient>();
+                return launches->SelectTheme(std::string(id));
             });
         if (!business->Start()) return Fail(contracts::LaunchError::RuntimeFailed, "Business create failed");
         frontend->OnAction([this](std::string_view action) { business->Action(action); });
+        if (config.initial_theme) {
+            const auto& theme=*config.initial_theme;
+            business->Deliver(contracts::ThemeEvent{0,theme.generation,contracts::ThemeStatus::Current,
+                theme.id,theme.name,{}});
+        }
         return true;
     }
 };
@@ -84,6 +94,11 @@ bool AppHost::PrepareFrontend() {
         config.font_path = self.config.font_path;
         self.frontend = std::make_unique<ClientApplication>(std::move(config));
         if (!self.frontend->FrontendReady()) return self.Fail(contracts::LaunchError::RuntimeFailed, "Font initialization failed");
+        if (self.config.initial_theme) {
+            std::string diagnostic;
+            if (!self.frontend->ApplyTheme(*self.config.initial_theme,&diagnostic))
+                return self.Fail(contracts::LaunchError::RuntimeFailed,std::move(diagnostic));
+        }
         return true;
     } catch (const std::exception& error) { return self.Fail(contracts::LaunchError::RuntimeFailed, error.what()); }
 }
@@ -97,6 +112,25 @@ void AppHost::DeliverLaunchEvent(const contracts::LaunchEvent& event) {
 void AppHost::DeliverInstanceEvent(const contracts::InstanceUpdate& event) {
     if (impl_->business) impl_->business->Deliver(event);
 }
+void AppHost::DeliverThemeEvent(const contracts::ThemeEvent& event) {
+    if (impl_->business) impl_->business->Deliver(event);
+}
+bool AppHost::ApplyTheme(const contracts::ThemeSnapshot& theme, std::string* diagnostic) {
+    try {
+        contracts::ValidateTheme(theme);
+        std::optional<contracts::ThemeSnapshot> prepared(theme);
+        if (impl_->frontend && !impl_->frontend->ApplyTheme(theme,diagnostic)) return false;
+        impl_->config.initial_theme.swap(prepared);
+        if (diagnostic) diagnostic->clear();
+        return true;
+    } catch (const std::exception& error) {
+        if (diagnostic) *diagnostic=error.what();
+        return false;
+    }
+}
+std::uint64_t AppHost::ThemeGeneration() const {
+    return impl_->config.initial_theme ? impl_->config.initial_theme->generation : 0;
+}
 bool AppHost::Bind(const launch::AppPackage& package) {
     auto& self = *impl_;
     if (self.bound_once || self.failed || !self.config.request.value || !self.config.instance.value) return false;
@@ -105,6 +139,12 @@ bool AppHost::Bind(const launch::AppPackage& package) {
     self.package = package;
     self.startup_deadline = MonotonicNs() + 10000000000ULL;
     try {
+        if (!self.config.initial_theme) {
+            const auto initial=theme::LoadTheme(theme::DefaultThemeRoot(),"glass",1);
+            std::string diagnostic;
+            if (!ApplyTheme(initial,&diagnostic))
+                return self.Fail(contracts::LaunchError::RuntimeFailed,std::move(diagnostic));
+        }
         const auto& manifest = package.manifest;
         ClientConfig config{self.config.socket, manifest.app_id, manifest.name, self.config.font_path,
             manifest.width, manifest.height, package.assets.string()};
@@ -129,6 +169,17 @@ bool AppHost::Pump(int timeout) {
         if (self.launches) {
             for (const auto& event : self.launches->Pump(0)) self.business->Deliver(event);
             for (const auto& event:self.launches->TakeInstanceUpdates()) self.business->Deliver(event);
+            for (const auto& event:self.launches->TakeThemeEvents()) {
+                if (event.status != contracts::ThemeStatus::Rejected) {
+                    std::string diagnostic;
+                    if (!ApplyTheme(theme::LoadTheme(theme::DefaultThemeRoot(),event.id,event.generation),&diagnostic)) {
+                        self.business->Deliver(contracts::ThemeEvent{event.request,ThemeGeneration(),
+                            contracts::ThemeStatus::Rejected,event.id,event.name,std::move(diagnostic)});
+                        continue;
+                    }
+                }
+                self.business->Deliver(event);
+            }
             if (!self.launches->Connected()) self.business->Disconnected();
         }
         const auto now = MonotonicNs();

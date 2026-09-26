@@ -1,7 +1,7 @@
 #pragma once
 
 #include "prism/tree/tree_workspace.hpp"
-#include "prism/decoration/tiling_decoration_spec.hpp"
+#include "prism/tree/tree_layout_config.hpp"
 #include <unordered_map>
 #include <functional>
 
@@ -49,7 +49,7 @@ public:
     bool MoveFocus(Direction dir);
 
     // Layout Calculation
-    void Arrange(const core::Rect& screen_area, const decoration::TilingDecorationSpec& spec);
+    void Arrange(const core::Rect& screen_area, const TreeLayoutConfig& config);
     std::vector<std::pair<std::shared_ptr<wm::Window>, core::Rect>> GetCalculatedLayout() const;
 
     // Sway / i3 JSON Tree Introspection (swaymsg -t get_tree)

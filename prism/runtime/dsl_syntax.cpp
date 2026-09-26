@@ -33,7 +33,8 @@ private:
         if (!Is(type)) Error(message);
         return tokens_[index_++];
     }
-    SyntaxValue ParseValue() {
+    SyntaxValue ParseValue(unsigned depth=0) {
+        if (depth>64) Error("value nesting exceeds limit");
         if (Is(TokenType::StringLiteral)) return {{Require(TokenType::StringLiteral, "string expected").text}};
         if (Is(TokenType::DollarIdentifier)) {
             auto token = Require(TokenType::DollarIdentifier, "binding expected");
@@ -60,7 +61,7 @@ private:
         if (Match(TokenType::OpenBracket)) {
             SyntaxValue::List values;
             if (!Is(TokenType::CloseBracket)) {
-                do { values.push_back(ParseValue()); } while (Match(TokenType::Comma) && !Is(TokenType::CloseBracket));
+                do { values.push_back(ParseValue(depth+1)); } while (Match(TokenType::Comma) && !Is(TokenType::CloseBracket));
             }
             Require(TokenType::CloseBracket, "expected ']' after list");
             return {{std::move(values)}};
@@ -85,7 +86,8 @@ private:
         Require(TokenType::CloseParen, "expected ')' after arguments");
         return result;
     }
-    SyntaxNode ParseNode() {
+    SyntaxNode ParseNode(unsigned depth=0) {
+        if (depth>64 || ++node_count_>8192) Error("component nesting or count exceeds limit");
         auto name = Require(TokenType::Identifier, "expected component name");
         SyntaxNode node;
         node.name = std::move(name.text);
@@ -94,7 +96,7 @@ private:
         if (Match(TokenType::OpenBrace)) {
             while (!Is(TokenType::CloseBrace)) {
                 if (Is(TokenType::EndOfFile)) Error("expected '}' after children");
-                node.children.push_back(ParseNode());
+                node.children.push_back(ParseNode(depth+1));
             }
             Require(TokenType::CloseBrace, "expected '}' after children");
         }
@@ -106,6 +108,7 @@ private:
     }
     std::vector<Token> tokens_;
     std::size_t index_{0};
+    std::size_t node_count_{0};
 };
 } // namespace
 

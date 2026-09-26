@@ -60,10 +60,10 @@ void ContainerNode::ArrangeChildren(const core::Rect& area, int inner_gap, float
 
     switch (layout_mode_) {
         case LayoutMode::SplitHorizontal:
-            ArrangeSplitHorizontal(area, inner_gap);
+            ArrangeSplitHorizontal(area, inner_gap, header_height);
             break;
         case LayoutMode::SplitVertical:
-            ArrangeSplitVertical(area, inner_gap);
+            ArrangeSplitVertical(area, inner_gap, header_height);
             break;
         case LayoutMode::Tabbed:
             ArrangeTabbed(area, header_height);
@@ -72,52 +72,66 @@ void ContainerNode::ArrangeChildren(const core::Rect& area, int inner_gap, float
             ArrangeStacked(area, header_height);
             break;
         default:
-            ArrangeSplitHorizontal(area, inner_gap);
+            ArrangeSplitHorizontal(area, inner_gap, header_height);
             break;
     }
 }
 
-void ContainerNode::ArrangeSplitHorizontal(const core::Rect& area, int inner_gap) {
+void ContainerNode::ArrangeSplitHorizontal(const core::Rect& area, int inner_gap, float header_height) {
     int n = static_cast<int>(children.size());
-    float total_gaps = static_cast<float>(std::max(0, n - 1) * inner_gap);
-    float usable_width = std::max(0.0f, area.width - total_gaps);
+    const float axis = std::max(0.0f, area.width);
+    const float minimum = std::min(1.0f, axis/n);
+    const float gap = n>1 ? std::min(float(std::max(0,inner_gap)),
+        std::max(0.0f, std::floor((axis-n*minimum)/(n-1)))) : 0;
+    const float usable_width = std::max(0.0f, axis-(n-1)*gap);
 
     float cur_x = area.x;
     for (int i = 0; i < n; ++i) {
         auto& child = children[i];
-        float w = (i == n - 1) ? (area.x + area.width - cur_x)
-                               : std::round(usable_width * static_cast<float>(child->width_fraction));
+        const float remaining = std::max(0.0f, area.x+axis-cur_x);
+        const float desired = axis>=n ? std::round(usable_width*float(child->width_fraction))
+                                     : usable_width*float(child->width_fraction);
+        // Reserve room for every later sibling, including their gaps. Rounding
+        // one tile must never make the final tile negative or collapse it.
+        const float maximum = std::max(minimum, remaining-(n-i-1)*(minimum+gap));
+        const float w = i==n-1 ? remaining : std::clamp(desired,minimum,maximum);
 
         core::Rect child_rect{cur_x, area.y, w, area.height};
         child->bounds = child_rect;
 
         if (auto con = std::dynamic_pointer_cast<ContainerNode>(child)) {
-            con->ArrangeChildren(child_rect, inner_gap, 32.0f);
+            con->ArrangeChildren(child_rect, inner_gap, header_height);
         }
 
-        cur_x += w + static_cast<float>(inner_gap);
+        cur_x += w + gap;
     }
 }
 
-void ContainerNode::ArrangeSplitVertical(const core::Rect& area, int inner_gap) {
+void ContainerNode::ArrangeSplitVertical(const core::Rect& area, int inner_gap, float header_height) {
     int n = static_cast<int>(children.size());
-    float total_gaps = static_cast<float>(std::max(0, n - 1) * inner_gap);
-    float usable_height = std::max(0.0f, area.height - total_gaps);
+    const float axis = std::max(0.0f, area.height);
+    const float minimum = std::min(1.0f, axis/n);
+    const float gap = n>1 ? std::min(float(std::max(0,inner_gap)),
+        std::max(0.0f, std::floor((axis-n*minimum)/(n-1)))) : 0;
+    const float usable_height = std::max(0.0f, axis-(n-1)*gap);
 
     float cur_y = area.y;
     for (int i = 0; i < n; ++i) {
         auto& child = children[i];
-        float h = (i == n - 1) ? (area.y + area.height - cur_y)
-                               : std::round(usable_height * static_cast<float>(child->height_fraction));
+        const float remaining = std::max(0.0f, area.y+axis-cur_y);
+        const float desired = axis>=n ? std::round(usable_height*float(child->height_fraction))
+                                     : usable_height*float(child->height_fraction);
+        const float maximum = std::max(minimum, remaining-(n-i-1)*(minimum+gap));
+        const float h = i==n-1 ? remaining : std::clamp(desired,minimum,maximum);
 
         core::Rect child_rect{area.x, cur_y, area.width, h};
         child->bounds = child_rect;
 
         if (auto con = std::dynamic_pointer_cast<ContainerNode>(child)) {
-            con->ArrangeChildren(child_rect, inner_gap, 32.0f);
+            con->ArrangeChildren(child_rect, inner_gap, header_height);
         }
 
-        cur_y += h + static_cast<float>(inner_gap);
+        cur_y += h + gap;
     }
 }
 

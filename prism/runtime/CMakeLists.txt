@@ -1,17 +1,15 @@
 add_library(prism_client_scene STATIC
     scene.cpp scene_snapshot.cpp layout_engine.cpp render_tree.cpp display_list_builder.cpp
     image_resources.cpp dsl_schema.cpp theme_tokens.cpp)
-target_link_libraries(prism_client_scene PUBLIC prism_contracts Threads::Threads)
+target_link_libraries(prism_client_scene PUBLIC prism_contracts prism_theme_contract Threads::Threads)
 target_include_directories(prism_client_scene PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
 target_compile_features(prism_client_scene PUBLIC cxx_std_20)
 
 # The frontend is deliberately a separate target: the retained Scene and
 # renderer never need to include AST, parser, or legacy prism_core headers.
 add_library(prism_client_dsl STATIC
-    dsl_frontend.cpp
-    dsl_syntax.cpp
-    ../src/compiler/lexer.cpp)
-target_link_libraries(prism_client_dsl PUBLIC prism_client_scene)
+    dsl_frontend.cpp)
+target_link_libraries(prism_client_dsl PUBLIC prism_client_scene prism_dsl_syntax)
 target_include_directories(prism_client_dsl PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../include")
 
 if(PRISM_ENABLE_GLES AND PRISM_SKIA_ROOT)

@@ -1,7 +1,6 @@
 #include "prism/runtime/dsl_frontend.hpp"
 #include "prism/runtime/dsl_schema.hpp"
 #include "prism/runtime/dsl_syntax.hpp"
-#include "prism/runtime/theme_tokens.hpp"
 #include <cmath>
 #include <stdexcept>
 #include <string>
@@ -31,19 +30,14 @@ bool CorrectType(DslValueType type, const SyntaxValue& value) {
 void Apply(Blueprint& out, const PropertySpec& spec, const SyntaxValue& value,
            int line, const ResolveImage& resolve_image) {
     if (auto* binding = std::get_if<BindingValue>(&value.data)) {
+        if (spec.id == DslProperty::Material) Error(line, "material is a static style reference");
         out.bindings.push_back({binding->name, spec.id});
         return;
     }
     if (const auto* token = std::get_if<std::string>(&value.data); token && token->starts_with("@")) {
-        const auto resolved = ResolveThemeToken(std::string_view(*token).substr(1));
-        if (!resolved) Error(line, "unknown theme token: " + *token);
-        SyntaxValue expanded;
-        if (auto* number = std::get_if<double>(&*resolved)) expanded.data = *number;
-        else if (auto* color = std::get_if<contracts::Color>(&*resolved))
-            expanded.data = ColorValue{(uint32_t(color->r) << 24) | (uint32_t(color->g) << 16) |
-                (uint32_t(color->b) << 8) | color->a};
-        else Error(line, "unsupported theme token type: " + *token);
-        Apply(out, spec, expanded, line, resolve_image);
+        if (token->size() == 1 || (spec.type != DslValueType::Number && spec.type != DslValueType::Color))
+            Error(line, "theme references require a numeric or color property");
+        out.theme_refs.push_back({token->substr(1), spec.id});
         return;
     }
     if (!CorrectType(spec.type, value)) Error(line, "wrong value type for '" + std::string(spec.name) + "'");
@@ -134,8 +128,15 @@ Blueprint Convert(const SyntaxNode& node, const ResolveImage& resolve_image) {
             if (it->target == DslProperty::Text) {
                 label.bindings.push_back(std::move(*it));
                 it = out.bindings.erase(it);
-            } else ++it;
+            } else {
+                if (it->target == DslProperty::Font || it->target == DslProperty::Foreground)
+                    label.bindings.push_back(*it);
+                ++it;
+            }
         }
+        for (const auto& ref : out.theme_refs)
+            if (ref.target == DslProperty::Font || ref.target == DslProperty::Foreground)
+                label.theme_refs.push_back(ref);
         out.children.push_back(std::move(label));
     }
     return out;
@@ -150,6 +151,7 @@ Blueprint ParseBlueprint(std::string_view source, ResolveImage resolve_image) {
         for(const auto& property:node.properties) if(property.id==DslProperty::BackdropBlur &&
             std::get<double>(property.value)>0)effect=true;
         for(const auto& binding:node.bindings)if(binding.target==DslProperty::BackdropBlur)effect=true;
+        for(const auto& ref:node.theme_refs)if(ref.target==DslProperty::BackdropBlur)effect=true;
         if(effect && ++regions>8)throw std::runtime_error("DSL surface effect region limit is 8");
         for(const auto& child:node.children)self(self,child);
     };

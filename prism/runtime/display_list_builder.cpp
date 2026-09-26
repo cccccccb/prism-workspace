@@ -30,11 +30,12 @@ void Emit(const RenderTree& tree, contracts::NodeId id, contracts::ResourceId fo
             auto bounds=node.bounds; bounds.width*=progress->value;
             list.commands.emplace_back(contracts::FillRoundedRect{bounds,progress->radius,progress->color});
         } else if (auto* toggle=std::get_if<ToggleVisual>(&visual)) {
-            const auto radius=node.bounds.height/2;
+            const auto radius=std::min(toggle->controls.toggle_track_radius,node.bounds.height/2);
             if (toggle->checked) list.commands.emplace_back(contracts::FillRoundedRect{node.bounds,radius,toggle->color});
-            const auto diameter=std::max(0.0,node.bounds.height-4);
-            list.commands.emplace_back(contracts::FillRoundedRect{{node.bounds.x+(toggle->checked?node.bounds.width-diameter-2:2),
-                node.bounds.y+2,diameter,diameter},diameter/2,{255,255,255,255}});
+            const auto inset=std::min(toggle->controls.toggle_inset,std::min(node.bounds.width,node.bounds.height)/2);
+            const auto diameter=std::max(0.0,std::min(node.bounds.width,node.bounds.height)-2*inset);
+            list.commands.emplace_back(contracts::FillRoundedRect{{node.bounds.x+(toggle->checked?node.bounds.width-diameter-inset:inset),
+                node.bounds.y+inset,diameter,diameter},std::min(toggle->controls.toggle_knob_radius,diameter/2),toggle->controls.toggle_knob});
         }
         else if (auto* text = std::get_if<TextVisual>(&visual)) {
             contracts::DrawGlyphRun run;

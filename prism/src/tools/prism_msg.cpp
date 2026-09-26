@@ -1,4 +1,7 @@
 #include <iostream>
+#include "prism/sdk/launch_client.hpp"
+#include <nlohmann/json.hpp>
+#include <chrono>
 #include <string>
 #include <vector>
 #include <sstream>
@@ -11,7 +14,7 @@ static void PrintUsage(const char* prog) {
     std::cout << "PrismWM IPC Controller (Swaymsg-like architecture)\n"
               << "Usage: " << prog << " [options] <command> [args...]\n\n"
               << "Options:\n"
-              << "  -s <path>      Specify IPC socket path (default: $PRISMSOCK or $XDG_RUNTIME_DIR/prism-ipc.sock)\n"
+              << "  -s <path>      Specify endpoint path (theme commands use the launcher socket) (default: $PRISMSOCK or $XDG_RUNTIME_DIR/prism-ipc.sock)\n"
               << "  -r, --raw      Output raw JSON response without formatting\n"
               << "  -h, --help     Show this help message\n\n"
               << "Commands:\n"
@@ -23,7 +26,8 @@ static void PrintUsage(const char* prog) {
               << "  workspace, ws [name]            Switch or query dynamic workspaces (1..N)\n"
               << "  layout <splith|splitv|tabbed|stacked|overview|split> Change container layout mode\n"
               << "  tree, get_tree                  Dump multi-level recursive container tree in JSON (Swaymsg-like)\n"
-              << "  set_theme <path|nordic|default> Hot-reload or switch Tiling Decoration Theme (.prismb)\n"
+              << "  set_theme <id>                 Apply a DSL theme through the unified runtime\n"
+              << "  get_theme                       Query the applied theme and generation\n"
               << "  fold [window_index]             Trigger smooth kinetic fold/unfold on tile (roll-up)\n"
               << "  fullscreen, monocle [win_index] Toggle kinetic fullscreen expansion / restore\n"
               << "  action <app_id> <action_name>   Send action event to application (e.g. player:toggle)\n"
@@ -37,7 +41,7 @@ static void PrintUsage(const char* prog) {
               << "  " << prog << " tree\n"
               << "  " << prog << " fold 0\n"
               << "  " << prog << " fullscreen\n"
-              << "  " << prog << " set_theme nordic\n";
+              << "  " << prog << " set_theme glass\n";
 }
 
 static std::string FindSocketPath(const std::string& custom_sock) {
@@ -120,6 +124,25 @@ int main(int argc, char* argv[]) {
     if (cmd_args.empty()) {
         PrintUsage(argv[0]);
         return 1;
+    }
+
+    if (cmd_args.front()=="set_theme" || cmd_args.front()=="theme" || cmd_args.front()=="get_theme") {
+        const bool query=cmd_args.front()=="get_theme" || (cmd_args.front()=="theme" && cmd_args.size()==1);
+        if(cmd_args.size()!=(query?1u:2u)){PrintUsage(argv[0]);return 2;}
+        prism::sdk::LaunchClient client(custom_sock);
+        const auto request=client.SelectTheme(query?std::string{}:cmd_args[1]);
+        if(!request){std::cerr<<"Cannot connect to the theme owner (launcher socket)\n";return 1;}
+        const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(12);
+        while(client.Connected()&&std::chrono::steady_clock::now()<deadline){
+            client.Pump(100);
+            for(auto& event:client.TakeThemeEvents())if(event.request==request){
+                using prism::contracts::ThemeStatus;
+                const auto status=event.status==ThemeStatus::Rejected?"rejected":event.status==ThemeStatus::Current?"current":"applied";
+                std::cout<<nlohmann::json{{"status",status},{"generation",event.generation},{"id",event.id},{"name",event.name},{"detail",event.detail}}.dump()<<'\n';
+                return event.status==ThemeStatus::Rejected?1:0;
+            }
+        }
+        std::cerr<<"Theme acknowledgement timed out or connection closed\n";return 1;
     }
 
     std::string sock_path = FindSocketPath(custom_sock);

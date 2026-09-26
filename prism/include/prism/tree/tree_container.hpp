@@ -37,8 +37,8 @@ public:
     std::string ToJson(bool is_focused = false) const override;
 
 private:
-    void ArrangeSplitHorizontal(const core::Rect& area, int inner_gap);
-    void ArrangeSplitVertical(const core::Rect& area, int inner_gap);
+    void ArrangeSplitHorizontal(const core::Rect& area, int inner_gap, float header_height);
+    void ArrangeSplitVertical(const core::Rect& area, int inner_gap, float header_height);
     void ArrangeTabbed(const core::Rect& area, float header_height);
     void ArrangeStacked(const core::Rect& area, float header_height);
 

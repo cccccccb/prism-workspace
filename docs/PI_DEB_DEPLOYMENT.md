@@ -1,6 +1,6 @@
 # Pi Debian 安装包与物理显示会话
 
-日期：2026-09-26。当前安装版本为 **0.1.0-5 arm64**，已接入真实 BSP、图标界面和 GPU 玻璃主题，统一 session/launcher/host 保持生产入口。1024×600 物理输出截图与协议检查通过；用户确认新版外观、播放图标、Preferences 配色切换和 Dock 激活均正常。
+日期：2026-09-26。当前安装版本为 **0.1.0-6 arm64**，已接入真实 BSP、图标界面、GPU 背景材料与 DSL 全局主题。统一 session/launcher/host 保持生产入口。1024×600 物理输出截图与协议检查通过；用户确认“四种主题切换及点击都正常”。
 
 ## 1. 发布规范
 
@@ -12,7 +12,7 @@
 
 ```sh
 tools/package-deb.sh
-sudo apt install ./dist/deb/prism-wm_0.1.0-5_arm64.deb
+sudo apt install ./dist/deb/prism-wm_0.1.0-6_arm64.deb
 sudo systemctl daemon-reload
 systemctl --user daemon-reload
 ```
@@ -53,7 +53,18 @@ sudo chvt 1
 
 不 enable 服务、不改变默认启动目标。Supervisor 回收 WM、launcher 及接管的 host；不能仅依赖 service KillMode，因为 PAM 进程可能进入 logind scope。启动前已经存在的 systemd PAM helper 归 systemd 管理，监督器不得等待它退出：helper 本身等待父监督器退出，否则会形成停止死锁。0.1.0-2 实机测试发现这一问题，0.1.0-3 修复，0.1.0-4 延续该修复；试验版 2 不作为当前部署版本。
 
-## 4. 0.1.0-5 BSP 与玻璃主题部署
+## 4. 0.1.0-6 DSL 全局主题部署与现场确认
+
+- 发布包 `dist/deb/prism-wm_0.1.0-6_arm64.deb`，7532324 字节，SHA-256：`049061b6e412fd33a2b619920375100a204d107c1a10800e75a8f06d5aa8a91e`。安装为 `install ok installed 0.1.0-6 arm64`，`dpkg -V prism-wm` 无差异。
+- Release 构建使用 Skia GLES、`BUILD_TESTING=OFF` 和 `/usr` 前缀。安装清单包含四份 `themes/<id>/theme.prism`，不含旧主题 JSON、静态生成头、测试/probe/fixture、ImGui 或旧独立客户端。WM 符号检查不包含客户端 Scene、DSL/主题编译器、SkCanvas/SkSurface。
+- 最终 CTest 28/28 通过；透明主题前景调色后重复相关编译器/模板测试 2/2 通过。诊断和 Release 两种真实 V3D 统一会话均通过四主题切换、现有 host PID 保持、预热新窗口继承当前 generation、编译失败、host 拒绝后恢复、请求 ID/订阅冲突检查。失败恢复使用更高 generation，保持原主题内容。
+- 升级前停止旧服务约 0.476 秒。旧会话 journal 记录六个 host 回收及 WM 正常退出；从日志确认的九个旧 Prism PID 均已不存在，launcher/Wayland/IPC socket 在停止后已移除。详细来源见 `dist/validation/prism-v6-theme/upgrade-shutdown.json`，不以未读到 `/proc/<pid>/exe` 误判空进程列表。
+- 安装后启动 `prism-demo@ss.service`，沿用 tty8/seat0，HDMI-A-1 为 1024×600、59.821 Hz。Shell、Music/Preferences 均由统一 host 承载，实际客户端上下文报告 `V3D 4.2.14.0`，HUD 关闭。真实 DRM 启动、首帧/Ready、已有实例激活、NewInstance、取消退出、保留 Shell 拒绝与实例流门槛再次通过。
+- 已安装物理会话依次切换 `translucent`、`transparent`、`square`、`glass`，WM/launcher 返回一致 generation，服务未重启，两个普通 BSP 窗口保持。截图、协议结果位于 `dist/validation/prism-v6-theme/physical-*`。用户随后在 Preferences 现场操作，答复“四种主题切换及点击都正常”，确认顶部栏/Dock/两窗口效果切换，以及播放和 Dock 激活正常。保留用户最后选择，不强制切回默认主题；未启用开机自启。
+
+规范与作者接口见 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md)、[THEME_AUTHORING.md](THEME_AUTHORING.md)。本次验收覆盖当前单输出上的外观热切换；当前热切换拒绝修改 Shell 保留带/BSP 间距的 `Layout`，需要后续 configure/commit 感知事务。主题选择尚不自动持久化。专项性能分位数、多屏/DPI 与零拷贝仍不据此作完成结论。
+
+## 历史：0.1.0-5 BSP 与玻璃主题部署
 
 - 发布包 `dist/deb/prism-wm_0.1.0-5_arm64.deb`，7259770 字节，SHA-256：`f731e8d0b8cb716c7cc8551265a721871ed4008ca639435a5620769f5144e3a9`。安装为 `install ok installed 0.1.0-5 arm64`，`dpkg -V` 无差异。
 - Release 包清单检查通过：统一 host/模块/DSL/资产及共享主题 JSON，包含新材料协议运行代码；不含旧客户端入口、测试、probe、fixture 或 ImGui。解包前缀的真实统一会话与预存 PAM helper 回收检查通过。
@@ -63,7 +74,7 @@ sudo chvt 1
 - 实机协议门槛再次通过：真实呈现/Ready、同实例激活、NewInstance、取消退出、保留 Shell 拒绝及实例快照。最终保留 Music/Preferences 两个普通 BSP 窗口和 Shell 供操作，没有启用开机自启。
 - 实际输出截图为 `dist/validation/prism-v5-physical.png`，操作后截图为 `prism-v5-physical-confirmed.png`。版本、包、输出、树、状态、停止与启动记录均以 `prism-v5-*` 保存。用户答复“外观正常，以上点击都正常”，确认播放状态变化、Preferences 本窗口变色和 Dock Music/Pref 激活；结果记录在 `prism-v5-physical-final.json`。全部键盘快捷键尚未逐项现场复核，不把截图或 59.8 Hz 输出模式当作完整性能验收。
 
-主题及职责规范见 [SURFACE_MATERIALS.md](SURFACE_MATERIALS.md)，快捷键与本轮边界见 [VISUAL_TILING_REFINEMENT_PLAN.md](VISUAL_TILING_REFINEMENT_PLAN.md)。Settings 现在可切换本窗口真实配色，全局主题服务未实现；Music 仍为演示业务。实时拖动分割比例、动画与性能专项留待后续。
+主题及职责规范见 [SURFACE_MATERIALS.md](SURFACE_MATERIALS.md)，快捷键与本轮边界见 [VISUAL_TILING_REFINEMENT_PLAN.md](VISUAL_TILING_REFINEMENT_PLAN.md)。0.1.0-5 的 Settings 仅切换本窗口真实配色，当时尚无全局主题服务；Music 仍为演示业务。实时拖动分割比例、动画与性能专项留待后续。
 
 ## 5. 历史：0.1.0-3 实机记录
 

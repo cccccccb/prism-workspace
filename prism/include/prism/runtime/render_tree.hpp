@@ -11,7 +11,7 @@ struct BorderVisual { double radius; double width; contracts::Color color; };
 struct ShadowVisual { double radius; double blur; double offset_y; contracts::Color color; bool inset; };
 struct IconVisual { contracts::VectorIcon icon; contracts::Color color; double padding; };
 struct ProgressVisual { double value; double radius; contracts::Color color; };
-struct ToggleVisual { bool checked; contracts::Color color; };
+struct ToggleVisual { bool checked; contracts::Color color; contracts::ThemeControls controls; };
 using Visual = std::variant<RectVisual, RoundedRectVisual, ImageVisual, TextVisual,
     BorderVisual, ShadowVisual, IconVisual, ProgressVisual, ToggleVisual>;
 

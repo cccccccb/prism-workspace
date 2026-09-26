@@ -1,5 +1,5 @@
 add_library(prism_launcher_runtime STATIC service.cpp)
-target_link_libraries(prism_launcher_runtime PUBLIC prism_launch)
+target_link_libraries(prism_launcher_runtime PUBLIC prism_launch prism_theme_compiler)
 add_executable(prism-launcher main.cpp)
 target_link_libraries(prism-launcher PRIVATE prism_launcher_runtime)
 add_executable(prism-invoker invoker.cpp)

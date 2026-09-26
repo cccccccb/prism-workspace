@@ -453,14 +453,14 @@ bool TreeEngine::MoveFocus(Direction dir) {
     return false;
 }
 
-void TreeEngine::Arrange(const core::Rect& screen_area, const decoration::TilingDecorationSpec& spec) {
+void TreeEngine::Arrange(const core::Rect& screen_area, const TreeLayoutConfig& config) {
     if (!active_workspace_) return;
     active_workspace_->Arrange(
         screen_area,
-        spec.gaps.inner,
-        spec.gaps.outer,
-        spec.gaps.smart_gaps,
-        spec.header.height
+        config.inner_gap,
+        config.outer_gap,
+        config.smart_gaps,
+        config.header_height
     );
 }
 

@@ -32,4 +32,9 @@ inline bool Ready(const PrismHostApiV1* host) { return host->backend_ready(host-
 inline bool Tick(const PrismHostApiV1* host,std::uint64_t delay=1000000000ULL) {
     return host->schedule_tick(host->context,delay)==0;
 }
+inline std::uint64_t SelectTheme(const PrismHostApiV1* host,std::string_view id) {
+    if (!host || host->struct_size < offsetof(PrismHostApiV1,select_theme)+sizeof(host->select_theme) ||
+        !host->select_theme) return 0;
+    return host->select_theme(host->context,{id.data(),id.size()});
+}
 } // namespace prism::app

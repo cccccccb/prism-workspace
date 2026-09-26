@@ -8,9 +8,12 @@ int main(int argc,char** argv) {
     for (int n=1;n<5;++n) {
         std::map<std::string,runtime::PropertyValue> bindings;
         std::string launched;
+        std::string selected_theme;
+        std::uint64_t theme_request{};
         sdk::ModuleSession module(argv[n],"test",22,[&](auto key,auto value) {
             bindings[std::string(key)]=std::move(value); return true;
-        },[&](auto app) { launched=app; return 6; },[] { return 5; });
+        },[&](auto app) { launched=app; return 6; },[] { return 5; },
+            [&](auto id) { selected_theme=id; return ++theme_request; });
         assert(module.Start() && module.BackendReady());
         if (n==3) {
             assert(std::get<std::string>(bindings.at("running_badge"))=="0 Active");
@@ -46,15 +49,21 @@ int main(int argc,char** argv) {
         }
         if (n==4) {
             auto memory=std::get<std::string>(bindings.at("mem_usage_text")); assert(memory.find("GiB")!=std::string::npos);
-            const auto light=std::get<contracts::Color>(bindings.at("window_tint"));
-            assert(!std::get<bool>(bindings.at("theme_dark")));
+            assert(!bindings.contains("window_tint") && !bindings.contains("theme_dark"));
+            assert(theme_request==1 && selected_theme.empty());
             assert(std::get<double>(bindings.at("memory_usage"))>=0 && std::get<double>(bindings.at("memory_usage"))<=1);
-            module.Action("theme:toggle");
-            assert(std::get<std::string>(bindings.at("dark_mode_btn"))=="Appearance: Dark");
-            assert(std::get<bool>(bindings.at("theme_dark")));
-            assert(std::get<contracts::Color>(bindings.at("window_tint"))!=light);
-            module.Action("theme:toggle");
-            assert(std::get<contracts::Color>(bindings.at("window_tint"))==light);
+            module.Deliver(contracts::ThemeEvent{1,1,contracts::ThemeStatus::Current,"glass","Prism Glass"});
+            assert(std::get<std::string>(bindings.at("theme_status"))=="Theme: Prism Glass");
+            module.Action("theme:transparent");
+            assert(selected_theme=="transparent" && theme_request==2);
+            assert(std::get<std::string>(bindings.at("theme_status"))=="Applying theme");
+            module.Deliver(contracts::ThemeEvent{2,1,contracts::ThemeStatus::Rejected,"glass","Prism Glass","invalid"});
+            assert(std::get<std::string>(bindings.at("theme_status"))=="Theme change rejected");
+            module.Action("theme:square");
+            module.Deliver(contracts::ThemeEvent{3,2,contracts::ThemeStatus::Applied,"square","Prism Square"});
+            assert(std::get<std::string>(bindings.at("theme_status"))=="Theme: Prism Square");
+            module.Deliver(contracts::ThemeEvent{0,1,contracts::ThemeStatus::Current,"glass","Prism Glass"});
+            assert(std::get<std::string>(bindings.at("theme_status"))=="Theme: Prism Square");
             module.Action("sys:refresh");
         }
     }

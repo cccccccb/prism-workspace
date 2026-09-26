@@ -50,6 +50,9 @@ typedef struct PrismHostApiV1 {
     int32_t (*schedule_tick)(void*, uint64_t);
     /* Optional tail: subscribe once to mapped ordinary window instances. */
     uint64_t (*subscribe_instances)(void*);
+    /* Optional tail: select an installed theme ID, or query with an empty ID.
+     * Nonzero only means queued; the theme event reports the platform result. */
+    uint64_t (*select_theme)(void*, PrismStringViewV1);
 } PrismHostApiV1;
 
 typedef struct PrismAppInitV1 {
@@ -84,6 +87,16 @@ typedef struct PrismInstanceEventV1 {
     PrismStringViewV1 app_id;
 } PrismInstanceEventV1;
 
+typedef struct PrismThemeEventV1 {
+    uint32_t struct_size;
+    uint64_t request_id;
+    uint64_t generation;
+    uint32_t status; /* Current=0, Applied=1, Rejected=2 */
+    PrismStringViewV1 id;
+    PrismStringViewV1 name;
+    PrismStringViewV1 detail;
+} PrismThemeEventV1;
+
 typedef struct PrismAppModuleV1 {
     uint32_t struct_size;
     uint32_t abi_version;
@@ -95,6 +108,7 @@ typedef struct PrismAppModuleV1 {
     void (*on_tick)(void*, uint64_t monotonic_ns);
     void (*on_launch_event)(void*, const PrismLaunchEventV1*);
     void (*on_instance_event)(void*, const PrismInstanceEventV1*);
+    void (*on_theme_event)(void*, const PrismThemeEventV1*);
 } PrismAppModuleV1;
 
 typedef const PrismAppModuleV1* (*PrismAppEntryV1)(void);

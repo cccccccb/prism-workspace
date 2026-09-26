@@ -68,6 +68,6 @@ void LaunchEvent(void* instance,const PrismLaunchEventV1* event) noexcept {
             prism::app::Text(dock.host,"launch_status",app=="demo_player" ? "Music ready" : "Pref ready");
     } catch (...) {}
 }
-const PrismAppModuleV1 api{sizeof(api),PRISM_APP_ABI_V1,Create,Destroy,Action,nullptr,LaunchEvent,Instances};
+const PrismAppModuleV1 api{sizeof(api),PRISM_APP_ABI_V1,Create,Destroy,Action,nullptr,LaunchEvent,Instances,nullptr};
 }
 extern "C" PRISM_APP_EXPORT const PrismAppModuleV1* prism_app_module_v1() { return &api; }

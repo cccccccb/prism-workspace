@@ -1,39 +1,39 @@
-Card(padding: 12, background: $window_tint, cornerRadius: "@window_radius",
-     clip: true, backdropBlur: "@blur_radius") {
+Card(padding: "@window_padding", material: "window", clip: true) {
     VStack(spacing: 8) {
         HStack(height: 32, spacing: 8, align: "center") {
-            Icon("settings", width: 24, height: 24, foreground: $text_color)
-            Text("Preferences", flex: 1, font: "@font_heading", foreground: $text_color)
-            IconButton("refresh", "sys:refresh", width: 32, height: 32, padding: 7,
-                       background: $control_tint, foreground: $text_color, cornerRadius: "@control_radius")
+            Icon("settings", width: 24, height: 24, foreground: "@text")
+            Text("Preferences", flex: 1, font: "@font_heading", foreground: "@text")
+            IconButton("refresh", "sys:refresh", width: "@button_size", height: "@button_size", padding: "@button_padding",
+                       material: "control", foreground: "@text")
         }
-        VStack(flex: 1, spacing: 4, padding: 6, justify: "center", background: $card_tint,
-               cornerRadius: "@card_radius", borderWidth: 1, borderColor: "@border") {
+        VStack(flex: 1, spacing: 4, padding: 6, justify: "center", material: "card") {
             HStack(height: 18, spacing: 8, align: "center") {
                 Icon("cpu", width: 18, height: 18, foreground: "@accent")
-                Text($cpu_usage_text, flex: 1, font: 12, foreground: $text_color, overflow: "clip")
+                Text($cpu_usage_text, flex: 1, font: "@status_font", foreground: "@text", overflow: "clip")
             }
-            Progress(value: $cpu_usage, height: 4, cornerRadius: 2,
+            Progress(value: $cpu_usage, height: 4, cornerRadius: "@progress_radius",
                      foreground: "@accent", background: "@progressTrack")
         }
-        VStack(flex: 1, spacing: 4, padding: 6, justify: "center", background: $card_tint,
-               cornerRadius: "@card_radius", borderWidth: 1, borderColor: "@border") {
+        VStack(flex: 1, spacing: 4, padding: 6, justify: "center", material: "card") {
             HStack(height: 18, spacing: 8, align: "center") {
                 Icon("memory", width: 18, height: 18, foreground: "@settingsAccent")
-                Text($mem_usage_text, flex: 1, font: 12, foreground: $text_color, overflow: "clip")
+                Text($mem_usage_text, flex: 1, font: "@status_font", foreground: "@text", overflow: "clip")
             }
-            Progress(value: $memory_usage, height: 4, cornerRadius: 2,
+            Progress(value: $memory_usage, height: 4, cornerRadius: "@progress_radius",
                      foreground: "@settingsAccent", background: "@progressTrack")
         }
-        HStack(height: 48, spacing: 8, padding: 8, align: "center", background: $card_tint,
-               cornerRadius: "@card_radius") {
-            Icon($appearance_icon, width: 20, height: 20, foreground: $text_color)
-            VStack(flex: 1, spacing: 2, justify: "center") {
-                Text($dark_mode_btn, font: 12, foreground: $text_color, overflow: "clip")
-                Text("This window only", font: "@font_caption", foreground: $muted_color)
+        VStack(height: 48, spacing: 4, padding: 4, material: "card") {
+            HStack(height: 24, spacing: 4) {
+                Button("Glass", "theme:glass", flex: 1, height: 24, font: "@font_caption",
+                       material: "control", foreground: "@text")
+                Button("Tint", "theme:translucent", flex: 1, height: 24, font: "@font_caption",
+                       material: "control", foreground: "@text")
+                Button("Clear", "theme:transparent", flex: 1, height: 24, font: "@font_caption",
+                       material: "control", foreground: "@text")
+                Button("Square", "theme:square", flex: 1, height: 24, font: "@font_caption",
+                       material: "control", foreground: "@text")
             }
-            Toggle(checked: $theme_dark, action: "theme:toggle", width: 38, height: 22, cornerRadius: 11,
-                   foreground: "@accent", background: "@progressTrack")
+            Text($theme_status, height: 12, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
         }
     }
 }

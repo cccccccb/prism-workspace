@@ -71,6 +71,6 @@ void Tick(void* instance, uint64_t) noexcept {
         player.Schedule();
     } catch (...) {}
 }
-const PrismAppModuleV1 api{sizeof(api), PRISM_APP_ABI_V1, Create, Destroy, Action, Tick, nullptr, nullptr};
+const PrismAppModuleV1 api{sizeof(api), PRISM_APP_ABI_V1, Create, Destroy, Action, Tick, nullptr, nullptr, nullptr};
 }
 extern "C" PRISM_APP_EXPORT const PrismAppModuleV1* prism_app_module_v1() { return &api; }

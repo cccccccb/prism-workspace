@@ -213,8 +213,7 @@ static void handle_cursor_axis(struct wl_listener* listener, void* data) {
 }
 
 WlrServer::WlrServer(std::shared_ptr<Compositor> compositor)
-    : compositor_(std::move(compositor)),
-      decoration_spec_(decoration::TilingDecorationSpec::CreateDefault()) {}
+    : compositor_(std::move(compositor)) {}
 
 WlrServer::~WlrServer() {
     Stop();
@@ -337,10 +336,6 @@ bool WlrServer::Initialize(const std::string& socket_name) {
 
     PRISM_LOG_INFO("WLR-SERVER", "wlroots Compositor initialized successfully on socket '%s'", socket_name_.c_str());
 
-    if (compositor_ && decoration_spec_) {
-        compositor_->SetDecorationSpec(decoration_spec_);
-    }
-
     // 9. Initialize Compositor-level IPC Server (Sway/i3 architecture)
     ipc_server_ = std::make_unique<ipc::IpcServer>(wl_event_loop_);
     if (!ipc_server_->Start()) {
@@ -422,6 +417,8 @@ bool WlrServer::Initialize(const std::string& socket_name) {
                << "  \"windows_count\": " << (compositor_ ? compositor_->GetWindows().size() : 0) << ",\n"
                << "  \"mission_control\": " << (compositor_ && compositor_->IsInMissionControl() ? "true" : "false") << ",\n"
                << "  \"debug_hud\": " << (compositor_ && compositor_->IsDebugHudEnabled() ? "true" : "false") << ",\n"
+               << "  \"theme\": " << nlohmann::json{{"id",theme_snapshot_?theme_snapshot_->id:""},
+                                                       {"generation",theme_snapshot_?theme_snapshot_->generation:0}}.dump() << ",\n"
                << "  \"wayland_socket\": \"" << socket_name_ << "\",\n"
                << "  \"ipc_socket\": \"" << ipc_server_->GetSocketPath() << "\"\n"
                << "}";
@@ -520,10 +517,12 @@ bool WlrServer::Initialize(const std::string& socket_name) {
         ipc_server_->RegisterHandler("close", close_handler);
         ipc_server_->RegisterHandler("kill", close_handler);
 
-        // Production uses one generated theme shared with client SDK tokens.
-        auto theme_handler=[](const std::string&,const std::vector<std::string>& args) {
-            if(!args.empty()) return nlohmann::json{{"status","unsupported"},{"message","Runtime global theme switching is not implemented"}}.dump();
-            return nlohmann::json{{"status","ok"},{"current_theme","Prism Glass"},{"format_version",contracts::theme::kFormatVersion}}.dump();
+        auto theme_handler=[this](const std::string&,const std::vector<std::string>& args) {
+            if(!args.empty()) return nlohmann::json{{"status","unsupported"},{"message","Request global themes through prism-msg set_theme <id>"}}.dump();
+            if(!theme_snapshot_) return nlohmann::json{{"status","bootstrap"},{"generation",0}}.dump();
+            return nlohmann::json{{"status","ok"},{"current_theme",theme_snapshot_->name},
+                                  {"id",theme_snapshot_->id},{"generation",theme_snapshot_->generation},
+                                  {"schema_version",theme_snapshot_->schema_version}}.dump();
         };
         ipc_server_->RegisterHandler("theme",theme_handler);
         ipc_server_->RegisterHandler("set_theme",theme_handler);
@@ -688,7 +687,13 @@ void WlrServer::PumpControl() {
         for (const auto& frame:control_->Receive()) {
             auto m=launch::DecodeControl(frame); const auto& p=m.permit;
             if (p.session!=control_session_) throw std::runtime_error("Wrong WM session");
-            if (m.type==launch::ControlType::Grant) {
+            if (m.type==launch::ControlType::InstallTheme) {
+                m.type=launch::ControlType::ThemeApplied;
+                m.theme_applied=InstallTheme(m.theme);
+                m.theme={};
+                m.success=m.theme_applied.success;
+                if(!control_->Queue(launch::EncodeControl(m))) control_failed_=true;
+            } else if (m.type==launch::ControlType::Grant) {
                 bool occupied=false;
                 for (const auto& [pid,r]:registrations_) {
                     if (r->permit.instance==p.instance || (p.role!=contracts::WindowRole::Toplevel && r->permit.role==p.role)) occupied=true;
@@ -728,6 +733,30 @@ void WlrServer::PumpControl() {
     } catch (const std::exception& error) {
         PRISM_LOG_ERROR("WLR-CONTROL", "%s",error.what()); control_failed_=true; control_->Close();
     }
+}
+
+contracts::ThemeApplied WlrServer::InstallTheme(const contracts::ThemeSnapshot& snapshot) {
+    contracts::ThemeApplied applied{snapshot.generation, false, {}};
+    std::shared_ptr<const contracts::ThemeSnapshot> next;
+    try {
+        if (!snapshot.generation) throw std::invalid_argument("Theme generation must be nonzero");
+        // Also enforce the serialized payload bound on direct trusted callers.
+        contracts::EncodeTheme(snapshot);
+        if (theme_snapshot_ && snapshot.generation <= theme_snapshot_->generation) {
+            if (snapshot == *theme_snapshot_) return {snapshot.generation, true, "Already installed"};
+            throw std::invalid_argument("Theme generation must increase");
+        }
+        next=std::make_shared<const contracts::ThemeSnapshot>(snapshot);
+    } catch (const std::exception& error) {
+        applied.detail=error.what();
+        return applied;
+    }
+    theme_.layout=next->layout;
+    theme_snapshot_=std::move(next);
+    ArrangeXdgViews();
+    applied.success=true;
+    applied.detail="Installed";
+    return applied;
 }
 
 void WlrServer::Stop() {
@@ -1023,12 +1052,8 @@ void WlrServer::ArrangeXdgViews() {
     const int width = !outputs_.empty() && outputs_[0]->wlr_output ? outputs_[0]->wlr_output->width : 1280;
     const int height = !outputs_.empty() && outputs_[0]->wlr_output ? outputs_[0]->wlr_output->height : 720;
     compositor_->SetScreenSize(width, height);
-    auto spec = *decoration_spec_;
-    spec.gaps.inner = theme_.inner_gap;
-    spec.gaps.outer = theme_.outer_gap;
-    spec.gaps.smart_gaps = false;
     auto& engine = compositor_->GetTreeEngine();
-    engine.Arrange(theme_.WorkArea(width, height), spec);
+    engine.Arrange(theme_.WorkArea(width, height), theme_.TreeLayout());
     const auto active = engine.GetActiveWorkspace();
     WlrXdgView* fullscreen = nullptr;
     for (const auto& view : xdg_views_) {
@@ -1459,7 +1484,7 @@ void WlrServer::HandleOutputFrame(WlrOutput* output) {
         // 1. Update Hardware GPU Scene-graph layout (Windows, Divider, Dock, HUD)
         UpdateSceneGraph(out_w, out_h, dt);
         if(surface_effects_){std::vector<WlrXdgView*> views;for(auto& view:xdg_views_)views.push_back(view.get());
-            surface_effects_->Update(scene_,views,focused_xdg_view_);}
+            surface_effects_->Update(scene_,views,focused_xdg_view_,theme_snapshot_.get());}
 
         // 2. Hardware-accelerated GPU render & commit (wlr_scene natively dispatches GLES2 render pass & Direct Scanout!)
         uint64_t t_gpu_start = core::CurrentTimeNs();

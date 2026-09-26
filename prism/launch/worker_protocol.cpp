@@ -25,7 +25,14 @@ std::vector<std::uint8_t> EncodeWorker(const WorkerMessage& message) {
     else if (const auto* reply = std::get_if<WorkerReply>(&message)) body = EncodeMessage(reply->event);
     else if (const auto* cancel=std::get_if<contracts::LaunchCancel>(&message)) body=EncodeMessage(*cancel);
     else if (const auto* subscribe=std::get_if<contracts::InstanceSubscribe>(&message)) body=EncodeMessage(*subscribe);
-    else body=EncodeMessage(std::get<contracts::InstanceUpdate>(message));
+    else if (const auto* update=std::get_if<contracts::InstanceUpdate>(&message)) body=EncodeMessage(*update);
+    else if (const auto* theme=std::get_if<contracts::ThemeSnapshot>(&message)) {
+        if(!theme->generation)throw std::invalid_argument("Zero worker theme generation");
+        body=EncodeTheme(*theme);
+    }
+    else if (const auto* applied=std::get_if<contracts::ThemeApplied>(&message)) body=EncodeThemeApplied(*applied);
+    else if (const auto* request=std::get_if<contracts::ThemeRequest>(&message)) body=EncodeThemeRequest(*request);
+    else body=EncodeThemeEvent(std::get<contracts::ThemeEvent>(message));
     std::vector<std::uint8_t> out;
     Put(out, 0x50525731, 4); Put(out, 1, 2); Put(out, type, 2); Put(out, body.size(), 4);
     out.insert(out.end(), body.begin(), body.end()); return out;
@@ -33,8 +40,8 @@ std::vector<std::uint8_t> EncodeWorker(const WorkerMessage& message) {
 std::size_t WorkerFrameSize(std::span<const std::uint8_t> bytes) {
     if (bytes.size() < 12) return 0;
     const auto type = Get(bytes, 6, 2), length = Get(bytes, 8, 4);
-    if (Get(bytes, 0, 4) != 0x50525731 || Get(bytes, 4, 2) != 1 || type < 1 || type > 8 ||
-        length > contracts::kMaxLaunchPayload + kLaunchHeaderSize + 8)
+    if (Get(bytes, 0, 4) != 0x50525731 || Get(bytes, 4, 2) != 1 || type < 1 || type > 12 ||
+        length > contracts::kMaxThemePayload)
         throw std::invalid_argument("Invalid worker header");
     return 12 + length;
 }
@@ -52,6 +59,10 @@ WorkerMessage DecodeWorker(std::span<const std::uint8_t> bytes) {
         if (!instance.value) throw std::invalid_argument("Zero instance ID");
         return WorkerBind{std::get<contracts::LaunchRequest>(DecodeMessage(body.subspan(8))), instance};
     }
+    if (type==9) {auto theme=contracts::DecodeTheme(body);if(!theme.generation)throw std::invalid_argument("Zero worker theme generation");return theme;}
+    if (type==10) return contracts::DecodeThemeApplied(body);
+    if (type==11) return contracts::DecodeThemeRequest(body);
+    if (type==12) return contracts::DecodeThemeEvent(body);
     auto decoded = DecodeMessage(body);
     if (type == 3) return std::get<contracts::LaunchEvent>(decoded);
     if (type == 4) return std::get<contracts::LaunchRequest>(decoded);

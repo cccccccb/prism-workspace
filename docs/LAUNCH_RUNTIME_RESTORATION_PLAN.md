@@ -1,6 +1,6 @@
 # 统一客户端运行时与预热启动架构修订
 
-日期：2026-09-26。状态：包/ABI/消息/里程碑基础、统一 host、待命池、五应用与可信会话入口已实现并验证，见 APP_LAUNCH_CONTRACT.md、APP_HOST_RUNTIME.md、LAUNCHER_WORKER_POOL.md 和 SESSION_LAUNCH_RUNTIME.md。第六步 BSP、共享 tokens 与图标玻璃主题已随 0.1.0-5 部署，当前 1024×600 现场外观及主要点击确认通过。本文修订前一轮将启动优化留待后续的安排：恢复平台启动链列入当前主线，并先于视觉扩展实施。
+日期：2026-09-26。状态：包/ABI/消息/里程碑基础、统一 host、待命池、五应用与可信会话入口已实现并验证，见 APP_LAUNCH_CONTRACT.md、APP_HOST_RUNTIME.md、LAUNCHER_WORKER_POOL.md 和 SESSION_LAUNCH_RUNTIME.md。第六步 BSP、静态共享 tokens 与图标玻璃主题已随 0.1.0-5 部署，该历史版本的 1024×600 现场外观及主要点击确认通过。当前源码的 DSL 主题/ACK 修订见 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md)，本轮验证结果另行记录。本文修订前一轮将启动优化留待后续的安排：恢复平台启动链列入当前主线，并先于视觉扩展实施。
 
 ## 1. 应当恢复的目标
 
@@ -68,6 +68,14 @@ Preview 和 Master 使用同一实例/surface，由客户端 runtime 完成 Scen
 
 Blueprint/字体/资源的缓存需有内容版本与失效规则。首版不为此恢复旧 WM AST 镜像，也不引入尚未设计的节点增量布局和 DisplayList 分块缓存。
 
+### 当前主题所有权与绑定门槛
+
+launcher 统一编译 `share/prism/themes/<id>/theme.prism` 并持有当前 ThemeSnapshot/generation；SDK 根据快照更新现有 Scene，WM 只消费纯值布局与普通/焦点/全屏装饰参数。旧 JSON 常量生成与 Settings 本窗口 Theme Toggle 已被这一会话主题接口替代，详见 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md)。
+
+启动顺序增加主题门槛：WM Ready → launcher 下发 InstallTheme → WM 安装并 ACK → bootstrap Shell。worker 的 WorkerReady 仅证明公共前端资源已准备；active/idle hosts 均须安装并 ACK 当前主题，WorkerBind 还必须满足当前 generation 及 WM Registered 门槛。切换事务期间暂停新的应用绑定，新 worker 继承当前事务/版本，避免池中的旧样式进入新窗口。
+
+每次切换先校验候选，使用单调 generation 分发同一快照；所有参与端 ACK 后报告 Applied，失败则以更大的 generation 恢复原主题内容。ACK 表示参数安装，不表示多个进程在同一显示帧呈现。当前热切换要求 ThemeLayout 不变，几何事务另行设计。本节描述当前实现规范，不沿用 0.1.0-5 的现场确认作为本轮测试结果。
+
 ## 6. 启动与身份契约
 
 每次启动使用 launch_id / instance_id，将包、worker、PID、角色、surface 和结果关联。WM 与 launcher 的控制通道由会话创建并传递受控 FD 或等效凭证；普通启动请求不能自行指定受信任 Shell 身份。
@@ -110,7 +118,9 @@ BackendReady 与 FirstPresented 是可独立发生的里程碑，上图不规定
 - 第三步：已实现提前 spawn 同一 host 的待命池、就绪/分配/收缩/补充/回收、完整非阻塞分帧 IPC、公共 SDK/模块 Launch API、取消、进程外 watchdog 与会话清理；旧 Zygote/sh 调度源码已移除。GPU 预热仍未实现；WM 激活随后在第四步接入，见 LAUNCHER_WORKER_POOL.md。
 - 第四步：已接入可信控制 FD、pidfd 角色登记、真实窗口激活、实例订阅、四个剩余业务模块与统一 session supervisor；验证记录见 SESSION_LAUNCH_RUNTIME.md。
 - 第五步：0.1.0-3 已完成打包、安装和 DRM/V3D 运行；创建/激活/取消/实例流与正常停止回收通过。0.1.0-4 修复 HUD 遮挡并补充 Dock 反馈后，用户确认显示与播放切换、Dock 激活反馈均正常；完整启动性能分位数仍待测量。见 PI_DEB_DEPLOYMENT.md。
-- 第六步：BSP、共享主题 tokens、图标玻璃五应用界面和 compositor 背景材料已随 0.1.0-5 打包部署；26/26 测试、真实 host 双/三/四窗树与截图、V3D 背景更新检查，以及 1024×600 现场外观/主要点击通过。具体范围及后续项见 VISUAL_TILING_REFINEMENT_PLAN.md。
+- 第六步（历史 0.1.0-5）：BSP、静态共享主题 tokens、图标玻璃五应用界面和 compositor 背景材料已打包部署；26/26 测试、真实 host 双/三/四窗树与截图、V3D 背景更新检查，以及 1024×600 现场外观/主要点击通过。具体范围及后续项见 VISUAL_TILING_REFINEMENT_PLAN.md。
+
+当前主题架构修订：移除静态主题生成路径，接入 launcher 编译/分发、WM/host ACK、池版本继承与 Settings 选择接口；实现规范及后续验收门槛见 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md)。下列各阶段测试与部署数字均为历史记录，本轮结果待统一构建和验证后补充。
 
 第一步本机验证：新增启动相关检查与契约 smoke 共 6/6 通过；prism/contracts 独立 C/C++ 构建与测试 2/2 通过。C fixture 真正动态加载并完成状态/Ready 回调。测试模块及验证源码均在 tests/，无安装规则。本轮不重打 deb，不切换当前 Pi 演示的启动链；以上为第一步的验证记录；第二步已接入 host，预热服务仍是下一门槛。
 
@@ -128,12 +138,14 @@ BackendReady 与 FirstPresented 是可独立发生的里程碑，上图不规定
 
 第五步发布检查点（历史 0.1.0-4）：已安装到物理 Pi，dpkg 完整性检查通过，默认 HUD 关闭；真实 V3D 首帧及创建/激活/取消/实例流复测通过。该阶段 CTest 24/24 通过。现场输入复核已通过，规范和包路径见 PI_DEB_DEPLOYMENT.md。
 
-### 第六步发布检查点（0.1.0-5）
+### 历史第六步发布检查点（0.1.0-5）
 
-统一 host、预热池、会话授权和业务隔离路径保持单一生产入口。本轮将真实 XDG view 接入同一 BSP 树，增加方向焦点/交换、工作区与显式 fullscreen；共享主题 JSON 生成纯契约，客户端 DSL 与 WM 使用同一几何/颜色参数。SDK 增加透明清屏、通用布局、向量图标、基础控件、描边及阴影；compositor 通过私有 surface-effect 契约实现下层 GLES 背景材料。五应用采用静态图标玻璃布局，没有新增花哨动画。
+本节静态 JSON 与本窗口 Theme 行为已被 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md) 修订，保留原发布验收记录。
 
-Settings 外观开关实际改变本窗口 tint、文字颜色和图标，不影响其他实例或 WM；全局主题服务尚未实现。Music 的前后曲、播放状态和进度仍是 demo 业务，无真实音频。
+统一 host、预热池、会话授权和业务隔离路径保持单一生产入口。本轮将真实 XDG view 接入同一 BSP 树，增加方向焦点/交换、工作区与显式 fullscreen；当时共享主题 JSON 生成纯契约，客户端 DSL 与 WM 使用同一几何/颜色参数；当前已改为 launcher 编译 DSL 后发送运行时快照。SDK 增加透明清屏、通用布局、向量图标、基础控件、描边及阴影；compositor 通过私有 surface-effect 契约实现下层 GLES 背景材料。五应用采用静态图标玻璃布局，没有新增花哨动画。
+
+该历史版本的 Settings 外观开关改变本窗口 tint、文字颜色和图标，不影响其他实例或 WM；当时尚无全局主题服务。当前由 launcher 接管主题，原本窗口开关不再作为当前架构。Music 的前后曲、播放状态和进度仍是 demo 业务，无真实音频。
 
 0.1.0-5 已安装物理 Pi；最终 CTest 26/26，Release 安装清单和前缀/预存 PAM helper 正常检查、四种停止/故障回收均通过。真实 host 双/三/四窗截图与树尺寸、V3D 下层模糊与变化传播检查通过。生产包未安装测试、旧客户端或 ImGui。
 
-现场输出 HDMI 1024×600，五应用使用 V3D，背景能力为 1，本轮 journal 无 ERROR，协议门槛通过。用户确认“外观正常，以上点击都正常”，包括播放图标、Preferences 本窗口配色和 Dock 激活；新截图为 `dist/validation/prism-v5-physical.png`。这完成当前单输出静态视觉与主要点击的发布门槛；全部键盘快捷键、多屏/DPI、Slider、实时比例调整、音频、全局主题和性能分位数继续按后续范围处理。详见 VISUAL_TILING_REFINEMENT_PLAN.md 与 PI_DEB_DEPLOYMENT.md。
+现场输出 HDMI 1024×600，五应用使用 V3D，背景能力为 1，本轮 journal 无 ERROR，协议门槛通过。用户确认“外观正常，以上点击都正常”，包括播放图标、Preferences 本窗口配色和 Dock 激活；新截图为 `dist/validation/prism-v5-physical.png`。这完成当前单输出静态视觉与主要点击的发布门槛；当时全部键盘快捷键、多屏/DPI、Slider、实时比例调整、音频、全局主题和性能分位数列为后续范围；本轮全局主题按新规范单独实现和验收。详见 VISUAL_TILING_REFINEMENT_PLAN.md 与 PI_DEB_DEPLOYMENT.md。

@@ -38,6 +38,7 @@ struct ClientApplication::Impl {
     render_skia::RasterRenderer commands;
     runtime::ImageResources resources;
     std::unique_ptr<runtime::Scene> scene;
+    std::optional<contracts::ThemeSnapshot> theme;
     std::optional<contracts::DisplayList> last_list;
     platform::WaylandWindow window;
     platform::WaylandEglSurface egl;
@@ -88,7 +89,7 @@ bool ClientApplication::Impl::LoadScene(std::string_view dsl_source) {
                 return id;
             }),
             [&](std::string_view text, double size) { return app.commands.Shape(text, size); },
-            app.commands.FontId());
+            app.commands.FontId(),app.theme);
         if (app.window.IsConfigured()) next->SetViewport(app.window.Metrics().logical_size);
         for (auto value : images) {
             const contracts::ResourceId id{value};
@@ -201,6 +202,24 @@ bool ClientApplication::SetBinding(std::string_view name, runtime::PropertyValue
     app.scene->SetBinding(name, std::move(value));
     if (app.scene->PendingDirty() != runtime::Dirty::None) app.window.RequestRedraw(true);
     return true;
+}
+bool ClientApplication::ApplyTheme(const contracts::ThemeSnapshot& theme, std::string* diagnostic) {
+    auto& app = *impl_;
+    try {
+        contracts::ValidateTheme(theme);
+        std::optional<contracts::ThemeSnapshot> prepared(theme);
+        if (app.scene && !app.scene->ApplyTheme(theme,diagnostic)) return false;
+        app.theme.swap(prepared);
+        if (app.scene) app.window.RequestRedraw(true);
+        if (diagnostic) diagnostic->clear();
+        return true;
+    } catch (const std::exception& error) {
+        if (diagnostic) *diagnostic=error.what();
+        return false;
+    }
+}
+std::uint64_t ClientApplication::ThemeGeneration() const {
+    return impl_->theme ? impl_->theme->generation : 0;
 }
 void ClientApplication::OnAction(std::function<void(std::string_view)> callback) {
     impl_->on_action = std::move(callback);

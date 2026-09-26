@@ -38,13 +38,17 @@ constexpr std::array properties{
     PropertySpec{"checked", DslProperty::Checked, DslValueType::Boolean, Dirty::Paint, StoredValueType::Boolean},
     PropertySpec{"fit", DslProperty::ImageFit, DslValueType::String, Dirty::Paint, StoredValueType::String},
     PropertySpec{"backdropBlur", DslProperty::BackdropBlur, DslValueType::Number, Dirty::Composite, StoredValueType::Number, 0, 48},
+    PropertySpec{"material", DslProperty::Material, DslValueType::String, Dirty::Paint | Dirty::Composite, StoredValueType::String},
+    PropertySpec{"inputShape", DslProperty::InputShape, DslValueType::String, Dirty::Composite, StoredValueType::String},
+    PropertySpec{"innerShadowY", DslProperty::InnerShadowY, DslValueType::Number, Dirty::Paint, StoredValueType::Number, -16384},
 };
 constexpr auto size = PropertyBit(DslProperty::Width) | PropertyBit(DslProperty::Height) |
     PropertyBit(DslProperty::Flex) | PropertyBit(DslProperty::Inset) | PropertyBit(DslProperty::Anchor);
 constexpr auto effects = PropertyBit(DslProperty::BorderWidth) | PropertyBit(DslProperty::BorderColor) |
     PropertyBit(DslProperty::ShadowBlur) | PropertyBit(DslProperty::ShadowY) | PropertyBit(DslProperty::ShadowColor) |
     PropertyBit(DslProperty::InnerShadowBlur) | PropertyBit(DslProperty::InnerShadowColor) |
-    PropertyBit(DslProperty::BackdropBlur);
+    PropertyBit(DslProperty::BackdropBlur) | PropertyBit(DslProperty::Material) |
+    PropertyBit(DslProperty::InputShape) | PropertyBit(DslProperty::InnerShadowY);
 constexpr auto container = size | PropertyBit(DslProperty::Spacing) | PropertyBit(DslProperty::Background) |
     PropertyBit(DslProperty::Padding) | PropertyBit(DslProperty::Radius) | PropertyBit(DslProperty::Clip) |
     PropertyBit(DslProperty::PaddingX) | PropertyBit(DslProperty::PaddingY) | PropertyBit(DslProperty::Align) |

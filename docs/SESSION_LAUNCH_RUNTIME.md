@@ -1,6 +1,6 @@
 # 统一会话、Shell 授权与应用实例
 
-日期：2026-09-26。恢复计划第四步的实现规范。当前 0.1.0-5 已部署并通过 1024×600 现场外观及主要交互确认；BSP 与图标玻璃主题验证见第 9 节，历史 headless/部署记录保留。
+日期：2026-09-26。统一会话的实现规范，包含本轮 DSL 主题生命周期修订。已部署的 0.1.0-5 外观与交互记录保留在第 9 节；其中静态 JSON 与本窗口 Theme 开关属于历史方案，当前主题规范以 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md) 为准。本轮新增主题链的构建、测试与部署结果另行记录。
 
 ## 1. 唯一生产入口
 
@@ -31,7 +31,7 @@ build-gles/bin/prism-invoker demo_player
 build-gles/bin/prism-invoker demo_settings
 ```
 
-`--wm`、`--launcher`、`--apps-root` 仅由会话管理者配置。原始 `prism-wm` 与无 WM 通道的 launcher 可用于诊断：原始 WM 不启动 Shell；诊断 launcher 明确拒绝已有窗口的激活，不能作为生产会话入口。
+`--wm`、`--launcher`、`--apps-root`、`--themes-root` 仅由会话管理者配置。原始 `prism-wm` 与无 WM 通道的 launcher 可用于诊断：原始 WM 不启动 Shell；诊断 launcher 明确拒绝已有窗口的激活，不能作为生产会话入口。
 
 ## 2. 可信控制通道与启动次序
 
@@ -39,12 +39,13 @@ build-gles/bin/prism-invoker demo_settings
 
 次序必须为：
 
-1. WM 初始化 Wayland socket、输出/backend、presentation-time，启动成功后发送 Ready。
-2. WM 用 getrandom 生成非零会话标识；launcher 收到私有 Ready 后创建固定的三个 Shell 包请求。
-3. worker 完成自身公共 CPU 前端准备，发送 WorkerReady。
-4. launcher 分配真实 instance/PID，发送 Grant；WM 打开对应 pidfd 并登记。
-5. WM 回复 Registered 成功后，launcher 才发送 WorkerBind。
-6. host 打开包和真实 Wayland 连接；WM 按该连接的内核进程凭据消费登记，确定场景层。
+1. launcher 编译当前主题包；WM 初始化 Wayland socket、输出/backend、presentation-time，生成非零会话标识并发送 Ready。首份主题安装前 WM 使用无预留带、无窗口装饰的中性启动参数。
+2. launcher 收到私有 Ready 后，通过 PWC1 发送带 session 和非零 generation 的 InstallTheme；WM 在事件循环中校验、安装几何与装饰参数并回复 ThemeApplied。
+3. launcher 确认 WM 成功 ACK 后，才创建固定的三个 Shell 包请求。
+4. worker 完成自身公共 CPU 前端准备并发送 WorkerReady；launcher 通过 PRW1 下发当前 ThemeSnapshot，worker 安装到统一前端并 ACK 当前 generation。
+5. launcher 分配真实 instance/PID，发送 Grant；WM 打开对应 pidfd 并登记。
+6. WM Registered 成功且目标 worker 已 ACK 当前主题后，launcher 才发送 WorkerBind；切换事务期间暂停新应用绑定。
+7. host 打开包和真实 Wayland 连接；WM 按该连接的内核进程凭据消费登记，确定场景层。
 
 Shell 包 app_id → 角色只在 launcher 内部 bootstrap 中固定：prism_desktop → Desktop、prism_topbar → TopBar、prism_dock → Dock。公共 Launch API 禁止启动这些保留包，不能声明角色、任意可执行路径或授权凭证。未经登记的外部 Wayland 客户端继续作为普通窗口，即使它填写相同 app_id。
 
@@ -58,9 +59,17 @@ token 在私有控制端传输，作为一次性登记关联值；当前并不�
 
 ### PWC1 v1 编码
 
-固定 12 字节大端 header：magic `PWC1` u32、version u16=1、type u16、payload size u32=70。固定 payload：session u64、transaction/request u64、instance u64、PID u32、role u8、token 32 bytes、expires_ns u64、success u8（0/1）。完整帧 82 bytes。禁止 memcpy native struct。
+固定 12 字节大端 header：magic `PWC1` u32、version u16=1、type u16、payload size u32。原类型 1..8 保持 70 字节 payload：session u64、transaction/request u64、instance u64、PID u32、role u8、token 32 bytes、expires_ns u64、success u8（0/1）；完整帧仍为 82 bytes。禁止 memcpy native struct。
 
-类型：Ready=1、Grant=2、Registered=3、Revoke=4、Activate=5、Activated=6、Mapped=7、Unmapped=8。Registered/Activated 必须回显正确 transaction/instance/PID/role；过期终止请求的回复不再推进状态。WM 不接收 DSL、绑定或绘制命令。
+类型：Ready=1、Grant=2、Registered=3、Revoke=4、Activate=5、Activated=6、Mapped=7、Unmapped=8，追加 InstallTheme=9、ThemeApplied=10。两个主题帧的 payload 为 session u64 + 有界 ThemeSnapshot/ThemeApplied 编码，不能解释为 Shell permit 或沿用固定 70 字节长度。Registered/Activated 必须回显正确 transaction/instance/PID/role；ThemeApplied 回显 generation、success、detail。过期终止请求的回复不再推进状态。WM 不接收 DSL、绑定或绘制命令。
+
+### 当前主题与预热 worker
+
+launcher 是当前主题及 generation 的唯一会话所有者，主题包安装在 `share/prism/themes/<id>/theme.prism`。默认 `glass`、公开选择接口、快照分发和失败恢复见 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md)。WM 只消费纯值几何/装饰契约，SDK 只使用该快照解析材料及主题引用；业务模块通过可选 ABI 请求主题 ID，不能独立维护另一份全局配色。
+
+active 和 idle hosts 都参加主题事务。池中新准备好的 worker 必须安装并 ACK 当前版本，之后才允许 WorkerBind，因此预热期间持有旧版本不会让新窗口沿用旧主题。切换不替换已运行实例的 PID、业务模块或节点 ID；任一参与端拒绝时，用更大的 generation 重发原主题内容。恢复失败或超时属于会话控制失效，沿用 supervisor 的会话清理。
+
+ACK 表示参数已安装，不代表所有 surface 已在同一显示帧提交。客户端新样式及空效果区域随后通过自己的 commit 生效；WM 配置尺寸遵循 Wayland configure/commit。当前会话热切换先要求 ThemeLayout 不变，避免把尚未实现的跨 surface 几何事务当作原子切换。
 
 ## 3. 激活必须来自 WM 实际结果
 
@@ -86,9 +95,9 @@ C ABI v1 在结构尾部追加可选函数/事件。加载器逐字段按 struct
 
 Desktop 只提供标题绑定，图片从包内 assets/wallpapers 获取。Topbar 显示系统时钟、真实 up 网络接口名、电池容量；没有电池的 Pi 显示 AC。尚未实现通知中心与应用列表按钮，因此暂不显示无业务动作的按钮。
 
-Dock 当前仅提供已注册的 Music/Pref 两个入口，直接通过 host Launch API 请求服务；未实现的 Files/Term/Web/Code 不提供虚假启动入口。Settings 从 /proc/stat 差值和 /proc/meminfo 获取 CPU 与内存，首个采样显示 sampling，刷新图标只刷新数据。本轮外观 Toggle 实际切换自身窗口的 tint/文字配色，尚未实现全局主题服务。音乐仍是交互业务 demo，尚无音频解码/输出后端。
+Dock 当前仅提供已注册的 Music/Pref 两个入口，直接通过 host Launch API 请求服务；未实现的 Files/Term/Web/Code 不提供虚假启动入口。Settings 从 /proc/stat 差值和 /proc/meminfo 获取 CPU 与内存，首个采样显示 sampling，刷新图标只刷新数据。当前主题选择通过 host 的 select_theme 请求 launcher，以 ThemeEvent 报告当前主题及结果；0.1.0-5 的本窗口 tint/文字配色 Toggle 已被该会话接口替代。音乐仍是交互业务 demo，尚无音频解码/输出后端。
 
-本步不改变现有窗口尺寸安排、不实现毛玻璃或 BSP 树。上述视觉与功能扩展应按既定后续文档实现，不以文本按钮的迁移宣称效果图已达成。
+第四步迁移当时不改变窗口尺寸安排、不实现毛玻璃或 BSP 树；后续 0.1.0-5 的视觉发布记录见第 9 节，本轮主题接口不据此新增效果或性能完成宣称。
 
 ## 6. 会话停止与故障
 
@@ -124,13 +133,15 @@ python3 tests/probes/failed_worker_probe.py build-gles
 
 第五步发布检查点（历史 0.1.0-4）：已安装到物理 Pi，dpkg 完整性检查通过，默认 HUD 关闭；真实 V3D 首帧及创建/激活/取消/实例流复测通过。该阶段 CTest 24/24 通过。现场输入复核已通过，规范和包路径见 PI_DEB_DEPLOYMENT.md。
 
-## 9. BSP 与图标玻璃主题发布检查点（0.1.0-5）
+## 9. 历史 BSP 与图标玻璃主题发布检查点（0.1.0-5）
 
-会话 supervisor、可信 Shell 授权、实例订阅及统一 host 的职责不变。真实普通 XDG view 已映射到 managed Window/TreeEngine；横纵嵌套、方向焦点/交换、工作区、关闭与 fullscreen 使用同一记录，Shell 仍在树外。主题由单个 JSON 生成纯契约，WM 不引入 DSL/parser/Skia。
+本节记录已发布版本的验收范围；静态 JSON/生成常量和本窗口主题开关已由 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md) 的 launcher 主题快照方案替代，不代表当前主题架构。
+
+会话 supervisor、可信 Shell 授权、实例订阅及统一 host 的职责不变。真实普通 XDG view 已映射到 managed Window/TreeEngine；横纵嵌套、方向焦点/交换、工作区、关闭与 fullscreen 使用同一记录，Shell 仍在树外。该历史版本的主题由单个 JSON 生成纯契约，WM 不引入 DSL/parser/Skia；当前改为 launcher 编译主题 DSL 并传输纯值快照。
 
 五应用已切换为图标主导的静态玻璃布局，保持当前壁纸；Dock 运行标记使用真实 app ID/instance 分组。SDK 负责透明 tint、控件、图标、布局及局部边框/阴影，Wayland 平台提交已布局的效果区域；WM 的 GLES pass 采样下层场景并生成背景材料与普通窗口外部装饰。不新增花哨动画。
 
-Settings 开关仅实际切换自身窗口配色；全局运行时主题切换未实现。Music 仍是模拟播放进度的业务 demo，没有真实音频输出。
+该历史版本的 Settings 开关仅切换自身窗口配色，当时尚无全局运行时主题切换。其现场确认不构成本轮全局主题接口的验收。Music 仍是模拟播放进度的业务 demo，没有真实音频输出。
 
 0.1.0-5 已构建并安装到 Pi，最终 CTest 26/26、Release 前缀/预存 helper 正常会话检查和四种停止/故障清理均通过；真实 launcher/host 双窗、三窗、四窗截图及 tree 尺寸验证通过。生产包无测试、旧客户端入口或 ImGui。
 

@@ -2,6 +2,7 @@
 #include "prism/wm/compositor.hpp"
 #include "prism/wm/wlr_server.hpp"
 #include "prism/ipc/ipc_server.hpp"
+#include "fixtures/wm_theme_fixture.hpp"
 #include <nlohmann/json.hpp>
 #include <array>
 #include <atomic>
@@ -99,6 +100,11 @@ int main() {
     wm::WlrServer server(compositor);
     const auto display="wayland-bsp-"+std::to_string(getpid());
     assert(server.Initialize(display)); server.Start();
+    assert(!server.GetTheme());
+    assert(wm::ThemeGeometry{}.WorkArea(1280,720)==core::Rect(0,0,1280,720));
+    assert(!wm::ResolveDecoration(nullptr,true,false,false).style.enabled);
+    const auto initial_theme=test::WmThemeFixture();
+    assert(server.InstallTheme(initial_theme).success);
     std::array<std::unique_ptr<Client>,4> clients;
     auto launch=[&](int id) {
         clients[id]=std::make_unique<Client>(display,id);
@@ -136,8 +142,8 @@ int main() {
     const auto a=windows[0]->GetBounds(), b=windows[1]->GetBounds(), c=windows[2]->GetBounds(), d=windows[3]->GetBounds();
     assert(a.x==c.x && b.x==d.x && a.x<b.x && a.y<c.y && b.y<d.y);
     assert(a.x+a.width<b.x && a.y+a.height<c.y);
-    assert(a.y>=wm::ThemeGeometry{}.topbar_surface_height);
-    assert(d.y+d.height<compositor->GetScreenHeight()-wm::ThemeGeometry{}.dock_surface_height);
+    assert(a.y>=initial_theme.layout.topbar_surface_height);
+    assert(d.y+d.height<compositor->GetScreenHeight()-initial_theme.layout.dock_surface_height);
     const auto tree=Command(server,"get_tree");
     const auto views=Views(tree);
     assert(views.size()==4);
@@ -149,11 +155,40 @@ int main() {
         if (view["focused"]==true) ++focused;
     }
     assert(focused==1);
+    // Switching a theme rearranges the existing tree and configures every live
+    // client without replacing windows or changing focus/topology.
+    auto changed_theme=test::WmThemeFixture(2);
+    changed_theme.id="wm-compact";changed_theme.name="Compact fixture";
+    changed_theme.layout={36,64,500,8,6};
+    changed_theme.normal.radius=changed_theme.focused.radius=4;
+    const auto focused_window=compositor->GetTreeEngine().GetFocusedWindow();
+    const auto focused_node=compositor->GetTreeEngine().GetFocusedNode();
+    assert(server.InstallTheme(changed_theme).success);Until(server,settled);
+    assert(compositor->GetTreeEngine().GetFocusedWindow()==focused_window);
+    assert(compositor->GetTreeEngine().GetFocusedNode()==focused_node);
+    assert(windows[0]->GetBounds().y==44 && windows[0]->GetBounds()!=a);
+    assert(Command(server,"theme")["generation"]==2);
+    assert(Command(server,"get_status")["theme"]==nlohmann::json({{"id","wm-compact"},{"generation",2}}));
+    assert(wm::ResolveDecoration(server.GetTheme(),true,false,false).style==changed_theme.focused);
+    assert(wm::ResolveDecoration(server.GetTheme(),false,false,false).style==changed_theme.normal);
+    assert(!wm::ResolveDecoration(server.GetTheme(),true,false,true).style.enabled);
+    auto invalid_theme=changed_theme;invalid_theme.generation=3;invalid_theme.layout.inner_gap=-1;
+    const auto preserved=windows[0]->GetBounds();
+    assert(!server.InstallTheme(invalid_theme).success);
+    assert(server.GetTheme()->generation==2 && windows[0]->GetBounds()==preserved);
+    auto stale=initial_theme;assert(!server.InstallTheme(stale).success);
+    auto conflict=changed_theme;conflict.layout.inner_gap=7;assert(!server.InstallTheme(conflict).success);
+    auto zero=changed_theme;zero.generation=0;assert(!server.InstallTheme(zero).success);
+    assert(server.InstallTheme(changed_theme).success); // idempotent replay
     assert(Command(server,"swap up")["status"]=="ok"); Until(server,settled);
     // The swap preserves dimensions; no subsequent client commit is required
     // to report the new displayed position in get_tree.
     for (const auto& view : Views(Command(server,"get_tree"))) assert(view["committed_rect"]==view["rect"]);
     assert(Command(server,"fullscreen on")["fullscreen"]==true); Until(server,settled);
+    assert(compositor->GetTreeEngine().GetFocusedWindow()->GetBounds().width==compositor->GetScreenWidth());
+    assert(!wm::ResolveDecoration(server.GetTheme(),true,true,false).style.enabled);
+    auto fullscreen_theme=initial_theme;fullscreen_theme.generation=3;
+    assert(server.InstallTheme(fullscreen_theme).success);Until(server,settled);
     assert(compositor->GetTreeEngine().GetFocusedWindow()->GetBounds().width==compositor->GetScreenWidth());
     assert(Command(server,"fullscreen off")["fullscreen"]==false); Until(server,settled);
     assert(Command(server,"move_workspace 2")["status"]=="ok");
@@ -172,5 +207,5 @@ int main() {
     Until(server,[&] { return compositor->GetWindows().empty(); });
     assert(Views(Command(server,"get_tree")).empty());
     server.Stop(); std::filesystem::remove_all(directory);
-    std::puts("Native XDG BSP: 4 nested clients, target configure, real IPC focus/swap/fullscreen/workspaces/close passed");
+    std::puts("Native XDG BSP: typed runtime themes, rejection preservation, 4 nested clients, configure/focus/swap/fullscreen/workspaces/close passed");
 }

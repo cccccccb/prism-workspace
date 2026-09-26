@@ -139,7 +139,7 @@ add_executable(prism-msg
     src/tools/prism_msg.cpp
 )
 target_include_directories(prism-msg PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(prism-msg PRIVATE prism_core)
+target_link_libraries(prism-msg PRIVATE prism_launch_client)
 
 target_link_libraries(prism_core PUBLIC prism_control)
 

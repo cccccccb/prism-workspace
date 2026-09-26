@@ -101,6 +101,10 @@ std::vector<std::uint8_t> EncodeMessage(const LaunchMessage& message) {
             (!update->instance.value && !update->pid && update->app_id.empty()),"Invalid instance identity");
         type=5; request=update->request.value; instance=update->instance.value;
         Put(payload,update->pid,4); Put(payload,static_cast<unsigned>(update->change),1); Text(payload,update->app_id);
+    } else if (const auto* theme=std::get_if<contracts::ThemeRequest>(&message)) {
+        type=6; request=theme->request; payload=contracts::EncodeThemeRequest(*theme);
+    } else if (const auto* theme=std::get_if<contracts::ThemeEvent>(&message)) {
+        type=7; request=theme->request; payload=contracts::EncodeThemeEvent(*theme);
     } else {
         type = 2;
         const auto& event = std::get<contracts::LaunchEvent>(message);
@@ -130,7 +134,7 @@ std::size_t FrameSize(std::span<const std::uint8_t> bytes) {
     Require(reader.Get(4) == kMagic, "Invalid launch message magic");
     Require(reader.Get(2) == contracts::kLaunchProtocolVersion, "Unsupported launch protocol version");
     const auto type = reader.Get(2);
-    Require(type >= 1 && type <= 5, "Unknown launch message type");
+    Require(type >= 1 && type <= 7, "Unknown launch message type");
     const auto length = reader.Get(4);
     Require(length <= contracts::kMaxLaunchPayload, "Launch payload exceeds limit");
     Require(reader.Get(8) != 0, "Zero launch request ID");
@@ -149,6 +153,8 @@ LaunchMessage DecodeMessage(std::span<const std::uint8_t> bytes) {
     const contracts::RequestId request{header.Get(8)};
     const contracts::InstanceId instance{header.Get(8)};
     Reader body(bytes.subspan(kLaunchHeaderSize));
+    if (type==6) {auto theme=DecodeThemeRequest(bytes.subspan(kLaunchHeaderSize)); Require(theme.request==request.value,"Theme request identity mismatch");return theme;}
+    if (type==7) {auto theme=DecodeThemeEvent(bytes.subspan(kLaunchHeaderSize)); Require(theme.request==request.value,"Theme event identity mismatch");return theme;}
     if (type==4) { Require(body.Done(),"Subscription cannot contain payload"); return InstanceSubscribe{request}; }
     if (type==5) {
         InstanceUpdate update{request,instance,static_cast<std::uint32_t>(body.Get(4)),static_cast<InstanceChange>(body.Get(1)),body.Text()};

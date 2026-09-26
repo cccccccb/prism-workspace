@@ -179,7 +179,8 @@ void Compositor::Tick(float dt) {
             decoration_spec_ = decoration::TilingDecorationSpec::CreateDefault();
         }
         core::Rect usable_area = layer_manager_.CalculateUsableArea(screen_width_, screen_height_);
-        tree_engine_.Arrange(usable_area, *decoration_spec_);
+        tree_engine_.Arrange(usable_area, {decoration_spec_->gaps.inner, decoration_spec_->gaps.outer,
+                                          decoration_spec_->gaps.smart_gaps, decoration_spec_->header.height});
         auto layout = tree_engine_.GetCalculatedLayout();
         for (const auto& [win, rect] : layout) {
             if (win) {

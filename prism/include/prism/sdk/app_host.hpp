@@ -1,5 +1,6 @@
 #pragma once
 #include "prism/contracts/launch.hpp"
+#include "prism/contracts/theme.hpp"
 #include "prism/launch/package.hpp"
 #include <functional>
 #include <memory>
@@ -13,6 +14,8 @@ struct HostConfig {
     std::function<void(const contracts::LaunchEvent&)> on_event;
     std::function<std::uint64_t(std::string_view)> launch_app;
     std::function<std::uint64_t()> subscribe_instances;
+    std::function<std::uint64_t(std::string_view)> select_theme;
+    std::optional<contracts::ThemeSnapshot> initial_theme;
 };
 // Constructible in a single-thread seed. PrepareFrontend must run in the final
 // worker: it creates resource threads. Bind creates the application surface/GPU.
@@ -26,6 +29,9 @@ public:
     bool Assign(contracts::RequestId request, contracts::InstanceId instance);
     void DeliverLaunchEvent(const contracts::LaunchEvent& event);
     void DeliverInstanceEvent(const contracts::InstanceUpdate& event);
+    void DeliverThemeEvent(const contracts::ThemeEvent& event);
+    bool ApplyTheme(const contracts::ThemeSnapshot&, std::string* diagnostic = nullptr);
+    std::uint64_t ThemeGeneration() const;
     bool Bind(const launch::AppPackage& package);
     bool Pump(int timeout_ms);
     bool IsCloseRequested() const;

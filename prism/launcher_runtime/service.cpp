@@ -1,4 +1,7 @@
 #include "prism/launcher/service.hpp"
+#include "prism/theme/compiler.hpp"
+#include <optional>
+#include <set>
 #include "prism/launch/stream.hpp"
 #include "prism/launch/worker_protocol.hpp"
 #include "prism/launch/instance_state.hpp"
@@ -34,6 +37,8 @@ struct Endpoint {
     std::unique_ptr<launch::Stream> stream;
     std::map<std::uint64_t, std::uint64_t> requests;
     std::uint64_t partial_since{}, subscription{};
+    std::map<std::uint64_t, contracts::ThemeEvent> theme_requests;
+    std::map<std::uint64_t, std::string> theme_ids;
 };
 struct Job {
     Job(std::uint64_t id, LaunchRequest source, Owner endpoint)
@@ -41,7 +46,7 @@ struct Job {
           instance{id}, created(Now()) {}
     std::uint64_t alias{};
     WindowRole role{WindowRole::Toplevel};
-    bool mapped{}, registered{}, activation_sent{};
+    bool mapped{}, registered{}, activation_sent{}, bound_sent{};
     LaunchRequest request;
     Owner owner;
     launch::InstanceState state;
@@ -53,7 +58,8 @@ struct Worker : Endpoint {
     enum class Phase { Preparing, Idle, Assigned, Stopping };
     pid_t pid{};
     Phase phase{Phase::Preparing};
-    std::uint64_t job{}, created{}, kill_at{}, closed_at{};
+    std::uint64_t job{}, created{}, kill_at{}, closed_at{}, theme_generation{};
+    bool frontend_ready{};
 };
 }
 struct Service::Impl {
@@ -69,6 +75,17 @@ struct Service::Impl {
     bool shutting_down{}, control_failed{};
     std::unique_ptr<launch::Stream> control;
     std::uint64_t session{}, opened_at{};
+    ThemeSnapshot theme, committed_theme;
+    bool theme_ready{};
+    struct ThemeTransaction {
+        Owner owner;
+        std::uint64_t request{}, deadline{};
+        ThemeSnapshot previous;
+        std::set<pid_t> pending;
+        bool wm_pending{}, rollback{};
+        std::string detail;
+    };
+    std::optional<ThemeTransaction> theme_transaction;
     ~Impl() {
         Shutdown();
         if (listener >= 0) close(listener);
@@ -79,6 +96,9 @@ struct Service::Impl {
     }
     void Open() {
         opened_at=Now();
+        if (config.themes_root.empty()) config.themes_root=prism::theme::DefaultThemeRoot();
+        theme=prism::theme::LoadTheme(config.themes_root,config.theme_id,1);
+        committed_theme=theme; theme_ready=config.wm_fd<0;
         if (config.wm_fd>=0) {
             launch::VerifyControlPeer(config.wm_fd,config.parent_pid);
             control=std::make_unique<launch::Stream>(config.wm_fd,launch::ControlFrameSize);
@@ -162,7 +182,7 @@ struct Service::Impl {
     }
     void Subscribe(Owner owner, InstanceSubscribe request) {
         auto* endpoint=Find(owner); if (!endpoint) return;
-        if (endpoint->subscription || endpoint->requests.contains(request.request.value)) { endpoint->stream->Close(); return; }
+        if (endpoint->subscription || endpoint->requests.contains(request.request.value) || endpoint->theme_ids.contains(request.request.value)) { endpoint->stream->Close(); return; }
         endpoint->subscription=request.request.value;
         DeliverUpdate(owner,{{},{},0,InstanceChange::Reset,{}});
         for (const auto& [id,job]:jobs) if (!job->alias && job->role==WindowRole::Toplevel && job->mapped && !job->state.Terminal())
@@ -183,6 +203,85 @@ struct Service::Impl {
             worker.kill_at = Now() + 1000000000ULL;
             kill(worker.pid, SIGTERM);
         }
+    }
+    ThemeEvent ThemeResult(std::uint64_t request,ThemeStatus status,std::string detail={}) const {
+        return {request,committed_theme.generation,status,committed_theme.id,committed_theme.name,std::move(detail)};
+    }
+    void DeliverTheme(Owner owner,const ThemeEvent& event) {
+        if (auto* endpoint=Find(owner)) {
+            if (event.request) endpoint->theme_requests[event.request]=event;
+            endpoint->stream->Queue(owner.worker ? launch::EncodeWorker(event) : launch::EncodeMessage(event));
+        }
+    }
+    void SendWmTheme() {
+        if (!control || !session) return;
+        launch::ControlMessage m; m.type=launch::ControlType::InstallTheme;m.permit.session=session;m.theme=theme;
+        if (!control->Queue(launch::EncodeControl(m))) control_failed=true;
+    }
+    void SendWorkerTheme(Worker& worker) {
+        if (worker.phase==Worker::Phase::Stopping || !worker.frontend_ready || worker.stream->Closed()) return;
+        if (theme_transaction) theme_transaction->pending.insert(worker.pid);
+        if (!worker.stream->Queue(launch::EncodeWorker(theme))) StopWorker(worker);
+    }
+    void PublishThemeToHosts() {
+        auto event=ThemeResult(0,ThemeStatus::Current);
+        for (auto& [pid,worker]:workers) if (worker.phase==Worker::Phase::Assigned && !worker.stream->Closed())
+            worker.stream->Queue(launch::EncodeWorker(event));
+    }
+    void FinishTheme() {
+        if (!theme_transaction || theme_transaction->wm_pending || !theme_transaction->pending.empty()) return;
+        auto t=std::move(*theme_transaction);theme_transaction.reset();
+        committed_theme=theme;
+        DeliverTheme(t.owner,ThemeResult(t.request,t.rollback?ThemeStatus::Rejected:ThemeStatus::Applied,t.detail));
+        PublishThemeToHosts();
+        std::cout<<"theme applied id="<<theme.id<<" generation="<<theme.generation<<" rollback="<<t.rollback<<std::endl;
+    }
+    void RollbackTheme(std::string detail) {
+        if (!theme_transaction) {control_failed=true;return;}
+        auto& t=*theme_transaction;
+        if (t.rollback) {std::cerr<<"Theme rollback failed: "<<detail<<std::endl;control_failed=true;return;}
+        t.rollback=true;t.detail=std::move(detail);t.deadline=Now()+5000000000ULL;t.pending.clear();t.wm_pending=control!=nullptr;
+        const auto next=theme.generation+1;Require(next,"Theme generation exhausted");theme=t.previous;theme.generation=next;
+        SendWmTheme();for(auto& [pid,worker]:workers)SendWorkerTheme(worker);
+        FinishTheme();
+    }
+    void ThemeAck(Worker& worker,const ThemeApplied& ack) {
+        Require(worker.frontend_ready && ack.generation<=theme.generation,"Unexpected worker theme ACK");
+        if (ack.generation!=theme.generation) return; // An older in-flight candidate can finish during rollback.
+        if (!ack.success) {
+            if (theme_transaction) RollbackTheme("Host rejected theme: "+ack.detail);
+            else throw std::runtime_error("Host rejected initial theme: "+ack.detail);
+            return;
+        }
+        worker.theme_generation=ack.generation;
+        if (worker.phase==Worker::Phase::Preparing) worker.phase=Worker::Phase::Idle;
+        if (theme_transaction) {theme_transaction->pending.erase(worker.pid);FinishTheme();}
+    }
+    void SelectTheme(Owner owner,const ThemeRequest& request) {
+        auto* endpoint=Find(owner);if (!endpoint)return;
+        Require(!endpoint->requests.contains(request.request) && endpoint->subscription!=request.request,"Theme request ID reused");
+        if(auto identity=endpoint->theme_ids.find(request.request);identity!=endpoint->theme_ids.end()) {
+            Require(identity->second==request.id,"Theme replay ID refers to another package");
+            if(auto prior=endpoint->theme_requests.find(request.request);prior!=endpoint->theme_requests.end())DeliverTheme(owner,prior->second);
+            return;
+        }
+        if(endpoint->theme_requests.size()>=256) {
+            endpoint->theme_ids.erase(endpoint->theme_requests.begin()->first);
+            endpoint->theme_requests.erase(endpoint->theme_requests.begin());
+        }
+        endpoint->theme_ids.emplace(request.request,request.id);
+        if(request.id.empty()){DeliverTheme(owner,ThemeResult(request.request,ThemeStatus::Current));return;}
+        if(shutting_down||theme_transaction||!theme_ready){DeliverTheme(owner,ThemeResult(request.request,ThemeStatus::Rejected,"Theme service is busy"));return;}
+        ThemeSnapshot candidate;
+        try {candidate=prism::theme::LoadTheme(config.themes_root,request.id,theme.generation+1);}
+        catch(const std::exception& e){DeliverTheme(owner,ThemeResult(request.request,ThemeStatus::Rejected,e.what()));return;}
+        if(candidate.layout!=committed_theme.layout){DeliverTheme(owner,ThemeResult(request.request,ThemeStatus::Rejected,"Live Shell/BSP geometry changes require a configure-aware theme transaction"));return;}
+        if (candidate.id==committed_theme.id && candidate.numbers==committed_theme.numbers && candidate.colors==committed_theme.colors && candidate.materials==committed_theme.materials && candidate.layout==committed_theme.layout && candidate.normal==committed_theme.normal && candidate.focused==committed_theme.focused && candidate.fullscreen==committed_theme.fullscreen && candidate.controls==committed_theme.controls) {
+            DeliverTheme(owner,ThemeResult(request.request,ThemeStatus::Applied));return;
+        }
+        ThemeTransaction t;t.owner=owner;t.request=request.request;t.previous=committed_theme;t.deadline=Now()+5000000000ULL;t.wm_pending=control!=nullptr;
+        theme_transaction=std::move(t);theme=std::move(candidate);
+        SendWmTheme();for(auto& [pid,worker]:workers)SendWorkerTheme(worker);FinishTheme();
     }
     void SendControl(launch::ControlType type, const Job& job, std::uint64_t transaction=0) {
         if (!control || !session) return;
@@ -221,10 +320,18 @@ struct Service::Impl {
                 const auto m=launch::DecodeControl(frame); const auto& p=m.permit;
                 if (m.type==launch::ControlType::Ready) {
                     Require(!session && m.success,"Unexpected WM ready"); session=p.session;
-                    if (config.start_shell) BootstrapShell();
+                    SendWmTheme();
                     continue;
                 }
                 Require(session && p.session==session,"WM session mismatch");
+                if (m.type==launch::ControlType::ThemeApplied) {
+                    Require(m.theme_applied.generation<=theme.generation,"Unexpected WM theme ACK");
+                    if(m.theme_applied.generation!=theme.generation)continue;
+                    if(!m.theme_applied.success){RollbackTheme("WM rejected theme: "+m.theme_applied.detail);continue;}
+                    if(!theme_ready){theme_ready=true;if(config.start_shell)BootstrapShell();}
+                    if(theme_transaction){theme_transaction->wm_pending=false;FinishTheme();}
+                    continue;
+                }
                 if (m.type==launch::ControlType::Registered || m.type==launch::ControlType::Activated) {
                     auto it=jobs.find(p.request.value); Require(it!=jobs.end(),"Unknown WM transaction");
                     auto& job=*it->second;
@@ -233,9 +340,7 @@ struct Service::Impl {
                     if (!m.success) { Fail(job,LaunchError::RuntimeFailed,"WM rejected registration or activation"); continue; }
                     if (m.type==launch::ControlType::Registered) {
                         Require(!job.alias && !job.registered,"Duplicate registration ACK"); job.registered=true;
-                        auto& worker=workers.at(p.pid);
-                        if (!worker.stream->Queue(launch::EncodeWorker(launch::WorkerBind{job.request,job.instance})))
-                            Fail(job,LaunchError::RuntimeFailed,"Worker bind failed");
+                        // Binding is gated in Maintain by the current acknowledged theme.
                     } else {
                         Require(job.alias && job.activation_sent,"Unexpected activation ACK");
                         Event(job,LaunchMilestone::Activated);
@@ -256,7 +361,7 @@ struct Service::Impl {
         auto* endpoint = Find(owner);
         if (!endpoint) return;
         owner.request = source.request.value;
-        if (owner.request==endpoint->subscription) { endpoint->stream->Close(); return; }
+        if (owner.request==endpoint->subscription || endpoint->theme_ids.contains(owner.request) || (theme_transaction && theme_transaction->request==owner.request && theme_transaction->owner.worker==owner.worker && theme_transaction->owner.endpoint==owner.endpoint)) { endpoint->stream->Close(); return; }
         if (shutting_down) {
             Deliver(owner, {source.request, {}, 0, LaunchMilestone::Failed, LaunchError::SessionEnded, 0, "Launcher session is stopping"}); return;
         }
@@ -330,6 +435,7 @@ struct Service::Impl {
                 if (const auto* request = std::get_if<LaunchRequest>(&message)) Request({false, id, 0}, *request);
                 else if (const auto* cancel = std::get_if<LaunchCancel>(&message)) Cancel({false, id, 0}, *cancel);
                 else if (const auto* subscribe=std::get_if<InstanceSubscribe>(&message)) Subscribe({false,id,0},*subscribe);
+                else if (const auto* theme=std::get_if<ThemeRequest>(&message)) SelectTheme({false,id,0},*theme);
                 else endpoint.stream->Close();
                 if (endpoint.stream->Closed()) break;
             }
@@ -345,11 +451,16 @@ struct Service::Impl {
                 const auto message = launch::DecodeWorker(frame);
                 if (const auto* ready = std::get_if<launch::WorkerReady>(&message)) {
                     Require(worker.phase == Worker::Phase::Preparing, "Unexpected worker Ready");
-                    worker.phase = Worker::Phase::Idle;
+                    worker.frontend_ready=true;SendWorkerTheme(worker);
                     std::cout << "worker ready pid=" << worker.pid << " preparation_ns=" << ready->preparation_ns << std::endl;
+                } else if (const auto* ack=std::get_if<ThemeApplied>(&message)) {
+                    ThemeAck(worker,*ack);
+                } else if (const auto* request=std::get_if<ThemeRequest>(&message)) {
+                    Require(worker.phase==Worker::Phase::Assigned,"Theme request from idle worker");
+                    SelectTheme({true,static_cast<unsigned>(worker.pid),0},*request);
                 } else if (const auto* event = std::get_if<LaunchEvent>(&message)) {
                     Require(worker.job != 0, "Event from idle worker");
-                    Require(!control || jobs.at(worker.job)->registered,"Worker event before WM registration ACK");
+                    Require(!control || (jobs.at(worker.job)->registered && jobs.at(worker.job)->bound_sent),"Worker event before bind/WM registration ACK");
                     auto& job = *jobs.at(worker.job);
                     Require(event->pid == static_cast<unsigned>(worker.pid) && event->request == job.request.request &&
                         event->instance == job.instance && event->milestone != LaunchMilestone::Accepted &&
@@ -441,11 +552,14 @@ struct Service::Impl {
                 if (job.role!=WindowRole::Toplevel && !shutting_down) control_failed=true;
             } else if (worker.phase == Worker::Phase::Preparing) retry_at = Now() + 1000000000ULL;
             std::cout << "worker reaped pid=" << worker.pid << std::endl;
+            if(theme_transaction)theme_transaction->pending.erase(worker.pid);
             it = workers.erase(it);
+            FinishTheme();
         }
     }
     void Maintain() {
         const auto now = Now();
+        if(theme_transaction && now>=theme_transaction->deadline)RollbackTheme("Theme installation timed out");
         for (auto& [id, job] : jobs) {
             if (!job->state.Terminal() && !job->state.Activated() && (!job->state.FirstPresented() || !job->state.BackendReady()) &&
                 now - job->created > config.startup_timeout_ms * 1000000ULL)
@@ -461,6 +575,15 @@ struct Service::Impl {
             }
             if (worker.phase == Worker::Phase::Stopping && now >= worker.kill_at) kill(pid, SIGKILL);
         }
+        if(!theme_transaction && theme_ready) for(auto& [id,job]:jobs) {
+            if(job->alias || !job->registered || job->bound_sent || job->state.Terminal())continue;
+            auto found=workers.find(job->state.Pid());if(found==workers.end())continue;
+            auto& worker=found->second;
+            if(worker.theme_generation!=theme.generation || worker.phase!=Worker::Phase::Assigned)continue;
+            job->bound_sent=true;
+            if(!worker.stream->Queue(launch::EncodeWorker(launch::WorkerBind{job->request,job->instance})))
+                Fail(*job,LaunchError::RuntimeFailed,"Worker bind failed");
+        }
         for (auto& [id,job]:jobs) if (job->alias && !job->state.Terminal() && !job->state.Activated()) {
             auto target=jobs.find(job->alias);
             if (target==jobs.end() || target->second->state.Terminal()) { Fail(*job,LaunchError::RuntimeFailed,"Activation target ended"); continue; }
@@ -473,9 +596,9 @@ struct Service::Impl {
                 job->activation_sent=true; SendControl(launch::ControlType::Activate,*job);
             }
         }
-        for (auto& [id, job] : jobs) if (!job->alias && !job->state.Terminal() && !job->state.Pid() && (!control || session)) {
-            auto idle = std::find_if(workers.begin(), workers.end(), [](const auto& item) {
-                return item.second.phase == Worker::Phase::Idle && !item.second.stream->Closed();
+        for (auto& [id, job] : jobs) if (!job->alias && !job->state.Terminal() && !job->state.Pid() && theme_ready && !theme_transaction && (!control || session)) {
+            auto idle = std::find_if(workers.begin(), workers.end(), [&](const auto& item) {
+                return item.second.phase == Worker::Phase::Idle && item.second.theme_generation==theme.generation && !item.second.stream->Closed();
             });
             if (idle == workers.end()) break;
             auto& worker = idle->second;
@@ -484,8 +607,11 @@ struct Service::Impl {
             Require(job->state.Apply(assigned), "Internal worker assignment state error");
             job->history.push_back(assigned); Deliver(job->owner, assigned);
             if (control) SendControl(launch::ControlType::Grant,*job);
-            else if (!worker.stream->Queue(launch::EncodeWorker(launch::WorkerBind{job->request, job->instance})))
-                Fail(*job, LaunchError::RuntimeFailed, "Worker assignment send failed");
+            else {
+                job->bound_sent=true;
+                if (!worker.stream->Queue(launch::EncodeWorker(launch::WorkerBind{job->request, job->instance})))
+                    Fail(*job, LaunchError::RuntimeFailed, "Worker assignment send failed");
+            }
         }
         unsigned waiting = 0, unbound = 0;
         for (const auto& [id, job] : jobs) if (!job->alias && !job->state.Terminal() && !job->state.Pid()) ++waiting;
@@ -535,7 +661,7 @@ struct Service::Impl {
         Open();
         while (!stopping && !control_failed) {
             ReadControl();
-            if (control && !session && Now()-opened_at>10000000000ULL) control_failed=true;
+            if (control && !theme_ready && Now()-opened_at>10000000000ULL) control_failed=true;
             Accept();
             for (auto& [id, endpoint] : clients) ReadClient(id, endpoint);
             for (auto& [pid, worker] : workers) ReadWorker(worker);

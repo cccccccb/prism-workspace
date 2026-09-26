@@ -1,5 +1,4 @@
 #include "prism/app/module_support.hpp"
-#include "prism/contracts/theme_tokens.hpp"
 #include <fstream>
 #include <algorithm>
 #include <iomanip>
@@ -8,19 +7,8 @@
 namespace {
 struct Settings {
     const PrismHostApiV1* host;
-    bool dark{false};
     std::uint64_t previous_total{}, previous_idle{};
-    bool Appearance() {
-        namespace theme=prism::contracts::theme;
-        return prism::app::Boolean(host,"theme_dark",dark) &&
-            prism::app::Text(host,"dark_mode_btn",dark?"Appearance: Dark":"Appearance: Light") &&
-            prism::app::Text(host,"appearance_icon",dark?"moon":"sun") &&
-            prism::app::Color(host,"window_tint",dark?theme::kDarkWindowTint:theme::kWindowTint) &&
-            prism::app::Color(host,"card_tint",dark?theme::kDarkCardTint:theme::kCardTint) &&
-            prism::app::Color(host,"control_tint",dark?theme::kDarkControlTint:theme::kControlTint) &&
-            prism::app::Color(host,"text_color",dark?theme::kDarkText:theme::kText) &&
-            prism::app::Color(host,"muted_color",dark?theme::kDarkMutedText:theme::kMutedText);
-    }
+    std::uint64_t theme_request{},theme_generation{};
     bool Metrics() {
         std::ifstream stat("/proc/stat"); std::string label,line; std::getline(stat,line);
         std::istringstream cpu(line); cpu>>label; std::uint64_t part{},total{},idle{}; unsigned index=0;
@@ -56,18 +44,41 @@ void* Create(const PrismAppInitV1* init) noexcept {
     Settings* settings=nullptr;
     try {
         settings=new Settings{init->host};
-        if (settings->Appearance() && settings->Metrics() && prism::app::Ready(init->host)) return settings;
+        if (prism::app::Text(init->host,"theme_status","Loading theme") && settings->Metrics()) {
+            settings->theme_request=prism::app::SelectTheme(init->host,{});
+            if (!settings->theme_request) prism::app::Text(init->host,"theme_status","Theme unavailable");
+            if (prism::app::Ready(init->host)) return settings;
+        }
     } catch (...) {} delete settings; return nullptr;
 }
 void Destroy(void* instance) noexcept { delete static_cast<Settings*>(instance); }
 void Action(void* instance,PrismStringViewV1 value) noexcept {
     try {
         auto& settings=*static_cast<Settings*>(instance); std::string_view action(value.data,value.size);
-        if (action=="theme:toggle") { settings.dark=!settings.dark; settings.Appearance(); }
-        else if (action=="sys:refresh") settings.Metrics();
+        if (action=="sys:refresh") settings.Metrics();
+        else if (action=="theme:glass" || action=="theme:translucent" ||
+                 action=="theme:transparent" || action=="theme:square") {
+            const auto id=action.substr(6);
+            settings.theme_request=prism::app::SelectTheme(settings.host,id);
+            prism::app::Text(settings.host,"theme_status",settings.theme_request?"Applying theme":"Theme unavailable");
+        }
     } catch (...) {}
 }
 void Tick(void* instance,std::uint64_t) noexcept { try { static_cast<Settings*>(instance)->Metrics(); } catch (...) {} }
-const PrismAppModuleV1 api{sizeof(api),PRISM_APP_ABI_V1,Create,Destroy,Action,Tick,nullptr,nullptr};
+void ThemeEvent(void* instance,const PrismThemeEventV1* event) noexcept {
+    try {
+        if (!event || event->struct_size<sizeof(*event)) return;
+        auto& settings=*static_cast<Settings*>(instance);
+        if (event->status==2) {
+            if (event->request_id==settings.theme_request)
+                prism::app::Text(settings.host,"theme_status","Theme change rejected");
+            return;
+        }
+        if (event->status>1 || event->generation<settings.theme_generation) return;
+        settings.theme_generation=event->generation;
+        prism::app::Text(settings.host,"theme_status","Theme: "+std::string(event->name.data,event->name.size));
+    } catch (...) {}
+}
+const PrismAppModuleV1 api{sizeof(api),PRISM_APP_ABI_V1,Create,Destroy,Action,Tick,nullptr,nullptr,ThemeEvent};
 }
 extern "C" PRISM_APP_EXPORT const PrismAppModuleV1* prism_app_module_v1() { return &api; }

@@ -1,5 +1,6 @@
 #pragma once
 #include "prism/runtime/property.hpp"
+#include "prism/contracts/theme.hpp"
 #include <functional>
 #include <memory>
 #include <optional>
@@ -38,6 +39,8 @@ public:
     bool Pump(int timeout_ms);
     bool SetSlot(std::string_view name, std::string value);
     bool SetBinding(std::string_view name, runtime::PropertyValue value);
+    bool ApplyTheme(const contracts::ThemeSnapshot&, std::string* diagnostic = nullptr);
+    std::uint64_t ThemeGeneration() const;
     void OnAction(std::function<void(std::string_view)> callback);
     bool IsCloseRequested() const;
     bool IsMapped() const;

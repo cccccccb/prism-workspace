@@ -36,6 +36,11 @@ int RunWorker(int fd, const std::filesystem::path& apps, const std::string& sock
         auto id=next_launch++;
         return channel.Queue(launch::EncodeWorker(contracts::InstanceSubscribe{{id}})) ? id : 0;
     };
+    config.select_theme=[&](std::string_view theme_id) -> std::uint64_t {
+        if (!next_launch || channel.Closed()) return 0;
+        const auto id=next_launch++;
+        return channel.Queue(launch::EncodeWorker(contracts::ThemeRequest{id,std::string(theme_id)})) ? id : 0;
+    };
     sdk::AppHost host(std::move(config));
     const auto start = sdk::MonotonicNs();
     if (!host.PrepareFrontend()) return 1;
@@ -47,8 +52,18 @@ int RunWorker(int fd, const std::filesystem::path& apps, const std::string& sock
         while (!stopping && !channel.Closed()) {
             for (auto& frame : channel.Receive()) {
                 const auto message = launch::DecodeWorker(frame);
-                if (const auto* bind = std::get_if<launch::WorkerBind>(&message)) {
+                if (const auto* snapshot = std::get_if<contracts::ThemeSnapshot>(&message)) {
+                    std::string diagnostic;
+                    const bool accepted=host.ApplyTheme(*snapshot,&diagnostic);
+                    if (accepted) std::cout << "worker theme installed pid=" << getpid()
+                        << " generation=" << snapshot->generation << " id=" << snapshot->id
+                        << " bound=" << bound << std::endl;
+                    if (!channel.Queue(launch::EncodeWorker(contracts::ThemeApplied{
+                            snapshot->generation,accepted,std::move(diagnostic)})))
+                        throw std::runtime_error("Cannot acknowledge theme update");
+                } else if (const auto* bind = std::get_if<launch::WorkerBind>(&message)) {
                     if (bound) throw std::runtime_error("Worker already assigned");
+                    if (!host.ThemeGeneration()) throw std::runtime_error("Worker bind requires an acknowledged theme");
                     bound = true; request = bind->request.request; instance = bind->instance;
                     if (!host.Assign(request, instance)) throw std::runtime_error("Invalid worker assignment");
                     auto package = launch::LoadRegisteredPackage(apps, bind->request.app_id);
@@ -59,6 +74,8 @@ int RunWorker(int fd, const std::filesystem::path& apps, const std::string& sock
                 } else if (const auto* update=std::get_if<contracts::InstanceUpdate>(&message)) {
                     if (!bound) throw std::runtime_error("Instance update to idle worker");
                     host.DeliverInstanceEvent(*update);
+                } else if (const auto* event=std::get_if<contracts::ThemeEvent>(&message)) {
+                    host.DeliverThemeEvent(*event);
                 } else throw std::runtime_error("Unexpected worker command");
             }
             if (exit_code) break;

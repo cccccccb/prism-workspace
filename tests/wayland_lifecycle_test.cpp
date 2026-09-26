@@ -2,6 +2,7 @@
 #include "prism/wm/compositor.hpp"
 #include "prism/wm/wlr_server.hpp"
 #include "prism/wm/theme.hpp"
+#include "fixtures/wm_theme_fixture.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -32,6 +33,8 @@ int main() {
     const std::string socket = "wayland-prism-lifecycle-" + std::to_string(getpid());
     if (!server.Initialize(socket)) return 3;
     server.Start();
+    const auto fixture=prism::test::WmThemeFixture();
+    if (!server.InstallTheme(fixture).success) return 3;
 
     wlr_keyboard test_keyboard{};
     static const wlr_keyboard_impl keyboard_impl{.name = "prism-test-keyboard",
@@ -85,7 +88,7 @@ int main() {
         }
         client_pass = window.IsConfigured() && window.IsMapped() &&
                       window.ConfigureCount() >= 2 && window.FrameDoneCount() >= 2 &&
-                      window.Metrics().buffer_size.width == static_cast<std::uint32_t>(1280 - 2 * prism::wm::ThemeGeometry{}.outer_gap) &&
+                      window.Metrics().buffer_size.width == static_cast<std::uint32_t>(1280 - 2 * fixture.layout.outer_gap) &&
                       window.PointerEnterCount() > 0 && window.PointerButtonCount() >= 2 &&
                       window.KeyCount() >= 2 &&
                       configure_events >= 2 && pointer_events >= 2 &&
@@ -157,7 +160,7 @@ int main() {
         while (std::chrono::steady_clock::now() < tiled_deadline && !release_tiled_clients) {
             if (!window.Pump(20)) break;
             const auto metrics = window.Metrics();
-            const auto theme = prism::wm::ThemeGeometry{};
+            const auto& theme = fixture.layout;
             if (!reported && window.IsMapped() && metrics.buffer_size.width == static_cast<std::uint32_t>((1280 - 2 * theme.outer_gap - theme.inner_gap) / 2) &&
                 metrics.buffer_size.height == static_cast<std::uint32_t>(720 - theme.topbar_surface_height - theme.dock_surface_height - 2 * theme.outer_gap) && window.FrameDoneCount() > 0) {
                 ++tiled_clients;

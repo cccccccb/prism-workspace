@@ -1,10 +1,12 @@
 # Surface 材料、透明与 GPU 背景效果
 
-日期：2026-09-26。本轮实现规范，已部署 0.1.0-5；实际运行/截图与用户验收结果在 PI_DEB_DEPLOYMENT.md 和 VISUAL_TILING_REFINEMENT_PLAN.md 记录。普通生产应用只通过统一 host 使用 SDK，WM 不接收 DSL、DisplayList、业务动作或 Skia 对象。
+日期：2026-09-26。基础背景效果已随 0.1.0-5 部署并验收；本文第 6 节记录该版本的历史结果。DSL 运行时主题已随 0.1.0-6 部署到 Pi，四种全局效果切换及主要点击通过现场确认。普通生产应用只通过统一 host 使用 SDK，WM 不接收 DSL、DisplayList、业务动作或 Skia 对象。
 
 ## 1. 单一主题与职责
 
-resources/themes/prism-glass.json 是颜色、尺寸、圆角、间距、模糊与阴影参数的唯一源。构建生成 prism/contracts/theme_tokens.hpp，WM 读取类型化常量，SDK 在 Schema 类型检查之前解析 `@token`。应用模板仅选择组件与绑定，不自行实现材质渲染。此版支持 Prism Glass；旧 WM Nordic/Minimal 的切换请求明确返回 unsupported。Settings 切换自身的配色，并未提供跨应用全局主题服务。
+主题参数现在由 `resources/themes/<id>/theme.prism` 唯一定义，旧 JSON 和 Python 常量生成器已删除。纯主题编译器使用共享 DSL 语法产生 `ThemeSnapshot`，统一 launcher 向 SDK host 与 WM 分发同一有版本快照。WM 只读取几何和装饰纯值，不读取 DSL。SDK 保留应用 `@token` 引用与 `material` 选择，在接收快照时更新既有节点，不把主题引用永久折叠成字面量。
+
+首批完整主题包为 `glass`、`translucent`、`transparent`、`square`；几何保持一致，材料分别定义 tint、圆角、模糊、边框、阴影与输入策略。Settings 已从本窗口配色改为请求全局主题包，以 Current/Applied/Rejected 事件显示结果；提交请求不提前显示成功。会话分发、ACK 与恢复规范见 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md)，作者接口见 [THEME_AUTHORING.md](THEME_AUTHORING.md)。全局切换以 0.1.0-6 的独立验证及用户答复“四种主题切换及点击都正常”为证据，记录见 [PI_DEB_DEPLOYMENT.md](PI_DEB_DEPLOYMENT.md)。
 
 SDK 绘制客户端 tint、控件、图标、局部卡片阴影与内部边线。WM 绘制窗口轮廓外的聚焦边线、外阴影与跨 surface backdrop。SDK 根圆角裁剪保证本家应用像素/命中轮廓一致；外部传统客户端的内容仍维持其自身轮廓，不宣称通用第三方 surface 圆角遮罩已经实现。
 
@@ -43,7 +45,7 @@ Buffer/texture 在提交之前保留；effect scene 节点先于 renderer/alloca
 - tests/probes/backdrop_probe.py：独立 V3D 会话，用测试包替换 Desktop 为高频棋盘格与变化颜色；截图检查模糊衰减及实际低层更新传播。测试素材不进入发布包。
 - 实际 Pi 截图、输入/工作区/分割、重启回收与输出提交另行验收。动画首版只保留静态 hover/focus 反馈，不启用缩放、弹簧或 Dock 放大。
 
-## 6. 本轮 V3D 验证记录
+## 6. 0.1.0-5 V3D 验证记录（历史）
 
 2026-09-26，隔离的 headless 会话仍使用 Pi 的实际 V3D GPU。高频下层测试图的红通道跨度为 191，Topbar 玻璃区域为 4；下层红/蓝切换后，玻璃区域的红蓝均值差变化为 23.5。结果保存在 `dist/validation/visual-backdrop/backdrop-report.json`，证明真实下层内容被模糊且更新传播，不以半透明填色作为毛玻璃验收。
 

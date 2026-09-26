@@ -16,10 +16,11 @@ bool Valid(PrismStringViewV1 text, std::size_t limit) {
 }
 }
 ModuleSession::ModuleSession(const std::filesystem::path& module, std::string app_id,
-    std::uint64_t instance, BindingSink bindings, LaunchSink launch, SubscribeSink subscribe)
+    std::uint64_t instance, BindingSink bindings, LaunchSink launch, SubscribeSink subscribe, ThemeSink themes)
     : module_(module), app_id_(std::move(app_id)), instance_id_(instance),
-      bindings_(std::move(bindings)), launch_(std::move(launch)), subscribe_(std::move(subscribe)), host_{sizeof(host_), PRISM_APP_ABI_V1, this,
-        SetBinding, Ready, Launch, Schedule, Subscribe} {}
+      bindings_(std::move(bindings)), launch_(std::move(launch)), subscribe_(std::move(subscribe)),
+      themes_(std::move(themes)), host_{sizeof(host_), PRISM_APP_ABI_V1, this,
+        SetBinding, Ready, Launch, Schedule, Subscribe, SelectTheme} {}
 ModuleSession::~ModuleSession() {
     tick_due_.reset();
     if (instance_) module_.Api().destroy(instance_);
@@ -88,6 +89,28 @@ uint64_t ModuleSession::Subscribe(void* ctx) noexcept {
         return self.subscription_=self.subscribe_();
     } catch (...) { return 0; }
 }
+uint64_t ModuleSession::SelectTheme(void* ctx, PrismStringViewV1 id) noexcept {
+    try {
+        auto& self = *static_cast<ModuleSession*>(ctx);
+        if ((!id.data && id.size) || id.size > 128 || !self.themes_ || self.theme_requests_.size() >= 64) return 0;
+        const auto name = id.size ? std::string_view(id.data,id.size) : std::string_view{};
+        if (name.find('\0') != std::string_view::npos) return 0;
+        const auto request = self.themes_(name);
+        if (!request || self.theme_requests_.contains(request)) return 0;
+        self.theme_requests_.emplace(request,name);
+        return request;
+    } catch (...) { return 0; }
+}
+void ModuleSession::Deliver(const contracts::ThemeEvent& event) {
+    if (event.request && !theme_requests_.contains(event.request)) return;
+    if (instance_ && module_.Api().on_theme_event) {
+        PrismThemeEventV1 projected{sizeof(projected),event.request,event.generation,
+            static_cast<std::uint32_t>(event.status),{event.id.data(),event.id.size()},
+            {event.name.data(),event.name.size()},{event.detail.data(),event.detail.size()}};
+        module_.Api().on_theme_event(instance_,&projected);
+    }
+    if (event.request) theme_requests_.erase(event.request);
+}
 void ModuleSession::Deliver(const contracts::InstanceUpdate& event) {
     if (!subscription_ || event.request.value!=subscription_ || !instance_ || !module_.Api().on_instance_event) return;
     PrismInstanceEventV1 projected{sizeof(projected),event.request.value,event.instance.value,event.pid,
@@ -142,5 +165,9 @@ void ModuleSession::Disconnected() {
         Deliver({{id}, launch.instance, launch.pid, contracts::LaunchMilestone::Failed,
             contracts::LaunchError::SessionEnded, 0, "Launch service disconnected"});
     launches_.clear();
+    const auto pending_themes = theme_requests_;
+    for (const auto& [id,name] : pending_themes)
+        Deliver(contracts::ThemeEvent{id,0,contracts::ThemeStatus::Rejected,name,{},"Theme service disconnected"});
+    theme_requests_.clear();
 }
 } // namespace prism::sdk
