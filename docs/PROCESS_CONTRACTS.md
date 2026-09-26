@@ -77,3 +77,7 @@ flowchart LR
 第三步先完成一个**不读取 DSL** 的普通 Wayland 客户端，验证首次 configure/ack、buffer 提交、resize、关闭、键盘与指针。它通过上述事件和尺寸契约与客户端 runtime 对接；shell 角色待授权机制就绪后再开放。第四步再实现 Scene → DisplayList → Skia，不让 WM 获得应用树。
 
 第四步的首个实现检查点见 [CLIENT_SCENE_RUNTIME.md](CLIENT_SCENE_RUNTIME.md)：`prism_client_scene` 独立于旧单体和平台，尚未接入 Skia。
+
+## 统一启动与业务模块契约
+
+启动请求/结果、目录包、C 业务 ABI、实例里程碑、Shell 凭证与会话生命周期以 [APP_LAUNCH_CONTRACT.md](APP_LAUNCH_CONTRACT.md) 为准；它们不复用旧共享内存 IPC 对象。启动基础实现位于 prism_launch，无 WM/客户端 parser/渲染依赖。当前 codec 与状态校验已实现，真实服务/授权接入仍按恢复计划推进。

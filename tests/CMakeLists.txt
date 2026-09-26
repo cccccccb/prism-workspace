@@ -74,3 +74,36 @@ endif()
 add_executable(image_resources_test image_resources_test.cpp)
 target_link_libraries(image_resources_test PRIVATE prism_client_dsl)
 add_test(NAME image_resources_test COMMAND image_resources_test)
+
+# Launch contracts and module fixtures stay exclusively in test targets.
+add_executable(app_module_abi_smoke app_module_abi_smoke.c)
+target_include_directories(app_module_abi_smoke PRIVATE "${CMAKE_SOURCE_DIR}/prism/include")
+add_test(NAME app_module_abi_smoke COMMAND app_module_abi_smoke)
+add_executable(launch_package_test launch_package_test.cpp)
+target_link_libraries(launch_package_test PRIVATE prism_launch)
+add_test(NAME launch_package_test COMMAND launch_package_test)
+add_executable(launch_protocol_test launch_protocol_test.cpp)
+target_link_libraries(launch_protocol_test PRIVATE prism_launch)
+add_test(NAME launch_protocol_test COMMAND launch_protocol_test)
+foreach(fixture IN ITEMS valid wrong_abi missing_destroy)
+    add_library(app_module_fixture_${fixture} MODULE fixtures/app_module_v1.c)
+    target_include_directories(app_module_fixture_${fixture} PRIVATE "${CMAKE_SOURCE_DIR}/prism/include")
+endforeach()
+target_compile_definitions(app_module_fixture_wrong_abi PRIVATE TEST_MODULE_ABI=2)
+target_compile_definitions(app_module_fixture_missing_destroy PRIVATE TEST_MISSING_DESTROY=1)
+add_executable(launch_module_test launch_module_test.cpp)
+target_link_libraries(launch_module_test PRIVATE prism_launch)
+add_dependencies(launch_module_test app_module_fixture_valid app_module_fixture_wrong_abi app_module_fixture_missing_destroy)
+add_test(NAME launch_module_test COMMAND launch_module_test
+    $<TARGET_FILE:app_module_fixture_valid>
+    $<TARGET_FILE:app_module_fixture_wrong_abi>
+    $<TARGET_FILE:app_module_fixture_missing_destroy>)
+# Checks remain active in Release configurations too.
+foreach(test IN ITEMS launch_package_test launch_protocol_test launch_module_test)
+    target_compile_options(${test} PRIVATE -UNDEBUG)
+endforeach()
+
+add_executable(launch_shell_permit_test launch_shell_permit_test.cpp)
+target_link_libraries(launch_shell_permit_test PRIVATE prism_launch)
+target_compile_options(launch_shell_permit_test PRIVATE -UNDEBUG)
+add_test(NAME launch_shell_permit_test COMMAND launch_shell_permit_test)

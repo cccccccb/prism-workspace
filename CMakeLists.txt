@@ -46,6 +46,7 @@ option(PRISM_ENABLE_GLES "Build Skia Ganesh GLES backend" OFF)
 
 # 1. Core Framework Subdirectory
 add_subdirectory(prism/contracts)
+add_subdirectory(prism/launch)
 add_subdirectory(prism/platform/wayland_client)
 add_subdirectory(prism/runtime)
 add_subdirectory(prism/render_skia)

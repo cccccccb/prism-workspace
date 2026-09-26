@@ -31,3 +31,13 @@ WLR_BACKENDS=headless WLR_RENDERER=pixman \
 ```
 
 看到 `Wayland display listening on wayland-prism-0` 和 `commit=OK` 表示服务端与输出帧正常运行。按 Ctrl+C 停止。此检查验证软件渲染和 Wayland 服务端；实际 DRM/KMS 显示输出还需要在本地图形会话或 TTY 上单独验证。
+
+## 统一启动基础构建依赖
+
+新版 prism_launch 包读取器使用 nlohmann JSON 3.11+，安装开发头：
+
+```sh
+sudo apt install nlohmann-json3-dev
+```
+
+业务模块 ABI 为纯 C；prism/contracts 仍可独立构建，无 JSON/Wayland/Skia 依赖。实际启动恢复进度见 [APP_LAUNCH_CONTRACT.md](APP_LAUNCH_CONTRACT.md)。

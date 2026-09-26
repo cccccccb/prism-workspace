@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-    project(prism_contracts LANGUAGES CXX)
+    project(prism_contracts LANGUAGES C CXX)
     include(CTest)
 endif()
 
@@ -16,7 +16,8 @@ if(CONTRACT_LINK_LIBRARIES)
 endif()
 
 file(GLOB_RECURSE CONTRACT_HEADERS CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_LIST_DIR}/../include/prism/contracts/*.hpp")
+    "${CMAKE_CURRENT_LIST_DIR}/../include/prism/contracts/*.hpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../include/prism/contracts/*.h")
 foreach(CONTRACT_HEADER IN LISTS CONTRACT_HEADERS)
     file(STRINGS "${CONTRACT_HEADER}" CONTRACT_INCLUDES
         REGEX "^[ \t]*#[ \t]*include")
@@ -35,4 +36,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND BUILD_TESTING)
     add_executable(prism_contracts_smoke "${CMAKE_CURRENT_LIST_DIR}/../../tests/contracts_smoke.cpp")
     target_link_libraries(prism_contracts_smoke PRIVATE prism_contracts)
     add_test(NAME prism_contracts_smoke COMMAND prism_contracts_smoke)
+    add_executable(prism_app_module_abi_smoke "${CMAKE_CURRENT_LIST_DIR}/../../tests/app_module_abi_smoke.c")
+    target_include_directories(prism_app_module_abi_smoke PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../include")
+    add_test(NAME prism_app_module_abi_smoke COMMAND prism_app_module_abi_smoke)
 endif()

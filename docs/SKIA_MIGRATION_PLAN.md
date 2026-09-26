@@ -89,3 +89,7 @@ AST 只表示语法；长期 Scene 保存节点状态、绑定、焦点与布局
 ## 主线优先级修订：恢复统一运行时与预热启动
 
 按用户明确的平台目标，先实施 [LAUNCH_RUNTIME_RESTORATION_PLAN.md](LAUNCH_RUNTIME_RESTORATION_PLAN.md)：包/ABI/启动契约 → 统一 host → launcher worker 池 → 五应用与 Shell/Dock 切换 → deb/实机启动门槛，然后继续视觉与平铺规范。直接 spawn 是迁移过渡路径，启动优化不再作为远期附加项。
+
+### 启动恢复第一步检查点
+
+已落地包/ABI/消息/状态与凭证检查基础，规范见 [APP_LAUNCH_CONTRACT.md](APP_LAUNCH_CONTRACT.md)。接下来进入统一 host 与一个真实 demo；launcher worker 池和生产会话切换仍未实现。
