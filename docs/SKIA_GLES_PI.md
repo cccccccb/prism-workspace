@@ -16,7 +16,7 @@ cmake -S . -B build-gles -G Ninja \
 cmake --build build-gles --target prism_skia_gles_wayland_probe -j4
 ```
 
-`tests/probes/skia_gles_wayland_probe.cpp` 使用测试 DSL、异步 PNG、字体整形与 slot 更新，分别报告客户端 GL 驱动、configure、frame callback、提交次数与图片加载结果。运行时需启动 headless WM，再将 socket 名与测试 DSL 文件传给 probe。它只用于集成验收，不进入安装目标。
+`tests/probes/skia_gles_wayland_probe.cpp` 通过可复用的 `prism_client_app` SDK 使用测试 DSL、异步 PNG、字体整形与 slot 更新，分别报告客户端 GL 驱动、configure、frame callback、提交次数与图片加载结果。运行时需启动 headless WM，再将 socket 名与测试 DSL 文件传给 probe。它只用于集成验收，不进入安装目标。
 
 本机 `build-gles` 完整构建成功，CTest 11/11 通过；上述 headless V3D 探针也以退出码 0 通过。CPU 配置 `build` 的 CTest 同为 11/11 通过。
 

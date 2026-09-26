@@ -12,3 +12,9 @@ add_library(prism_client_dsl STATIC
     ../src/core/logging.cpp)
 target_link_libraries(prism_client_dsl PUBLIC prism_client_scene)
 target_include_directories(prism_client_dsl PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../include")
+
+if(PRISM_ENABLE_GLES AND PRISM_SKIA_ROOT)
+    add_library(prism_client_app STATIC client_application.cpp)
+    target_include_directories(prism_client_app PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
+    target_link_libraries(prism_client_app PUBLIC prism_client_dsl prism_skia_gles prism_wayland_egl)
+endif()
