@@ -1,0 +1,7 @@
+# CPU configurations are diagnostic builds, not deployable desktops.
+if(NOT "@PRISM_PACKAGE_HAS_CLIENTS@" STREQUAL "ON")
+    message(FATAL_ERROR "Desktop packaging requires Skia PrismGLES and PRISM_ENABLE_GLES=ON. Use tools/package-deb.sh.")
+endif()
+if(NOT "@CMAKE_INSTALL_PREFIX@" STREQUAL "/usr")
+    message(FATAL_ERROR "Desktop packaging requires CMAKE_INSTALL_PREFIX=/usr to match session/service paths.")
+endif()

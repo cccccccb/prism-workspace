@@ -1,79 +1,55 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# Project Prism Desktop Session Supervisor
-# Coordinates: prism-wm -> prism-launcher -> prism-invoker --shell
-# ==============================================================================
+# WM owns the Wayland socket and launches the authorized Shell clients.
+set -euo pipefail
 
-set -eo pipefail
+case "${1:-}" in
+    "") ;;
+    --drm)
+        export WLR_BACKENDS=drm,libinput
+        unset DISPLAY WAYLAND_DISPLAY WAYLAND_SOCKET
+        shift ;;
+    --nested)
+        if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+            export WLR_BACKENDS=wayland
+        elif [[ -n "${DISPLAY:-}" ]]; then
+            export WLR_BACKENDS=x11
+        else
+            echo 'prism-session: --nested requires an existing Wayland or X11 display' >&2
+            exit 1
+        fi
+        shift ;;
+    --help)
+        echo 'Usage: prism-session [--drm|--nested]'
+        echo 'Run --drm from a local login/seat session; remote demos use prism-demo@USER.service.'
+        exit 0 ;;
+    *) echo "prism-session: unknown argument: $1" >&2; exit 2 ;;
+esac
+[[ $# == 0 ]] || { echo 'prism-session: unexpected arguments' >&2; exit 2; }
 
 export XDG_CURRENT_DESKTOP=Prism
 export XDG_SESSION_TYPE=wayland
 export XDG_SESSION_DESKTOP=prism
-
-# Ensure runtime directory exists
-export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/prism-runtime-$UID}"
-mkdir -p "$XDG_RUNTIME_DIR"
-chmod 700 "$XDG_RUNTIME_DIR"
-
-echo "[PRISM-SESSION] Initializing Prism Desktop Environment..."
-
-# Clean old state
-rm -f /tmp/prism.ready /tmp/prism_zygote.sock "$XDG_RUNTIME_DIR/prism.ready"
-
-# 1. Start Compositor Window Manager in background
-echo "[PRISM-SESSION] Starting prism-wm..."
-if command -v prism-wm >/dev/null 2>&1; then
-    prism-wm &
-elif [ -x "./build/prism/prism-wm" ]; then
-    ./build/prism/prism-wm &
-else
-    prism-wm &
-fi
-WM_PID=$!
-
-# 2. Wait for Compositor Readiness Handshake Probe
-echo "[PRISM-SESSION] Waiting for Compositor readiness..."
-INVOKER_CMD="prism-invoker"
-if ! command -v prism-invoker >/dev/null 2>&1 && [ -x "./build/prism/prism-invoker" ]; then
-    INVOKER_CMD="./build/prism/prism-invoker"
+export WLR_RENDERER="${WLR_RENDERER:-gles2}"
+: "${XDG_RUNTIME_DIR:?prism-session requires XDG_RUNTIME_DIR from a login session}"
+if [[ ! -d "$XDG_RUNTIME_DIR" || ! -O "$XDG_RUNTIME_DIR" || $(stat -c %a "$XDG_RUNTIME_DIR") != 700 ]]; then
+    echo 'prism-session: runtime directory must be owned by this user with mode 0700' >&2
+    exit 1
 fi
 
-$INVOKER_CMD --wait-ready 5000 || echo "[PRISM-SESSION] Readiness timeout, proceeding..."
-
-# Export Prism display and IPC socket so Zygote and Shell connect to PrismWM
-export WAYLAND_DISPLAY=wayland-prism-0
-export PRISMSOCK="$XDG_RUNTIME_DIR/prism-ipc.sock"
-
-# 3. Start Zygote Launcher Daemon in background
-echo "[PRISM-SESSION] Starting prism-launcher (Zygote Daemon)..."
-if command -v prism-launcher >/dev/null 2>&1; then
-    prism-launcher &
-elif [ -x "./build/prism/prism-launcher" ]; then
-    ./build/prism/prism-launcher &
-else
-    prism-launcher &
+# Pi exposes a VC4 display device separately from its V3D render node.
+# Selecting the render node also gives EGL clients usable DMA-BUF feedback.
+# Preserve explicit device choices and leave nested/headless sessions alone.
+if [[ -z "${WLR_RENDER_DRM_DEVICE:-}" && -z "${WAYLAND_DISPLAY:-}" &&
+      -z "${DISPLAY:-}" && "${WLR_BACKENDS:-}" != *headless* ]]; then
+    for render_path in /sys/class/drm/renderD*; do
+        driver_path=$(readlink -f "$render_path/device/driver") || continue
+        if [[ ${driver_path##*/} == v3d ]]; then
+            export WLR_RENDER_DRM_DEVICE="/dev/dri/${render_path##*/}"
+            break
+        fi
+    done
 fi
-LAUNCHER_PID=$!
 
-# Brief pause to ensure zygote socket is listening
-sleep 0.05
-
-# 4. Invoke Shell Suite (Desktop, Dock, TopBar) via Zygote
-echo "[PRISM-SESSION] Shell Suite is managed by prism-wm."
-# Shell clients are spawned and authorized by prism-wm.
-
-# Signal trapping for graceful shutdown
-cleanup() {
-    echo "[PRISM-SESSION] Received teardown signal, cleaning up session processes..."
-    kill -TERM "$LAUNCHER_PID" 2>/dev/null || true
-    kill -TERM "$WM_PID" 2>/dev/null || true
-    wait "$WM_PID" 2>/dev/null || true
-    rm -f /tmp/prism.ready /tmp/prism_zygote.sock "$XDG_RUNTIME_DIR/prism.ready"
-    echo "[PRISM-SESSION] Session terminated cleanly."
-    exit 0
-}
-
-trap cleanup SIGINT SIGTERM EXIT
-
-# Supervise WM process
-wait "$WM_PID"
+session_bin_dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+[[ -x "$session_bin_dir/prism-wm" ]] || { echo 'prism-session: sibling prism-wm binary is missing' >&2; exit 1; }
+exec "$session_bin_dir/prism-wm"

@@ -1,19 +1,20 @@
 [Unit]
-Description=Project Prism Wayland Compositor & Modern Desktop Environment
-Documentation=https://github.com/chenbin/prism
-BindsTo=graphical-session.target
-Before=graphical-session.target
-After=systemd-user-sessions.service
+Description=Prism Wayland desktop session
+PartOf=graphical-session.target
+StartLimitIntervalSec=30
+StartLimitBurst=3
 
 [Service]
 Type=simple
 Environment=XDG_CURRENT_DESKTOP=Prism
 Environment=XDG_SESSION_TYPE=wayland
 Environment=XDG_SESSION_DESKTOP=prism
+EnvironmentFile=-%h/.config/prism/session.env
 ExecStart=/usr/bin/prism-session
 Restart=on-failure
-RestartSec=1s
-TimeoutStopSec=5s
+RestartSec=2s
+KillMode=control-group
+TimeoutStopSec=10s
 
-[Install]
-WantedBy=graphical-session.target
+# Started explicitly from a logged-in graphical/seat session.
+# Do not enable for every desktop: the display manager runs prism-session directly.

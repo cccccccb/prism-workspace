@@ -89,7 +89,7 @@ if(TARGET prism_client_app)
         DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
-# Install Session Supervisor Script
+# Install Session Entry Script
 install(PROGRAMS session/prism-session
     DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
@@ -102,6 +102,10 @@ install(FILES resources/sessions/prism.desktop
 # Install Systemd User Service
 install(FILES resources/systemd/prism-session.service
     DESTINATION lib/systemd/user
+)
+
+install(FILES resources/systemd/prism-demo@.service
+    DESTINATION lib/systemd/system
 )
 
 # Install Wallpapers & Assets
@@ -128,14 +132,26 @@ install(FILES demos/demo_settings/master.prism
 set(CPACK_GENERATOR "DEB")
 set(CPACK_PACKAGE_NAME "prism-wm")
 set(CPACK_PACKAGE_VENDOR "Project Prism Team")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Project Prism: Next-Generation Wayland Compositor & Glassmorphism Desktop Shell")
-set(CPACK_PACKAGE_VERSION "0.1.0")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Project Prism: Wayland Compositor and Skia GLES Desktop Clients")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_DEBIAN_PACKAGE_RELEASE "1")
+set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
+set(CPACK_STRIP_FILES ON)
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 set(CPACK_PACKAGE_CONTACT "Chen Bin <chenbin@prism.org>")
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Chen Bin <chenbin@prism.org>")
 set(CPACK_DEBIAN_PACKAGE_SECTION "x11")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "libwlroots-0.18, libwayland-server0, libwayland-client0, libdrm2, libegl1, libgbm1, libinput10, libxkbcommon0, libpixman-1-0")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "fonts-dejavu-core, libgl1-mesa-dri")
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/chenbin/prism")
 set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
+
+set(PRISM_PACKAGE_HAS_CLIENTS OFF)
+if(TARGET prism_client_app)
+    set(PRISM_PACKAGE_HAS_CLIENTS ON)
+endif()
+configure_file(cmake/PrismPackaging.cmake.in
+    "${CMAKE_BINARY_DIR}/PrismPackaging.cmake" @ONLY)
+set(CPACK_PROJECT_CONFIG_FILE "${CMAKE_BINARY_DIR}/PrismPackaging.cmake")
 
 include(CPack)

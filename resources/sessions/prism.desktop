@@ -1,7 +1,8 @@
 [Desktop Entry]
 Name=Prism
-Comment=Project Prism: Wayland Compositor & Glassmorphism Desktop Environment
-Exec=prism-session
+Comment=Project Prism: Wayland Compositor & Skia Desktop Environment
+Exec=/usr/bin/prism-session
+TryExec=/usr/bin/prism-session
 Type=Application
 DesktopNames=Prism
 Keywords=wayland;compositor;desktop;prism;

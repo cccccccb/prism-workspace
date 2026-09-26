@@ -876,12 +876,12 @@ void WlrServer::HandleNewOutput(struct wlr_output* output) {
     PRISM_LOG_INFO("WLR-OUTPUT", "New output added: %s (%dx%d @ %.1fHz) -> Native wlr_scene Attached",
                    output->name, output->width, output->height, output->refresh / 1000.0f);
     
-    WlrOutput* raw_out = wlr_out.get();
     outputs_.push_back(std::move(wlr_out));
     ArrangeXdgViews();
 
-    // 4. Kickstart first frame
-    HandleOutputFrame(raw_out);
+    // The initial DRM modeset may already have a page-flip pending.
+    // Let wlroots emit the frame event once the output can accept a commit.
+    wlr_output_schedule_frame(output);
 }
 
 void WlrServer::RemoveOutput(WlrOutput* output) {

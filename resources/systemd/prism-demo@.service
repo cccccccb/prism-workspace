@@ -1,0 +1,31 @@
+[Unit]
+Description=Prism physical display demo for %i on tty8
+Conflicts=getty@tty8.service
+After=systemd-user-sessions.service systemd-logind.service
+StartLimitIntervalSec=30
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=%i
+PAMName=login
+WorkingDirectory=~
+Environment=XDG_SESSION_TYPE=wayland
+Environment=XDG_SESSION_DESKTOP=prism
+Environment=XDG_SEAT=seat0
+Environment=XDG_VTNR=8
+Environment=LIBSEAT_BACKEND=logind
+TTYPath=/dev/tty8
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=prism-demo-%i
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+UtmpIdentifier=tty8
+ExecStart=/usr/bin/prism-session --drm
+KillMode=control-group
+TimeoutStopSec=10s
+
+# Optional manual demo entry. Installation never enables or starts it.

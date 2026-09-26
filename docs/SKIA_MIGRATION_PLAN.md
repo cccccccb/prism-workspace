@@ -77,3 +77,7 @@ AST 只表示语法；长期 Scene 保存节点状态、绑定、焦点与布局
 - 树莓派真机有可重复的功能测试、性能记录和失败场景记录；GPU 结论来自硬件驱动，而不是 llvmpipe。
 
 长期模块划分及性能优化顺序以附带的《Wayland DSL 客户端渲染引擎总体架构设计》为参考；本计划的阶段门槛和本机测量事实优先用于实施判断。
+
+## 第六步执行入口：deb 与物理显示
+
+发布配置、安装依赖、会话启动规范及远程实机演示入口见 [PI_DEB_DEPLOYMENT.md](PI_DEB_DEPLOYMENT.md)。统一使用 GLES 发布包；旧 session supervisor/Zygote 启动链移除，Shell 生命周期由 WM 管理。物理演示通过普通用户的 PAM/logind seat 会话运行，安装本身不启用桌面服务。
