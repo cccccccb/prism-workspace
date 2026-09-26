@@ -2,10 +2,12 @@
 #include <cctype>
 #include <cstdlib>
 #include <cstdint>
+#include <stdexcept>
+#include <algorithm>
 
 namespace prism::compiler {
 
-Lexer::Lexer(std::string source) : source_(std::move(source)) {}
+Lexer::Lexer(std::string source, bool strict) : source_(std::move(source)), strict_(strict) {}
 
 char Lexer::Peek() const {
     if (IsAtEnd()) return '\0';
@@ -59,6 +61,7 @@ Token Lexer::ScanDollarIdentifier() {
 }
 
 Token Lexer::ScanString() {
+    const int start_line = line_;
     Advance(); // Consume leading '"'
     std::string text;
     while (!IsAtEnd() && Peek() != '"') {
@@ -72,8 +75,9 @@ Token Lexer::ScanString() {
             text += Advance();
         }
     }
+    if (IsAtEnd() && strict_) throw std::runtime_error("DSL line " + std::to_string(line_) + ": unterminated string");
     if (!IsAtEnd()) Advance(); // Consume closing '"'
-    return Token{TokenType::StringLiteral, text, 0.0, line_};
+    return Token{TokenType::StringLiteral, text, 0.0, start_line};
 }
 
 Token Lexer::ScanNumber() {
@@ -84,6 +88,8 @@ Token Lexer::ScanNumber() {
         while (!IsAtEnd() && std::isxdigit(Peek())) {
             Advance();
         }
+        if (strict_ && cursor_ == start + 2)
+            throw std::runtime_error("DSL line " + std::to_string(line_) + ": invalid hex number");
         std::string text = source_.substr(start, cursor_ - start);
         double val = static_cast<double>(std::strtoull(text.c_str(), nullptr, 16));
         return Token{TokenType::NumberLiteral, text, val, line_};
@@ -92,6 +98,8 @@ Token Lexer::ScanNumber() {
         Advance();
     }
     std::string text = source_.substr(start, cursor_ - start);
+    if (strict_ && std::count(text.begin(), text.end(), '.') > 1)
+        throw std::runtime_error("DSL line " + std::to_string(line_) + ": invalid number");
     double val = std::strtod(text.c_str(), nullptr);
     return Token{TokenType::NumberLiteral, text, val, line_};
 }
@@ -103,6 +111,8 @@ Token Lexer::ScanHexColor() {
         Advance();
     }
     std::string hex_str = source_.substr(start, cursor_ - start);
+    if (strict_ && hex_str.size() != 6 && hex_str.size() != 8)
+        throw std::runtime_error("DSL line " + std::to_string(line_) + ": color must have 6 or 8 hex digits");
     uint32_t val = 0;
     if (hex_str.size() == 6) {
         val = (static_cast<uint32_t>(std::strtoul(hex_str.c_str(), nullptr, 16)) << 8) | 0xFF;
@@ -143,7 +153,9 @@ std::vector<Token> Lexer::Tokenize() {
                 case ']': tokens.push_back(Token{TokenType::CloseBracket, "]", 0.0, line_}); break;
                 case ':': tokens.push_back(Token{TokenType::Colon, ":", 0.0, line_}); break;
                 case ',': tokens.push_back(Token{TokenType::Comma, ",", 0.0, line_}); break;
-                default: break;
+                default:
+                    if (strict_) throw std::runtime_error("DSL line " + std::to_string(line_) + ": unexpected character '" + c + "'");
+                    break;
             }
         }
     }

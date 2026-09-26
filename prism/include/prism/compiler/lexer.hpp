@@ -32,7 +32,7 @@ struct Token {
 
 class Lexer {
 public:
-    explicit Lexer(std::string source);
+    explicit Lexer(std::string source, bool strict = false);
 
     std::vector<Token> Tokenize();
 
@@ -51,6 +51,7 @@ private:
     std::string source_;
     size_t cursor_{0};
     int line_{1};
+    bool strict_{false};
 };
 
 } // namespace prism::compiler

@@ -44,6 +44,9 @@ add_test(NAME shell_experimental_test COMMAND shell_experimental_test)
 add_executable(client_scene_test client_scene_test.cpp)
 target_link_libraries(client_scene_test PRIVATE prism_client_dsl)
 add_test(NAME client_scene_test COMMAND client_scene_test)
+add_executable(dsl_syntax_test dsl_syntax_test.cpp)
+target_link_libraries(dsl_syntax_test PRIVATE prism_client_dsl)
+add_test(NAME dsl_syntax_test COMMAND dsl_syntax_test)
 
 # Manual protocol probes live beside tests and are never installed.
 add_executable(wayland_lifecycle_probe probes/wayland_lifecycle_probe.cpp)

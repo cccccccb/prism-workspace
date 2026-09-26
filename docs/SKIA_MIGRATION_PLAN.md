@@ -52,6 +52,8 @@ SDK 连接 registry，创建 `wl_surface` 与 xdg-shell toplevel，处理首次�
 
 ### 第四步：实现客户端 DSL 运行时与 Skia 后端
 
+DSL → DisplayList 的内部重写按 [DSL_REWRITE_PLAN.md](DSL_REWRITE_PLAN.md) 依次实施，先固定通用语法和属性语义，再拆分 Scene/Render Tree/DisplayList，最后迁移应用。
+
 AST 只表示语法；长期 Scene 保存节点状态、绑定、焦点与布局；渲染数据通过独立后端接口送给 Skia。首版先覆盖固定尺寸、row/column、文字、图片、矩形、圆角和基本裁剪。属性变更至少区分 Layout、Paint、Composite；静止页面不持续提交。先用一个单线程端到端路径保证正确性，再依据测量引入 Render Tree、DisplayList chunk、缓存或渲染线程。Skia Vulkan 与 OpenGL ES 在目标设备上做功能与帧时对比后，确定实际发布后端；CPU Skia 可作为诊断路径，但不能用软件结果宣称 GPU 性能。
 
 当前检查点：独立的客户端 DSL 前端与 retained Scene 已实现基础布局、绑定、命中和 DisplayList 生成，范围及缺项见 [CLIENT_SCENE_RUNTIME.md](CLIENT_SCENE_RUNTIME.md)。已通过 CPU Skia + Wayland SHM 的真实客户端诊断路径，见 [SKIA_BACKEND_PI.md](SKIA_BACKEND_PI.md)；PNG 图片资源与异步完成通知的首个检查点见 [IMAGE_RESOURCES.md](IMAGE_RESOURCES.md)。Ganesh GLES + EGL Wayland WSI 的实现与验证范围见 [SKIA_GLES_PI.md](SKIA_GLES_PI.md)，复用入口见 [CLIENT_APP_SDK.md](CLIENT_APP_SDK.md)；完整 DSL、资源逐出和 GPU 后端对比尚未完成。
