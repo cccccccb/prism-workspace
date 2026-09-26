@@ -34,4 +34,4 @@ python3 tests/probes/client_suite_probe.py build-gles
 
 探针启动独立 headless 会话，检查五个 surface 的映射，并让一个普通客户端伪造 `prism_topbar` app_id，检查其仍是普通角色；测试结束后清理进程。该探针不进入安装包。
 
-Pi 实测：CPU 诊断配置完整构建、CTest 12/12；GLES 完整构建、CTest 13/13。构建目录与临时安装前缀均通过五应用套件探针，客户端使用 `V3D 4.2.14.0`。安装套件探针报告 `configure=2 frame=2 presented=3 images=1/1`。WM 二进制符号检查未发现 ImGui、客户端 compiler/Scene/runtime 或 Skia；安装清单不包含测试与 probe。验收范围为 headless 会话，尚未验证物理显示的外观和帧时。
+Pi 实测：CPU 诊断配置完整构建、CTest 12/12；GLES 完整构建、CTest 13/13。构建目录与临时安装前缀均通过五应用套件探针，客户端使用 `V3D 4.2.14.0`。安装套件探针报告 `configure=2 frame=2 presented=3 images=1/1`。WM 二进制符号检查未发现 ImGui、客户端 compiler/Scene/runtime 或 Skia；安装清单不包含测试与 probe。迁移检查点的验收范围为 headless 会话。后续已完成 deb 安装、物理 HDMI/V3D 呈现与用户现场显示确认，见 [PI_DEB_DEPLOYMENT.md](PI_DEB_DEPLOYMENT.md)；参考图中的完整视觉与真实 BSP 接入仍未完成，后续规范见 [VISUAL_TILING_REFINEMENT_PLAN.md](VISUAL_TILING_REFINEMENT_PLAN.md)。

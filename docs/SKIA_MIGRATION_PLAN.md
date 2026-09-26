@@ -81,3 +81,11 @@ AST 只表示语法；长期 Scene 保存节点状态、绑定、焦点与布局
 ## 第六步执行入口：deb 与物理显示
 
 发布配置、安装依赖、会话启动规范及远程实机演示入口见 [PI_DEB_DEPLOYMENT.md](PI_DEB_DEPLOYMENT.md)。统一使用 GLES 发布包；旧 session supervisor/Zygote 启动链移除，Shell 生命周期由 WM 管理。物理演示通过普通用户的 PAM/logind seat 会话运行，安装本身不启用桌面服务。
+
+## 后续主线：参考图视觉与真实平铺
+
+用户现场确认显示正常后，明确要求恢复 Mac 风格玻璃 Shell 和 i3/Sway 平铺窗口外观。后续按 [VISUAL_TILING_REFINEMENT_PLAN.md](VISUAL_TILING_REFINEMENT_PLAN.md) 执行：真实 BSP/work area → 透明与通用布局 → 本地视觉与控件 → compositor 背景材料/装饰 → Shell/示例重排 → deb 实机验收。外观目标与显示链路通过分别记录。
+
+## 主线优先级修订：恢复统一运行时与预热启动
+
+按用户明确的平台目标，先实施 [LAUNCH_RUNTIME_RESTORATION_PLAN.md](LAUNCH_RUNTIME_RESTORATION_PLAN.md)：包/ABI/启动契约 → 统一 host → launcher worker 池 → 五应用与 Shell/Dock 切换 → deb/实机启动门槛，然后继续视觉与平铺规范。直接 spawn 是迁移过渡路径，启动优化不再作为远期附加项。

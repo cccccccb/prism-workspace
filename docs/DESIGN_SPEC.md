@@ -4,6 +4,9 @@
 > **代号**：**Prism (棱镜)**  
 > **核心定位**：参考 Sway 架构、基于 wlroots 深度定制的下一代 Wayland 原生 Mac 视效极速窗口管理器与应用运行平台
 
+> **2026-09-26 实现状态说明**：本文包含历史方案与目标规范，部分完成标记、旧启动链和示例 API 不代表当前 Skia 生产路径。参考图驱动的视觉/平铺差异、职责边界和执行顺序见 [VISUAL_TILING_REFINEMENT_PLAN.md](VISUAL_TILING_REFINEMENT_PLAN.md)；当前迁移范围见 [APPLICATION_MIGRATION.md](APPLICATION_MIGRATION.md)。
+> **启动架构修订**：恢复统一 invoker/launcher、包入口和预热实例管理的目标，实施规范见 [LAUNCH_RUNTIME_RESTORATION_PLAN.md](LAUNCH_RUNTIME_RESTORATION_PLAN.md)。本文旧 WM 镜像 AST 拓扑及“0ms/0.18ms 启动完成”等表述不作为实现或性能验收依据。
+
 ---
 
 ## 目录
@@ -321,7 +324,7 @@ int main(int argc, char* argv[]) {
 - [x] **wlroots 0.17.1 集成**：成功参考 Sway 架构实现完整 `WlrServer`，多输出自动探测、EGL/GBM 上下文管理、输入座席创建。
 - [x] **代码大瘦身**：彻底删除了自定义 `DrmBackend` 与 `InputBackend`，移除了 400+ 行陈旧底层驱动代码。
 - [x] **Wayland 客户端原生化**：客户端应用直接使用 `prism_sdk` 解析 DSL 并自主创建 Wayland 表面绘制。
-- [x] **0ms 冷启动与两段式加载**：Zygote 快速派生（0.18ms），Preview 骨架屏首帧即刻呈递，Master 数据就绪后阻尼弹簧交叉淡入。
+- [ ] **统一预热启动与两段式加载**：新 Skia runtime 的待命 worker、客户端 Preview/Master 与业务 Ready 尚未恢复；按 LAUNCH_RUNTIME_RESTORATION_PLAN.md 实施并测量真实首帧，旧 fork 计时不作为完成依据。
 - [x] **macOS 旗舰视效实装**：流体分屏、动态拖拽分割线、Mission Control 全景网格卡片、磨砂顶栏、悬浮 Dock。
 - [x] **超高速 IPC 性能**：共享内存无锁环形队列实测吞吐量达 **1580 万条消息/秒**，双向往返延迟仅 **0.70 微秒**。
 - [x] **工业级打包体系**：`prism-pack` 支持 `.prismpkg` 应用包制作与 5.08μs 极速内存解析。
