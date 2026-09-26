@@ -4,7 +4,7 @@
 
 目前支持 DSL 的 `HStack`、`VStack`、`Card`、`Text`、`Button`，以及 `width`、`height`、`font`、`spacing`、`padding`、`cornerRadius`、`clip` 的基础语义。`Button` 通过客户端局部坐标命中并返回 action。未支持的组件和修饰符会抛出错误；现有含 blur、Slider 等的完整演示样例尚不能由此模块运行。
 
-`SetSlot` 更新绑定文字并标记 Layout/Paint；背景色变化只标记 Paint；viewport 变化标记 Layout/Paint。`Build` 在无变化时返回空，不产生新的提交。输出是进程内 DisplayList。文字 glyph id 与位置由调用方提供的 shaping 接口生成；当前没有生产字体 shaping 实现。固定尺寸与均分的 Row/Column、基础裁剪、圆角和文字命令已通过单元测试。
+`SetSlot` 是带类型的 `SetBinding` 的字符串便捷入口；Scene 的属性存储依据 schema 元数据决定 Layout/Paint dirty，背景色变化只标记 Paint，viewport 变化标记 Layout/Paint。`Build` 在无变化时返回空，不产生新的提交。输出是进程内 DisplayList。文字 glyph id 与位置由调用方提供的 shaping 接口生成；Skia 后端现提供 HarfBuzz + FreeType 实现。固定尺寸与均分的 Row/Column、基础裁剪、圆角和文字命令已通过单元测试。
 
 此文件记录 Scene 首个检查点。后续已加入 Skia CPU 诊断后端、HarfBuzz 字体排版和真实 Wayland 测试窗口，见 [SKIA_BACKEND_PI.md](SKIA_BACKEND_PI.md)。PNG 图片资源的首个异步检查点见 [IMAGE_RESOURCES.md](IMAGE_RESOURCES.md)；GLES GPU 后端及复用客户端入口见 [SKIA_GLES_PI.md](SKIA_GLES_PI.md) 和 [CLIENT_APP_SDK.md](CLIENT_APP_SDK.md)。
 

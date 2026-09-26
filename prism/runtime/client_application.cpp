@@ -102,9 +102,12 @@ bool ClientApplication::Pump(int timeout_ms) {
     return !app.failed;
 }
 bool ClientApplication::SetSlot(std::string_view name, std::string value) {
+    return SetBinding(name, std::move(value));
+}
+bool ClientApplication::SetBinding(std::string_view name, runtime::PropertyValue value) {
     auto& app = *impl_;
-    if (!app.scene || !app.scene->SetSlot(name, std::move(value))) return false;
-    app.window.RequestRedraw();
+    if (!app.scene || !app.scene->SetBinding(name, std::move(value))) return false;
+    if (app.scene->PendingDirty() != runtime::Dirty::None) app.window.RequestRedraw();
     return true;
 }
 void ClientApplication::OnAction(std::function<void(std::string_view)> callback) {

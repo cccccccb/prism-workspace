@@ -1,4 +1,5 @@
 #include "prism/runtime/scene.hpp"
+#include "prism/runtime/dsl_schema.hpp"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -10,8 +11,9 @@ struct Scene::Node {
     contracts::NodeId id{};
     Kind kind{Kind::Box};
     Style style{};
+    std::map<DslProperty, PropertyValue> properties;
+    std::uint64_t allowed_properties{UINT64_MAX};
     std::string text;
-    std::string slot;
     std::string action;
     contracts::ResourceId image{};
     contracts::LogicalSize intrinsic_size{};
@@ -29,8 +31,22 @@ bool ValidSize(contracts::LogicalSize s) {
     return std::isfinite(s.width) && std::isfinite(s.height) && s.width > 0 && s.height > 0 &&
            s.width <= 16384 && s.height <= 16384;
 }
-bool SameColor(contracts::Color a, contracts::Color b) {
-    return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+bool ValidPropertyValue(DslProperty id, const PropertyValue& value) {
+    const auto* spec = FindProperty(id);
+    if (!spec) return false;
+    switch (spec->stored_type) {
+        case StoredValueType::Number: {
+            const auto* number = std::get_if<double>(&value);
+            return number && std::isfinite(*number) && *number >= spec->min_value &&
+                *number <= spec->max_value && (spec->allow_zero || *number != 0);
+        }
+        case StoredValueType::Color: return std::holds_alternative<contracts::Color>(value);
+        case StoredValueType::Boolean: return std::holds_alternative<bool>(value);
+        case StoredValueType::String: return std::holds_alternative<std::string>(value);
+        case StoredValueType::Resource: return std::holds_alternative<contracts::ResourceId>(value) &&
+            static_cast<bool>(std::get<contracts::ResourceId>(value));
+    }
+    return false;
 }
 } // namespace
 
@@ -49,13 +65,60 @@ std::unique_ptr<Scene::Node> Scene::MakeNode(Blueprint blueprint) {
     Node* raw = node.get();
     nodes_.push_back(raw);
     node->kind = blueprint.kind;
-    node->style = blueprint.style;
-    node->text = std::move(blueprint.text);
-    node->slot = std::move(blueprint.slot);
-    node->action = std::move(blueprint.action);
-    node->image = blueprint.image;
+    node->allowed_properties = blueprint.allowed_properties;
+    for (auto& property : blueprint.properties) {
+        if (!ValidPropertyValue(property.id, property.value) ||
+            !(node->allowed_properties & PropertyBit(property.id)))
+            throw std::invalid_argument("Invalid Blueprint property");
+        node->properties[property.id] = property.value;
+        ApplyCachedProperty(*node, property.id, property.value);
+    }
+    for (auto& binding : blueprint.bindings) {
+        if (binding.name.empty() || !(node->allowed_properties & PropertyBit(binding.target)))
+            throw std::invalid_argument("Invalid Blueprint binding");
+        bindings_[binding.name].push_back({raw, binding.target});
+    }
     for (auto& child : blueprint.children) node->children.push_back(MakeNode(std::move(child)));
     return node;
+}
+
+void Scene::ApplyCachedProperty(Node& node, DslProperty id, const PropertyValue& value) {
+    switch (id) {
+        case DslProperty::Width: node.style.width = std::get<double>(value); break;
+        case DslProperty::Height: node.style.height = std::get<double>(value); break;
+        case DslProperty::Font: node.style.font_size = std::get<double>(value); break;
+        case DslProperty::Spacing: node.style.spacing = std::get<double>(value); break;
+        case DslProperty::Padding: node.style.padding = std::get<double>(value); break;
+        case DslProperty::Radius: node.style.radius = std::get<double>(value); break;
+        case DslProperty::Background: node.style.background = std::get<contracts::Color>(value); break;
+        case DslProperty::Foreground: node.style.foreground = std::get<contracts::Color>(value); break;
+        case DslProperty::Clip: node.style.clip = std::get<bool>(value); break;
+        case DslProperty::Text: node.text = std::get<std::string>(value); break;
+        case DslProperty::Action: node.action = std::get<std::string>(value); break;
+        case DslProperty::Source:
+            node.image = std::get<contracts::ResourceId>(value);
+            node.image_ready = false;
+            node.intrinsic_size = {};
+            break;
+    }
+}
+
+PropertyValue Scene::CurrentProperty(const Node& node, DslProperty id) const {
+    switch (id) {
+        case DslProperty::Width: return node.style.width;
+        case DslProperty::Height: return node.style.height;
+        case DslProperty::Font: return node.style.font_size;
+        case DslProperty::Spacing: return node.style.spacing;
+        case DslProperty::Padding: return node.style.padding;
+        case DslProperty::Radius: return node.style.radius;
+        case DslProperty::Background: return node.style.background;
+        case DslProperty::Foreground: return node.style.foreground;
+        case DslProperty::Clip: return node.style.clip;
+        case DslProperty::Text: return node.text;
+        case DslProperty::Action: return node.action;
+        case DslProperty::Source: return node.image;
+    }
+    return {};
 }
 
 Scene::Node* Scene::Find(contracts::NodeId id) const {
@@ -71,15 +134,29 @@ contracts::LogicalRect Scene::Bounds(contracts::NodeId id) const {
 }
 
 bool Scene::SetSlot(std::string_view name, std::string value) {
+    return SetBinding(name, std::move(value));
+}
+
+bool Scene::SetBinding(std::string_view name, PropertyValue value) {
+    auto it = bindings_.find(std::string(name));
+    if (it == bindings_.end()) return false;
+    for (const auto& target : it->second)
+        if (!ValidPropertyValue(target.property, value)) return false;
     bool changed = false;
-    for (Node* node : nodes_) {
-        if (node->slot == name && node->text != value) {
-            node->text = value;
-            dirty_ = dirty_ | Dirty::Layout | Dirty::Paint;
-            changed = true;
-        }
-    }
+    for (const auto& target : it->second)
+        changed = SetProperty(target.node->id, target.property, value) || changed;
     return changed;
+}
+
+bool Scene::SetProperty(contracts::NodeId id, DslProperty property, PropertyValue value) {
+    Node* node = Find(id);
+    if (!node || !(node->allowed_properties & PropertyBit(property)) ||
+        !ValidPropertyValue(property, value)) return false;
+    if (CurrentProperty(*node, property) == value) return false;
+    node->properties[property] = value;
+    ApplyCachedProperty(*node, property, value);
+    dirty_ = dirty_ | FindProperty(property)->affects;
+    return true;
 }
 
 bool Scene::SetViewport(contracts::LogicalSize size) {
@@ -92,13 +169,7 @@ bool Scene::SetViewport(contracts::LogicalSize size) {
 }
 
 bool Scene::SetBackground(contracts::NodeId id, contracts::Color color) {
-    Node* node = Find(id);
-    if (!node) return false;
-    if (!SameColor(node->style.background, color)) {
-        node->style.background = color;
-        dirty_ = dirty_ | Dirty::Paint;
-    }
-    return true;
+    return SetProperty(id, DslProperty::Background, color);
 }
 
 bool Scene::ImageReady(contracts::ResourceId image, contracts::LogicalSize intrinsic_size) {

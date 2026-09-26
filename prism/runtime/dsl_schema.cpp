@@ -4,18 +4,20 @@
 namespace prism::runtime {
 namespace {
 constexpr std::array properties{
-    PropertySpec{"width", DslProperty::Width, DslValueType::Number, Dirty::Layout},
-    PropertySpec{"height", DslProperty::Height, DslValueType::Number, Dirty::Layout},
-    PropertySpec{"font", DslProperty::Font, DslValueType::Number, Dirty::Layout | Dirty::Paint},
-    PropertySpec{"spacing", DslProperty::Spacing, DslValueType::Number, Dirty::Layout},
-    PropertySpec{"background", DslProperty::Background, DslValueType::Color, Dirty::Paint},
-    PropertySpec{"foreground", DslProperty::Foreground, DslValueType::Color, Dirty::Paint},
-    PropertySpec{"padding", DslProperty::Padding, DslValueType::Number, Dirty::Layout},
-    PropertySpec{"cornerRadius", DslProperty::Radius, DslValueType::Number, Dirty::Paint},
-    PropertySpec{"clip", DslProperty::Clip, DslValueType::Boolean, Dirty::Paint},
-    PropertySpec{"action", DslProperty::Action, DslValueType::String, Dirty::None},
-    PropertySpec{"text", DslProperty::Text, DslValueType::Text, Dirty::Layout | Dirty::Paint},
-    PropertySpec{"source", DslProperty::Source, DslValueType::String, Dirty::Layout | Dirty::Paint},
+    PropertySpec{"width", DslProperty::Width, DslValueType::Number, Dirty::Layout, StoredValueType::Number},
+    PropertySpec{"height", DslProperty::Height, DslValueType::Number, Dirty::Layout, StoredValueType::Number},
+    PropertySpec{"font", DslProperty::Font, DslValueType::Number, Dirty::Layout | Dirty::Paint,
+                 StoredValueType::Number, 0, 16384, false},
+    PropertySpec{"spacing", DslProperty::Spacing, DslValueType::Number, Dirty::Layout, StoredValueType::Number},
+    PropertySpec{"background", DslProperty::Background, DslValueType::Color, Dirty::Paint, StoredValueType::Color},
+    PropertySpec{"foreground", DslProperty::Foreground, DslValueType::Color, Dirty::Paint, StoredValueType::Color},
+    PropertySpec{"padding", DslProperty::Padding, DslValueType::Number, Dirty::Layout, StoredValueType::Number},
+    PropertySpec{"cornerRadius", DslProperty::Radius, DslValueType::Number, Dirty::Paint, StoredValueType::Number},
+    PropertySpec{"clip", DslProperty::Clip, DslValueType::Boolean, Dirty::Paint, StoredValueType::Boolean},
+    PropertySpec{"action", DslProperty::Action, DslValueType::String, Dirty::None, StoredValueType::String},
+    PropertySpec{"text", DslProperty::Text, DslValueType::Text, Dirty::Layout | Dirty::Paint, StoredValueType::String},
+    PropertySpec{"source", DslProperty::Source, DslValueType::String, Dirty::Layout | Dirty::Paint,
+                 StoredValueType::Resource},
 };
 constexpr auto size = PropertyBit(DslProperty::Width) | PropertyBit(DslProperty::Height);
 constexpr auto container = size | PropertyBit(DslProperty::Spacing) | PropertyBit(DslProperty::Background) |
@@ -36,6 +38,10 @@ constexpr std::array components{
 } // namespace
 const PropertySpec* FindProperty(std::string_view name) {
     for (const auto& property : properties) if (property.name == name) return &property;
+    return nullptr;
+}
+const PropertySpec* FindProperty(DslProperty id) {
+    for (const auto& property : properties) if (property.id == id) return &property;
     return nullptr;
 }
 const ComponentSpec* FindComponent(std::string_view name) {

@@ -18,8 +18,8 @@ int main() {
     auto blueprint = runtime::ParseBlueprint(
         "HStack(spacing: 8) { Button(\"Launch\", action: \"app:launch\", width: 100) "
         "VStack { Text($title, font: 20) Card(width: 40, height: 30).cornerRadius(6) } }");
-    blueprint.style.background = {12, 24, 36, 255};
-    blueprint.style.clip = true;
+    blueprint.properties.push_back({runtime::DslProperty::Background, contracts::Color{12, 24, 36, 255}});
+    blueprint.properties.push_back({runtime::DslProperty::Clip, true});
     runtime::Scene scene(std::move(blueprint), shape, contracts::ResourceId{7});
     assert(scene.SetViewport({300, 120}));
     auto first = scene.Build(contracts::WindowId{1});
@@ -48,6 +48,24 @@ int main() {
     assert(!scene.SetViewport({0, 120}));
     assert(!scene.Build(contracts::WindowId{1}));
     assert(scene.Bounds({999, 1}).width == 0);
+    runtime::Scene bound(runtime::ParseBlueprint(
+        "Card(background: $surface) { Text($label, font: $size) }"), shape, contracts::ResourceId{7});
+    assert(bound.SetViewport({120, 80}));
+    assert(bound.Build(contracts::WindowId{1}));
+    assert(!bound.SetBackground(bound.RootId(), contracts::Color{0, 0, 0, 0}));
+    assert(!bound.SetBinding("surface", std::string("wrong type")));
+    assert(bound.PendingDirty() == runtime::Dirty::None);
+    assert(bound.SetBinding("surface", contracts::Color{1, 2, 3, 255}));
+    assert(bound.PendingDirty() == runtime::Dirty::Paint);
+    assert(bound.Build(contracts::WindowId{1}));
+    assert(!bound.SetBinding("surface", contracts::Color{1, 2, 3, 255}));
+    assert(bound.SetBinding("label", std::string("Hello")));
+    assert(runtime::Has(bound.PendingDirty(), runtime::Dirty::Layout));
+    assert(bound.Build(contracts::WindowId{1}));
+    assert(bound.SetBinding("size", 24.0));
+    assert(runtime::Has(bound.PendingDirty(), runtime::Dirty::Layout));
+    assert(!bound.SetBinding("size", 0.0));
+    assert(!bound.SetProperty(bound.RootId(), runtime::DslProperty::Font, 18.0));
     bool rejected = false;
     try { (void)runtime::ParseBlueprint("Slider($value)"); }
     catch (const std::runtime_error&) { rejected = true; }

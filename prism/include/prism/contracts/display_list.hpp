@@ -14,6 +14,7 @@ struct Color {
     std::uint8_t g{0};
     std::uint8_t b{0};
     std::uint8_t a{255};
+    constexpr bool operator==(const Color&) const noexcept = default;
 };
 
 struct FillRect {

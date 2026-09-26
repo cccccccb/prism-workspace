@@ -1,4 +1,5 @@
 #pragma once
+#include "prism/runtime/property.hpp"
 #include <functional>
 #include <memory>
 #include <string>
@@ -27,6 +28,7 @@ public:
     bool Open(std::string_view dsl_source);
     bool Pump(int timeout_ms);
     bool SetSlot(std::string_view name, std::string value);
+    bool SetBinding(std::string_view name, runtime::PropertyValue value);
     void OnAction(std::function<void(std::string_view)> callback);
     bool IsCloseRequested() const;
     bool IsMapped() const;

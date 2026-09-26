@@ -17,3 +17,13 @@
 此阶段的 metadata 已建立，但运行期属性存储和 dirty 传播仍沿用现有 Scene；第二段才把这些规则真正用于状态更新。`Button` 的视觉展开目前仍在语义编译器中，第三段会进入组件构造/Render Tree。旧二进制包格式不属于新语法树，应用切换前暂不修改。
 
 兼容检查发现容器默认 `spacing=8` 曾隐含在旧 parser 中，现已明确放进组件 schema。Pi 上 CPU 与 GLES 配置均完整构建、CTest 12/12 通过；新 parser 驱动的 headless V3D 客户端探针通过，报告 `frame=2 presented=3 images=1/1`。
+
+## 第二段当前结果
+
+Blueprint 现在携带 `PropertyAssignment` 与 `PropertyBinding`，每个赋值是明确的 `DslProperty` 和带类型的 `PropertyValue`；`$slot` 在语义编译时记录依赖目标，不再仅保存在 Text 节点的字符串字段中。组件默认值在 schema 中展开，Button 的文字属性转移给其文字子节点。
+
+Scene 持有每个节点的属性存储与绑定索引，`SetProperty`、`SetBinding` 是统一更新入口；`SetSlot` 和 `SetBackground` 仅保留便捷调用。schema 同时声明 DSL 输入类型、运行期类型、数值范围及 dirty 影响。例如颜色变化只标记 Paint，文字和字号变化标记 Layout/Paint，动作字符串变化不要求重绘。错误类型、非法数值、相同值不会改变 Scene。现有 Style、文字和图片字段是属性存储派生的布局/绘制缓存。
+
+这一步仍以整棵 Scene 重新布局或生成 DisplayList，尚未做节点级 dirty 传播、布局边界或 Render Tree；这些属于第三段。图片资源就绪事件单独处理其固有尺寸变化。
+
+Pi 上 CPU 和 GLES 配置分别完整构建，CTest 各 12/12 通过；通过新属性存储和绑定索引的 headless V3D 客户端仍报告 `frame=2 presented=3 images=1/1`。

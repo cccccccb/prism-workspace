@@ -29,40 +29,33 @@ bool CorrectType(DslValueType type, const SyntaxValue& value) {
 }
 void Apply(Blueprint& out, const PropertySpec& spec, const SyntaxValue& value,
            int line, const ResolveImage& resolve_image) {
-    if (!CorrectType(spec.type, value)) Error(line, "wrong value type for '" + std::string(spec.name) + "'");
-    if (auto* number = std::get_if<double>(&value.data)) {
-        if (!std::isfinite(*number) || *number < 0 || *number > 16384)
-            Error(line, "invalid numeric value for '" + std::string(spec.name) + "'");
-        switch (spec.id) {
-            case DslProperty::Width: out.style.width = *number; return;
-            case DslProperty::Height: out.style.height = *number; return;
-            case DslProperty::Font: out.style.font_size = *number; return;
-            case DslProperty::Spacing: out.style.spacing = *number; return;
-            case DslProperty::Padding: out.style.padding = *number; return;
-            case DslProperty::Radius: out.style.radius = *number; return;
-            default: break;
-        }
-    }
-    if (auto* color = std::get_if<ColorValue>(&value.data)) {
-        if (spec.id == DslProperty::Background) out.style.background = UnpackColor(color->rgba);
-        else out.style.foreground = UnpackColor(color->rgba);
+    if (auto* binding = std::get_if<BindingValue>(&value.data)) {
+        out.bindings.push_back({binding->name, spec.id});
         return;
     }
-    if (spec.id == DslProperty::Clip) { out.style.clip = std::get<bool>(value.data); return; }
-    if (spec.id == DslProperty::Action) { out.action = std::get<std::string>(value.data); return; }
-    if (spec.id == DslProperty::Text) {
-        if (auto* binding = std::get_if<BindingValue>(&value.data)) out.slot = binding->name;
-        else out.text = std::get<std::string>(value.data);
+    if (!CorrectType(spec.type, value)) Error(line, "wrong value type for '" + std::string(spec.name) + "'");
+    if (auto* number = std::get_if<double>(&value.data)) {
+        if (!std::isfinite(*number) || *number < spec.min_value || *number > spec.max_value ||
+            (!spec.allow_zero && *number == 0))
+            Error(line, "invalid numeric value for '" + std::string(spec.name) + "'");
+        out.properties.push_back({spec.id, *number});
+        return;
+    }
+    if (auto* color = std::get_if<ColorValue>(&value.data)) {
+        out.properties.push_back({spec.id, UnpackColor(color->rgba)});
         return;
     }
     if (spec.id == DslProperty::Source) {
         const auto& uri = std::get<std::string>(value.data);
         if (!resolve_image || uri.empty()) Error(line, "Image requires a resource resolver and URI");
-        out.image = resolve_image(uri);
-        if (!out.image) Error(line, "Image resource request failed: " + uri);
+        auto image = resolve_image(uri);
+        if (!image) Error(line, "Image resource request failed: " + uri);
+        out.properties.push_back({spec.id, image});
         return;
     }
-    Error(line, "unsupported property");
+    if (auto* boolean = std::get_if<bool>(&value.data)) out.properties.push_back({spec.id, *boolean});
+    else if (auto* string = std::get_if<std::string>(&value.data)) out.properties.push_back({spec.id, *string});
+    else Error(line, "unsupported property");
 }
 Blueprint Convert(const SyntaxNode& node, const ResolveImage& resolve_image) {
     const auto* component = FindComponent(node.name);
@@ -71,7 +64,9 @@ Blueprint Convert(const SyntaxNode& node, const ResolveImage& resolve_image) {
         Error(node.line, node.name + " cannot have children");
     Blueprint out;
     out.kind = component->kind;
-    out.style.spacing = component->default_spacing;
+    out.allowed_properties = component->allowed_properties;
+    if (component->default_spacing > 0)
+        out.properties.push_back({DslProperty::Spacing, component->default_spacing});
     std::unordered_set<DslProperty> seen;
     auto assign = [&](std::string_view name, const SyntaxValue& value, int line) {
         const auto* spec = FindProperty(name);
@@ -105,16 +100,30 @@ Blueprint Convert(const SyntaxNode& node, const ResolveImage& resolve_image) {
             Error(modifier.line, "modifier requires one positional value: " + modifier.name);
         assign(modifier.name, modifier.arguments.front().value, modifier.line);
     }
-    if (component->positional == DslProperty::Source && component->has_positional && !out.image)
+    if (component->positional == DslProperty::Source && component->has_positional &&
+        !seen.contains(DslProperty::Source))
         Error(node.line, "Image requires source");
     for (const auto& child : node.children) out.children.push_back(Convert(child, resolve_image));
     if (component->creates_label) {
         Blueprint label;
         label.kind = Kind::Text;
-        label.text = std::move(out.text);
-        label.slot = std::move(out.slot);
-        label.style.font_size = out.style.font_size;
-        label.style.foreground = out.style.foreground;
+        if (const auto* text = FindComponent("Text")) label.allowed_properties = text->allowed_properties;
+        for (auto it = out.properties.begin(); it != out.properties.end();) {
+            if (it->id == DslProperty::Text) {
+                label.properties.push_back(std::move(*it));
+                it = out.properties.erase(it);
+            } else {
+                if (it->id == DslProperty::Font || it->id == DslProperty::Foreground)
+                    label.properties.push_back(*it);
+                ++it;
+            }
+        }
+        for (auto it = out.bindings.begin(); it != out.bindings.end();) {
+            if (it->target == DslProperty::Text) {
+                label.bindings.push_back(std::move(*it));
+                it = out.bindings.erase(it);
+            } else ++it;
+        }
         out.children.push_back(std::move(label));
     }
     return out;

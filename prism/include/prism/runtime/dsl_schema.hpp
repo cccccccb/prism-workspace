@@ -1,18 +1,20 @@
 #pragma once
 #include "prism/runtime/scene.hpp"
+#include "prism/runtime/property.hpp"
 #include <string_view>
 
 namespace prism::runtime {
 enum class DslValueType { Number, Color, Boolean, String, Text };
-enum class DslProperty {
-    Width, Height, Font, Spacing, Background, Foreground,
-    Padding, Radius, Clip, Action, Text, Source
-};
+enum class StoredValueType { Number, Color, Boolean, String, Resource };
 struct PropertySpec {
     std::string_view name;
     DslProperty id;
     DslValueType type;
     Dirty affects;
+    StoredValueType stored_type;
+    double min_value{0};
+    double max_value{16384};
+    bool allow_zero{true};
 };
 struct ComponentSpec {
     std::string_view name;
@@ -26,5 +28,6 @@ struct ComponentSpec {
 };
 constexpr std::uint64_t PropertyBit(DslProperty id) { return 1ULL << static_cast<unsigned>(id); }
 const PropertySpec* FindProperty(std::string_view name);
+const PropertySpec* FindProperty(DslProperty id);
 const ComponentSpec* FindComponent(std::string_view name);
 } // namespace prism::runtime

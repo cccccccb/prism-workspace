@@ -18,7 +18,12 @@ int main() {
     assert(std::get<BindingValue>(syntax.children[0].arguments[0].value.data).name == "name");
     assert(syntax.children[0].modifiers[0].name == "effect");
     auto button = ParseBlueprint("Button(\"Launch\", \"app:launch\")");
-    assert(button.action == "app:launch" && button.children[0].text == "Launch");
+    assert(button.properties.size() == 1 &&
+           button.properties[0].id == DslProperty::Action &&
+           std::get<std::string>(button.properties[0].value) == "app:launch");
+    assert(button.children.size() == 1 && button.children[0].properties.size() == 1 &&
+           button.children[0].properties[0].id == DslProperty::Text &&
+           std::get<std::string>(button.children[0].properties[0].value) == "Launch");
     auto rejects = [](auto parse, const char* source, const char* expected) {
         try { parse(source); }
         catch (const std::runtime_error& error) {

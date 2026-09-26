@@ -1,6 +1,7 @@
 #pragma once
 
 #include "prism/contracts/display_list.hpp"
+#include "prism/runtime/property.hpp"
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -8,18 +9,12 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <unordered_map>
+#include <map>
 
 namespace prism::runtime {
 
 enum class Kind { Row, Column, Box, Text, Image };
-enum class Dirty : std::uint8_t { None = 0, Layout = 1, Paint = 2, Composite = 4 };
-constexpr Dirty operator|(Dirty a, Dirty b) {
-    return static_cast<Dirty>(static_cast<unsigned>(a) | static_cast<unsigned>(b));
-}
-constexpr bool Has(Dirty value, Dirty bit) {
-    return (static_cast<unsigned>(value) & static_cast<unsigned>(bit)) != 0;
-}
-
 struct Style {
     double width{0};  // 0 means fill the available width
     double height{0}; // 0 means intrinsic height for text, otherwise fill
@@ -34,11 +29,9 @@ struct Style {
 
 struct Blueprint {
     Kind kind{Kind::Box};
-    Style style{};
-    std::string text;
-    std::string slot;
-    std::string action;
-    contracts::ResourceId image{};
+    std::vector<PropertyAssignment> properties;
+    std::vector<PropertyBinding> bindings;
+    std::uint64_t allowed_properties{UINT64_MAX};
     std::vector<Blueprint> children;
 };
 
@@ -57,6 +50,8 @@ public:
     Scene(const Scene&) = delete;
     Scene& operator=(const Scene&) = delete;
     bool SetSlot(std::string_view name, std::string value);
+    bool SetBinding(std::string_view name, PropertyValue value);
+    bool SetProperty(contracts::NodeId id, DslProperty property, PropertyValue value);
     bool SetViewport(contracts::LogicalSize size);
     bool SetBackground(contracts::NodeId id, contracts::Color color);
     bool ImageReady(contracts::ResourceId image, contracts::LogicalSize intrinsic_size);
@@ -71,6 +66,8 @@ private:
     struct Node;
     std::unique_ptr<Node> MakeNode(Blueprint blueprint);
     Node* Find(contracts::NodeId id) const;
+    void ApplyCachedProperty(Node& node, DslProperty property, const PropertyValue& value);
+    PropertyValue CurrentProperty(const Node& node, DslProperty property) const;
     void Layout(Node& node, contracts::LogicalRect bounds);
     void Paint(const Node& node, contracts::DisplayList& list) const;
     std::optional<std::string> Hit(const Node& node, contracts::LogicalPoint point) const;
@@ -80,6 +77,8 @@ private:
     contracts::ResourceId font_{};
     contracts::LogicalSize viewport_{};
     std::vector<Node*> nodes_;
+    struct BindingTarget { Node* node; DslProperty property; };
+    std::unordered_map<std::string, std::vector<BindingTarget>> bindings_;
     Dirty dirty_{Dirty::Layout | Dirty::Paint};
     std::uint64_t generation_{0};
 };
