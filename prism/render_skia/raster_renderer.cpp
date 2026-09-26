@@ -24,12 +24,15 @@
 namespace prism::render_skia {
 
 struct RasterRenderer::Impl {
+    struct FontResource {
+        FT_Face face{nullptr};
+        sk_sp<SkTypeface> typeface;
+    };
     FT_Library freetype{nullptr};
-    FT_Face face{nullptr};
-    sk_sp<SkTypeface> typeface;
+    std::unordered_map<std::uint64_t, FontResource> fonts;
     std::unordered_map<std::uint64_t, sk_sp<SkImage>> images;
     ~Impl() {
-        if (face) FT_Done_Face(face);
+        for (auto& [id, font] : fonts) if (font.face) FT_Done_Face(font.face);
         if (freetype) FT_Done_FreeType(freetype);
     }
 };
@@ -48,7 +51,8 @@ bool ValidRect(contracts::LogicalRect r) {
            std::abs(r.x) <= 1e6 && std::abs(r.y) <= 1e6 && r.width <= 1e6 && r.height <= 1e6;
 }
 bool Validate(const contracts::DisplayList& list,
-              const std::unordered_map<std::uint64_t, sk_sp<SkImage>>& images) {
+              const std::unordered_map<std::uint64_t, sk_sp<SkImage>>& images,
+              const auto& fonts) {
     if (!list.window || list.commands.size() > 100000) return false;
     std::vector<bool> stack;
     for (const auto& command : list.commands) {
@@ -60,7 +64,7 @@ bool Validate(const contracts::DisplayList& list,
             if (!image->image || !ValidRect(image->destination)) return false;
             if (!images.contains(image->image.value)) return false;
         } else if (auto* run = std::get_if<contracts::DrawGlyphRun>(&command)) {
-            if (run->font.value != 1 || run->glyphs.size() > 100000 ||
+            if (!run->font || !fonts.contains(run->font.value) || run->glyphs.size() > 100000 ||
                 !std::isfinite(run->font_size) || run->font_size <= 0 || run->font_size > 512) return false;
             for (auto glyph : run->glyphs)
                 if (glyph.glyph_index > UINT16_MAX || !std::isfinite(glyph.origin.x) ||
@@ -86,11 +90,23 @@ bool Validate(const contracts::DisplayList& list,
 
 RasterRenderer::RasterRenderer(std::string font_path) : impl_(std::make_unique<Impl>()) {
     if (FT_Init_FreeType(&impl_->freetype) != 0) return;
-    if (FT_New_Face(impl_->freetype, font_path.c_str(), 0, &impl_->face) != 0) return;
-    impl_->typeface = SkTypeface::MakeFromFile(font_path.c_str());
+    RegisterFont(default_font_, font_path);
 }
 RasterRenderer::~RasterRenderer() = default;
-bool RasterRenderer::Ready() const { return impl_->face && impl_->typeface; }
+bool RasterRenderer::Ready() const { return impl_->fonts.contains(default_font_.value); }
+
+bool RasterRenderer::RegisterFont(contracts::ResourceId id, const std::string& path) {
+    if (!id || !impl_->freetype || impl_->fonts.contains(id.value)) return false;
+    Impl::FontResource font;
+    if (FT_New_Face(impl_->freetype, path.c_str(), 0, &font.face) != 0) return false;
+    font.typeface = SkTypeface::MakeFromFile(path.c_str());
+    if (!font.typeface) {
+        FT_Done_Face(font.face);
+        return false;
+    }
+    impl_->fonts.emplace(id.value, std::move(font));
+    return true;
+}
 
 std::optional<runtime::DecodedImage> RasterRenderer::DecodePng(const std::string& path) {
     png_image png{};
@@ -127,10 +143,15 @@ bool RasterRenderer::RegisterImage(contracts::ResourceId id, const runtime::Deco
 }
 
 runtime::ShapedText RasterRenderer::Shape(std::string_view text, double size) const {
+    return Shape(default_font_, text, size);
+}
+
+runtime::ShapedText RasterRenderer::Shape(contracts::ResourceId id, std::string_view text, double size) const {
     runtime::ShapedText result;
-    if (!Ready() || !std::isfinite(size) || size <= 0 || size > 512) return result;
-    if (FT_Set_Char_Size(impl_->face, 0, static_cast<FT_F26Dot6>(size * 64), 0, 0) != 0) return result;
-    hb_font_t* font = hb_ft_font_create_referenced(impl_->face);
+    auto entry = impl_->fonts.find(id.value);
+    if (entry == impl_->fonts.end() || !std::isfinite(size) || size <= 0 || size > 512) return result;
+    if (FT_Set_Char_Size(entry->second.face, 0, static_cast<FT_F26Dot6>(size * 64), 0, 0) != 0) return result;
+    hb_font_t* font = hb_ft_font_create_referenced(entry->second.face);
     if (!font) return result;
     hb_buffer_t* buffer = hb_buffer_create();
     hb_buffer_add_utf8(buffer, text.data(), static_cast<int>(text.size()), 0, static_cast<int>(text.size()));
@@ -165,7 +186,7 @@ bool RasterRenderer::Render(const contracts::DisplayList& list, void* pixels,
 }
 
 bool RasterRenderer::Replay(const contracts::DisplayList& list, SkCanvas* canvas) const {
-    if (!Ready() || !canvas || !Validate(list, impl_->images)) return false;
+    if (!Ready() || !canvas || !Validate(list, impl_->images, impl_->fonts)) return false;
     canvas->clear(SK_ColorBLACK);
     for (const auto& command : list.commands) {
         if (auto* rect = std::get_if<contracts::FillRect>(&command)) {
@@ -182,7 +203,7 @@ bool RasterRenderer::Replay(const contracts::DisplayList& list, SkCanvas* canvas
                               static_cast<SkScalar>(rect->radius));
             canvas->drawRRect(rounded, paint);
         } else if (auto* run = std::get_if<contracts::DrawGlyphRun>(&command)) {
-            SkFont font(impl_->typeface, static_cast<SkScalar>(run->font_size));
+            SkFont font(impl_->fonts.at(run->font.value).typeface, static_cast<SkScalar>(run->font_size));
             SkPaint paint;
             paint.setAntiAlias(true);
             paint.setColor(ToSkColor(run->color));

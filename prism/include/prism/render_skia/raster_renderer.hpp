@@ -21,17 +21,20 @@ public:
 
     bool Ready() const;
     runtime::ShapedText Shape(std::string_view text, double size) const;
+    runtime::ShapedText Shape(contracts::ResourceId font, std::string_view text, double size) const;
+    bool RegisterFont(contracts::ResourceId id, const std::string& path);
     static std::optional<runtime::DecodedImage> DecodePng(const std::string& path);
     bool RegisterImage(contracts::ResourceId id, const runtime::DecodedImage& image);
     bool Render(const contracts::DisplayList& list, void* pixels,
                 int width, int height, int stride) const;
-    contracts::ResourceId FontId() const { return contracts::ResourceId{1}; }
+    contracts::ResourceId FontId() const { return default_font_; }
 
 private:
     friend class GlesRenderer;
     bool Replay(const contracts::DisplayList& list, SkCanvas* canvas) const;
     struct Impl;
     std::unique_ptr<Impl> impl_;
+    contracts::ResourceId default_font_{1};
 };
 
 } // namespace prism::render_skia

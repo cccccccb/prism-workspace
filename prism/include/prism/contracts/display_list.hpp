@@ -8,7 +8,7 @@
 
 namespace prism::contracts {
 
-// Straight-alpha sRGB input; the renderer chooses its internal color format.
+// Straight-alpha sRGB input; source-over compositing. The renderer chooses its internal format.
 struct Color {
     std::uint8_t r{0};
     std::uint8_t g{0};
@@ -57,7 +57,10 @@ struct PopTransform {};
 using DrawCommand = std::variant<FillRect, FillRoundedRect, DrawImage,
     DrawGlyphRun, PushClipRect, PopClip, PushTransform, PopTransform>;
 
-// In-process, ordered renderer input. Never serialize this C++ object across IPC.
+// In-process, ordered renderer input. Logical coordinates map to the target canvas;
+// caller owns any output scale. Clips/transforms use matched, nested push/pop pairs.
+// Font/image ResourceIds must be registered with the renderer before replay and stay
+// registered through replay. Never serialize this C++ object across IPC.
 struct DisplayList {
     WindowId window{};
     std::uint64_t generation{0};

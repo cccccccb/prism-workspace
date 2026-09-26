@@ -12,7 +12,7 @@
 以下是 Prism 在 Raspberry Pi 上落地本文时必须遵守的边界；下文的总体架构目标不因当前实现仍处于迁移期而降低。实施检查点与已测事实见 [SKIA_MIGRATION_PLAN.md](SKIA_MIGRATION_PLAN.md)。
 
 1. **WM 与应用界面分进程。** WM 只管理 surface、输出、焦点、布局、装饰和获授权的 shell 角色；应用进程持有 DSL AST、Scene、绑定、资源和 Skia 上下文。不能把 topbar/dock/desktop 的业务绘制或应用 `$slot` 留在 WM。普通 xdg_toplevel 不能冒充 shell 角色；特权角色不能只凭 `app_id`/标题或当前无鉴权的文本 IPC 授予。
-2. **Skia 是绘图后端，不是控件系统。** AST、Scene、Render Tree、DisplayList 分别承担语法、持久状态、视觉结构和绘制命令；核心头文件不暴露 `Sk*`、`Vk*`、`wl_*`。当前 Scene 直接生成 DisplayList 仅是单线程正确性检查点，尚未实现独立 Render Tree 或 chunk cache。
+2. **Skia 是绘图后端，不是控件系统。** AST、Scene、Render Tree、DisplayList 分别承担语法、持久状态、视觉结构和绘制命令；核心头文件不暴露 `Sk*`、`Vk*`、`wl_*`。当前已拆出独立布局、Render Tree 和 DisplayListBuilder；节点增量布局与 chunk cache 属于后续性能阶段。命令和资源的当前约束见 [DISPLAY_LIST_CONTRACT.md](DISPLAY_LIST_CONTRACT.md)。
 3. **GPU 渲染和 Wayland 呈现必须同时成立。** CPU Skia → `wl_shm` 已通过 headless 测试，只能证明功能；Ganesh GLES → EGL Wayland WSI 现已在 headless Pi 上以客户端 V3D 完成图片、文字和帧提交，实测范围见 [SKIA_GLES_PI.md](SKIA_GLES_PI.md)。Vulkan/GLES 后端需要实际 GPU buffer、同步、释放和 resize 生命周期；不能以 GPU 绘制后读回 CPU 再提交 `wl_shm` 的结果宣称 GPU 呈现性能。Wayland 并不要求所有客户端直接管理 Vulkan swapchain；可以采用经验证的 WSI 或 dma-buf 路径。Pi 上必须排除 llvmpipe，以物理显示上的 V3D 帧时决定发布后端。此前无头 Vulkan swapchain 创建失败，原因尚未确认，不能据此否定实际会话中的 GPU 路径。
 4. **尺寸与资源状态显式管理。** logical size、buffer 像素尺寸和 scale 分开；configure/ack、buffer release、frame callback 及 GPU 同步不能由一次 `draw` 调用隐式处理。Scene 只持有资源句柄；解码线程只交付完成事件，由运行时线程更新 Scene。按资源状态和内存预算处理失败、恢复与逐出；资源尺寸变化才触发必要的布局重算。
 5. **性能数字必须来自可复现测量。** 首帧、静态唤醒、resize、输入到呈现、文字、图片、blur、内存和温度分阶段测量，记录 p50/p95/p99；CPU 绘制微基准和 headless pixman 结果都不能替代物理显示上的 V3D 测试。

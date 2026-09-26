@@ -35,3 +35,9 @@ Scene 的 `Build` 现在把稳定 NodeId、属性派生状态和上次几何复�
 当前复用是结构边界，尚不是完整增量渲染：每次需要提交时仍复制整棵 snapshot、构造 Render Tree 并生成整张 DisplayList；节点级 dirty 传播、布局边界、DisplayList 分块缓存和遮挡裁剪需要在 Pi 实测后逐步加入。仅改绘制属性时跳过布局和 shaping，动作变化仅更新命中状态而不提交。新增独立 Render Tree 与 DisplayList 单元测试，验证命令顺序和节点版本复用。
 
 Pi 上 CPU 与 GLES 配置均完整构建、CTest 各 13/13 通过；headless V3D 客户端探针报告 `GL renderer=V3D 4.2.14.0`、`configure=2 frame=2 presented=3 images=1/1`。
+
+## 第四段当前结果
+
+[DisplayList 绘制契约](DISPLAY_LIST_CONTRACT.md)明确了进程内生命周期、坐标、颜色、绘制顺序、裁剪/变换栈以及资源就绪要求。Skia 共享回放器按 `ResourceId` 查找字体与图片；文字 shaping 可指定同一个字体 ID，删除了仅接受字体 ID 1 的约束。CPU 与 GLES 仍复用同一套命令校验和回放代码，GLES 仅负责 GPU 画布与提交。新增非默认字体、缺失字体和缺失图片测试。
+
+Pi 上 CPU 配置 CTest 13/13，GLES 配置 CTest 14/14；GLES 专属离屏测试用同一列表对比 CPU 与 GPU 回读的纯色矩形、裁剪内部像素。headless Wayland V3D 探针仍报告 `GL renderer=V3D 4.2.14.0`、`configure=2 frame=2 presented=3 images=1/1`。此像素测试只覆盖纯色和裁剪；文字、图片的逐像素容差仍待后续扩展。

@@ -73,6 +73,12 @@ if(TARGET prism_client_app)
         prism_client_app)
 endif()
 
+if(TARGET prism_skia_gles)
+    add_executable(skia_gles_parity_test skia_gles_parity_test.cpp)
+    target_link_libraries(skia_gles_parity_test PRIVATE prism_skia_gles)
+    add_test(NAME skia_gles_parity_test COMMAND skia_gles_parity_test)
+endif()
+
 add_executable(image_resources_test image_resources_test.cpp)
 target_link_libraries(image_resources_test PRIVATE prism_client_dsl)
 add_test(NAME image_resources_test COMMAND image_resources_test)
