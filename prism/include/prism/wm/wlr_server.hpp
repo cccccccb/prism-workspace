@@ -9,6 +9,8 @@
 #include <string>
 #include <memory>
 #include <vector>
+#include <map>
+#include <sys/types.h>
 
 #include <wayland-server-core.h>
 
@@ -39,14 +41,6 @@ struct wlr_keyboard;
 
 namespace prism::ipc {
 class IpcServer;
-}
-
-namespace prism::gui {
-class ImGuiDslEngine;
-}
-
-namespace prism::compiler {
-struct AstNode;
 }
 
 namespace prism::wm {
@@ -114,6 +108,7 @@ public:
 
     bool Initialize(const std::string& socket_name = "");
     void Start();
+    bool StartShellClients();
     void Stop();
 
     void RunEventLoopIteration(int timeout_ms = 0);
@@ -224,20 +219,12 @@ private:
     struct wlr_scene_rect* hud_border_rect_{nullptr};
     struct wlr_scene_rect* hud_status_pill_{nullptr};
 
-    // Hardware Pixel Buffers for full resolution image & font rendering
-    struct wlr_scene_buffer* wallpaper_scene_buf_{nullptr};
-    struct wlr_scene_buffer* top_bar_scene_buf_{nullptr};
-    struct wlr_scene_buffer* dock_scene_buf_{nullptr};
-    std::unique_ptr<render::FrameBuffer> wallpaper_fb_;
-    int last_scene_w_{0};
-    int last_scene_h_{0};
-    int last_clock_sec_{-1};
-
     std::shared_ptr<decoration::TilingDecorationSpec> decoration_spec_;
     std::unique_ptr<decoration::TilingDragManager> drag_manager_;
 
     std::vector<std::unique_ptr<WlrOutput>> outputs_;
     std::vector<std::unique_ptr<WlrXdgView>> xdg_views_;
+    std::map<pid_t, int> shell_clients_;
     std::vector<std::unique_ptr<WlrKeyboardBinding>> keyboards_;
     WlrXdgView* focused_xdg_view_{nullptr};
     uint64_t last_frame_time_ns_{0};
@@ -246,10 +233,7 @@ private:
 
     std::unique_ptr<ipc::IpcServer> ipc_server_;
 
-    std::unique_ptr<gui::ImGuiDslEngine> topbar_engine_;
-    std::unique_ptr<gui::ImGuiDslEngine> dock_engine_;
-    std::shared_ptr<compiler::AstNode> topbar_ast_;
-    std::shared_ptr<compiler::AstNode> dock_ast_;
+
 };
 
 } // namespace prism::wm

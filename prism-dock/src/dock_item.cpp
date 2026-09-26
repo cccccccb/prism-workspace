@@ -1,16 +1,19 @@
 #include "dock_item.hpp"
-#include "prism/core/logging.hpp"
 #include <algorithm>
+#include <filesystem>
+#include <spawn.h>
+
+extern char** environ;
 
 namespace prism::dock {
 
 DockManager::DockManager() {
     // Populate default apps matching 1.png style
     AddItem("files", "Files", "📁", "prism-files");
-    AddItem("terminal", "Terminal", ">_", "alacritty", true);
-    AddItem("browser", "Browser", "🌐", "prism-browser", true);
+    AddItem("terminal", "Terminal", ">_", "alacritty");
+    AddItem("browser", "Browser", "🌐", "prism-browser");
     AddItem("editor", "Editor", "⚡", "prism-editor");
-    AddItem("music", "Music", "🎵", "demo_player", true);
+    AddItem("music", "Music", "🎵", "demo_player");
     AddItem("settings", "Settings", "⚙", "demo_settings");
 }
 
@@ -21,9 +24,17 @@ void DockManager::AddItem(const std::string& id, const std::string& name, const 
 bool DockManager::LaunchOrActivate(const std::string& id) {
     for (auto& item : items_) {
         if (item.id == id) {
+            std::string command = item.exec_cmd;
+            if (command == "demo_player" || command == "demo_settings") {
+                const auto executable_dir = std::filesystem::canonical("/proc/self/exe").parent_path();
+                const auto demo = executable_dir.parent_path() / "demos" / command;
+                if (std::filesystem::exists(demo)) command = demo.string();
+            }
+            pid_t child = -1;
+            char* args[] = {command.data(), nullptr};
+            if (posix_spawnp(&child, command.c_str(), nullptr, nullptr, args, environ) != 0)
+                return false;
             item.is_running = true;
-            PRISM_LOG_INFO("DOCK", "Launched / Activated application [%s: '%s'] (exec: %s)",
-                           item.id.c_str(), item.name.c_str(), item.exec_cmd.c_str());
             return true;
         }
     }

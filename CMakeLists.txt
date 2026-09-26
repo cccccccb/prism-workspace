@@ -52,7 +52,9 @@ add_subdirectory(prism/render_skia)
 add_subdirectory(prism)
 
 # 2. Demos Subdirectory
-add_subdirectory(demos)
+if(TARGET prism_client_app)
+    add_subdirectory(demos)
+endif()
 
 # 3. Tests and manual diagnostics are excluded from production builds.
 if(BUILD_TESTING)
@@ -60,9 +62,11 @@ if(BUILD_TESTING)
 endif()
 
 # 4. Shell Standalone Projects (Desktop, TopBar, Dock)
-add_subdirectory(prism-desktop)
-add_subdirectory(prism-topbar)
-add_subdirectory(prism-dock)
+if(TARGET prism_client_app)
+    add_subdirectory(prism-desktop)
+    add_subdirectory(prism-topbar)
+    add_subdirectory(prism-dock)
+endif()
 
 # ==============================================================================
 # 5. Installation Rules & Debian Packaging (CPack)
@@ -77,11 +81,13 @@ install(TARGETS
     prism-msg
     prism-pack
     prism-compiler
-    prism-desktop
-    prism-topbar
-    prism-dock
     DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+if(TARGET prism_client_app)
+    install(TARGETS prism-desktop prism-topbar prism-dock demo_player demo_settings
+        DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
 
 # Install Session Supervisor Script
 install(PROGRAMS session/prism-session
@@ -113,6 +119,10 @@ install(FILES prism-topbar/ui/topbar.prism
 install(FILES prism-dock/ui/dock.prism
     DESTINATION ${CMAKE_INSTALL_DATADIR}/prism/ui
 )
+install(FILES demos/demo_player/master.prism
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/prism/ui RENAME demo_player.prism)
+install(FILES demos/demo_settings/master.prism
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/prism/ui RENAME demo_settings.prism)
 
 # CPack Debian Package Configuration
 set(CPACK_GENERATOR "DEB")

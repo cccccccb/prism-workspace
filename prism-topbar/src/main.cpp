@@ -1,127 +1,30 @@
 #include "status_manager.hpp"
-#include "prism/sdk/application.hpp"
-#include "prism/compiler/binary_generator.hpp"
-#include "prism/compiler/lexer.hpp"
-#include "prism/compiler/parser.hpp"
-#include "prism/core/logging.hpp"
-#include <iostream>
-#include <fstream>
-#include <string>
-#include <memory>
-#include <filesystem>
-#include <thread>
+#include "prism/sdk/client_application.hpp"
 #include <chrono>
-#include <atomic>
-#include <cassert>
+#include <iostream>
 
-using namespace prism;
-
-int main(int argc, char* argv[]) {
-    std::string channel = (argc > 1) ? argv[1] : "/prism_topbar_ipc";
-
-    bool test_mode = false;
-    for (int i = 1; i < argc; ++i) {
-        if (std::string(argv[i]) == "--test" || std::string(argv[i]) == "--auto-exit") {
-            test_mode = true;
-        }
-    }
-
-    PRISM_LOG_INFO("TOPBAR", "Starting Prism-TopBar Shell (Layer 2: TopBar Status & Control Core)...");
-
-    topbar::StatusManager status_mgr;
-
-    // 1. Prepare AOT compiled binary UI
-    std::string prism_file = "prism-topbar/ui/topbar.prism";
-    if (!std::filesystem::exists(prism_file)) {
-        if (std::filesystem::exists("../prism-topbar/ui/topbar.prism")) {
-            prism_file = "../prism-topbar/ui/topbar.prism";
-        } else if (std::filesystem::exists("/usr/share/prism/ui/topbar.prism")) {
-            prism_file = "/usr/share/prism/ui/topbar.prism";
-        }
-    }
-    std::string runtime_dir = getenv("XDG_RUNTIME_DIR") ? getenv("XDG_RUNTIME_DIR") : "/tmp";
-    std::string prismb_file = std::filesystem::exists("prism-topbar/ui/topbar.prism")
-        ? "prism-topbar/topbar.prismb"
-        : (runtime_dir + "/topbar.prismb");
-
-    if (std::filesystem::exists(prism_file)) {
-        std::ifstream in(prism_file);
-        std::string dsl((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        compiler::Lexer lexer(dsl);
-        auto tokens = lexer.Tokenize();
-        compiler::Parser parser(tokens);
-        auto ast = parser.Parse();
-        if (ast) {
-            compiler::BinaryGenerator gen;
-            gen.WriteToFile(ast, prismb_file);
-        }
-    }
-
-    // 2. Initialize Application via Prism SDK
-    sdk::AppConfig config{};
-    config.app_id = "prism_topbar";
-    config.channel_name = channel;
-    config.package_path = prismb_file;
-    config.width = 1920;
-    config.height = 34;
-
-    auto app = sdk::Application::Create(config);
-    if (!app) {
-        PRISM_LOG_WARN("TOPBAR", "Running in offline standalone test mode (compositor channel not connected)");
-    }
-
-    if (app) {
-        // Register reactive action observers
-        app->On("launcher:toggle", [&](const ipc::EventPacket&) {
-            PRISM_LOG_INFO("TOPBAR", "All Applications Drawer / Launcher toggled");
-        });
-
-        app->On("notifications:toggle", [&](const ipc::EventPacket&) {
-            status_mgr.ToggleNotifications();
-            app->SetState("notifications_btn", status_mgr.GetStatus().notification_str);
-            PRISM_LOG_INFO("TOPBAR", "Notification center toggled (unread: %d)",
-                           status_mgr.GetStatus().unread_notifications);
-        });
-
-        app->On("control:toggle", [&](const ipc::EventPacket&) {
-            PRISM_LOG_INFO("TOPBAR", "Control Center quick settings toggled");
-        });
-
-        // Set initial state
-        app->SetState("sys_badge", "PRISM");
-        app->SetState("clock_time", status_mgr.GetStatus().time_str);
-        app->SetState("net_status", status_mgr.GetStatus().network_str);
-        app->SetState("bat_status", status_mgr.GetStatus().battery_str);
-
-        app->Ready();
-    }
-
-    if (test_mode) {
-        PRISM_LOG_INFO("TOPBAR", "Test mode: verifying status ticker and time formatting...");
-        status_mgr.Update();
-        assert(!status_mgr.GetStatus().time_str.empty());
-        assert(!status_mgr.GetStatus().battery_str.empty());
-        PRISM_LOG_INFO("TOPBAR", "Live TopBar time: '%s', Battery: '%s'",
-                       status_mgr.GetStatus().time_str.c_str(), status_mgr.GetStatus().battery_str.c_str());
-        PRISM_LOG_INFO("TOPBAR", "Prism-TopBar test completed successfully!");
-        return 0;
-    }
-
-    // Background clock ticker thread
-    std::atomic<bool> running{true};
-    std::thread ticker([&]() {
-        while (running.load()) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            status_mgr.Update();
-            if (app) {
-                app->SetState("clock_time", status_mgr.GetStatus().time_str);
-                app->SetState("bat_status", status_mgr.GetStatus().battery_str);
-            }
-        }
+int main() {
+    auto source = prism::sdk::LoadUiSource("topbar.prism", "prism-topbar/ui/topbar.prism");
+    if (!source) return 2;
+    prism::sdk::ClientApplication app({{}, "prism_topbar", "Prism TopBar",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 1280, 38});
+    if (!app.Open(*source)) return 1;
+    prism::topbar::StatusManager status;
+    app.SetSlot("clock_time", status.GetStatus().time_str);
+    app.SetSlot("net_status", status.GetStatus().network_str);
+    app.SetSlot("bat_status", status.GetStatus().battery_str);
+    app.OnAction([&](std::string_view action) {
+        if (action == "notifications:toggle") status.ToggleNotifications();
     });
-    ticker.detach();
-
-    int ret = app ? app->Exec() : 0;
-    running.store(false);
-    return ret;
+    auto last_tick = std::chrono::steady_clock::now();
+    while (!app.IsCloseRequested()) {
+        if (!app.Pump(100)) return app.IsCloseRequested() ? 0 : 1;
+        auto now = std::chrono::steady_clock::now();
+        if (now - last_tick < std::chrono::seconds(1)) continue;
+        last_tick = now;
+        status.Update();
+        app.SetSlot("clock_time", status.GetStatus().time_str);
+        app.SetSlot("bat_status", status.GetStatus().battery_str);
+    }
+    return 0;
 }

@@ -6,7 +6,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(prism-desktop
     src/main.cpp
-    src/wallpaper_manager.cpp
 )
 
 target_include_directories(prism-desktop PRIVATE
@@ -15,6 +14,5 @@ target_include_directories(prism-desktop PRIVATE
 )
 
 target_link_libraries(prism-desktop PRIVATE
-    prism_sdk
-    prism_core
+    prism_client_app
 )

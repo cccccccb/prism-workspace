@@ -1,18 +1,12 @@
-// master.prism: Full Interactive UI for Prism Music Studio
-HStack(spacing: 0) {
-    VStack(spacing: 12) {
-        Button("Media Library", action: "nav:library")
-        Button("Favorites", action: "nav:favorites")
+HStack(spacing: 12, padding: 20, background: #172030FF) {
+    VStack(width: 180, spacing: 12, padding: 14, background: #25334AFF) {
+        Text("PRISM MUSIC", font: 20)
+        Button("Media Library", action: "nav:library", height: 44, background: #365675FF)
+        Button("Favorites", action: "nav:favorites", height: 44, background: #365675FF)
     }
-    .blur(radius: 40, passes: 5)
-    .padding(16)
-
-    VStack(spacing: 20) {
+    VStack(spacing: 20, padding: 28, background: #202C40FF) {
         Text($track_title, font: 24)
-        Button($play_state_icon, action: "player:toggle")
-        Slider($playback_progress)
+        Text($playback_progress_text, font: 16)
+        Button($play_state_icon, action: "player:toggle", height: 54, background: #355F9BFF)
     }
-    .padding(24)
 }
-.blur(radius: 25, passes: 4)
-.cornerRadius(18)

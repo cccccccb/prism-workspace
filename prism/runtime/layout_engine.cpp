@@ -23,12 +23,8 @@ void Place(SceneSnapshot& snapshot, contracts::NodeId id, contracts::LogicalRect
             const auto& style = child.style;
             const double w = style.width > 0 ? std::min(style.width, width) : width;
             const double h = style.height > 0 ? std::min(style.height, height)
-                : child.kind == Kind::Text ? std::min(style.font_size * 1.4, height)
-                : child.kind == Kind::Image && child.image_ready ? std::min(child.intrinsic_size.height, height)
-                : height;
-            const double image_width = child.kind == Kind::Image && child.image_ready && style.width <= 0
-                ? std::min(child.intrinsic_size.width, width) : w;
-            Place(snapshot, child_id, {x, y, image_width, h}, shaper);
+                : child.kind == Kind::Text ? std::min(style.font_size * 1.4, height) : height;
+            Place(snapshot, child_id, {x, y, w, h}, shaper);
         }
         return;
     }

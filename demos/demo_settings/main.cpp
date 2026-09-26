@@ -1,67 +1,33 @@
-#include "prism/sdk/application.hpp"
-#include "prism/core/logging.hpp"
-#include <thread>
+#include "prism/sdk/client_application.hpp"
 #include <chrono>
+#include <string>
 
-int main(int argc, char* argv[]) {
-    std::string channel = (argc > 1) ? argv[1] : "/prism_demo_settings";
-    std::string pkg = (argc > 2) ? argv[2] : "demos/demo_settings.prismpkg";
-    PRISM_LOG_INFO("SETTINGS", "Starting Prism System Preferences & Monitor (Wayland Client Native)...");
-
-    prism::sdk::AppConfig config{};
-    config.app_id = "demo_settings";
-    config.package_path = pkg;
-    config.channel_name = channel;
-    config.width = 960;
-    config.height = 1080;
-
-    auto app = prism::sdk::Application::Create(config);
-    if (!app) {
-        PRISM_LOG_ERROR("SETTINGS", "Failed to connect to Prism Compositor!");
-        return 1;
-    }
-
-    bool dark_mode = true;
-    double mem_usage = 0.13;
-
-    app->On("theme:toggle", [&](const prism::ipc::EventPacket&) {
-        dark_mode = !dark_mode;
-        PRISM_LOG_INFO("SETTINGS", "Theme toggled -> %s", dark_mode ? "Dark Acrylic" : "Light Mica");
-        app->SetState("dark_mode_btn", dark_mode ? "Theme: Dark Acrylic" : "Theme: Light Mica");
-    });
-
-    app->On("sys:purge", [&](const prism::ipc::EventPacket&) {
-        PRISM_LOG_INFO("SETTINGS", "Purging unified memory cache...");
-        mem_usage = 0.08;
-        app->SetState("mem_usage_text", "Unified Memory: 2.6 / 32 GB (8%) [Purged]");
-        app->SetState("mem_usage_val", mem_usage);
-    });
-
-    // Populate initial state
-    app->SetState("cpu_usage_text", "Apple M-Style Engine: 18% Load");
-    app->SetState("cpu_usage_val", 0.18);
-    app->SetState("mem_usage_text", "Unified Memory: 4.2 / 32 GB (13%)");
-    app->SetState("mem_usage_val", mem_usage);
-    app->SetState("dark_mode_btn", "Theme: Dark Acrylic");
-
-    // Announce readiness to WM (triggers 0ms preview -> master morph)
-    app->Ready();
-
-    // Background worker simulating real-time system metric polling
-    std::thread monitor_thread([&]() {
-        double cpu = 0.18;
-        while (true) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(400));
-            cpu += 0.03;
-            if (cpu > 0.85) cpu = 0.15;
-
-            app->SetState("cpu_usage_val", cpu);
-            char buf[64];
-            std::snprintf(buf, sizeof(buf), "CPU Load: %d%% (8 Cores Active)", static_cast<int>(cpu * 100));
-            app->SetState("cpu_usage_text", buf);
+int main() {
+    auto source = prism::sdk::LoadUiSource("demo_settings.prism", "demos/demo_settings/master.prism");
+    if (!source) return 2;
+    prism::sdk::ClientApplication app({{}, "demo_settings", "Prism System Preferences",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 960, 720});
+    if (!app.Open(*source)) return 1;
+    bool dark = true;
+    double cpu = 0.18;
+    app.SetSlot("dark_mode_btn", "Theme: Dark");
+    app.SetSlot("mem_usage_text", "Unified Memory: 4.2 / 32 GB (13%)");
+    app.OnAction([&](std::string_view action) {
+        if (action == "theme:toggle") {
+            dark = !dark;
+            app.SetSlot("dark_mode_btn", dark ? "Theme: Dark" : "Theme: Light");
+        } else if (action == "sys:purge") {
+            app.SetSlot("mem_usage_text", "Unified Memory: 2.6 / 32 GB (8%) [Purged]");
         }
     });
-    monitor_thread.detach();
-
-    return app->Exec();
+    auto last_tick = std::chrono::steady_clock::now();
+    while (!app.IsCloseRequested()) {
+        if (!app.Pump(100)) return app.IsCloseRequested() ? 0 : 1;
+        const auto now = std::chrono::steady_clock::now();
+        if (now - last_tick < std::chrono::milliseconds(400)) continue;
+        last_tick = now;
+        cpu = cpu > 0.85 ? 0.15 : cpu + 0.03;
+        app.SetSlot("cpu_usage_text", "CPU Load: " + std::to_string(static_cast<int>(cpu * 100)) + "%");
+    }
+    return 0;
 }

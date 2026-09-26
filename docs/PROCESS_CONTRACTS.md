@@ -70,7 +70,7 @@ flowchart LR
 
 目标方向：`prism_contracts` ← 客户端 DSL / runtime / platform / renderer；WM 只依赖它需要的窗口管理值与 wlroots，不链接 DSL、Skia 或 ImGui。`prism_contracts` 可通过 `cmake -S prism/contracts -B build-contracts -G Ninja` 独立配置、编译和测试，证明其公共头不需要 Wayland/wlroots/Skia/ImGui 的构建配置。
 
-现有 `prism_core` 同时编译 WM、DSL、软件渲染和 ImGui，暂不能对它启用“WM 不链接 DSL/ImGui”的硬门槛。第三、四步的新模块必须依赖独立契约 target，不能反向依赖 `prism_core`；第五步删除旧路径并拆分单体 target 时启用最终链接与 include 检查。此过渡只存在于迁移分支，不作为双渲染路径发布。
+`prism_core` 已移除 DSL、软件 UI 渲染和 ImGui，并在 CMake 启用 WM 源文件 include 检查。客户端模块依赖独立契约 target，不反向依赖 `prism_core`；旧 AOT 工具独立于 WM。应用切换范围与功能差距见 [APPLICATION_MIGRATION.md](APPLICATION_MIGRATION.md)。
 
 ## 接下来的验收
 

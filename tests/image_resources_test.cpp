@@ -46,6 +46,14 @@ int main() {
             drew = image->image == id && image->destination.width == 2 && image->destination.height == 2;
         }
     assert(drew);
+    prism::runtime::Scene wallpaper(prism::runtime::ParseBlueprint("Card { Image(\"image\") }",
+        [&](std::string_view) { return id; }), shape);
+    assert(wallpaper.SetViewport({300, 180}));
+    assert(wallpaper.ImageReady(id, {2, 2}));
+    auto wallpaper_list = wallpaper.Build(prism::contracts::WindowId{1});
+    assert(wallpaper_list);
+    const auto* fill = std::get_if<prism::contracts::DrawImage>(&wallpaper_list->commands.front());
+    assert(fill && fill->destination.width == 300 && fill->destination.height == 180);
     auto bad = resources.Request("bad");
     updates.clear();
     for (int i = 0; i < 100 && updates.empty(); ++i) {

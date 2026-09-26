@@ -14,27 +14,13 @@ add_library(prism_core
     src/core/logging.cpp
     src/ipc/channel.cpp
     src/ipc/ipc_server.cpp
-    src/scene/node.cpp
-    src/scene/container_node.cpp
-    src/scene/leaf_nodes.cpp
-    src/modifiers/modifier.cpp
     src/layout/fluid_split_strategy.cpp
     src/layout/fullscreen_strategy.cpp
     src/layout/mission_control_strategy.cpp
-    src/lifecycle/preview_state.cpp
-    src/lifecycle/transition_state.cpp
-    src/lifecycle/master_state.cpp
     src/wm/window.cpp
     src/wm/compositor.cpp
     src/wm/wlr_server.cpp
     src/wm/layer_manager.cpp
-    src/compiler/lexer.cpp
-    src/compiler/parser.cpp
-    src/compiler/binary_generator.cpp
-    src/compiler/binary_loader.cpp
-    src/pack/package.cpp
-    src/render/framebuffer.cpp
-    src/render/canvas_renderer.cpp
     src/decoration/tiling_decoration_spec.cpp
     src/decoration/tiling_window_decorator.cpp
     src/decoration/tiling_drag_manager.cpp
@@ -43,12 +29,6 @@ add_library(prism_core
     src/tree/tree_container.cpp
     src/tree/tree_workspace.cpp
     src/tree/tree_engine.cpp
-    src/gui/imgui_dsl_engine.cpp
-    third_party/imgui/imgui.cpp
-    third_party/imgui/imgui_draw.cpp
-    third_party/imgui/imgui_tables.cpp
-    third_party/imgui/imgui_widgets.cpp
-    third_party/imgui/imgui_sw.cpp
 )
 set(XDG_SHELL_PROTOCOL_HEADER "${CMAKE_CURRENT_BINARY_DIR}/xdg-shell-protocol.h")
 add_custom_command(
@@ -74,7 +54,6 @@ foreach(WLROOTS_HEADER IN ITEMS wlr_buffer.h wlr_scene.h wlr_matrix.h)
 endforeach()
 target_include_directories(prism_core PUBLIC 
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui
     ${CMAKE_CURRENT_BINARY_DIR}
     ${WLROOTS_CPP_INCLUDE_DIR}
     ${WAYLAND_SERVER_INCLUDE_DIRS}
@@ -100,26 +79,38 @@ target_link_libraries(prism_core PUBLIC
     ${XKBCOMMON_LIBRARIES}
 )
 
-# 2. SDK library: libprism_sdk (for application backends & Wayland client runtime)
-add_library(prism_sdk
-    src/sdk/event_dispatcher.cpp
-    src/sdk/application.cpp
-)
-target_include_directories(prism_sdk PUBLIC 
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${WAYLAND_CLIENT_INCLUDE_DIRS}
-)
-target_link_libraries(prism_sdk PUBLIC 
-    prism_core
-    ${WAYLAND_CLIENT_LIBRARIES}
-)
+# A production compositor must never compile client UI parsers or renderers.
+get_target_property(PRISM_WM_SOURCES prism_core SOURCES)
+file(GLOB PRISM_WM_HEADERS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/prism/wm/*.hpp")
+list(APPEND PRISM_WM_SOURCES ${PRISM_WM_HEADERS})
+foreach(PRISM_WM_SOURCE IN LISTS PRISM_WM_SOURCES)
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/${PRISM_WM_SOURCE}" PRISM_WM_SOURCE_TEXT)
+    if(PRISM_WM_SOURCE_TEXT MATCHES "#include [<\"](prism/(compiler|scene|sdk|render|render_skia|runtime|gui)/|imgui|include/core/Sk)")
+        message(FATAL_ERROR "Client UI dependency in compositor source: ${PRISM_WM_SOURCE}")
+    endif()
+endforeach()
+
+# Legacy AOT tooling remains isolated from the compositor and client runtime.
+add_library(prism_aot_tools STATIC
+    src/scene/node.cpp
+    src/scene/container_node.cpp
+    src/scene/leaf_nodes.cpp
+    src/modifiers/modifier.cpp
+    src/compiler/lexer.cpp
+    src/compiler/parser.cpp
+    src/compiler/binary_generator.cpp
+    src/compiler/binary_loader.cpp
+    src/core/logging.cpp src/decoration/tiling_decoration_spec.cpp src/pack/package.cpp)
+target_include_directories(prism_aot_tools PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(prism_aot_tools PUBLIC Threads::Threads)
 
 # 3. Tool: prism-compiler (DSL to .prismb AOT compiler)
 add_executable(prism-compiler
     src/compiler/main.cpp
 )
 target_include_directories(prism-compiler PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(prism-compiler PRIVATE prism_core)
+target_link_libraries(prism-compiler PRIVATE prism_aot_tools)
 
 # 4. Daemon: prism-launcher (Zygote Daemon)
 add_executable(prism-launcher
@@ -135,7 +126,7 @@ add_executable(prism-invoker
     src/invoker/main.cpp
 )
 target_include_directories(prism-invoker PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(prism-invoker PRIVATE prism_core)
+target_link_libraries(prism-invoker PRIVATE prism_core prism_aot_tools)
 
 # 6. Compositor: prism-wm (Window Manager & Compositor Core)
 add_executable(prism-wm
@@ -143,13 +134,16 @@ add_executable(prism-wm
 )
 target_include_directories(prism-wm PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(prism-wm PRIVATE prism_core)
+if(TARGET prism_client_app)
+    target_compile_definitions(prism-wm PRIVATE PRISM_HAS_SHELL_CLIENTS=1)
+endif()
 
 # 7. Packaging Tool: prism-pack (.prismpkg manager)
 add_executable(prism-pack
     src/pack/main.cpp
 )
 target_include_directories(prism-pack PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(prism-pack PRIVATE prism_core)
+target_link_libraries(prism-pack PRIVATE prism_aot_tools)
 
 # 8. IPC Control Utility: prism-msg (Swaymsg-like IPC controller)
 add_executable(prism-msg

@@ -2,10 +2,14 @@
 #include "prism/runtime/property.hpp"
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 
 namespace prism::sdk {
+
+std::optional<std::string> LoadUiSource(std::string_view installed_name,
+                                        std::string_view source_path);
 
 struct ClientConfig {
     std::string socket;

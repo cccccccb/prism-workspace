@@ -2,6 +2,8 @@
 
 > 状态：架构实施约束；2026-09-25 首次硬件基线。本文记录已测事实和迁移验收标准，不代表 Skia 性能已经验证。
 
+2026-09-26 更新：生产客户端绘制路径已切换，ImGui 与 WM 内应用 UI 代码已删除；具体功能范围和仍待补齐的交互见 [APPLICATION_MIGRATION.md](APPLICATION_MIGRATION.md)。以下基线数据保留为历史比较。
+
 ## 1. 目标与边界
 
 最终交付只有一条生产 UI 路径：Prism DSL → 客户端 retained-mode 运行时 → Skia → Wayland surface → WM 合成。WM 管理窗口、输出、输入焦点、布局和自身窗口装饰；不解析应用 DSL，不保存应用控件树，不处理应用 `$slot`，不绘制 topbar/dock/desktop 的业务内容。客户端在自己的进程中处理 UI 状态、布局、命中测试、文字和绘制。

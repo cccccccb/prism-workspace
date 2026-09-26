@@ -1,14 +1,10 @@
-Dock(height: 72.0) {
-    HStack(spacing: 12.0) {
-        Button("田", "dock:launcher")
-        Spacer(4.0)
-        Button("Files", "app:launch:files")
-        Button("Term", "app:launch:terminal")
-        Button("Web", "app:launch:browser")
-        Button("Code", "app:launch:editor")
-        Button("Music", "app:launch:music")
-        Button("Pref", "app:launch:settings")
-        Spacer(4.0)
-        Badge("● 3 Active", $running_badge)
-    }
-}.acrylic(blur: 28.0, passes: 4, tint: #181c26e6).springOnHover(scale: 1.12, damping: 0.85)
+HStack(height: 72, spacing: 8, padding: 8, background: #181C26E8) {
+    Button("Apps", width: 72, action: "dock:launcher", background: #34465FFF)
+    Button("Files", width: 76, action: "app:launch:files", background: #34465FFF)
+    Button("Term", width: 76, action: "app:launch:terminal", background: #34465FFF)
+    Button("Web", width: 76, action: "app:launch:browser", background: #34465FFF)
+    Button("Code", width: 76, action: "app:launch:editor", background: #34465FFF)
+    Button("Music", width: 76, action: "app:launch:music", background: #34465FFF)
+    Button("Pref", width: 76, action: "app:launch:settings", background: #34465FFF)
+    Text($running_badge, width: 120, font: 15)
+}

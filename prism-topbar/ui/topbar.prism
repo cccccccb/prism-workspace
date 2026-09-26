@@ -1,12 +1,8 @@
-TopBar(height: 34.0) {
-    HStack(spacing: 8.0) {
-        Badge("PRISM", $sys_badge)
-        Button("Apps", "launcher:toggle")
-        Spacer(660.0)
-        Badge("Sep-24 20:20:00", $clock_time)
-        Spacer(660.0)
-        Badge("Wi-Fi 5G", $net_status)
-        Badge("100%", $bat_status)
-        Button("[*]", "notifications:toggle")
-    }
-}.acrylic(blur: 24.0, passes: 4, tint: #141822D9)
+HStack(height: 38, spacing: 8, padding: 5, background: #141822E8) {
+    Text("PRISM", width: 90, font: 16)
+    Button("Apps", width: 84, action: "launcher:toggle", background: #34465FFF)
+    Text($clock_time, width: 220, font: 16)
+    Text($net_status, width: 130, font: 16)
+    Text($bat_status, width: 90, font: 16)
+    Button("Alerts", width: 80, action: "notifications:toggle", background: #34465FFF)
+}

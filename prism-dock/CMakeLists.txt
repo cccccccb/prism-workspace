@@ -15,6 +15,5 @@ target_include_directories(prism-dock PRIVATE
 )
 
 target_link_libraries(prism-dock PRIVATE
-    prism_sdk
-    prism_core
+    prism_client_app
 )

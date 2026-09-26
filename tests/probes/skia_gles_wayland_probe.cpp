@@ -12,7 +12,7 @@ int main(int argc, char** argv) {
     std::ifstream input(argv[2]);
     if (!input) return 2;
     std::string source(std::istreambuf_iterator<char>{input}, {});
-    prism::sdk::ClientApplication app({argv[1], "prism.skia.gles.probe", "Prism Skia GLES DSL",
+    prism::sdk::ClientApplication app({argv[1], argc > 3 ? argv[3] : "prism.skia.gles.probe", "Prism Skia GLES DSL",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 640, 400});
     app.OnAction([](std::string_view action) { std::cout << "action=" << action << '\n'; });
     if (!app.Open(source)) return 4;

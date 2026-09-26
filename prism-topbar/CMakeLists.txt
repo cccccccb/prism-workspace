@@ -15,6 +15,5 @@ target_include_directories(prism-topbar PRIVATE
 )
 
 target_link_libraries(prism-topbar PRIVATE
-    prism_sdk
-    prism_core
+    prism_client_app
 )

@@ -35,8 +35,6 @@ public:
 
     // Frame execution
     void Tick(float dt);
-    void Render();
-    void RenderToFrameBuffer(render::FrameBuffer& fb);
 
     // User input event injection & distribution
     void DispatchAction(const std::string& app_id, const std::string& action);

@@ -1,5 +1,4 @@
 #include "prism/wm/layer_manager.hpp"
-#include "prism/render/canvas_renderer.hpp"
 #include "prism/decoration/tiling_window_decorator.hpp"
 #include "prism/core/logging.hpp"
 #include <algorithm>
@@ -127,62 +126,6 @@ core::Rect LayerManager::CalculateUsableArea(int screen_w, int screen_h) const {
     float usable_h = std::max(100.0f, static_cast<float>(screen_h) - top_margin - bottom_margin);
 
     return core::Rect{0.0f, top_margin, usable_w, usable_h};
-}
-
-void LayerManager::RenderLayer(LayerType layer, render::FrameBuffer& fb) {
-    std::shared_ptr<Window> win = nullptr;
-    switch (layer) {
-        case LayerType::Desktop:  win = desktop_window_; break;
-        case LayerType::TopBar:   win = topbar_window_;  break;
-        case LayerType::Dock:     win = dock_window_;    break;
-        case LayerType::AppGroup: win = app_group_window_; break;
-        default: break;
-    }
-
-    if (!win) return;
-
-    auto b = win->GetBounds();
-
-    // 1. Decorator rendering if window is decorated with a DSL theme
-    if (win->GetDecorator() && win->GetDecorator()->GetSpec()) {
-        const auto& spec = *win->GetDecorator()->GetSpec();
-        if (spec.header.show_header) {
-            auto hb = win->GetDecorator()->GetHeaderBounds();
-            fb.DrawRoundedRect(hb.x, hb.y, hb.width, hb.height, 4.0f,
-                               win->IsFocused() ? spec.header.bg_focused.ToHex() : spec.header.bg_unfocused.ToHex());
-            fb.DrawTextSimple(hb.x + 8, hb.y + 6, win->GetTitle(),
-                              win->IsFocused() ? spec.header.title_focused.ToHex() : spec.header.title_unfocused.ToHex());
-        }
-        if (spec.border.width > 0) {
-            fb.DrawBorder(b.x, b.y, b.width, b.height, spec.border.corner_radius, spec.border.width,
-                          win->IsFocused() ? spec.border.color_focused.ToHex() : spec.border.color_unfocused.ToHex());
-        }
-    }
-
-    // 2. Client surface or DSL Scene Tree rendering
-    if (win->GetSurface()) {
-        if (layer != LayerType::Desktop) {
-            fb.DrawShadow(static_cast<int>(b.x), static_cast<int>(b.y),
-                          static_cast<int>(b.width), static_cast<int>(b.height),
-                          16.0f, 20.0f, 0x88000000);
-        }
-        fb.Blit(*win->GetSurface(),
-                static_cast<int>(b.x), static_cast<int>(b.y),
-                static_cast<int>(b.width), static_cast<int>(b.height));
-    } else {
-        auto tree = (win->GetState() && win->GetState()->GetStateName().find("Preview") != std::string::npos)
-                    ? win->GetPreviewTree()
-                    : win->GetMasterTree();
-        if (tree) {
-            if (layer != LayerType::Desktop) {
-                fb.DrawShadow(static_cast<int>(b.x), static_cast<int>(b.y),
-                              static_cast<int>(b.width), static_cast<int>(b.height),
-                              16.0f, 20.0f, 0x88000000);
-            }
-            render::CanvasRenderVisitor visitor(fb, b);
-            tree->Accept(visitor);
-        }
-    }
 }
 
 } // namespace prism::wm

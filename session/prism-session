@@ -59,8 +59,8 @@ LAUNCHER_PID=$!
 sleep 0.05
 
 # 4. Invoke Shell Suite (Desktop, Dock, TopBar) via Zygote
-echo "[PRISM-SESSION] Dispatching Shell Suite (Desktop, Dock, TopBar)..."
-$INVOKER_CMD --shell
+echo "[PRISM-SESSION] Shell Suite is managed by prism-wm."
+# Shell clients are spawned and authorized by prism-wm.
 
 # Signal trapping for graceful shutdown
 cleanup() {

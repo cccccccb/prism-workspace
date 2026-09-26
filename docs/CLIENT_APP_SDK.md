@@ -6,4 +6,4 @@
 
 `tests/probes/skia_gles_wayland_probe.cpp` 已改为调用此 SDK，而不是在测试中拼装另一套渲染生命周期。Pi headless V3D 验收仍为 `configure=2 frame=2 presented=3 images=1/1`，完整 GLES 构建及 CTest 11/11 通过。
 
-当前入口只支持普通 xdg-shell toplevel；topbar、dock、desktop 需要受授权的 shell 角色，不能用普通 app_id 冒充。现有业务 DSL 中的 Slider、blur 等尚未被新 Scene 实现。迁移这些应用前需补齐它们实际使用的语义，再让应用调用同一 SDK；最终切换时移除旧 `prism_sdk`/ImGui 生产路径。
+五个生产应用现使用此入口，旧 `prism_sdk`/ImGui 生产路径已删除。SDK 仍使用 xdg-shell；WM 对自己启动的三个 shell 进程按凭据授予角色，普通 app_id 不授予权限。Slider、blur 等尚未实现，具体迁移范围见 [APPLICATION_MIGRATION.md](APPLICATION_MIGRATION.md)。空 socket 使用当前 `WAYLAND_DISPLAY`；`LoadUiSource` 提供源码目录与安装目录的模板查找。

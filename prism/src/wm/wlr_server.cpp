@@ -7,10 +7,6 @@
 #include "prism/decoration/tiling_decoration_spec.hpp"
 #include "prism/decoration/tiling_window_decorator.hpp"
 #include "prism/decoration/tiling_drag_manager.hpp"
-#include "prism/compiler/binary_loader.hpp"
-#include "prism/gui/imgui_dsl_engine.hpp"
-#include "prism/compiler/lexer.hpp"
-#include "prism/compiler/parser.hpp"
 #include <fstream>
 
 extern "C" {
@@ -44,7 +40,6 @@ extern "C" {
 #include <drm_fourcc.h>
 }
 
-#include "prism/render/framebuffer.hpp"
 #include <cstddef>
 #include <chrono>
 #include <ctime>
@@ -54,6 +49,11 @@ extern "C" {
 #include <cmath>
 #include <iomanip>
 #include <algorithm>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <signal.h>
+
+extern char** environ;
 
 namespace prism::wm {
 
@@ -62,6 +62,7 @@ struct WlrXdgView {
     struct wlr_xdg_toplevel* toplevel{nullptr};
     struct wlr_scene_tree* scene_tree{nullptr};
     struct wl_listener map{};
+    struct wl_listener commit{};
     struct wl_listener unmap{};
     struct wl_listener destroy{};
     struct wl_listener request_maximize{};
@@ -71,9 +72,11 @@ struct WlrXdgView {
     int width{640};
     int height{400};
     bool mapped{false};
+    int shell_role{0}; // 0 ordinary, 1 desktop, 2 topbar, 3 dock
 
     ~WlrXdgView() {
         wl_list_remove(&map.link);
+        wl_list_remove(&commit.link);
         wl_list_remove(&unmap.link);
         wl_list_remove(&destroy.link);
         wl_list_remove(&request_maximize.link);
@@ -94,51 +97,6 @@ struct WlrKeyboardBinding {
         wl_list_remove(&destroy.link);
     }
 };
-
-// Custom wlr_buffer wrapping prism::render::FrameBuffer
-struct PrismCustomWlrBuffer {
-    struct wlr_buffer base;
-    render::FrameBuffer fb;
-
-    explicit PrismCustomWlrBuffer(render::FrameBuffer&& buffer)
-        : fb(std::move(buffer)) {}
-};
-
-static void prism_wlr_buf_destroy(struct wlr_buffer* wlr_buffer) {
-    PrismCustomWlrBuffer* buf = nullptr;
-    buf = wl_container_of(wlr_buffer, buf, base);
-    delete buf;
-}
-
-static bool prism_wlr_buf_begin_data_ptr_access(struct wlr_buffer* wlr_buffer,
-                                                uint32_t flags, void** data,
-                                                uint32_t* format, size_t* stride) {
-    (void)flags;
-    PrismCustomWlrBuffer* buf = nullptr;
-    buf = wl_container_of(wlr_buffer, buf, base);
-    *data = buf->fb.GetPixelsMutable();
-    *stride = static_cast<size_t>(buf->fb.GetWidth()) * sizeof(uint32_t);
-    *format = DRM_FORMAT_ARGB8888;
-    return true;
-}
-
-static void prism_wlr_buf_end_data_ptr_access(struct wlr_buffer* wlr_buffer) {
-    (void)wlr_buffer;
-}
-
-static const struct wlr_buffer_impl s_prism_wlr_buf_impl = {
-    .destroy = prism_wlr_buf_destroy,
-    .get_dmabuf = nullptr,
-    .get_shm = nullptr,
-    .begin_data_ptr_access = prism_wlr_buf_begin_data_ptr_access,
-    .end_data_ptr_access = prism_wlr_buf_end_data_ptr_access,
-};
-
-static struct wlr_buffer* CreateWlrBufferFromFb(render::FrameBuffer&& fb) {
-    auto* buf = new PrismCustomWlrBuffer(std::move(fb));
-    wlr_buffer_init(&buf->base, &s_prism_wlr_buf_impl, buf->fb.GetWidth(), buf->fb.GetHeight());
-    return &buf->base;
-}
 
 // Type-safe container_of for C++
 template <typename Parent, typename Member>
@@ -597,11 +555,7 @@ bool WlrServer::Initialize(const std::string& socket_name) {
             } else if (theme_arg == "minimal" || theme_arg == "MinimalI3") {
                 new_spec = decoration::TilingDecorationSpec::CreateMinimalI3();
             } else {
-                std::string bin_path = theme_arg;
-                if (theme_arg.ends_with(".prism")) {
-                    bin_path = theme_arg + "b";
-                }
-                new_spec = compiler::BinaryThemeLoader::LoadFromFile(bin_path);
+                return std::string("{\"status\": \"error\", \"message\": \"Use a registered WM theme\"}");
             }
 
             if (!new_spec) {
@@ -801,9 +755,32 @@ void WlrServer::Start() {
                    socket_name_.c_str(), created ? 1 : 0);
 }
 
+bool WlrServer::StartShellClients() {
+    if (!shell_clients_.empty()) return false;
+    const auto executable_dir = std::filesystem::canonical("/proc/self/exe").parent_path();
+    int role = 0;
+    for (const char* name : {"prism-desktop", "prism-topbar", "prism-dock"}) {
+        ++role;
+        auto path = executable_dir / name;
+        if (!std::filesystem::exists(path)) path = executable_dir.parent_path() / name / name;
+        std::string command = path.string();
+        pid_t pid = -1;
+        char* args[] = {command.data(), nullptr};
+        if (posix_spawn(&pid, command.c_str(), nullptr, nullptr, args, environ) != 0) return false;
+        shell_clients_.emplace(pid, role);
+    }
+    return true;
+}
+
 void WlrServer::Stop() {
     if (!running_) return;
     running_ = false;
+    for (const auto& [pid, role] : shell_clients_) {
+        kill(pid, SIGTERM);
+        waitpid(pid, nullptr, 0);
+    }
+    shell_clients_.clear();
+    if (wl_display_) wl_display_destroy_clients(wl_display_);
 
     focused_xdg_view_ = nullptr;
     xdg_views_.clear();
@@ -817,13 +794,6 @@ void WlrServer::Stop() {
         wlr_scene_node_destroy(&scene_->tree.node);
         scene_ = nullptr;
     }
-    wallpaper_scene_buf_ = nullptr;
-    top_bar_scene_buf_ = nullptr;
-    dock_scene_buf_ = nullptr;
-    wallpaper_fb_.reset();
-    last_scene_w_ = 0;
-    last_scene_h_ = 0;
-    last_clock_sec_ = -1;
 
     if (cursor_mgr_) {
         wlr_xcursor_manager_destroy(cursor_mgr_);
@@ -850,7 +820,6 @@ void WlrServer::Stop() {
         backend_ = nullptr;
     }
     if (wl_display_) {
-        wl_display_destroy_clients(wl_display_);
         wl_display_destroy(wl_display_);
         wl_display_ = nullptr;
     }
@@ -960,9 +929,20 @@ void WlrServer::HandleNewXdgToplevel(struct wlr_xdg_toplevel* toplevel) {
     auto view = std::make_unique<WlrXdgView>();
     view->server = this;
     view->toplevel = toplevel;
+    pid_t peer = -1;
+    wl_client_get_credentials(wl_resource_get_client(toplevel->base->surface->resource),
+                              &peer, nullptr, nullptr);
+    if (auto authorized = shell_clients_.find(peer); authorized != shell_clients_.end()) {
+        const bool occupied = std::any_of(xdg_views_.begin(), xdg_views_.end(), [&](const auto& v) {
+            return v->shell_role == authorized->second;
+        });
+        if (!occupied) view->shell_role = authorized->second;
+    }
     view->x = 80 + static_cast<int>(xdg_views_.size()) * 40;
     view->y = 80 + static_cast<int>(xdg_views_.size()) * 40;
-    view->scene_tree = wlr_scene_xdg_surface_create(windows_tree_, toplevel->base);
+    auto* parent = view->shell_role == 1 ? background_tree_
+        : view->shell_role > 1 ? chrome_tree_ : windows_tree_;
+    view->scene_tree = wlr_scene_xdg_surface_create(parent, toplevel->base);
     if (!view->scene_tree) return;
     wlr_scene_node_set_position(&view->scene_tree->node, view->x, view->y);
     wlr_scene_node_set_enabled(&view->scene_tree->node, false);
@@ -976,19 +956,27 @@ void WlrServer::HandleNewXdgToplevel(struct wlr_xdg_toplevel* toplevel) {
     wl_signal_add(&toplevel->events.destroy, &view->destroy);
     wl_signal_add(&toplevel->events.request_maximize, &view->request_maximize);
     wl_signal_add(&toplevel->events.request_fullscreen, &view->request_fullscreen);
-    wlr_xdg_toplevel_set_size(toplevel, view->width, view->height);
+    view->commit.notify = [](wl_listener* listener, void*) {
+        auto* item = WlContainerOf<WlrXdgView>(listener, offsetof(WlrXdgView, commit));
+        if (item->toplevel->base->initial_commit)
+            wlr_xdg_toplevel_set_size(item->toplevel, item->width, item->height);
+    };
+    wl_signal_add(&toplevel->base->surface->events.commit, &view->commit);
     PRISM_LOG_INFO("WLR-XDG", "New XDG toplevel registered: title='%s' app_id='%s'",
                    toplevel->title ? toplevel->title : "(untitled)",
                    toplevel->app_id ? toplevel->app_id : "(none)");
+    PRISM_LOG_INFO("WLR-XDG", "Client pid=%d authorized shell role=%d", peer, view->shell_role);
     xdg_views_.push_back(std::move(view));
 }
 
 void WlrServer::HandleXdgMap(WlrXdgView* view) {
     view->mapped = true;
     wlr_scene_node_set_enabled(&view->scene_tree->node, true);
-    FocusXdgView(view);
+    if (!view->shell_role) FocusXdgView(view);
     ArrangeXdgViews();
     PRISM_LOG_INFO("WLR-XDG", "Mapped XDG toplevel: %s", view->toplevel->title ? view->toplevel->title : "(untitled)");
+    PRISM_LOG_INFO("WLR-XDG", "Mapped app_id='%s' shell role=%d",
+        view->toplevel->app_id ? view->toplevel->app_id : "", view->shell_role);
 }
 
 void WlrServer::HandleXdgUnmap(WlrXdgView* view) {
@@ -1016,6 +1004,7 @@ void WlrServer::HandleXdgDestroy(WlrXdgView* view) {
 
 void WlrServer::HandleXdgMaximize(WlrXdgView* view) {
     if (!view || !view->toplevel) return;
+    if (view->shell_role) return;
     const bool fullscreen = view->toplevel->requested.fullscreen;
     const bool maximized = view->toplevel->requested.maximized;
     const bool expanded = fullscreen || maximized;
@@ -1038,9 +1027,24 @@ void WlrServer::HandleXdgMaximize(WlrXdgView* view) {
 }
 
 void WlrServer::ArrangeXdgViews() {
+    const int shell_width = !outputs_.empty() ? outputs_[0]->wlr_output->width : 1280;
+    const int shell_height = !outputs_.empty() ? outputs_[0]->wlr_output->height : 720;
+    for (auto& view : xdg_views_) {
+        if (!view->shell_role) continue;
+        const int width = view->shell_role == 3 ? std::min(800, shell_width) : shell_width;
+        const int height = view->shell_role == 1 ? shell_height : view->shell_role == 2 ? 38 : 72;
+        view->x = view->shell_role == 3 ? (shell_width - width) / 2 : 0;
+        view->y = view->shell_role == 3 ? shell_height - height : 0;
+        if (view->width != width || view->height != height) {
+            view->width = width;
+            view->height = height;
+            wlr_xdg_toplevel_set_size(view->toplevel, width, height);
+        }
+        wlr_scene_node_set_position(&view->scene_tree->node, view->x, view->y);
+    }
     std::vector<WlrXdgView*> tiled;
     for (auto& view : xdg_views_) {
-        if (view->mapped && !view->toplevel->requested.maximized &&
+        if (view->mapped && !view->shell_role && !view->toplevel->requested.maximized &&
             !view->toplevel->requested.fullscreen) tiled.push_back(view.get());
     }
     if (tiled.empty()) return;
@@ -1069,7 +1073,7 @@ void WlrServer::ArrangeXdgViews() {
 }
 
 void WlrServer::FocusXdgView(WlrXdgView* view) {
-    if (!view || !view->mapped) return;
+    if (!view || !view->mapped || view->shell_role) return;
     if (focused_xdg_view_ && focused_xdg_view_ != view && focused_xdg_view_->toplevel) {
         wlr_xdg_toplevel_set_activated(focused_xdg_view_->toplevel, false);
     }
@@ -1255,14 +1259,14 @@ void WlrServer::UpdateXdgPointerFocus(uint32_t time_msec) {
     if (!windows_tree_ || !seat_ || !cursor_) return;
     double sx = 0.0;
     double sy = 0.0;
-    struct wlr_scene_node* node = wlr_scene_node_at(&windows_tree_->node,
-                                                      cursor_->x, cursor_->y,
-                                                      &sx, &sy);
     struct wlr_surface* surface = nullptr;
-    if (node && node->type == WLR_SCENE_NODE_BUFFER) {
-        auto* scene_buffer = wlr_scene_buffer_from_node(node);
-        auto* scene_surface = wlr_scene_surface_try_from_buffer(scene_buffer);
-        if (scene_surface) surface = scene_surface->surface;
+    for (auto* tree : {chrome_tree_, windows_tree_, background_tree_}) {
+        auto* node = wlr_scene_node_at(&tree->node, cursor_->x, cursor_->y, &sx, &sy);
+        if (node && node->type == WLR_SCENE_NODE_BUFFER) {
+            auto* scene_surface = wlr_scene_surface_try_from_buffer(wlr_scene_buffer_from_node(node));
+            if (scene_surface) surface = scene_surface->surface;
+        }
+        if (surface) break;
     }
     if (surface) {
         wlr_seat_pointer_notify_enter(seat_, surface, sx, sy);
@@ -1278,15 +1282,15 @@ void WlrServer::InitSceneGraph() {
 
     // 1. Layer 0: Background Desktop
     background_tree_ = wlr_scene_tree_create(&scene_->tree);
-    wallpaper_scene_buf_ = wlr_scene_buffer_create(background_tree_, nullptr);
+
 
     // 2. Layer 1: Windows & Application Views
     windows_tree_ = wlr_scene_tree_create(&scene_->tree);
 
     // 3. Layer 2: Desktop Chrome (Top Menu Bar, Split Divider, Dock)
     chrome_tree_ = wlr_scene_tree_create(&scene_->tree);
-    top_bar_scene_buf_ = wlr_scene_buffer_create(chrome_tree_, nullptr);
-    dock_scene_buf_ = wlr_scene_buffer_create(chrome_tree_, nullptr);
+
+
 
     // Split Divider (Vertical line & pill handle)
     const float div_line_color[4] = {1.0f, 1.0f, 1.0f, 0.18f};
@@ -1309,229 +1313,12 @@ void WlrServer::InitSceneGraph() {
     drag_manager_ = std::make_unique<decoration::TilingDragManager>(decoration_spec_);
     drag_manager_->AttachToScene(chrome_tree_);
 
-    // 6. Initialize ImGui Declarative DSL Engine for TopBar and Dock
-    auto load_dsl = [](const std::string& rel_path, const std::string& alt_path) -> std::shared_ptr<compiler::AstNode> {
-        std::string path = rel_path;
-        if (!std::filesystem::exists(path) && std::filesystem::exists(alt_path)) {
-            path = alt_path;
-        }
-        if (!std::filesystem::exists(path)) {
-            path = "/usr/share/prism/ui/" + std::filesystem::path(rel_path).filename().string();
-        }
-        if (std::filesystem::exists(path)) {
-            std::ifstream in(path);
-            std::string dsl((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            compiler::Lexer lexer(dsl);
-            auto tokens = lexer.Tokenize();
-            compiler::Parser parser(tokens);
-            return parser.Parse();
-        }
-        return nullptr;
-    };
-
-    topbar_ast_ = load_dsl("prism-topbar/ui/topbar.prism", "../prism-topbar/ui/topbar.prism");
-    dock_ast_   = load_dsl("prism-dock/ui/dock.prism", "../prism-dock/ui/dock.prism");
-
-    if (!topbar_ast_) {
-        auto bar = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::TopBar, "TopBar");
-        auto hstack = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::HStack, "HStack");
-        hstack->spacing = 8.0f;
-        auto badge_prism = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Badge, "Badge");
-        badge_prism->text_value = "PRISM";
-        badge_prism->slot_binding = "sys_badge";
-        auto btn_apps = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Button, "Button");
-        btn_apps->text_value = "Apps";
-        btn_apps->action_value = "launcher:toggle";
-        auto sp1 = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Spacer, "Spacer");
-        auto clock = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Badge, "Badge");
-        clock->text_value = "12:00:00";
-        clock->slot_binding = "clock_time";
-        auto sp2 = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Spacer, "Spacer");
-        auto wifi = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Badge, "Badge");
-        wifi->text_value = "Wi-Fi 5G";
-        wifi->slot_binding = "net_status";
-        auto bat = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Badge, "Badge");
-        bat->text_value = "100%";
-        bat->slot_binding = "bat_status";
-        auto notif = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Button, "Button");
-        notif->text_value = "[*]";
-        notif->action_value = "notifications:toggle";
-
-        hstack->children = {badge_prism, btn_apps, sp1, clock, sp2, wifi, bat, notif};
-        bar->children = {hstack};
-        topbar_ast_ = bar;
-    }
-
-    if (!dock_ast_) {
-        auto dock = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Dock, "Dock");
-        auto hstack = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::HStack, "HStack");
-        hstack->spacing = 10.0f;
-        auto btn_launch = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Button, "Button");
-        btn_launch->text_value = "田";
-        btn_launch->action_value = "dock:launcher";
-        auto sp1 = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Spacer, "Spacer");
-        sp1->numeric_value = 4.0f;
-
-        std::vector<std::pair<std::string, std::string>> apps = {
-            {"Files", "app:launch:files"},
-            {"Term", "app:launch:terminal"},
-            {"Web", "app:launch:browser"},
-            {"Code", "app:launch:editor"},
-            {"Music", "app:launch:music"},
-            {"Pref", "app:launch:settings"}
-        };
-        hstack->children.push_back(btn_launch);
-        hstack->children.push_back(sp1);
-        for (const auto& [label, act] : apps) {
-            auto b = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Button, "Button");
-            b->text_value = label;
-            b->action_value = act;
-            hstack->children.push_back(b);
-        }
-        auto sp2 = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Spacer, "Spacer");
-        sp2->numeric_value = 4.0f;
-        auto badge_active = std::make_shared<compiler::AstNode>(compiler::BinaryNodeType::Badge, "Badge");
-        badge_active->text_value = "● 3 Active";
-        badge_active->slot_binding = "running_badge";
-        hstack->children.push_back(sp2);
-        hstack->children.push_back(badge_active);
-        dock->children = {hstack};
-        dock_ast_ = dock;
-    }
-
-    topbar_engine_ = std::make_unique<gui::ImGuiDslEngine>();
-    dock_engine_   = std::make_unique<gui::ImGuiDslEngine>();
-
-    PRISM_LOG_INFO("WLR-SCENE", "Native GPU Scene-graph hierarchy and ImGui DSL engines initialized successfully");
 }
 
 void WlrServer::UpdateSceneGraph(int width, int height, float dt) {
     if (width <= 0 || height <= 0) return;
 
-    // 1. Desktop Wallpaper (Load clean, high-resolution anime girl wallpaper)
-    if (wallpaper_scene_buf_ && (width != last_scene_w_ || height != last_scene_h_ || !wallpaper_fb_)) {
-        wallpaper_fb_ = std::make_unique<render::FrameBuffer>(width, height);
-        std::vector<std::string> wp_candidates = {
-            "resources/wallpapers/anime_girl.ppm",
-            "resources/wallpapers/anime_girl.png",
-            "/usr/share/prism/wallpapers/anime_girl.ppm",
-            "/usr/share/prism/wallpapers/anime_girl.png",
-            "resources/wallpapers/sunset_anime.ppm",
-            "resources/wallpapers/sunset_anime.png",
-            "/usr/share/prism/wallpapers/sunset_anime.ppm",
-            "/usr/share/prism/wallpapers/sunset_anime.png"
-        };
-        bool loaded = false;
-        for (const auto& path : wp_candidates) {
-            if (std::filesystem::exists(path)) {
-                render::FrameBuffer src(0, 0);
-                if (src.LoadImage(path)) {
-                    wallpaper_fb_->Blit(src, 0, 0, width, height);
-                    loaded = true;
-                    PRISM_LOG_INFO("WLR-SCENE", "Loaded authentic desktop wallpaper: %s (%dx%d)",
-                                   path.c_str(), src.GetWidth(), src.GetHeight());
-                    break;
-                }
-            }
-        }
-        if (!loaded) {
-            wallpaper_fb_->DrawDesktopGradient();
-        }
-
-        render::FrameBuffer wp_copy(width, height);
-        wp_copy.CopyRegion(*wallpaper_fb_, 0, 0, 0, 0, width, height);
-
-        struct wlr_buffer* w_buf = CreateWlrBufferFromFb(std::move(wp_copy));
-        wlr_scene_buffer_set_buffer(wallpaper_scene_buf_, w_buf);
-        wlr_scene_buffer_set_dest_size(wallpaper_scene_buf_, width, height);
-        wlr_scene_node_set_position(&wallpaper_scene_buf_->node, 0, 0);
-        wlr_buffer_drop(w_buf);
-    }
-
-    // 2. Mac Glassmorphic TopBar (True Backdrop Blur, Specular Rim, Outer Drop Shadow)
-    time_t t_now = time(nullptr);
-    struct tm* tm_val = localtime(&t_now);
-    int cur_sec = tm_val ? tm_val->tm_sec : 0;
-
-    int top_h = 38; // 34px bar + 4px bottom drop shadow
-    if (top_bar_scene_buf_ && (cur_sec != last_clock_sec_ || width != last_scene_w_ || height != last_scene_h_)) {
-        last_clock_sec_ = cur_sec;
-
-        char time_str[64];
-        if (tm_val) {
-            strftime(time_str, sizeof(time_str), "%b-%d %H:%M:%S", tm_val);
-        } else {
-            snprintf(time_str, sizeof(time_str), "Oct-11 15:13:24");
-        }
-
-        render::FrameBuffer top_fb(width, top_h);
-        top_fb.Clear(0x00000000);
-        if (wallpaper_fb_) {
-            top_fb.CopyRegion(*wallpaper_fb_, 0, 0, 0, 0, width, 34);
-        }
-        top_fb.DrawTopMenuBar("PRISM", time_str, false);
-
-        if (topbar_engine_ && topbar_ast_) {
-            if (!topbar_engine_->IsInitialized() || topbar_engine_->GetWidth() != width || topbar_engine_->GetHeight() != top_h) {
-                topbar_engine_->Initialize(width, top_h);
-            }
-            topbar_engine_->SetState("clock_time", time_str);
-            topbar_engine_->SetState("sys_badge", "PRISM");
-            topbar_engine_->SetState("net_status", "Wi-Fi 5G");
-            topbar_engine_->SetState("bat_status", "100%");
-            topbar_engine_->RenderTree(topbar_ast_, top_fb);
-        }
-
-        struct wlr_buffer* w_buf = CreateWlrBufferFromFb(std::move(top_fb));
-        wlr_scene_buffer_set_buffer(top_bar_scene_buf_, w_buf);
-        wlr_scene_buffer_set_dest_size(top_bar_scene_buf_, width, top_h);
-        wlr_scene_node_set_position(&top_bar_scene_buf_->node, 0, 0);
-        wlr_buffer_drop(w_buf);
-    }
-
-    // 3. Floating Mac Dock (True Backdrop Blur, Specular Inner/Outer Shadows)
-    int dock_w = 580;
-    int dock_h = 72;
-    int pad = 16;
-    int buf_w = dock_w + 2 * pad;
-    int buf_h = dock_h + 2 * pad;
-    int dock_x = (width - dock_w) / 2;
-    int dock_y = height - dock_h - 14;
-
-    static int s_last_focus = -1;
-    int cur_focus = compositor_ ? compositor_->GetFocusedWindowIndex() : 0;
-
-    if (dock_scene_buf_ && (width != last_scene_w_ || height != last_scene_h_ || cur_focus != s_last_focus)) {
-        s_last_focus = cur_focus;
-
-        render::FrameBuffer dock_fb(buf_w, buf_h);
-        dock_fb.Clear(0x00000000);
-        if (wallpaper_fb_) {
-            dock_fb.CopyRegion(*wallpaper_fb_, dock_x, dock_y, pad, pad, dock_w, dock_h);
-        }
-        std::vector<std::string> apps = {"Files", "Term", "Web", "Music", "Pref"};
-        dock_fb.DrawMacDock(apps, cur_focus, false);
-
-        if (dock_engine_ && dock_ast_) {
-            if (!dock_engine_->IsInitialized() || dock_engine_->GetWidth() != buf_w || dock_engine_->GetHeight() != buf_h) {
-                dock_engine_->Initialize(buf_w, buf_h);
-            }
-            size_t app_count = compositor_ ? compositor_->GetWindows().size() : 3;
-            dock_engine_->SetState("running_badge", "● " + std::to_string(app_count) + " Active");
-            dock_engine_->SetActiveAppIndex(cur_focus);
-            dock_engine_->RenderTree(dock_ast_, dock_fb);
-        }
-
-        struct wlr_buffer* w_buf = CreateWlrBufferFromFb(std::move(dock_fb));
-        wlr_scene_buffer_set_buffer(dock_scene_buf_, w_buf);
-        wlr_scene_buffer_set_dest_size(dock_scene_buf_, buf_w, buf_h);
-        wlr_scene_node_set_position(&dock_scene_buf_->node, dock_x - pad, dock_y - pad);
-        wlr_buffer_drop(w_buf);
-    }
-
-    last_scene_w_ = width;
-    last_scene_h_ = height;
-
+    const int dock_y = height - 72;
     // 4. Desktop Windows & Modular Tiling Window Decorator System
     if (compositor_) {
         const auto& windows = compositor_->GetWindows();

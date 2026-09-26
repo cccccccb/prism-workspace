@@ -131,7 +131,6 @@ void WaylandWindow::SurfaceConfigure(void* data, xdg_surface* surface,
         wl_callback_destroy(self.frame_callback_);
         self.frame_callback_ = nullptr;
     }
-    std::fprintf(stderr, "probe: configure serial=%u size=%dx%d\n", serial, safe_width, safe_height);
     self.TryRender();
 }
 
@@ -344,7 +343,6 @@ void WaylandWindow::TryRender() {
     wl_surface_commit(surface_);
     mapped_ = true;
     dirty_ = false;
-    std::fprintf(stderr, "probe: buffer commit %dx%d\n", buffer->width, buffer->height);
 }
 
 void WaylandWindow::RequestRedraw() {

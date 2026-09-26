@@ -39,11 +39,9 @@ bool LaunchApp(const std::string& app_name, const std::string& channel_name, con
 
     auto manifest_step = std::make_shared<invoker::ManifestValidationStep>();
     auto sandbox_step  = std::make_shared<invoker::SandboxSecurityStep>();
-    auto preview_step  = std::make_shared<invoker::PreviewMountStep>();
     auto zygote_step   = std::make_shared<invoker::ZygoteDispatchStep>();
 
     manifest_step->SetNext(sandbox_step)
-                 ->SetNext(preview_step)
                  ->SetNext(zygote_step);
 
     auto t_start = core::CurrentTimeNs();
@@ -85,24 +83,8 @@ int main(int argc, char* argv[]) {
     }
 
     if (arg1 == "--shell" || arg1 == "shell") {
-        PRISM_LOG_INFO("INVOKER", "Bootstrapping System Shell Suite (Desktop, Dock, TopBar)...");
-        if (!WaitForWmReady(5000)) {
-            PRISM_LOG_WARN("INVOKER", "WM readiness flag not found within 5s, proceeding with launch anyway...");
-        }
-
-        bool ok_desk = LaunchApp("prism-desktop", "/prism_desktop_ipc");
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-
-        bool ok_dock = LaunchApp("prism-dock", "/prism_dock_ipc");
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-
-        bool ok_top = LaunchApp("prism-topbar", "/prism_topbar_ipc");
-
-        if (ok_desk && ok_dock && ok_top) {
-            PRISM_LOG_INFO("INVOKER", "All 3 Shell Components dispatched successfully!");
-            return 0;
-        }
-        return 1;
+        PRISM_LOG_INFO("INVOKER", "Shell clients are started and authorized by prism-wm");
+        return 0;
     }
 
     std::string channel = (argc > 2) ? argv[2] : "";

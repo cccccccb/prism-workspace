@@ -5,11 +5,26 @@
 #include "prism/render_skia/raster_renderer.hpp"
 #include "prism/runtime/dsl_frontend.hpp"
 #include <optional>
+#include <fstream>
+#include <filesystem>
+#include <iterator>
 #include <stdexcept>
 #include <utility>
 #include <variant>
 
 namespace prism::sdk {
+std::optional<std::string> LoadUiSource(std::string_view installed_name,
+                                        std::string_view source_path) {
+    const auto installed_ui = std::filesystem::canonical("/proc/self/exe").parent_path().parent_path()
+        / "share/prism/ui" / installed_name;
+    for (const auto& path : {std::string(source_path), "../" + std::string(source_path),
+                             installed_ui.string()}) {
+        std::ifstream input(path);
+        if (input) return std::string(std::istreambuf_iterator<char>{input}, {});
+    }
+    return std::nullopt;
+}
+
 struct ClientApplication::Impl {
     explicit Impl(ClientConfig value)
         : config(std::move(value)), commands(config.font_path),
@@ -38,13 +53,21 @@ ClientApplication::~ClientApplication() { Close(); }
 
 bool ClientApplication::Open(std::string_view dsl_source) {
     auto& app = *impl_;
-    if (app.opened_once || !app.commands.Ready() || app.config.socket.empty() ||
+    if (app.opened_once || !app.commands.Ready() ||
         app.config.app_id.empty()) return false;
     try {
         app.scene = std::make_unique<runtime::Scene>(runtime::ParseBlueprint(dsl_source,
             [&](std::string_view uri) {
                 ++app.requested_images;
-                return app.resources.Request(std::string(uri));
+                std::string path(uri);
+                if (!std::filesystem::exists(path)) {
+                    const auto development = std::filesystem::path("resources") / path;
+                    const auto installed = std::filesystem::canonical("/proc/self/exe")
+                        .parent_path().parent_path() / "share/prism" / path;
+                    if (std::filesystem::exists(development)) path = development.string();
+                    else if (std::filesystem::exists(installed)) path = installed.string();
+                }
+                return app.resources.Request(std::move(path));
             }),
             [&](std::string_view text, double size) { return app.commands.Shape(text, size); },
             app.commands.FontId());

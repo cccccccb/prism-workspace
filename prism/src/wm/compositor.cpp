@@ -2,8 +2,6 @@
 #include "prism/decoration/tiling_window_decorator.hpp"
 #include "prism/layout/fluid_split_strategy.hpp"
 #include "prism/layout/mission_control_strategy.hpp"
-#include "prism/render/framebuffer.hpp"
-#include "prism/render/canvas_renderer.hpp"
 #include "prism/core/logging.hpp"
 #include <cmath>
 #include <algorithm>
@@ -187,53 +185,6 @@ void Compositor::Tick(float dt) {
         }
     }
 
-    // 2. Poll IPC updates and step each managed window
-    for (auto& win : windows_) {
-        auto channel = win->GetChannel();
-        if (!channel) continue;
-
-        ipc::StateDiffPacket diff;
-        while (channel->PopStateDiff(diff)) {
-            PRISM_LOG_INFO("WM-DIFF", "[%s] Popped diff op=%d slot=0x%08X", win->GetAppId().c_str(), static_cast<int>(diff.op), diff.slot_id);
-            switch (diff.op) {
-                case ipc::DiffOp::SignalReady:
-                    PRISM_LOG_INFO("WM", "[%s] Received SignalReady from backend -> Triggering master morph", win->GetAppId().c_str());
-                    win->OnMasterReady();
-                    break;
-
-                case ipc::DiffOp::SetString:
-                    win->UpdateSlot(diff.slot_id, std::string(diff.value.str));
-                    break;
-
-                case ipc::DiffOp::SetInt64:
-                    win->UpdateSlot(diff.slot_id, diff.value.i64);
-                    break;
-
-                case ipc::DiffOp::SetFloat:
-                    win->UpdateSlot(diff.slot_id, diff.value.f64);
-                    break;
-
-                case ipc::DiffOp::SetBool:
-                    win->UpdateSlot(diff.slot_id, diff.value.b);
-                    break;
-
-                case ipc::DiffOp::AppExit:
-                    PRISM_LOG_INFO("WM", "[%s] Application requested exit", win->GetAppId().c_str());
-                    break;
-
-                default:
-                    break;
-            }
-        }
-
-        win->Tick(dt);
-    }
-}
-
-void Compositor::Render() {
-    for (auto& win : windows_) {
-        win->Render();
-    }
 }
 
 void Compositor::DispatchAction(const std::string& app_id, const std::string& action) {
@@ -329,121 +280,6 @@ bool Compositor::SetTreeLayout(tree::LayoutMode mode) {
 
 bool Compositor::SwapFocusDirection(tree::Direction dir) {
     return tree_engine_.SwapFocusDirection(dir);
-}
-
-void Compositor::RenderToFrameBuffer(render::FrameBuffer& fb) {
-    // 1. [Layer 1: Desktop] (Custom DSL client or default Dark Nebula wallpaper)
-    if (layer_manager_.GetDesktop()) {
-        layer_manager_.RenderLayer(LayerType::Desktop, fb);
-    } else {
-        static render::FrameBuffer s_wallpaper(0, 0);
-        if (s_wallpaper.GetWidth() != fb.GetWidth() || s_wallpaper.GetHeight() != fb.GetHeight()) {
-            s_wallpaper = render::FrameBuffer(fb.GetWidth(), fb.GetHeight());
-            s_wallpaper.DrawDesktopGradient();
-        }
-        std::memcpy(fb.GetPixelsMutable(), s_wallpaper.GetPixels(), fb.GetWidth() * fb.GetHeight() * sizeof(uint32_t));
-    }
-
-    // 2. Check layout mode (Split vs Mission Control Overview)
-    float mc_progress = 0.0f;
-    layout::MacFluidSplitStrategy* split_strat = nullptr;
-    if (auto mc = dynamic_cast<layout::MissionControlStrategy*>(layout_strategy_.get())) {
-        mc_progress = mc->GetProgress();
-        split_strat = dynamic_cast<layout::MacFluidSplitStrategy*>(mc->GetBaseStrategy());
-    } else {
-        split_strat = dynamic_cast<layout::MacFluidSplitStrategy*>(layout_strategy_.get());
-    }
-
-    // 3. [Layer 4: AppGroup] (Render regular tiled application windows in active workspace)
-    for (size_t i = 0; i < windows_.size(); ++i) {
-        const auto& win = windows_[i];
-        if (win->GetLayerType() != LayerType::App) continue; // Layers 1, 2, 3 rendered in their own Z-planes
-        auto b = win->GetBounds();
-
-        if (win->GetSurface()) {
-            fb.DrawShadow(static_cast<int>(b.x), static_cast<int>(b.y),
-                          static_cast<int>(b.width), static_cast<int>(b.height),
-                          16.0f, 24.0f, 0x99000000);
-            fb.Blit(*win->GetSurface(),
-                    static_cast<int>(b.x), static_cast<int>(b.y),
-                    static_cast<int>(b.width), static_cast<int>(b.height));
-        } else {
-            auto tree = (win->GetState() && win->GetState()->GetStateName().find("Preview") != std::string::npos)
-                        ? win->GetPreviewTree()
-                        : win->GetMasterTree();
-            if (tree) {
-                render::CanvasRenderVisitor visitor(fb, win->GetBounds());
-                tree->Accept(visitor);
-            }
-        }
-
-        // Decorator
-        if (win->GetDecorator() && win->GetDecorator()->GetSpec()) {
-            const auto& spec = *win->GetDecorator()->GetSpec();
-            if (spec.header.show_header) {
-                auto hb = win->GetDecorator()->GetHeaderBounds();
-                fb.DrawRoundedRect(hb.x, hb.y, hb.width, hb.height, 4.0f,
-                                   win->IsFocused() ? spec.header.bg_focused.ToHex() : spec.header.bg_unfocused.ToHex());
-                fb.DrawTextSimple(hb.x + 8, hb.y + 6, win->GetTitle(),
-                                  win->IsFocused() ? spec.header.title_focused.ToHex() : spec.header.title_unfocused.ToHex());
-            }
-            if (spec.border.width > 0) {
-                fb.DrawBorder(b.x, b.y, b.width, b.height, spec.border.corner_radius, spec.border.width,
-                              win->IsFocused() ? spec.border.color_focused.ToHex() : spec.border.color_unfocused.ToHex());
-            }
-        }
-
-        // In Mission Control mode: draw floating title badge above card
-        if (mc_progress > 0.1f) {
-            auto b = win->GetBounds();
-            int badge_x = static_cast<int>(b.x + b.width * 0.5f - 80.0f);
-            int badge_y = static_cast<int>(b.y - 28.0f);
-            fb.DrawRoundedRect(badge_x, badge_y, 160, 24, 6.0f, 0x661e2028, mc_progress);
-            fb.DrawTextSimple(badge_x + 12, badge_y + 8, win->GetTitle(), 0xFFFFFFFF);
-        }
-    }
-
-    // 4. Split-screen divider handle (when not in Mission Control overview)
-    if (split_strat && mc_progress < 0.2f && windows_.size() >= 2) {
-        int divider_x = static_cast<int>(fb.GetWidth() * split_strat->GetCurrentRatio());
-        fb.DrawSplitDivider(divider_x, 30, fb.GetHeight() - 30, is_dragging_divider_);
-    }
-
-    // 5. Mission Control Spaces bar overlay
-    if (mc_progress > 0.05f) {
-        fb.DrawMissionControlSpaces(mc_progress);
-    }
-
-    // 6. [Layer 3: Dock] (Custom DSL client or default built-in dock)
-    if (layer_manager_.GetDock()) {
-        layer_manager_.RenderLayer(LayerType::Dock, fb);
-    } else {
-        std::vector<std::string> dock_apps = {"Music", "Settings", "Terminal", "Files", "Browser"};
-        fb.DrawMacDock(dock_apps, focused_window_index_);
-    }
-
-    // 7. [Layer 2: TopBar] (Custom DSL client or default built-in top bar)
-    if (layer_manager_.GetTopBar()) {
-        layer_manager_.RenderLayer(LayerType::TopBar, fb);
-    } else {
-        std::string active_title = "Prism Music Studio";
-        if (focused_window_index_ == 1 && windows_.size() > 1) {
-            active_title = "System Preferences";
-        }
-        fb.DrawTopMenuBar(active_title, "16:30");
-    }
-
-    // 8. macOS Software Cursor
-    if (draw_software_cursor_) {
-        fb.DrawCursor(static_cast<int>(cursor_x_), static_cast<int>(cursor_y_));
-    }
-
-    // 9. On-screen Debug Performance HUD
-    if (debug_hud_enabled_) {
-        std::string mode_str = std::to_string(fb.GetWidth()) + "x" + std::to_string(fb.GetHeight()) + " (Native)";
-        fb.DrawDebugHud(last_fps_, last_dt_ * 1000.0f, static_cast<int>(frame_count_), mode_str,
-                        static_cast<int>(cursor_x_), static_cast<int>(cursor_y_));
-    }
 }
 
 } // namespace prism::wm

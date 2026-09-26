@@ -41,3 +41,9 @@ Pi 上 CPU 与 GLES 配置均完整构建、CTest 各 13/13 通过；headless V3
 [DisplayList 绘制契约](DISPLAY_LIST_CONTRACT.md)明确了进程内生命周期、坐标、颜色、绘制顺序、裁剪/变换栈以及资源就绪要求。Skia 共享回放器按 `ResourceId` 查找字体与图片；文字 shaping 可指定同一个字体 ID，删除了仅接受字体 ID 1 的约束。CPU 与 GLES 仍复用同一套命令校验和回放代码，GLES 仅负责 GPU 画布与提交。新增非默认字体、缺失字体和缺失图片测试。
 
 Pi 上 CPU 配置 CTest 13/13，GLES 配置 CTest 14/14；GLES 专属离屏测试用同一列表对比 CPU 与 GPU 回读的纯色矩形、裁剪内部像素。headless Wayland V3D 探针仍报告 `GL renderer=V3D 4.2.14.0`、`configure=2 frame=2 presented=3 images=1/1`。此像素测试只覆盖纯色和裁剪；文字、图片的逐像素容差仍待后续扩展。
+
+## 第五段当前结果
+
+五个应用入口和 UI 模板已统一使用新客户端 SDK；ImGui 源码与链接、旧共享内存 UI SDK、WM 内 shell 专用绘制、控件 Scene 镜像和 slot 差分回放已删除。shell 由 WM 启动，按 Wayland 进程凭据授予固定层级，普通客户端不能通过 app_id 冒充。WM target 的源文件依赖检查已经启用。具体实现、功能差距和验证方式见 [APPLICATION_MIGRATION.md](APPLICATION_MIGRATION.md)。
+
+本段完成的是生产绘制路径切换；原 demo 的 Slider、blur、图标、壁纸轮换和完整窗口管理联动尚未迁入。后续先在新架构中补齐实际交互与真实 surface 的窗口管理，再考虑增量布局和分块缓存。

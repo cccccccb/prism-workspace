@@ -3,7 +3,6 @@
 #include "prism/wm/window.hpp"
 #include "prism/wm/layer_type.hpp"
 #include "prism/core/types.hpp"
-#include "prism/render/framebuffer.hpp"
 #include <memory>
 #include <vector>
 
@@ -42,8 +41,6 @@ public:
     // by deducting TopBar and Dock exclusive margins from screen dimensions.
     core::Rect CalculateUsableArea(int screen_w, int screen_h) const;
 
-    // Renders the specified layer window into the target FrameBuffer.
-    void RenderLayer(LayerType layer, render::FrameBuffer& fb);
 
     // Getters
     std::shared_ptr<Window> GetDesktop() const { return desktop_window_; }
