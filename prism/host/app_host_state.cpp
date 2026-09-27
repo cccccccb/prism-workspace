@@ -43,6 +43,13 @@ void AppHost::Impl::Observe()
         ui.deferred_rejected = rejected_regions.size();
     }
     ui.install_stats = frontend->GetUiInstallStats();
+    ui.business_work_pending = business && business->WorkPending();
+    ui.business_work_completion_ready = false;
+    if (business && business->WorkCompletionFd() >= 0) {
+        pollfd completion{business->WorkCompletionFd(), POLLIN, 0};
+        ui.business_work_completion_ready =
+            poll(&completion, 1, 0) > 0 && (completion.revents & POLLIN);
+    }
     if (ui.preview_load.owner) {
         const auto preview = frontend->GetUiPresentation(ui.preview_load);
         ui.preview_submitted |= preview.submitted;

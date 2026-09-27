@@ -6,6 +6,7 @@
 #include "prism/runtime/session_task_budget.hpp"
 #include "prism/runtime/ui_install.hpp"
 #include "prism/runtime/ui_load.hpp"
+#include "prism/sdk/module_session.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -32,6 +33,7 @@ struct HostConfig {
     runtime::PrepareFunction prepare_component;
     std::shared_ptr<runtime::SessionTaskBudget> task_budget;
     runtime::UiInstallLimits install_limits{};
+    ModuleSessionLimits module_limits{};
 };
 
 // Local observations only; these are not worker/public launch milestones.
@@ -45,6 +47,7 @@ struct HostUiState {
     std::size_t deferred_diagnostics{};
     std::size_t deferred_installed{}, deferred_rejected{};
     runtime::UiInstallStats install_stats{};
+    bool business_work_pending{}, business_work_completion_ready{};
     bool deferred_started{};
     bool master_images_ready{};
     std::size_t master_image_count{};

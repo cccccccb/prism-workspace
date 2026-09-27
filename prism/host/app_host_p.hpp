@@ -42,6 +42,7 @@ struct AppHost::Impl {
     std::unique_ptr<runtime::MasterLoadSession> master_loader;
     std::optional<runtime::MasterLoadCompletion> master_completion;
     bool master_install_started{}, install_advanced{};
+    bool business_work_dispatched{}, business_progress{};
     std::shared_ptr<const runtime::LoadPlan> installed_plan;
     runtime::BindingValues bindings;
     std::set<std::string, std::less<>> mounted_bindings;
@@ -67,6 +68,7 @@ struct AppHost::Impl {
     std::uint64_t SelectColorScheme(std::string_view scheme);
     void HandleAction(std::string_view action);
     bool StartBusiness();
+    void DispatchBusinessWork();
     bool StartMasterPreparation();
     void UiSubmitted(runtime::UiLoadId load);
     void TakeMasterCompletion();

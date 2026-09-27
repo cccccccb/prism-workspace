@@ -5,5 +5,6 @@ int main(int argc, char **argv)
 {
     assert(argc == 2);
     prism::launch::AppModule module(argv[1]);
-    assert(module.Api().create && module.Api().destroy && !module.Api().on_instance_event);
+    assert(module.Api().create && module.Api().destroy && !module.Api().on_instance_event &&
+           !module.Api().on_theme_event && !module.Api().on_work_completed);
 }

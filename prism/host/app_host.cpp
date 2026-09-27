@@ -196,6 +196,8 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
 {
     auto &self = *impl_;
     self.install_advanced = false;
+    self.business_work_dispatched = false;
+    self.business_progress = false;
     for (auto &fd : wake_fds) {
         fd.revents = 0;
     }
@@ -208,9 +210,7 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
         self.TakeMasterCompletion();
         self.TakeRegionCompletions();
         self.Observe();
-        if ((self.master_completion || self.frontend->UiInstallPending() ||
-             !self.pending_regions.empty()) &&
-            !wake_fds.empty()) {
+        if (!wake_fds.empty()) {
             if (poll(wake_fds.data(), wake_fds.size(), 0) < 0 && errno != EINTR) {
                 return self.Fail(contracts::LaunchError::RuntimeFailed,
                                  "Caller control readiness check failed");
@@ -225,6 +225,7 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
         self.InstallRegions();
 
         self.DrainLaunches();
+        self.DispatchBusinessWork();
 
         if (self.business) {
             self.business->Tick(MonotonicNs());
@@ -232,7 +233,8 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
 
         const auto now = MonotonicNs();
         int wait = self.business ? self.business->TimeoutMs(now, timeout) : timeout;
-        if (self.frontend->UiInstallNeedsWork() || self.RegionsNeedWork()) {
+        if (self.business_progress || self.frontend->UiInstallNeedsWork() ||
+            self.RegionsNeedWork()) {
             wait = 0;
         }
         if (!self.ui.master_presented || !self.ready) {
@@ -244,6 +246,9 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
             fd.revents = 0;
         }
         descriptors.push_back({self.master_loader->Fd(), POLLIN, 0});
+        if (self.business && self.business->WorkCompletionFd() >= 0) {
+            descriptors.push_back({self.business->WorkCompletionFd(), POLLIN, 0});
+        }
         if (!self.window_open) {
             descriptors.push_back({self.frontend->ResourceCompletionFd(), POLLIN, 0});
         }
@@ -290,6 +295,7 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
             return false;
         }
         self.InstallRegions();
+        self.DispatchBusinessWork();
 
         if (self.business) {
             self.business->Tick(MonotonicNs());
@@ -335,6 +341,11 @@ void AppHost::Close()
         self.frontend->OnUiSubmitted({});
         self.frontend->OnAction({});
     }
+    if (self.business) {
+        self.business->StopWork();
+    }
+    self.ui.business_work_pending = false;
+    self.ui.business_work_completion_ready = false;
     if (self.master_loader) {
         self.master_loader->Stop();
     }

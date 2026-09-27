@@ -1,5 +1,6 @@
 #pragma once
 #include "prism/contracts/app_module.h"
+#include <cstdint>
 #include <filesystem>
 
 namespace prism::launch {
@@ -16,8 +17,14 @@ public:
         return api_;
     }
 
+    std::uint64_t LoadDurationNs() const noexcept
+    {
+        return load_duration_ns_;
+    }
+
 private:
     void *handle_{};
     PrismAppModuleV1 api_{};
+    std::uint64_t load_duration_ns_{};
 };
 } // namespace prism::launch

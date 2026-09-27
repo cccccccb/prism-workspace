@@ -117,8 +117,9 @@ BackendReady 与 FirstPresented 是可独立发生的里程碑，上图不规定
 纯准备在新阶段第二步提交 `f82ef5d`，第三步组件并行图与共享资源预算已提交
 `b4fdf5b`；第四步现已接入候选安装事务、稳定 deferred 区域挂载及所有者轮次
 构造/图片上传预算，完整 CTest 49/49、原生加载 18/18 及 SDK/Host/待命池回归通过。
-第五步业务异步准备、第六步真实 demo
-性能对照尚未实现。当前工厂采用最终 Host
+第四步已提交 `56704a5`；第五步已接入业务异步工作、完成 FD 与所有者线程回调，
+完整 CTest 50/50、原生业务 3/3 及启动/加载回归通过，验收见加载规范第 12 节。
+第六步真实 demo 性能对照尚未实现。当前工厂采用最终 Host
 提前 spawn，自身准备后待命；第 3 节的
 CPU seed 图是策略候选，不是当前进程实现。GPU 预热和独立业务进程也没有实现。
 
@@ -130,7 +131,8 @@ demo 与实机测量。新阶段不得将 FirstPresented/BackendReady 合并解�
 结果先作为 detached 候选分轮构造，以当前主题、视口、绑定和事务版本整体预检后
 提交；取消或局部失败保留原界面。deferred 只在 Master 真实呈现后准备，并按依赖
 在稳定 Region 边界小批次挂载，未挂载的声明 binding 保留最新业务值。安装与业务
-初始化仍是不同阶段，当前业务 create/action/tick 依旧同步执行。
+初始化仍是不同阶段，业务 create/action/tick 依旧在所有者线程快速执行；第五步
+把耗时准备交给 Host 工作接口，不把整个 dlopen/create 丢到工作线程。
 
 完整 Host Pump 使用 `BeginUiWorkTurn` / `EndUiWorkTurn` 共享一个节点、资源数量、
 上传字节和协作式 CPU 截止时间预算，包括 Pump 前后两段安装与前端上传。GLES

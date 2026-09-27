@@ -1,6 +1,7 @@
 #include "prism/launch/module.hpp"
 #include "prism/launch/error.hpp"
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <dlfcn.h>
 #include <stdexcept>
@@ -9,6 +10,7 @@
 namespace prism::launch {
 AppModule::AppModule(const std::filesystem::path &file)
 {
+    const auto started = std::chrono::steady_clock::now();
     handle_ = dlopen(file.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (!handle_) {
         throw LaunchFailure(contracts::LaunchError::ModuleLoadFailed,
@@ -40,11 +42,15 @@ AppModule::AppModule(const std::filesystem::path &file)
         COPY_FIELD(on_launch_event);
         COPY_FIELD(on_instance_event);
         COPY_FIELD(on_theme_event);
+        COPY_FIELD(on_work_completed);
 #undef COPY_FIELD
         if (!api_.create || !api_.destroy) {
             throw LaunchFailure(contracts::LaunchError::UnsupportedAbi,
                                 "Module create/destroy missing");
         }
+        load_duration_ns_ = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                std::chrono::steady_clock::now() - started)
+                                .count();
     } catch (...) {
         dlclose(handle_);
         handle_ = nullptr;

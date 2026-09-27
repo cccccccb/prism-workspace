@@ -77,10 +77,10 @@ bool AppHost::Impl::StartBusiness()
         package->module, package->manifest.app_id, config.instance.value,
         std::bind_front(&Impl::SetBinding, this), std::bind_front(&Impl::LaunchApplication, this),
         std::bind_front(&Impl::SubscribeInstances, this), std::bind_front(&Impl::SelectTheme, this),
-        std::bind_front(&Impl::SelectColorScheme, this));
+        std::bind_front(&Impl::SelectColorScheme, this), scheduler, config.module_limits);
 
     if (!business->Start()) {
-        return Fail(contracts::LaunchError::RuntimeFailed, "Business create failed");
+        return Fail(contracts::LaunchError::RuntimeFailed, business->StartDiagnostic());
     }
 
     frontend->OnAction(std::bind_front(&Impl::HandleAction, this));
@@ -96,6 +96,16 @@ bool AppHost::Impl::StartBusiness()
                                                 theme.color_scheme});
     }
     return true;
+}
+
+void AppHost::Impl::DispatchBusinessWork()
+{
+    if (!business || business_work_dispatched || failed || closed) {
+        return;
+    }
+    business_work_dispatched = true;
+    business_progress |= business->DispatchWork() != 0;
+    Observe();
 }
 
 void AppHost::Impl::DrainLaunches()

@@ -30,7 +30,11 @@ Preview 与 Master 使用同一个 Wayland surface/EGL 上下文。Preview 实�
 
 前端在包的 assets 根下解析图片 URI；绝对路径、..、反斜杠、符号链接逃出 assets 和非普通文件均拒绝。host 从已校验包路径读取 UI，有 1 MiB 大小上限；字体默认配置归平台所有，包不使用工作目录或旧资源路径回退。包文件仍要求在实例运行期间保持不变，这不是文件系统沙箱或签名验证。
 
-后端通知仅表示业务就绪；业务 create/action/tick 在 host 事件线程执行，必须快速返回。真正耗时任务应由模块自行异步执行，并通过 host tick 在事件线程取结果；当前 ABI 不允许工作线程直接调用 Host API。Preview 不让同步阻塞业务变得可取消，第三步已接入进程外 watchdog，由 launcher 处理阻塞初始化与崩溃。
+后端通知仅表示业务就绪；业务 create/action/tick 在 host 事件线程执行，必须快速返回。
+第五步接入 Host submit_work 与共享调度器，完成 FD 唤醒后在事件线程调用
+on_work_completed；无需用定时 tick 取结果。工作线程直接调用 Host API 会被拒绝。
+Preview 和新工作接口不使任意同步阻塞入口可抢占，launcher 的进程外 watchdog
+继续处理不返回的初始化与崩溃，具体边界见第 14 节。
 
 没有 Preview 的应用可先完成业务绑定，再提交主界面；BackendReady 可以早于 FirstPresented。有 Preview 的音乐 demo 则先实际呈现 Preview，再初始化业务。首次呈现、配置与 Ready 都只报告一次；运行时 resize 不重报启动里程碑。Startup 的呈现与 Ready 等待上限为 10 秒，受事件线程持续运行这一前提约束。
 
@@ -126,11 +130,11 @@ HostUiState 本地记录 MasterPrepared/Installed/Submitted/Presented，呈现�
 后台进程。下一阶段的准备/安装边界、DSL 组件依赖图、critical/deferred、资源预算、
 呈现代数、业务异步约束及六步顺序见 [MASTER_PARALLEL_LOADING.md](MASTER_PARALLEL_LOADING.md)。
 第一步已提交 `99101cf`。第二步接入 LoadSession 的有界单线程准备与 eventfd 唤醒，
-并通过验证。第三步组件图、统一资源调度与全会话预算已提交 `b4fdf5b`；当前第四步
-在事件线程分轮构造和安装候选，并执行真实图片 GPU 上传预算。字体、布局、GPU/
+并通过验证。第三步组件图、统一资源调度与全会话预算已提交 `b4fdf5b`；第四步
+已提交 `56704a5`，在事件线程分轮构造和安装候选，执行真实图片 GPU 上传预算。字体、布局、GPU/
 Wayland 和业务回调仍归事件线程，单次库/驱动调用及慢业务初始化不能被预算抢占。
-业务异步准备与真实 demo 性能对照分别属于第五、六步，尚未实现。后续进度与验证
-以加载规范的实施记录为准；第四步验证见加载规范第 11 节。
+第五步业务异步准备当前接入新工作接口，规范见第 14 节；第六步真实 demo 性能对照
+尚未实现。进度与验证以加载规范的实施记录为准；第四步验证见加载规范第 11 节。
 
 
 ## 12. 组件加载调度（2026-09-27）
@@ -175,6 +179,31 @@ GLES 的 `UploadImage` 实际创建并保留 texture-backed image，在所属 EG
 Presented 各自独立，只有对应代数的真实 presentation feedback 证明已呈现。
 
 本轮 Pi GLES 构建、完整 CTest 49/49、Host/V3D 加载 18/18、SDK 呈现及 Host/待命池
-回归通过。第五步业务异步准备、第六步真实 demo/实机性能对照尚未实现，不将安装
+回归通过。第五步业务异步准备见第 14 节，第六步真实 demo/实机性能对照尚未实现，不将安装
 预算当作已证明的启动提速。完整规范与验证记录见
 [MASTER_PARALLEL_LOADING.md](MASTER_PARALLEL_LOADING.md)。
+
+## 14. 第五步：Host 管理的业务工作（已实现并验证）
+
+第四步已提交 `56704a5`。本轮新增 v1 的 optional C ABI 尾字段：Host 的
+submit_work/cancel_work，以及模块的 on_work_completed。模块在快速 create 中提交
+复制的值输入，具名 work 在共享 TaskScheduler 中执行；runtime 保存有界不可变结果，
+完成 FD 加入 AppHost 原来的等待集合，再在 Host 线程交给业务实例消费。业务任务
+不持有 Scene、instance 或 Host API；调用所有者 API 的工作线程会在入口处被拒绝。
+
+默认任务/输入/结果和完成派发额度，以及取消 FD、busy 重试、租约与 ID 复用规则见
+[加载规范第 12 节](MASTER_PARALLEL_LOADING.md#12-第五步业务工作完成通知与模块生命周期)。
+新工作接口无需定时 tick。每个 Host Pump 至多派发一个有界完成批次，caller 控制
+FD 在前后两段均先于完成回调；消费结果而无像素更新也返回外层，及时发布 Ready。
+本地 business_work_pending/completion_ready 只提供观察，不增加外部启动里程碑。
+
+退出先禁用新动作/发布，再取消并 join 工作，随后 destroy/dlclose；工作函数的代码
+生命周期不能短于任务。loader 仅复制完整尾字段，旧模块缺少新 callback 时仍可
+使用原接口；新模块须检查 Host capability。dlopen/入口查询及 create 默认各自 20ms
+返回后检查，不能抢占不返回的静态构造或 create；违反契约的模块仍由外部 watchdog
+回收，不宣称任意旧模块被自动改成异步。
+
+本轮 Pi GLES 构建、完整 CTest **50/50**、原生异步业务 **3/3**、Master 加载
+**18/18**、Prepared UI/SDK 提交 **2/2**、Host/待命池回归及依赖/风格检查通过。
+完整证据与验证范围见加载规范第 12 节；真实 demo 与启动性能对照属于第六步，
+尚未迁移或部署。

@@ -1,9 +1,11 @@
 #include "prism/sdk/module_session.hpp"
+#include "module_work_p.hpp"
 #include "prism/host/event_wait.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <stdexcept>
 
 namespace prism::sdk {
 std::uint64_t MonotonicNs()
@@ -23,45 +25,100 @@ bool Valid(PrismStringViewV1 text, std::size_t limit)
 
 ModuleSession::ModuleSession(const std::filesystem::path &module, std::string app_id,
                              std::uint64_t instance, BindingSink bindings, LaunchSink launch,
-                             SubscribeSink subscribe, ThemeSink themes, ColorSchemeSink schemes)
+                             SubscribeSink subscribe, ThemeSink themes, ColorSchemeSink schemes,
+                             std::shared_ptr<runtime::TaskScheduler> scheduler,
+                             ModuleSessionLimits limits)
     : module_(module), app_id_(std::move(app_id)), instance_id_(instance),
       bindings_(std::move(bindings)), launch_(std::move(launch)), subscribe_(std::move(subscribe)),
       themes_(std::move(themes)), schemes_(std::move(schemes)),
       host_{sizeof(host_), PRISM_APP_ABI_V1, this,      SetBinding,  Ready,
-            Launch,        Schedule,         Subscribe, SelectTheme, SelectColorScheme}
+            Launch,        Schedule,         Subscribe, SelectTheme, SelectColorScheme,
+            SubmitWork,    CancelWork},
+      limits_(limits), work_(std::make_unique<ModuleWorkState>())
 {
+    if (!limits_.outstanding || limits_.outstanding > 128 || !limits_.input_bytes ||
+        !limits_.result_bytes || !limits_.queued_input_bytes ||
+        limits_.queued_input_bytes > 1024 * 1024 || !limits_.completions_per_turn ||
+        limits_.dispatch_budget.count() <= 0 || limits_.entry_budget.count() <= 0) {
+        throw std::invalid_argument("Business preparation limits must be positive and bounded");
+    }
+    work_->scheduler =
+        scheduler ? std::move(scheduler) : std::make_shared<runtime::TaskScheduler>();
+    work_->channel = work_->scheduler->OpenChannel(limits_.outstanding, 2, false);
 }
 
 ModuleSession::~ModuleSession()
 {
-    tick_due_.reset();
-    if (instance_) {
-        module_.Api().destroy(instance_);
+    if (!OnOwnerThread()) {
+        std::terminate();
     }
-    // AppModule unload follows destroy; modules must join their own threads there.
+    StopWork();
+    DestroyInstance();
+    // AppModule unload follows work join and instance destruction.
 }
 
 bool ModuleSession::Start()
 {
-    if (started_ || !instance_id_ || !bindings_) {
+    if (!OnOwnerThread() || closed_ || started_ || !instance_id_ || !bindings_) {
         return false;
     }
     started_ = true;
+    const auto budget_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(limits_.entry_budget).count();
+    if (module_.LoadDurationNs() > static_cast<std::uint64_t>(budget_ns)) {
+        start_diagnostic_ = "Module load entry exceeded its cooperative entry budget";
+        StopWork();
+        return false;
+    }
+
     PrismAppInitV1 init{
         sizeof(init), PRISM_APP_ABI_V1, instance_id_, {app_id_.data(), app_id_.size()}, &host_};
-    instance_ = module_.Api().create(&init);
-    if (!instance_) {
-        ready_ = false;
-        tick_due_.reset();
+    const auto start = std::chrono::steady_clock::now();
+    try {
+        instance_ = module_.Api().create(&init);
+    } catch (...) {
+        start_diagnostic_ = "Module create threw across the application ABI";
     }
-    return instance_ != nullptr;
+    if (std::chrono::steady_clock::now() - start > limits_.entry_budget) {
+        start_diagnostic_ = "Module create exceeded its cooperative entry budget";
+    } else if (!instance_ && start_diagnostic_.empty()) {
+        start_diagnostic_ = "Module create returned no instance";
+    }
+    if (!start_diagnostic_.empty()) {
+        StopWork();
+        DestroyInstance();
+        return false;
+    }
+    return true;
+}
+
+bool ModuleSession::OnOwnerThread() const noexcept
+{
+    return std::this_thread::get_id() == owner_thread_;
+}
+
+void ModuleSession::DestroyInstance() noexcept
+{
+    if (instance_) {
+        module_.Api().destroy(instance_);
+        instance_ = nullptr;
+    }
+}
+
+const std::string &ModuleSession::StartDiagnostic() const noexcept
+{
+    static const std::string empty;
+    return OnOwnerThread() ? start_diagnostic_ : empty;
 }
 
 int32_t ModuleSession::SetBinding(void *ctx, PrismStringViewV1 key, PrismValueV1 value) noexcept
 {
+    if (!ctx || !static_cast<ModuleSession *>(ctx)->OnOwnerThread()) {
+        return -1;
+    }
     try {
         auto &self = *static_cast<ModuleSession *>(ctx);
-        if (!Valid(key, 128)) {
+        if (self.closed_ || !Valid(key, 128)) {
             return -1;
         }
         runtime::PropertyValue converted;
@@ -106,8 +163,11 @@ int32_t ModuleSession::SetBinding(void *ctx, PrismStringViewV1 key, PrismValueV1
 
 int32_t ModuleSession::Ready(void *ctx) noexcept
 {
+    if (!ctx || !static_cast<ModuleSession *>(ctx)->OnOwnerThread()) {
+        return -1;
+    }
     auto &self = *static_cast<ModuleSession *>(ctx);
-    if (self.ready_) {
+    if (self.closed_ || self.ready_) {
         return -1;
     }
     self.ready_ = true;
@@ -116,9 +176,12 @@ int32_t ModuleSession::Ready(void *ctx) noexcept
 
 uint64_t ModuleSession::Launch(void *context, PrismStringViewV1 app_id) noexcept
 {
+    if (!context || !static_cast<ModuleSession *>(context)->OnOwnerThread()) {
+        return 0;
+    }
     try {
         auto &self = *static_cast<ModuleSession *>(context);
-        if (!Valid(app_id, 128) || !self.launch_ || self.launches_.size() >= 64) {
+        if (self.closed_ || !Valid(app_id, 128) || !self.launch_ || self.launches_.size() >= 64) {
             return 0;
         }
         const std::string_view name(app_id.data, app_id.size);
@@ -135,8 +198,14 @@ uint64_t ModuleSession::Launch(void *context, PrismStringViewV1 app_id) noexcept
 
 uint64_t ModuleSession::Subscribe(void *ctx) noexcept
 {
+    if (!ctx || !static_cast<ModuleSession *>(ctx)->OnOwnerThread()) {
+        return 0;
+    }
     try {
         auto &self = *static_cast<ModuleSession *>(ctx);
+        if (self.closed_) {
+            return 0;
+        }
         if (self.subscription_) {
             return self.subscription_;
         }
@@ -151,9 +220,12 @@ uint64_t ModuleSession::Subscribe(void *ctx) noexcept
 
 uint64_t ModuleSession::SelectTheme(void *ctx, PrismStringViewV1 id) noexcept
 {
+    if (!ctx || !static_cast<ModuleSession *>(ctx)->OnOwnerThread()) {
+        return 0;
+    }
     try {
         auto &self = *static_cast<ModuleSession *>(ctx);
-        if ((!id.data && id.size) || id.size > 128 || !self.themes_ ||
+        if (self.closed_ || (!id.data && id.size) || id.size > 128 || !self.themes_ ||
             self.theme_requests_.size() >= 64) {
             return 0;
         }
@@ -174,9 +246,13 @@ uint64_t ModuleSession::SelectTheme(void *ctx, PrismStringViewV1 id) noexcept
 
 uint64_t ModuleSession::SelectColorScheme(void *ctx, PrismStringViewV1 scheme) noexcept
 {
+    if (!ctx || !static_cast<ModuleSession *>(ctx)->OnOwnerThread()) {
+        return 0;
+    }
     try {
         auto &self = *static_cast<ModuleSession *>(ctx);
-        if (!Valid(scheme, 5) || !self.schemes_ || self.theme_requests_.size() >= 64) {
+        if (self.closed_ || !Valid(scheme, 5) || !self.schemes_ ||
+            self.theme_requests_.size() >= 64) {
             return 0;
         }
         const std::string_view name(scheme.data, scheme.size);
@@ -196,6 +272,9 @@ uint64_t ModuleSession::SelectColorScheme(void *ctx, PrismStringViewV1 scheme) n
 
 void ModuleSession::Deliver(const contracts::ThemeEvent &event)
 {
+    if (!OnOwnerThread() || closed_) {
+        return;
+    }
     if (event.request && !theme_requests_.contains(event.request)) {
         return;
     }
@@ -217,6 +296,9 @@ void ModuleSession::Deliver(const contracts::ThemeEvent &event)
 
 void ModuleSession::Deliver(const contracts::InstanceUpdate &event)
 {
+    if (!OnOwnerThread() || closed_) {
+        return;
+    }
     if (!subscription_ || event.request.value != subscription_ || !instance_ ||
         !module_.Api().on_instance_event) {
         return;
@@ -232,9 +314,13 @@ void ModuleSession::Deliver(const contracts::InstanceUpdate &event)
 
 int32_t ModuleSession::Schedule(void *ctx, uint64_t delay) noexcept
 {
+    if (!ctx || !static_cast<ModuleSession *>(ctx)->OnOwnerThread()) {
+        return -1;
+    }
     auto &self = *static_cast<ModuleSession *>(ctx);
     const auto now = MonotonicNs();
-    if (!self.module_.Api().on_tick || delay > std::numeric_limits<uint64_t>::max() - now) {
+    if (self.closed_ || !self.module_.Api().on_tick ||
+        delay > std::numeric_limits<uint64_t>::max() - now) {
         return -1;
     }
     self.tick_due_ = now + delay;
@@ -243,6 +329,9 @@ int32_t ModuleSession::Schedule(void *ctx, uint64_t delay) noexcept
 
 void ModuleSession::Action(std::string_view action)
 {
+    if (!OnOwnerThread() || closed_) {
+        return;
+    }
     if (instance_ && module_.Api().on_action) {
         module_.Api().on_action(instance_, {action.data(), action.size()});
     }
@@ -250,6 +339,9 @@ void ModuleSession::Action(std::string_view action)
 
 void ModuleSession::Tick(std::uint64_t now)
 {
+    if (!OnOwnerThread() || closed_) {
+        return;
+    }
     if (!instance_ || !tick_due_ || now < *tick_due_) {
         return;
     }
@@ -259,6 +351,9 @@ void ModuleSession::Tick(std::uint64_t now)
 
 int ModuleSession::TimeoutMs(std::uint64_t now, int maximum) const
 {
+    if (!OnOwnerThread() || closed_) {
+        return maximum;
+    }
     return host::Timeout(now, tick_due_, maximum);
 }
 } // namespace prism::sdk
@@ -266,6 +361,9 @@ int ModuleSession::TimeoutMs(std::uint64_t now, int maximum) const
 namespace prism::sdk {
 void ModuleSession::Deliver(const contracts::LaunchEvent &event)
 {
+    if (!OnOwnerThread() || closed_) {
+        return;
+    }
     auto it = launches_.find(event.request.value);
     if (it == launches_.end()) {
         return;
@@ -297,6 +395,9 @@ void ModuleSession::Deliver(const contracts::LaunchEvent &event)
 
 void ModuleSession::Disconnected()
 {
+    if (!OnOwnerThread() || closed_) {
+        return;
+    }
     if (subscription_) {
         Deliver(contracts::InstanceUpdate{
             {subscription_}, {}, 0, contracts::InstanceChange::Reset, {}});

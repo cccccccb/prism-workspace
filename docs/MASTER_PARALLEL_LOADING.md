@@ -1,9 +1,10 @@
 # Preview、Master 与 DSL 组件并行加载
 
 日期：2026-09-27。状态：**第一步已提交 `99101cf`，第二步已提交 `f82ef5d`；
-第三步已提交 `b4fdf5b`，验证记录见第 10 节。第四步分阶段安装已接入，
-契约与验证见第 11 节；业务异步准备和真实 demo 的性能对照仍待第五、六步。**
-本系列从代码规范化（`0aaca73`）后推进；本轮先提交第三步，再实现第四步。现有生产启动链继续以
+第三步已提交 `b4fdf5b`，验证记录见第 10 节。第四步已提交 `56704a5`，
+契约与验证见第 11 节；第五步业务异步准备已实现并验证，见第 12 节。
+真实 demo 与性能对照仍待第六步。**
+本系列从代码规范化（`0aaca73`）后推进；本轮先提交第四步，再实现第五步。现有生产启动链继续以
 [统一 Host](APP_HOST_RUNTIME.md)、[待命池](LAUNCHER_WORKER_POOL.md)和
 [会话规范](SESSION_LAUNCH_RUNTIME.md)为实现依据。
 
@@ -15,7 +16,7 @@
 | Preview/Master 分开 | 分开的 DSL 文件、同一个 surface/EGL，替换 Scene | 保持同一窗口，候选 Master 就绪后提交；延后区域逐步安装 |
 | Master 准备 | 共享调度器准备/组合；所有者线程分轮构造候选、事务安装 critical 和稳定 deferred 区域；旧单文件使用同一入口 | 真实多区域 demo 与关键路径测量 |
 | 资源加载 | 尺寸检查与解码使用共享调度器；分阶段注册及真实 GPU 上传使用所有者线程额度 | 大组件、驱动调用及内存的实测对照 |
-| 前端/业务解耦 | Host 管理前端，业务 `.so` 仅使用窄 C ABI；二者在同一 PID | 保留接口边界；耗时业务初始化必须异步，不能阻塞前端 |
+| 前端/业务解耦 | Host 管理前端，业务 `.so` 仅使用窄 C ABI；新增 submit_work/取消/完成回调，二者在同一 PID | 真实应用把耗时准备迁入有界任务，保留快速所有者线程入口 |
 | 独立后台进程 | 没有单独的业务进程；应用实例之间才是独立进程 | 若需要进程隔离，另行实现业务消息端点与进程生命周期 |
 | 预热 | 提前 spawn/exec Host，准备字体、调度器句柄和主题；有任务才创建线程，分配时不再 exec | 优化应用准备关键路径；是否预热 GPU 由分段测量决定 |
 | Master 已显示 | 本地 HostUiState 区分具体加载代数的提交与真实 presented；FirstPresented 在 Music 中仍指 Preview | 多组件 critical 首屏与资源/业务的聚合就绪 |
@@ -42,7 +43,9 @@ TaskScheduler。LoadSession 作为单单元适配器也使用同一调度器，�
 链接、Scene 安装及平台对象仍归所有者线程。
 
 后台纯准备期间 Preview 继续响应；第四步对节点构造和 GPU 上传分轮推进，但整树快照、
-链接、最终布局/shaping、驱动调用及 dlopen/create 仍可能产生停顿。BackendReady 仅表示业务通知，
+链接、最终布局/shaping、驱动调用及 dlopen/create 仍可能产生停顿。第五步提供业务 work
+契约并检查已经返回的入口耗时，不能抢占这些入口；真实 Music 迁移在第六步。
+BackendReady 仅表示业务通知，
 不证明 Master 已提交或呈现。无 Preview 的包同样异步准备，完成后在 Pump 中打开窗口
 并加载业务，BackendReady 仍可早于首次 configure。
 
@@ -79,7 +82,8 @@ flowchart TD
 | ResourceId 分配、资源表状态、live Scene、绑定、输入、布局 | Host/UI 所有者线程 |
 | 当前字体 shaping | 所有者线程；现有 FT_Face 会修改字号，不能并行调用同一实例 |
 | 当前 EGL/Ganesh、图片 GPU 注册、DisplayList 回放、Wayland | 现有所有者线程；加载任务不持有这些对象 |
-| 模块 create/action/tick、现有 Host API | Host 事件线程；耗时工作通过结果队列返回 |
+| 模块 create/action/tick/destroy、完成回调、Host API | Host 事件线程；耗时工作通过结果队列返回 |
+| 模块 work 函数 | 共享池；仅接收复制输入、取消接口和有界结果 writer，不操作业务 instance 或前端 |
 
 未来如独立渲染线程，应通过已有不可变绘制契约交接。组件加载设计不改变当前
 GPU/Wayland 归属，也不要求并发修改 Scene 或递归并行布局。
@@ -254,7 +258,7 @@ ModuleSession::Start 丢给工作线程会违反现有 Host API 的线程约束�
 
 第零步已完成现状核对与规范。第一步已提交 `99101cf`，结果记录在第 8 节；第二步
 已提交 `f82ef5d`，记录在第 9 节；第三步已提交 `b4fdf5b`，记录在第 10 节。
-第四步见第 11 节，第五、六步尚未实现。
+第四步已提交 `56704a5`，见第 11 节；第五步见第 12 节，第六步尚未实现。
 
 | 步骤 | 实现内容 | 必须证明的结果 |
 | --- | --- | --- |
@@ -725,3 +729,109 @@ git diff --check
 本轮是隔离会话的正确性验证，不打 deb、不替换正在运行的显示器会话，也不将协作
 预算或可控屏障当作性能收益。第五步继续业务异步准备，第六步迁移一个真实多区域
 demo 并做串行/并行的实机性能对照。
+
+## 12. 第五步：业务工作、完成通知与模块生命周期
+
+本轮先提交第四步 `56704a5`，再实现以下业务异步接口。它使用第三步的共享调度器，
+不另开一套业务线程池，不改变 Scene/GPU/Wayland 线程归属，也不将业务 UI 交给 WM。
+本节当前为实现与验收契约，最终结果在本节末记录。
+
+### C ABI 与数据归属
+
+- ABI 版本仍为 v1；`PrismHostApiV1` 尾部追加 `submit_work/cancel_work`，
+  `PrismAppModuleV1` 尾部追加 `on_work_completed`。调用方用 struct_size 检查完整
+  字段，loader 仅复制完整字段，缺失/截断的 optional callback 保持空。使用新能力
+  的模块须检查 Host capability；不能用 ABI 1 推定所有 Host 都支持异步工作。
+- `PrismWorkRequestV1` 包含模块内非零 task_id、critical/deferred 优先级、工作内存
+  预留、结果上限、字节输入和具名 work 函数。提交前复制输入；后台任务只持有该副本
+  和模块代码地址，不携带业务 instance、Scene、Host API 或借用的应用字符串。
+  字节是应用自有的版本化值协议，不能编码对象指针；若内容采用 JSON，仍按 typed
+  DTO 序列化/反序列化，不能在业务边界用字符串查字段。
+- Worker 仅得到 `PrismWorkContextV1` 的取消查询、取消 FD 和一次性结果 writer。
+  writer 复制结果到 runtime 所有的有界缓冲；零返回且未写结果表示空结果成功。
+  写入超限、重复写入或非法 view 不能通过忽略 writer 返回值变成成功。work 的非零
+  返回值保留为应用错误码；runtime 异常、预算错误与取消产生明确完成状态。
+- 完成状态为 succeeded/cancelled/failed，附有 task_id、应用错误码、结果和诊断。
+  `on_work_completed(instance, completion)` 只在 Host 线程调用；完成视图仅在该调用
+  内有效。模块在这里消费值、更新 binding 和通知 BackendReady。任务失败由业务决定
+  错误占位、重试或其他策略；任务失败不自动发布 BackendReady 或变更前端。
+- Host API 每个入口先检查不可变 owner thread 身份；工作线程调用绑定、Ready、
+  launch、theme、tick、submit/cancel 等 API 均拒绝，且不得触碰其他所有者状态。
+  模块的 create/action/tick/完成回调与 destroy 继续在所有者线程。
+
+### 调度、预算与事件处理
+
+业务工作与 DSL/图片共享最终 Host 的 TaskScheduler 及 launcher 传入的会话预算。
+初始化 critical 工作参与同一优先队列；依赖或重复提交不得在 worker 中等待同池任务。
+模块 create 可以提交工作，但必须快速返回，不能同步等待结果。
+共享池用于有界准备，长期媒体循环或无期限 IO 等待不得常驻其中。任务优先级不能
+抢占已执行的工作；模块须给 IO 设置明确结束/取消条件，避免占满会话配额。
+
+初始 ModuleSessionLimits：最多 16 个未交付任务、每任务输入 64 KiB、排队输入合计
+1 MiB、结果上限 8 MiB。工作预留至少覆盖输入、最大结果及 64 KiB runtime 工作
+开销，额外 scratch 由模块明确预留。框架持有的工作/结果缓冲通过共享任务租约计量，
+结果在消费完成或取消后释放；排队输入在每实例独立上限内，不把该上限或模块声明
+的 scratch 解释为进程 RSS 硬限制。第三方任意分配仍需单独测量和审计。
+
+提交失败明确区分 accepted、busy、invalid、closed、wrong_thread。accepted 只表示
+进入有界队列，不表示任务已取得执行配额。模块须处理 busy，不在 Host 线程等待容量。
+任务 ID 在完成交付前保持占用；取消同样保留 ID，完成消费后才可重新使用，不能让
+迟到成功污染新请求。完成任务的输入和结果由 runtime 保持至最后使用结束。
+
+业务完成 FD 加入 AppHost 的原有 poll 集合；没有工作时等待实际事件，没有新增固定
+计时 Tick。Host 每次 Pump 至多调用一次 DispatchWork，每次最多 8 个完成或 2ms
+协作时间，单位之间检查预算；单次业务 callback 仍不可抢占。消费结果而未产生像素
+更新也要返回外层，避免 BackendReady 等状态等到下一次外部事件才发布。caller 控制
+FD 先于完成回调，外层消费停止/主题/控制后再派发结果，Host 不读取 caller FD 数据。
+
+本地 HostUiState 观察 business_work_pending 和 business_work_completion_ready；
+后者只检查完成 FD 的 readiness，不消费队列。它们用于加载诊断，不扩展 launcher/
+worker wire 状态，也不把已完成工作自动解释为 Master 已呈现或业务已就绪。
+
+### 取消、退出与快速入口
+
+取消通过已有 TaskChannel 的 stop_token；每个活动 work 有独立取消 FD，可与自己的
+IO FD 一起 poll。模块不得读取/关闭该取消 FD，必须在取消后结束工作，不用周期 sleep
+模拟取消。取消优先于未交付成功，即使结果已完成但还没有调用业务 callback，也可
+转为 cancelled。取消回调留在所有者线程；退出则丢弃所有未交付完成。
+
+Close 先屏蔽前端动作与 UI 发布，再停止业务工作交付并取消/等待活动任务 → 停止
+UI 加载任务 → destroy 业务 instance → dlclose → 前端清理。模块代码的 lifetime
+覆盖所有 work 函数；不能在卸载后执行任务、结果清理或 callback。create 失败及
+入口超时也必须先取消其已经
+提交的工作，再销毁部分实例；destroy 期间 Host API 不再接收新工作或状态变更。
+
+AppModule 记录 dlopen/符号解析/入口查询的历时；ModuleSession 测量并检查 create 历时。
+各自默认 20ms，可由平台配置；返回后超限拒绝启动，不发布 BackendReady。这个
+检查只能发现**已经返回的违规入口**，不能抢占任意 dlopen、模块静态构造或 create；
+模块必须把耗时初始化移到 work，静态构造不得做 IO、等待或业务准备。无法遵守的
+原生模块仍受进程外 watchdog 回收，若要求这种模块也保持 UI 响应，须另做独立业务
+进程或可审计加载适配。不能宣称本接口让任意旧模块自动异步。
+
+### 验收与后续
+
+单元覆盖 C ABI 尾字段兼容、输入复制、结果 writer 边界、worker API 拒绝、共享池
+预算、取消与 ID 复用、完成批次上限、入口超限、退出先 join 再 destroy/unload。
+隔离 V3D 会话覆盖阻塞的可协作业务工作期间 Master 仍可实际呈现和接收已有控制/
+主题事件，完成 FD 唤醒、控制优先、typed 失败与关闭清理；所有 fixture/probe 仅在
+`tests/`，无安装规则。
+
+本轮在 Pi 4B/ARM64 的 `build-gles` 串行运行各原生会话，验证结果如下：
+
+| 检查 | 结果与证据（`dist/validation/prism-business-work/`） |
+| --- | --- |
+| 完整 GLES 构建 | 通过，`build-final.log`；单元测试配置修正后重建见 `build-test-fix.log` |
+| 完整 CTest | **50/50**，`ctest.log`；新增 `module_work_test` 验证 C ABI、线程/结果/取消/入口与销毁边界 |
+| 原生异步业务 | **3/3**，`async-business/probe-results.json`；两个工作并行、Master 真正呈现、控制/主题处理、完成 FD、失败与退出清理 |
+| Master 加载回归 | **18/18**，`async-master/native-gates.json` |
+| Prepared UI 与 SDK 像素提交 | **2/2**，`prepared-ui/native-gates.json` |
+| Host / 待命池 | 通过，`app-host.log`、`launcher-pool.log`；含 Preview 顺序、单 surface、旧 ABI、取消/崩溃/watchdog 与子进程回收 |
+| 依赖边界 | 通过，`pure-boundary.json`；业务桥不链接 Scene/Skia/Wayland，纯加载与 WM/launcher 分离，无 Qt 依赖 |
+| 代码规范 | 通过，`style.log`；248 个生产文件、68 个测试文件，生产最大 688 行；`git diff --check` 通过 |
+
+新增单元测试首轮使用了三个 worker，超过已有池的两个线程上限；已修正为两个活动
+任务和第三个排队任务，再验证排队取消及租约释放，完整回归通过。该场景不声称证明
+跨 executor 的全局并发限制。原生业务场景不覆盖鼠标动作和窗口 resize，不把屏障、
+关闭耗时或待命池单次观测解释为启动性能收益。
+
+第六步才迁移真实多区域 demo、打包及串行/并行性能对照；本轮不重新部署显示器会话。

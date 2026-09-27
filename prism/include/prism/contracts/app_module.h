@@ -13,7 +13,8 @@ extern "C" {
 
 /* In-process C ABI. These pointers/structs are never serialized as IPC.
  * Strings are borrowed UTF-8 byte slices, not necessarily NUL terminated.
- * Callbacks run on the host event thread; modules must not throw across ABI.
+ * Lifecycle/completion callbacks run on the host event thread. Only the work
+ * callback runs on a scheduler worker; modules must not throw across ABI.
  * The module receives state/action APIs, never Wayland/Skia objects. */
 typedef struct PrismStringViewV1 {
     const char *data;
@@ -38,6 +39,64 @@ typedef struct PrismValueV1 {
     } as;
 } PrismValueV1;
 
+/* Opaque, copied task data. Encode values, never object pointers. */
+typedef struct PrismBytesViewV1 {
+    const uint8_t *data;
+    size_t size;
+} PrismBytesViewV1;
+
+enum PrismWorkSubmitResultV1 {
+    PRISM_WORK_ACCEPTED_V1 = 0,
+    PRISM_WORK_BUSY_V1 = 1,
+    PRISM_WORK_INVALID_V1 = -1,
+    PRISM_WORK_CLOSED_V1 = -2,
+    PRISM_WORK_WRONG_THREAD_V1 = -3
+};
+
+enum PrismWorkPriorityV1 { PRISM_WORK_CRITICAL_V1 = 0, PRISM_WORK_DEFERRED_V1 = 2 };
+
+enum PrismWorkStatusV1 {
+    PRISM_WORK_SUCCEEDED_V1 = 0,
+    PRISM_WORK_CANCELLED_V1 = 1,
+    PRISM_WORK_FAILED_V1 = 2
+};
+
+/* Borrowed only during work(). The result writer copies at most once and is
+ * limited by max_result_bytes. cancellation_fd is readable when cancelled;
+ * work may poll it with its own IO sources, but must not drain or close it.
+ * A worker must not use PrismHostApiV1 or retain any borrowed view/context. */
+typedef struct PrismWorkContextV1 {
+    uint32_t struct_size;
+    void *context;
+    int32_t (*is_cancelled)(void *);
+    int32_t (*set_result)(void *, PrismBytesViewV1);
+    int32_t cancellation_fd;
+} PrismWorkContextV1;
+
+typedef int32_t (*PrismWorkFunctionV1)(const PrismWorkContextV1 *, PrismBytesViewV1);
+
+typedef struct PrismWorkRequestV1 {
+    uint32_t struct_size;
+    uint64_t task_id; /* Module-local nonzero ID; busy until completion dispatch. */
+    uint32_t priority;
+    uint64_t reserve_bytes; /* Input + maximum result + worker scratch reservation. */
+    uint64_t max_result_bytes;
+    PrismBytesViewV1 input; /* Host copies before submit_work returns. */
+    PrismWorkFunctionV1 work;
+} PrismWorkRequestV1;
+
+/* Borrowed during on_work_completed only. Cancellation overrides late success.
+ * error_code is work()'s nonzero return value, or -1 for a runtime failure.
+ * Zero return with no set_result means an empty success result. */
+typedef struct PrismWorkCompletionV1 {
+    uint32_t struct_size;
+    uint64_t task_id;
+    uint32_t status;
+    int32_t error_code;
+    PrismBytesViewV1 result;
+    PrismStringViewV1 detail;
+} PrismWorkCompletionV1;
+
 typedef struct PrismHostApiV1 {
     uint32_t struct_size;
     uint32_t abi_version;
@@ -57,6 +116,10 @@ typedef struct PrismHostApiV1 {
     uint64_t (*select_theme)(void *, PrismStringViewV1);
     /* Optional tail: select light/dark independently of the material theme. */
     uint64_t (*select_color_scheme)(void *, PrismStringViewV1);
+    /* Optional tail. Owner-thread calls only; requires on_work_completed.
+     * cancel_work keeps the ID busy until its cancelled completion is dispatched. */
+    int32_t (*submit_work)(void *, const PrismWorkRequestV1 *);
+    int32_t (*cancel_work)(void *, uint64_t task_id);
 } PrismHostApiV1;
 
 typedef struct PrismAppInitV1 {
@@ -115,6 +178,10 @@ typedef struct PrismAppModuleV1 {
     void (*on_launch_event)(void *, const PrismLaunchEventV1 *);
     void (*on_instance_event)(void *, const PrismInstanceEventV1 *);
     void (*on_theme_event)(void *, const PrismThemeEventV1 *);
+    /* Optional tail. Result handling and Host API calls stay on the owner thread.
+     * create/static constructors must return promptly. destroy runs only after
+     * host-managed work has been cancelled and joined; no completion follows it. */
+    void (*on_work_completed)(void *, const PrismWorkCompletionV1 *);
 } PrismAppModuleV1;
 
 typedef const PrismAppModuleV1 *(*PrismAppEntryV1)(void);

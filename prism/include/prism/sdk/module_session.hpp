@@ -3,13 +3,29 @@
 #include "prism/contracts/theme.hpp"
 #include "prism/launch/module.hpp"
 #include "prism/runtime/property.hpp"
+#include "prism/runtime/task_scheduler.hpp"
+#include <chrono>
 #include <functional>
 #include <map>
 #include <optional>
 #include <string>
+#include <thread>
 
 namespace prism::sdk {
-// Business lifecycle adapter. No graphics, protocol connection or background thread.
+struct ModuleSessionLimits {
+    std::size_t outstanding{16};
+    std::size_t input_bytes{64 * 1024};
+    std::size_t result_bytes{8 * 1024 * 1024};
+    std::size_t queued_input_bytes{1024 * 1024}; // May be lowered, never raised above 1 MiB.
+    std::size_t completions_per_turn{8};
+    std::chrono::microseconds dispatch_budget{2000};
+    std::chrono::milliseconds entry_budget{20};
+};
+
+struct ModuleWorkState;
+
+// Owner-thread lifecycle adapter. CPU work shares the Host scheduler and never
+// receives an instance, graphics object or protocol connection.
 class ModuleSession {
 public:
     using BindingSink = std::function<bool(std::string_view, runtime::PropertyValue)>;
@@ -19,7 +35,9 @@ public:
     using ThemeSink = std::function<std::uint64_t(std::string_view)>;
     ModuleSession(const std::filesystem::path &module, std::string app_id, std::uint64_t instance,
                   BindingSink bindings, LaunchSink launch = {}, SubscribeSink subscribe = {},
-                  ThemeSink themes = {}, ColorSchemeSink schemes = {});
+                  ThemeSink themes = {}, ColorSchemeSink schemes = {},
+                  std::shared_ptr<runtime::TaskScheduler> scheduler = {},
+                  ModuleSessionLimits limits = {});
     ~ModuleSession();
     ModuleSession(const ModuleSession &) = delete;
     ModuleSession &operator=(const ModuleSession &) = delete;
@@ -33,10 +51,17 @@ public:
     void Deliver(const contracts::InstanceUpdate &event);
     void Deliver(const contracts::ThemeEvent &event);
     void Disconnected();
+    int WorkCompletionFd() const noexcept;
+    // Checks the cooperative budget between indivisible module callbacks.
+    std::size_t DispatchWork();
+    bool WorkPending() const noexcept;
+    // Permanently rejects Host API calls, cancels and joins this channel only.
+    void StopWork() noexcept;
+    const std::string &StartDiagnostic() const noexcept;
 
     bool BackendReady() const
     {
-        return ready_;
+        return OnOwnerThread() && !closed_ && ready_;
     }
 
 private:
@@ -47,6 +72,11 @@ private:
     static uint64_t SelectTheme(void *, PrismStringViewV1) noexcept;
     static uint64_t SelectColorScheme(void *, PrismStringViewV1) noexcept;
     static int32_t Schedule(void *, uint64_t) noexcept;
+    static int32_t SubmitWork(void *, const PrismWorkRequestV1 *) noexcept;
+    static int32_t CancelWork(void *, uint64_t) noexcept;
+    bool OnOwnerThread() const noexcept;
+    void DestroyInstance() noexcept;
+    const std::thread::id owner_thread_{std::this_thread::get_id()};
     launch::AppModule module_;
     std::string app_id_;
     std::uint64_t instance_id_;
@@ -71,6 +101,10 @@ private:
     std::optional<std::uint64_t> tick_due_;
     bool ready_{};
     bool started_{};
+    bool closed_{};
+    ModuleSessionLimits limits_;
+    std::unique_ptr<ModuleWorkState> work_;
+    std::string start_diagnostic_;
 };
 
 std::uint64_t MonotonicNs();
