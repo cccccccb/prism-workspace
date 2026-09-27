@@ -2,13 +2,17 @@
 #include "prism/runtime/prepared_component.hpp"
 #include "prism/sdk/client_application.hpp"
 #include <chrono>
+#include <cstdlib>
 #include <exception>
+#include <filesystem>
 #include <functional>
 #include <future>
 #include <iostream>
+#include <poll.h>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 #include <utility>
 
@@ -20,6 +24,7 @@ using prism::runtime::LoadDiagnostic;
 using prism::runtime::LoadFailure;
 using prism::runtime::LoadStage;
 using prism::runtime::PreparedComponent;
+using prism::runtime::UiInstallState;
 using prism::runtime::UiLoadId;
 using namespace std::chrono_literals;
 
@@ -327,9 +332,251 @@ void CheckOpenRetry(const std::string &socket, const std::string &assets)
     app.Close();
 }
 
+class TemporaryImages {
+public:
+    explicit TemporaryImages(const std::string &assets)
+    {
+        char directory[] = "/tmp/prism-staged-images.XXXXXX";
+        const auto *created = mkdtemp(directory);
+        Require(created != nullptr, "Could not create temporary staged assets");
+        path_ = created;
+        try {
+            for (const auto *name : {"first.png", "second.png", "third.png"}) {
+                std::filesystem::copy_file(std::filesystem::path(assets) / "checker.png",
+                                           path_ / name);
+            }
+        } catch (...) {
+            Cleanup();
+            throw;
+        }
+    }
+
+    ~TemporaryImages()
+    {
+        Cleanup();
+    }
+
+    std::string Root() const
+    {
+        return path_.string();
+    }
+
+private:
+    void Cleanup() noexcept
+    {
+        std::error_code error;
+        std::filesystem::remove_all(path_, error);
+    }
+
+    std::filesystem::path path_;
+};
+
+class UiWorkTurn {
+public:
+    explicit UiWorkTurn(Application &app) : app_(app)
+    {
+        app_.BeginUiWorkTurn();
+    }
+
+    ~UiWorkTurn()
+    {
+        if (!app_.EndUiWorkTurn()) {
+            std::terminate();
+        }
+    }
+
+private:
+    Application &app_;
+};
+
+void CheckTurnBudget(const prism::runtime::UiInstallStats &before,
+                     const prism::runtime::UiInstallStats &after)
+{
+    Require(after.image_uploads - before.image_uploads <= 1,
+            "Install and Pump consumed two upload allowances in one owner turn");
+    Require(after.nodes - before.nodes <= 1,
+            "Staged scene construction exceeded the shared one-node allowance");
+}
+
+void WaitForInstallResources(Application &app)
+{
+    if (app.UiInstallNeedsWork()) {
+        return;
+    }
+    const int completion = app.ResourceCompletionFd();
+    Require(completion >= 0, "Staged resource wait has no completion descriptor");
+    pollfd descriptor{completion, POLLIN, 0};
+    Require(poll(&descriptor, 1, 5000) > 0 && (descriptor.revents & POLLIN),
+            "Staged resource completion did not wake its owner");
+}
+
+void FinishStagedInstall(Application &app, const prism::runtime::BindingValues &bindings, bool pump)
+{
+    const auto deadline = std::chrono::steady_clock::now() + 10s;
+    while (app.UiInstallPending()) {
+        Require(std::chrono::steady_clock::now() < deadline, "Staged installation timed out");
+        LoadDiagnostic diagnostic;
+        UiInstallState state;
+        const auto before = app.GetUiInstallStats();
+        {
+            UiWorkTurn turn(app);
+            app.PollImageResources();
+            state = app.AdvanceUiInstall(bindings, &diagnostic);
+            if (pump && state != UiInstallState::Failed && state != UiInstallState::Cancelled) {
+                Require(app.Pump(0), "Staged client stopped during an owner turn");
+            }
+            CheckTurnBudget(before, app.GetUiInstallStats());
+        }
+        Require(state == UiInstallState::Pending || state == UiInstallState::Committed,
+                diagnostic.message.empty() ? "Staged install failed" : diagnostic.message);
+        if (state == UiInstallState::Pending) {
+            WaitForInstallResources(app);
+        }
+    }
+}
+
+void CheckStagedCancellation(Application &app)
+{
+    const auto live = app.GetRenderStats();
+    const auto cancelled = app.BeginUiLoad();
+    const auto candidate = PrepareOnWorker(R"(
+        VStack {
+            Text($candidate)
+            Text("Uncommitted candidate")
+            Text("Still detached")
+        }
+    )",
+                                           "staged-cancellation");
+    Require(app.StartPreparedInstall(cancelled, candidate), "Could not stage cancellation case");
+    {
+        UiWorkTurn turn(app);
+        const auto before = app.GetUiInstallStats();
+        Require(app.AdvanceUiInstall({{"candidate", std::string("Not live")}}) ==
+                    UiInstallState::Pending,
+                "One-node staged candidate was installed before cancellation");
+        CheckTurnBudget(before, app.GetUiInstallStats());
+        app.CancelUiLoad();
+        Require(!app.UiInstallPending() && !app.GetUiPresentation(cancelled).installed,
+                "Cancellation published or retained a staged candidate");
+        Require(app.SetBinding("next", std::string("Next staged image")) &&
+                    !app.SetBinding("candidate", std::string("Must stay detached")),
+                "Partial candidate cancellation changed live binding targets");
+        Require(app.Pump(0), "Live client stopped after staged cancellation");
+    }
+    NoWork(live, app.GetRenderStats(), "Staged cancellation rendered detached pixels");
+
+    const auto rejected = app.BeginUiLoad();
+    const auto invalid = PrepareOnWorker(R"(Card(material:"missing-material") { Text($invalid) })",
+                                         "staged-invalid-material");
+    Require(app.StartPreparedInstall(rejected, invalid), "Could not stage invalid material");
+    LoadDiagnostic diagnostic;
+    {
+        UiWorkTurn turn(app);
+        Require(app.AdvanceUiInstall({}, &diagnostic) == UiInstallState::Failed &&
+                    diagnostic.stage == LoadStage::Install && !diagnostic.message.empty(),
+                "Invalid material did not reject the detached candidate");
+        Require(!app.GetUiPresentation(rejected).installed &&
+                    app.SetBinding("next", std::string("Next staged image")) &&
+                    !app.SetBinding("invalid", std::string("Must stay detached")),
+                "Rejected material transaction changed the live UI/bindings");
+        Require(app.Pump(0), "Live client stopped after invalid staged material");
+    }
+    NoWork(live, app.GetRenderStats(), "Rejected material rendered detached pixels");
+    app.CancelUiLoad();
+}
+
+void CheckStagedOwnerLedger(const std::string &socket, const std::string &assets)
+{
+    TemporaryImages images(assets);
+    auto config = Config(socket, images.Root(), "prepared_staged_owner_ledger");
+    config.install_limits.nodes_per_turn = 1;
+    config.install_limits.images_per_turn = 1;
+    config.install_limits.upload_bytes_per_turn = 1;
+    config.install_limits.cpu_per_turn = 2ms;
+    Application app(std::move(config));
+    Require(app.ApplyTheme(Theme()), "Staged probe theme was rejected");
+    const auto first = app.BeginUiLoad();
+    const auto initial = PrepareOnWorker(R"(
+        VStack {
+            Text($original)
+            HStack {
+                Image("first.png",width:72,height:72)
+                Image("second.png",width:72,height:72)
+                Image("third.png",width:72,height:72)
+            }
+        }
+    )",
+                                         "staged-three-image-master");
+    Require(app.StartPreparedInstall(first, initial), "Could not stage master-only UI");
+    FinishStagedInstall(app, {{"original", std::string("Staged retained UI")}}, false);
+    Require(app.GetUiPresentation(first).installed && !app.GetUiPresentation(first).submitted &&
+                app.LoadedImageCount() == 3 && app.GetUiInstallStats().image_uploads == 0,
+            "Master-only installation uploaded/submitted before Wayland configure");
+    const auto deadline = std::chrono::steady_clock::now() + 10s;
+    while (app.ConfigureCount() == 0) {
+        Require(std::chrono::steady_clock::now() < deadline, "Staged window configure timed out");
+        UiWorkTurn turn(app);
+        Require(app.Pump(5), "Staged window failed before first configure");
+    }
+    Require(app.GetUiInstallStats().image_uploads == 0 && !app.GetUiPresentation(first).submitted &&
+                !app.FrameCallbackPending(),
+            "First configure rendered before its bounded image uploads");
+
+    const auto replacement = PrepareOnWorker(R"(
+        VStack {
+            Text($next)
+            Image("second.png",width:72,height:72)
+        }
+    )",
+                                             "staged-post-pump-replacement");
+    UiLoadId next;
+    // Wait for a turn that performs exactly one upload. Zero-progress turns
+    // caused by an unpreemptible driver call must not make the gate vacuous.
+    while (!next.owner) {
+        Require(std::chrono::steady_clock::now() < deadline, "Initial staged upload timed out");
+        const auto before = app.GetUiInstallStats();
+        UiWorkTurn turn(app);
+        Require(app.Pump(0), "Staged client stopped during first upload");
+        const auto after_pump = app.GetUiInstallStats();
+        CheckTurnBudget(before, after_pump);
+        if (after_pump.image_uploads == before.image_uploads) {
+            continue;
+        }
+        Require(after_pump.image_uploads == 1 && after_pump.oversized_uploads == 1 &&
+                    after_pump.upload_bytes > 1 && !app.GetUiPresentation(first).submitted,
+                "First atomic oversized upload did not preserve unsubmitted master-only UI");
+        next = app.BeginUiLoad();
+        Require(app.StartPreparedInstall(next, replacement), "Could not stage post-Pump UI");
+        Require(app.AdvanceUiInstall({{"next", std::string("Next staged image")}}) ==
+                    UiInstallState::Pending,
+                "Post-Pump replacement bypassed its shared work allowance");
+        Require(app.SetBinding("original", std::string("Staged retained UI")),
+                "Post-Pump candidate prematurely replaced live bindings");
+        Require(app.Pump(0), "Second Pump in the same scoped turn stopped the client");
+        CheckTurnBudget(before, app.GetUiInstallStats());
+        Require(!app.GetUiPresentation(next).installed && !app.GetUiPresentation(first).submitted,
+                "Exhausted owner turn installed/submitted replacement UI");
+    }
+    FinishStagedInstall(app, {{"next", std::string("Next staged image")}}, true);
+    Require(app.SetBinding("next", std::string("Next staged image")) &&
+                !app.SetBinding("original", std::string("Obsolete")),
+            "Committed staged replacement retained old binding targets");
+    WaitForUi(app, next, 3);
+    Require(app.GlRenderer().find("V3D") != std::string::npos,
+            "Staged upload/presentation did not use the real V3D driver");
+    CheckStagedCancellation(app);
+    Print("staged-owner-turn-upload-ledger-and-cancellation", app, next);
+    const auto stats = app.GetUiInstallStats();
+    std::cout << "staged_uploads=" << stats.image_uploads << " staged_bytes=" << stats.upload_bytes
+              << " oversized_atomic_uploads=" << stats.oversized_uploads
+              << " shared_upload_limit=1 shared_nodes_limit=1\n";
+    app.Close();
+}
+
 int Verify(const std::string &socket, const std::string &assets)
 {
     CheckOpenRetry(socket, assets);
+    CheckStagedOwnerLedger(socket, assets);
 
     Application first(Config(socket, assets, "prepared_first"));
     Application second(Config(socket, assets, "prepared_second"));

@@ -13,6 +13,7 @@
 #include <functional>
 #include <future>
 #include <mutex>
+#include <sys/eventfd.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
@@ -485,6 +486,102 @@ struct IdentityFixture {
     }
 };
 
+struct DeferredFixture {
+    prism::platform::WaylandWindow window;
+    SubmitRequest request;
+    unsigned preparations{}, commits{}, observations{};
+    bool ready{};
+
+    SubmitResult Prepare(const SubmitRequest &next)
+    {
+        ++preparations;
+        request = next;
+        assert(next.allow_pixels && next.force_pixels);
+        return ready ? SubmitResult::Pixels : SubmitResult::Deferred;
+    }
+
+    bool Commit()
+    {
+        ++commits;
+        wl_surface_commit(request.surface);
+        return wl_display_flush(request.display) >= 0;
+    }
+
+    void Submitted(SubmitResult result)
+    {
+        assert(result == SubmitResult::Pixels);
+        ++observations;
+    }
+
+    bool Prepared() const
+    {
+        return window.IsConfigured() && preparations > 0;
+    }
+};
+
+void VerifyDeferredPreparation(Server &server)
+{
+    const auto before = server.Inspect();
+    DeferredFixture fixture;
+    fixture.window.SetSubmitHandlers(std::bind_front(&DeferredFixture::Prepare, &fixture),
+                                     std::bind_front(&DeferredFixture::Commit, &fixture),
+                                     std::bind_front(&DeferredFixture::Submitted, &fixture));
+    assert(fixture.window.Open("wayland-submit-test", "deferred.fixture", "Deferred fixture", 160,
+                               90));
+    Until(fixture.window, std::bind_front(&DeferredFixture::Prepared, &fixture));
+    UntilServer(server, [&before](const Snapshot &snapshot) {
+        return snapshot.commits == before.commits + 1;
+    });
+    assert(fixture.window.Display() == fixture.request.display);
+    assert(fixture.window.Surface() == fixture.request.surface);
+    assert(fixture.preparations == 1 && fixture.commits == 0 && fixture.observations == 0);
+
+    // Even an infinite caller wait must yield a Deferred owner turn, expose a
+    // ready control descriptor, and prepare only once despite configure/frame
+    // listeners also reaching TrySubmit. The caller still owns the FD data.
+    const int wake = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    assert(wake >= 0);
+    const std::uint64_t signal = 1;
+    assert(write(wake, &signal, sizeof(signal)) == sizeof(signal));
+    pollfd source{wake, POLLIN, 0};
+    const auto calls = fixture.preparations;
+    assert(fixture.window.Pump(-1, std::span(&source, 1)));
+    assert(source.revents & POLLIN);
+    assert(fixture.preparations == calls + 1);
+    std::uint64_t received{};
+    assert(read(wake, &received, sizeof(received)) == sizeof(received) && received == 1);
+    for (unsigned turn = 0; turn < 3; ++turn) {
+        const auto previous = fixture.preparations;
+        assert(fixture.window.Pump(-1));
+        assert(fixture.preparations == previous + 1);
+    }
+    const auto deferred = server.Inspect();
+    const auto stats = fixture.window.GetSubmitStats();
+    assert(deferred.commits == before.commits + 1 && deferred.frames == before.frames &&
+           deferred.feedbacks == before.feedbacks);
+    assert(stats.none == 0 && stats.state_commits == 0 && stats.pixel_commits == 0 &&
+           stats.failures == 0);
+    assert(!fixture.window.LastPixelSubmission() && !fixture.window.FrameCallbackPending());
+    assert(fixture.commits == 0 && fixture.observations == 0);
+
+    // Finishing bounded work consumes the original forced request. No second
+    // RequestUpdate/RequestRedraw is needed and no submission ID was skipped.
+    fixture.ready = true;
+    assert(fixture.window.Pump(0));
+    UntilServer(server, [&before](const Snapshot &snapshot) {
+        return snapshot.commits == before.commits + 2 && snapshot.frames == before.frames + 1 &&
+               snapshot.feedbacks == before.feedbacks + 1;
+    });
+    assert(fixture.window.LastPixelSubmission().value == 1);
+    assert(fixture.window.GetSubmitStats().pixel_commits == 1);
+    assert(fixture.window.FrameCallbackPending() && fixture.commits == 1 &&
+           fixture.observations == 1);
+    close(wake);
+    fixture.window.Close();
+    assert(!fixture.window.Display() && !fixture.window.Surface());
+    UntilServer(server, [](const Snapshot &snapshot) { return snapshot.surfaces == 0; });
+}
+
 void VerifyOutOfOrderFeedback(Server &server)
 {
     IdentityFixture fixture;
@@ -737,6 +834,7 @@ int main()
         assert(failed_swap.GetSubmitStats().failures == 1);
         VerifyOutOfOrderFeedback(server);
         VerifyFeedbackBackpressure(server);
+        VerifyDeferredPreparation(server);
     }
     std::filesystem::remove_all(path);
 }

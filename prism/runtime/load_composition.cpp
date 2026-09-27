@@ -154,6 +154,10 @@ private:
                 }
             }
         }
+        if (slot) {
+            out.region = slot->component;
+            out.region_mounted = FindLoadUnit(plan_, slot->component)->phase == LoadPhase::Critical;
+        }
         if (slot && FindLoadUnit(plan_, slot->component)->phase == LoadPhase::Critical) {
             const auto &component = *units_.at(slot->component);
             std::vector<std::size_t> unused;

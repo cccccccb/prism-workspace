@@ -202,6 +202,11 @@ prism::contracts::ThemeSnapshot Theme(std::uint64_t generation)
     theme.generation = generation;
     theme.colors = {{"foreground", generation == 1 ? prism::contracts::Color{235, 240, 250, 255}
                                                    : prism::contracts::Color{160, 210, 250, 255}}};
+    prism::contracts::ThemeMaterial material;
+    material.name = "probe";
+    material.backdrop_blur = 6;
+    material.tint = {0, 0, 0, 20};
+    theme.materials.push_back(material);
     return theme;
 }
 
@@ -530,11 +535,42 @@ void CheckCancellation(const std::string &socket, const std::filesystem::path &p
     std::cout << "scenario=cancel-" << (preview ? "preview" : "master-only") << " passed\n";
 }
 
+void CheckInstallationCancellation(const std::string &socket, const std::filesystem::path &path)
+{
+    Recorder events;
+    auto config = Config(socket, events);
+    config.install_limits.nodes_per_turn = 1;
+    Host host(std::move(config));
+    events.host = &host;
+    Require(host.Bind(prism::launch::LoadPackage(path)), "Staged cancellation Bind failed");
+    const auto deadline = Clock::now() + 8s;
+    while (host.GetUiState().install_stats.nodes == 0) {
+        Require(Clock::now() < deadline && host.Pump(0), "Candidate construction never started");
+    }
+    const auto candidate = host.GetUiState();
+    Require(candidate.preview_presented && candidate.master_prepared && !candidate.master_installed,
+            "Critical candidate bypassed the one-node construction budget");
+
+    WakeFd control;
+    control.Signal();
+    pollfd ready_control{control.Fd(), POLLIN, 0};
+    Require(host.Pump(-1, std::span(&ready_control, 1)) && (ready_control.revents & POLLIN) &&
+                host.GetUiState().install_stats.nodes == candidate.install_stats.nodes,
+            "Candidate construction advanced ahead of ready control");
+    host.Close();
+    Require(host.GetUiState().cancelled && !host.GetUiState().master_installed &&
+                !host.GetUiState().master_submitted && !host.Pump(0) &&
+                !events.Count(LaunchMilestone::Failed) &&
+                !events.Count(LaunchMilestone::BackendReady),
+            "Cancelled staged critical candidate committed or reported business readiness");
+    std::cout << "scenario=cancel-install passed\n";
+}
+
 class GraphBarrier {
 public:
     PreparedComponent Prepare(std::string_view text, ComponentSource source, std::stop_token stop)
     {
-        const bool deferred = source.component_id == "late";
+        const bool deferred = source.component_id.starts_with("late");
         {
             std::unique_lock lock(mutex_);
             Require(source.component_id == "first" || source.component_id == "second" ||
@@ -614,7 +650,7 @@ void CheckGraphPresentationGate(Host &host, GraphBarrier &barrier)
     }
 }
 
-void WaitParallelGraph(Host &host, GraphBarrier &barrier)
+void WaitParallelGraph(Host &host, GraphBarrier &barrier, std::size_t component_count)
 {
     while (!barrier.Entered("first") || !barrier.Entered("second")) {
         WaitWake(host, barrier.Wake());
@@ -622,8 +658,8 @@ void WaitParallelGraph(Host &host, GraphBarrier &barrier)
     }
     barrier.CheckParallel();
     const auto ui = host.GetUiState();
-    Require(ui.component_count == 4 && ui.critical_prepared == 0 && !ui.master_installed &&
-                !ui.master_submitted && !barrier.Entered("third"),
+    Require(ui.component_count == component_count && ui.critical_prepared == 0 &&
+                !ui.master_installed && !ui.master_submitted && !barrier.Entered("third"),
             "Blocked critical graph changed installation or bypassed after dependency");
 }
 
@@ -644,7 +680,8 @@ void SetGraphTheme(Host &host)
             "Graph owner could not install the theme selected by its ready control");
 }
 
-void CheckGraphSuccess(Host &host, Recorder &events, GraphBarrier &barrier, WakeFd &control)
+void CheckGraphSuccess(Host &host, Recorder &events, GraphBarrier &barrier, WakeFd &control,
+                       bool late_failure, bool batch_failure, bool cancel_deferred)
 {
     const auto deadline = Clock::now() + 8s;
     while (!host.GetUiState().master_prepared) {
@@ -659,11 +696,21 @@ void CheckGraphSuccess(Host &host, Recorder &events, GraphBarrier &barrier, Wake
     SetGraphTheme(host);
     control.Drain();
 
+    bool changed_during_install = false;
     while (!host.GetUiState().master_presented || !events.Count(LaunchMilestone::BackendReady)) {
         Require(Clock::now() < deadline, "Graph Master pixels/presentation timed out");
         Require(host.Pump(20), "Graph Host stopped before successful Master presentation");
         CheckGraphPresentationGate(host, barrier);
+        const auto staged = host.GetUiState();
+        if (!changed_during_install && staged.install_stats.nodes > 0 && !staged.master_installed) {
+            auto latest = Theme(4);
+            latest.colors.push_back({"after_control", {180, 220, 140, 255}});
+            Require(host.ApplyTheme(latest), "Theme change failed during candidate construction");
+            changed_during_install = true;
+        }
     }
+    Require(changed_during_install && host.ThemeGeneration() == 4,
+            "Critical staged construction did not allow latest theme changes");
     WaitMaster(host, events, true);
     const auto &ready = events.Find(LaunchMilestone::BackendReady);
     Require(ready.ui.master_images_ready && ready.ui.master_image_count == 1 &&
@@ -678,25 +725,61 @@ void CheckGraphSuccess(Host &host, Recorder &events, GraphBarrier &barrier, Wake
     Require(ui.master_presented && ui.deferred_started && ui.deferred_prepared == 0,
             "Deferred entry did not follow actual Master presentation");
     const auto first_submission = ui.master_first_submission;
+    const auto nodes_before = ui.install_stats.nodes;
+    if (batch_failure) {
+        control.Signal();
+    }
     barrier.Release(true);
-    while (host.GetUiState().deferred_prepared != 1) {
+    if (batch_failure) {
+        while (host.GetUiState().deferred_prepared != 2) {
+            pollfd queued_control{control.Fd(), POLLIN, 0};
+            Require(Clock::now() < deadline && host.Pump(20, std::span(&queued_control, 1)) &&
+                        (queued_control.revents & POLLIN) && !host.GetUiState().deferred_installed,
+                    "Deferred batch bypassed ready caller control");
+        }
+        control.Drain();
+    }
+    if (cancel_deferred) {
+        while (host.GetUiState().install_stats.nodes == nodes_before) {
+            Require(Clock::now() < deadline, "Deferred construction did not start");
+            Require(host.Pump(0), "Host failed during deferred construction");
+        }
+        Require(host.GetUiState().deferred_installed == 0,
+                "One-node budget did not split deferred construction");
+        control.Signal();
+        pollfd ready_control{control.Fd(), POLLIN, 0};
+        Require(host.Pump(-1, std::span(&ready_control, 1)) && (ready_control.revents & POLLIN),
+                "Deferred construction blocked caller control");
+        host.Close();
+        Require(!host.GetUiState().failed && !host.GetUiState().deferred_installed && !host.Pump(0),
+                "Cancelled deferred candidate installed or failed the live Master");
+        return;
+    }
+    while (host.GetUiState().deferred_prepared != (batch_failure ? 2U : 1U) ||
+           (late_failure ? host.GetUiState().deferred_rejected != 1
+                         : host.GetUiState().deferred_installed != 1) ||
+           (batch_failure && host.GetUiState().deferred_installed != 1)) {
         Require(Clock::now() < deadline, "Deferred graph CPU preparation did not complete");
         Require(host.Pump(20), "Deferred graph preparation failed the running Master");
     }
     ui = host.GetUiState();
-    Require(!ui.failed && ui.deferred_diagnostics == 0 && ui.master_installed &&
-                ui.master_first_submission == first_submission,
-            "Deferred CPU completion replaced or failed the critical Master identity");
+    Require(!ui.failed && ui.deferred_diagnostics == (late_failure ? 1U : 0U) &&
+                ui.master_installed && ui.master_first_submission == first_submission,
+            "Deferred installation replaced or failed the critical Master identity");
+    Require(ui.install_stats.nodes > 0 && ui.install_stats.budget_yields > 0 &&
+                ui.install_stats.upload_bytes > 0,
+            "Staged graph bypassed node or actual GPU image upload budgets");
     CheckBusinessControls(host, events);
     std::cout << "graph_components=" << ui.component_count
               << " critical_prepared=" << ui.critical_prepared
               << " deferred_prepared=" << ui.deferred_prepared
               << " required_images=" << ui.master_image_count
-              << " deferred_mount=not_implemented passed\n";
+              << " deferred_installed=" << ui.deferred_installed
+              << " deferred_rejected=" << ui.deferred_rejected << " passed\n";
 }
 
 void CheckGraphFailure(Host &host, Recorder &events, WakeFd &control,
-                       const std::filesystem::path &path, bool image_failure)
+                       const std::filesystem::path &path, LoadStage expected_stage)
 {
     PumpGraphControl(host, control);
     SetGraphTheme(host);
@@ -713,14 +796,13 @@ void CheckGraphFailure(Host &host, Recorder &events, WakeFd &control,
                 events.Count(LaunchMilestone::BackendReady) == 0,
             "Graph failure replaced Preview, started business or lost typed diagnostics");
     const auto &diagnostic = *ui.master_diagnostic;
-    Require(diagnostic.stage == (image_failure ? LoadStage::ResourceLink : LoadStage::Read) &&
-                !diagnostic.message.empty(),
+    Require(diagnostic.stage == expected_stage && !diagnostic.message.empty(),
             "Graph failure lost its resource/read stage");
-    if (!image_failure) {
+    if (expected_stage == LoadStage::Read) {
         Require(diagnostic.source.component_id == "third" &&
                     diagnostic.source.source_path == (path / "components/third.prism").string(),
                 "Component read failure lost its source identity");
-    } else {
+    } else if (expected_stage == LoadStage::ResourceLink) {
         Require(ui.master_prepared && ui.master_image_count == 1 && !ui.master_images_ready,
                 "Invalid required image did not gate graph pixel publication");
     }
@@ -735,16 +817,23 @@ void CheckGraph(const std::string &socket, const std::filesystem::path &path)
     Recorder events;
     auto config = Config(socket, events);
     config.prepare_component = std::bind_front(&GraphBarrier::Prepare, barrier);
+    const bool batch_failure = path.filename() == "graph-batch-failure";
+    const bool cancel_deferred = path.filename() == "graph-cancel-deferred";
+    config.install_limits.nodes_per_turn = cancel_deferred ? 1 : 2;
+    config.install_limits.images_per_turn = 1;
     Host host(std::move(config));
     events.host = &host;
     Require(host.Bind(prism::launch::LoadPackage(path)), "Valid v2 graph Bind failed");
-    WaitParallelGraph(host, *barrier);
+    WaitParallelGraph(host, *barrier, batch_failure ? 5 : 4);
     WaitPreview(host);
     Require(events.Count(LaunchMilestone::FirstPresented) == 1 &&
                 events.Count(LaunchMilestone::BackendReady) == 0,
             "Blocked graph did not preserve presented Preview without business");
     const bool missing_source = path.filename() == "graph-bad-source";
     const bool broken_image = path.filename() == "graph-bad-image";
+    const bool bad_effects = path.filename() == "graph-bad-effects";
+    const bool late_failure = path.filename() == "graph-late-bad-image" ||
+                              path.filename() == "graph-late-bad-theme" || batch_failure;
     if (missing_source) {
         Require(std::filesystem::remove(path / "components/third.prism"),
                 "Could not remove dependent component after graph read preflight");
@@ -753,10 +842,14 @@ void CheckGraph(const std::string &socket, const std::filesystem::path &path)
     control.Signal();
     PumpGraphControl(host, control);
     barrier->Release();
-    if (missing_source || broken_image) {
-        CheckGraphFailure(host, events, control, path, broken_image);
+    if (missing_source || broken_image || bad_effects) {
+        const auto stage = missing_source
+                               ? LoadStage::Read
+                               : (broken_image ? LoadStage::ResourceLink : LoadStage::Install);
+        CheckGraphFailure(host, events, control, path, stage);
     } else {
-        CheckGraphSuccess(host, events, *barrier, control);
+        CheckGraphSuccess(host, events, *barrier, control, late_failure, batch_failure,
+                          cancel_deferred);
     }
     host.Close();
     std::cout << "scenario=" << path.filename().string() << " passed\n";
@@ -767,6 +860,11 @@ void VerifyGraphs(const std::string &socket, const std::filesystem::path &packag
     CheckGraph(socket, packages / "graph-critical");
     CheckGraph(socket, packages / "graph-bad-source");
     CheckGraph(socket, packages / "graph-bad-image");
+    CheckGraph(socket, packages / "graph-bad-effects");
+    CheckGraph(socket, packages / "graph-late-bad-image");
+    CheckGraph(socket, packages / "graph-late-bad-theme");
+    CheckGraph(socket, packages / "graph-batch-failure");
+    CheckGraph(socket, packages / "graph-cancel-deferred");
 }
 
 void Verify(const std::string &socket, const std::filesystem::path &packages)
@@ -780,6 +878,7 @@ void Verify(const std::string &socket, const std::filesystem::path &packages)
     CheckFailure(socket, packages / "bad-read", LoadStage::Read);
     CheckCancellation(socket, packages / "cancel-preview", true);
     CheckCancellation(socket, packages / "cancel-master-only", false);
+    CheckInstallationCancellation(socket, packages / "cancel-install");
 }
 } // namespace
 

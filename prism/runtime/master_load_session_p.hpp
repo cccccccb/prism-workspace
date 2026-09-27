@@ -1,5 +1,6 @@
 #pragma once
 #include "prism/runtime/master_load_session.hpp"
+#include <deque>
 #include <map>
 
 namespace prism::runtime {
@@ -47,6 +48,7 @@ struct MasterLoadSession::Impl {
     std::vector<UnitState> units;
     std::optional<MasterLoadCompletion> completion;
     std::vector<LoadDiagnostic> deferred_diagnostics;
+    std::deque<MasterRegionCompletion> region_completions;
     MasterLoadStats stats;
     LoadTimings timings;
     bool stopped{}, failed{}, layout_submitted{}, composing{}, delivered{};

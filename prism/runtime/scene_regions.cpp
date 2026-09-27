@@ -196,7 +196,9 @@ std::vector<contracts::SurfaceEffectRegion> Scene::SurfaceEffects() const
 
     std::vector<Shape> clips{{{0, 0, viewport_.width, viewport_.height}, 0}};
 
-    CollectSurfaceEffects(*root_, clips, result);
+    if (root_) {
+        CollectSurfaceEffects(*root_, clips, result);
+    }
     if (result.size() > 8) {
         throw std::length_error("Surface effect region limit is 8");
     }
@@ -212,7 +214,9 @@ const std::vector<contracts::SurfaceInputRegion> &Scene::InputRegions() const
 
     std::vector<Shape> clips;
 
-    CollectInputRegions(*root_, clips);
+    if (root_) {
+        CollectInputRegions(*root_, clips);
+    }
     input_dirty_ = false;
     return input_regions_;
 }

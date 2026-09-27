@@ -22,7 +22,7 @@
 | 业务初始化 | dlopen 模块、create、应用绑定及 Ready | 有 Preview 时先等其实际呈现，才加载业务模块 |
 | 运行/关闭 | host Pump、动作、定时回调；关闭先 destroy/卸载模块，再销毁前端 | 模块 destroy 必须停止自己的工作线程 |
 
-PrepareFrontend 当前预热字体和资源线程，尚未预热 EGL/GPU。第三步已接入真正待命池，由最终 worker 自身调用此阶段；见 LAUNCHER_WORKER_POOL.md。完整硬件性能与最优池容量仍需后续测量。
+PrepareFrontend 当前预热字体、资源调度句柄与主题，工作线程按需启动，尚未预热 EGL/GPU。第三步已接入真正待命池，由最终 worker 自身调用此阶段；见 LAUNCHER_WORKER_POOL.md。完整硬件性能与最优池容量仍需后续测量。
 
 ## 3. Preview、Master 与就绪
 
@@ -126,9 +126,11 @@ HostUiState 本地记录 MasterPrepared/Installed/Submitted/Presented，呈现�
 后台进程。下一阶段的准备/安装边界、DSL 组件依赖图、critical/deferred、资源预算、
 呈现代数、业务异步约束及六步顺序见 [MASTER_PARALLEL_LOADING.md](MASTER_PARALLEL_LOADING.md)。
 第一步已提交 `99101cf`。第二步接入 LoadSession 的有界单线程准备与 eventfd 唤醒，
-并通过验证。链接、Scene 构造、字体/GPU/Wayland 及业务回调仍在事件线程；复杂安装
-或任意慢业务初始化仍可阻塞。多组件图、全会话配额及业务异步准备属于后续步骤。
-后续进度与验证以加载规范的实施记录为准。
+并通过验证。第三步组件图、统一资源调度与全会话预算已提交 `b4fdf5b`；当前第四步
+在事件线程分轮构造和安装候选，并执行真实图片 GPU 上传预算。字体、布局、GPU/
+Wayland 和业务回调仍归事件线程，单次库/驱动调用及慢业务初始化不能被预算抢占。
+业务异步准备与真实 demo 性能对照分别属于第五、六步，尚未实现。后续进度与验证
+以加载规范的实施记录为准；第四步验证见加载规范第 11 节。
 
 
 ## 12. 组件加载调度（2026-09-27）
@@ -137,6 +139,42 @@ HostUiState 本地记录 MasterPrepared/Installed/Submitted/Presented，呈现�
 纯读取/校验/组件组合和图片检查/解码共享同一 TaskScheduler；PrepareFrontend 准备
 字体、调度句柄和主题，工作线程仅在有任务时创建，不再提前启动独立图片线程。
 launcher 的共享 SessionTaskBudget 通过 FD4 传入并经认证，私有控制 FD3 和启动消息
-保持原契约。Master 的必需图片就绪后安装，真实呈现后才准备 deferred；稳定区域挂载
-将在下一步接入。完整边界、内存计账和验证见
+保持原契约。第三步已提交 `b4fdf5b`。Master 的必需图片就绪后安装，真实呈现后才
+准备 deferred；当前第四步已接入下述稳定区域安装事务。第三步边界、内存计账和
+历史验证见
 [加载规范第 10 节](MASTER_PARALLEL_LOADING.md#10-第三步组件图共享工作池与会话预算)。
+
+## 13. 第四步：安装事务与所有者线程预算
+
+`StartPreparedInstall` / `StartRegionInstall` 只建立待安装候选；`AdvanceUiInstall`
+分轮申请图片、等待解码、注册资源、上传图片并推进 `SceneConstruction`。候选使用
+当前主题、视口和绑定值完成整体布局、绘制指令、效果与输入预检，成功后才发布；取消、旧代数、
+资源或样式失败不发布半成品，保留原 Scene。主题变化或区域事务版本变化会丢弃旧
+候选并重新准备。预检、单次 shaping/布局与驱动操作仍是不可抢占的同步工作。
+
+Master 实际呈现后才派发 deferred 准备。Host 按依赖顺序选择区域小批次， SDK 在
+稳定 Region 边界提交新子树，保留未替换节点、绑定、窗口与 EGL；移除节点的 focus/
+hover 被清理。未挂载目标的已声明 typed binding 仍保留最新业务值，挂载前使用当前
+值。局部失败保留已有界面、报告对应组件诊断并拒绝依赖该失败区域的后续区域；不能
+因候选失败将整份 Master 标记为新呈现。
+
+Host 用 `BeginUiWorkTurn` / `EndUiWorkTurn` 包围整次 Pump，安装前后半段和前端
+上传共用一个延迟启动的预算，不能通过再次调用 Advance/Pump 重置额度。默认每轮
+128 个构造节点、分阶段安装的每个图片处理阶段 2 个资源、实际上传最多 2 张/4 MiB
+和 2 ms 协作式 CPU 截止时间，均可配置。单张大图片允许一次原子超额上传并单独
+计数；时间在工作单位
+之间检查，不承诺严格 2 ms 返回，也不把它描述为节点增量布局或分块缓存。
+同步便捷入口及既有 Scene 的异步图片完成 CPU 注册仍可批量执行；对应 GPU 上传
+使用有界队列。完整额度范围与不可抢占工作见加载规范第 11 节。
+
+GLES 的 `UploadImage` 实际创建并保留 texture-backed image，在所属 EGL 上下文
+实例化纹理并 flush/submit；解码完成、CPU 注册和 GPU 上传是不同阶段。生产 SDK
+预算内预上传后才 Render，绘制复用该纹理。无 Preview 的 Master 先安装并打开窗口，
+首次 configure/EGL 初始化后继续有界上传；`Deferred` 保留像素请求且不 commit、
+不创建 frame/presentation feedback，每轮返回事件所有者。Installed/Submitted/
+Presented 各自独立，只有对应代数的真实 presentation feedback 证明已呈现。
+
+本轮 Pi GLES 构建、完整 CTest 49/49、Host/V3D 加载 18/18、SDK 呈现及 Host/待命池
+回归通过。第五步业务异步准备、第六步真实 demo/实机性能对照尚未实现，不将安装
+预算当作已证明的启动提速。完整规范与验证记录见
+[MASTER_PARALLEL_LOADING.md](MASTER_PARALLEL_LOADING.md)。

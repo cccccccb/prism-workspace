@@ -677,6 +677,72 @@ std::vector<std::uint8_t> ReadNative(BufferSize size)
     return top_left;
 }
 
+void CheckUploadedPixels(GlesRenderer &renderer, RasterRenderer &commands, BufferSize size,
+                         const DisplayList &list, const std::string &label)
+{
+    const auto uploaded = renderer.GetRenderStats().image_upload_successes;
+    Require(renderer.Render(list, size.width, size.height), label + " GPU replay failed");
+    Require(renderer.GetRenderStats().image_upload_successes == uploaded,
+            label + " replay uploaded an already retained image");
+    const auto actual = ReadNative(size);
+    std::vector<std::uint8_t> expected(actual.size());
+    Require(commands.Render(list, expected.data(), size.width, size.height, size.width * 4),
+            label + " independent raster reference failed");
+    for (std::size_t pixel = 0; pixel < expected.size(); pixel += 4) {
+        std::swap(expected[pixel], expected[pixel + 2]);
+    }
+    CompareGpuPixels(actual, expected, size, label);
+}
+
+void CheckExplicitImageUpload(GlesRenderer &renderer, RasterRenderer &commands, BufferSize size)
+{
+    constexpr ResourceId upload_id{7301};
+    const auto initial = renderer.GetRenderStats();
+    Require(commands.RegisterImage(upload_id, Image(0)), "upload fixture registration failed");
+    Require(!renderer.ImageUploaded(upload_id), "CPU registration reported GPU residency");
+    Require(!renderer.UploadImage({}), "zero ID unexpectedly uploaded");
+    Require(renderer.UploadImage(upload_id), "explicit backend texture upload failed");
+    Require(renderer.ImageUploaded(upload_id), "explicit texture not retained");
+    auto stats = renderer.GetRenderStats();
+    Require(stats.image_upload_attempts == initial.image_upload_attempts + 1 &&
+                stats.image_upload_successes == initial.image_upload_successes + 1 &&
+                stats.image_uploaded_bytes == initial.image_uploaded_bytes + 9 * 5 * 4,
+            "explicit upload counter/decoded byte accounting mismatch");
+    Require(renderer.UploadImage(upload_id), "repeat resident upload failed");
+    Require(renderer.GetRenderStats().image_upload_attempts == stats.image_upload_attempts &&
+                renderer.GetRenderStats().image_uploaded_bytes == stats.image_uploaded_bytes,
+            "repeat resident upload did work");
+    const DisplayList list{{1}, 1, {DrawImage{upload_id, {0, 0, 9, 5}, ImageFit::Fill}}};
+    CheckUploadedPixels(renderer, commands, size, list, "explicit uploaded image");
+    const auto first_pixels = ReadNative(size);
+
+    Require(commands.RegisterImage(upload_id, Image(1)), "same-ID replacement failed");
+    Require(!renderer.ImageUploaded(upload_id), "same-ID replacement reused stale GPU image");
+    Require(renderer.Render(list, size.width, size.height, {}), "empty replay failed");
+    Require(renderer.GetRenderStats().image_upload_successes == stats.image_upload_successes,
+            "empty repair uploaded an unused replacement");
+    Require(renderer.UploadImage(upload_id), "replacement explicit upload failed");
+    stats = renderer.GetRenderStats();
+    Require(stats.image_upload_successes == initial.image_upload_successes + 2 &&
+                stats.image_uploaded_bytes == initial.image_uploaded_bytes + 2 * 9 * 5 * 4,
+            "replacement upload counter/byte accounting mismatch");
+    CheckUploadedPixels(renderer, commands, size, list, "replacement uploaded image");
+    Require(first_pixels != ReadNative(size), "replacement GPU pixels did not change");
+
+    renderer.ReleaseImage(upload_id);
+    Require(!renderer.ImageUploaded(upload_id), "ReleaseImage retained GPU residency");
+    Require(renderer.UploadImage(upload_id), "released image could not reupload");
+    CheckUploadedPixels(renderer, commands, size, list, "released/reuploaded image");
+    commands.UnregisterImage(upload_id);
+    Require(!renderer.ImageUploaded(upload_id) && !renderer.UploadImage(upload_id),
+            "unregistered image retained or uploaded a stale CPU resource");
+    renderer.ReleaseImage(upload_id);
+    std::cout << "explicit GPU texture upload/replay/replacement/release bytes="
+              << renderer.GetRenderStats().image_uploaded_bytes - initial.image_uploaded_bytes
+              << " passed\n"
+              << std::flush;
+}
+
 void RunNative(RasterRenderer &commands, const std::vector<Frame> &frames,
                const std::string &socket)
 {
@@ -796,6 +862,7 @@ void RunNative(RasterRenderer &commands, const std::vector<Frame> &frames,
                 const auto before_native = ReadNative(size);
                 if (!renderer) {
                     renderer = std::make_unique<GlesRenderer>(commands);
+                    CheckExplicitImageUpload(*renderer, commands, size);
                 }
                 Require(renderer->Ready() &&
                             renderer->Render(current->list, request.width, request.height,
@@ -952,6 +1019,11 @@ int main(int argc, char **argv)
     }
     Require(argc == 1, "usage: skia_damage_test [--wayland <socket>]");
     EglDisplay display;
+    {
+        GpuTarget target(display, commands, initial_size);
+        target.Current();
+        CheckExplicitImageUpload(target.Renderer(), commands, initial_size);
+    }
     CheckLargeRepairDoesNotExpand(display, commands);
     for (unsigned buffer_count : {1u, 2u, 3u}) {
         RunRotation(display, commands, frames, buffer_count);

@@ -65,6 +65,14 @@ bool ClientApplication::Impl::InstallScene(runtime::UiLoadId load,
         }
         return false;
     }
+    if (app.install) {
+        if (diagnostic) {
+            *diagnostic = {runtime::LoadStage::Install,
+                           prepared ? prepared.Source() : runtime::ComponentSource{}, 0,
+                           "A staged UI installation is already pending"};
+        }
+        return false;
+    }
     if (app.installed_ui == load) {
         if (diagnostic) {
             *diagnostic = {runtime::LoadStage::Install,
@@ -81,9 +89,10 @@ bool ClientApplication::Impl::InstallScene(runtime::UiLoadId load,
                                    std::bind_front(&Impl::RequestImage, this, std::ref(images))),
             std::bind_front(&Impl::ShapeText, this), app.commands.FontId(), app.theme);
 
-        if (app.window.IsConfigured()) {
-            next->SetViewport(app.window.Metrics().logical_size);
-        }
+        next->SetViewport(app.window.IsConfigured()
+                              ? app.window.Metrics().logical_size
+                              : contracts::LogicalSize{static_cast<double>(app.config.width),
+                                                       static_cast<double>(app.config.height)});
 
         for (auto value : images) {
             const contracts::ResourceId id{value};
@@ -91,7 +100,7 @@ bool ClientApplication::Impl::InstallScene(runtime::UiLoadId load,
                 throw std::runtime_error("Package image unavailable");
             }
             if (const auto *image = app.resources.Get(id)) {
-                if (!app.commands.RegisterImage(id, *image, app.resources.Retain(id)) ||
+                if (!app.RegisterImage(id) ||
                     !next->ImageReady(id, {static_cast<double>(image->width),
                                            static_cast<double>(image->height)})) {
                     throw std::runtime_error("Cached image registration failed");
@@ -99,28 +108,15 @@ bool ClientApplication::Impl::InstallScene(runtime::UiLoadId load,
             }
         }
 
-        if (app.scene) {
-            AddSceneStats(app.render_stats, app.scene->GetRenderStats());
+        std::string failure;
+        if (!next->PrepareDetached(app.binding_values, &failure)) {
+            throw std::runtime_error(failure);
         }
-        app.ReleaseUnusedImages(images);
-        app.preloaded_images.clear();
-        app.preloaded_ui = {};
-        app.scene = std::move(next);
-        app.scene_images = std::move(images);
-        app.installed_ui = load;
-        app.ui_presentation.Install(load);
-        app.last_list.reset();
-        app.committed_list.reset();
-        app.prepared_list.reset();
-        app.prepared_damage.reset();
-        app.damage_history.Invalidate();
-        app.committed_pixels_revision = app.prepared_pixels_revision = 0;
-        app.state_prepared = false;
+        app.CommitScene(load, std::move(next), std::move(images));
     } catch (const runtime::LoadFailure &error) {
         for (auto value : images) {
             if (!app.scene_images.contains(value) && !app.preloaded_images.contains(value)) {
-                app.commands.UnregisterImage({value});
-                app.resources.Release({value});
+                app.DropImage({value});
             }
         }
         if (diagnostic) {
@@ -130,8 +126,7 @@ bool ClientApplication::Impl::InstallScene(runtime::UiLoadId load,
     } catch (const std::exception &error) {
         for (auto value : images) {
             if (!app.scene_images.contains(value) && !app.preloaded_images.contains(value)) {
-                app.commands.UnregisterImage({value});
-                app.resources.Release({value});
+                app.DropImage({value});
             }
         }
         if (diagnostic) {

@@ -313,3 +313,9 @@ target_link_libraries(image_scheduler_test PRIVATE prism_client_scene prism_task
 target_compile_options(image_scheduler_test PRIVATE -UNDEBUG)
 add_test(NAME image_scheduler_test COMMAND image_scheduler_test)
 set_tests_properties(image_scheduler_test PROPERTIES TIMEOUT 25)
+
+add_executable(scene_region_transaction_test scene_region_transaction_test.cpp)
+target_link_libraries(scene_region_transaction_test PRIVATE prism_client_scene)
+target_compile_options(scene_region_transaction_test PRIVATE -UNDEBUG)
+add_test(NAME scene_region_transaction_test COMMAND scene_region_transaction_test)
+set_tests_properties(scene_region_transaction_test PROPERTIES TIMEOUT 20)

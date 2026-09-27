@@ -20,7 +20,7 @@ pkg_check_modules(PRISM_PNG REQUIRED IMPORTED_TARGET libpng)
 add_library(prism_skia_raster STATIC raster_renderer.cpp image_codec.cpp)
 target_include_directories(prism_skia_raster PRIVATE "${PRISM_SKIA_ROOT}")
 target_include_directories(prism_skia_raster PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
-target_link_libraries(prism_skia_raster PUBLIC prism_client_scene
+target_link_libraries(prism_skia_raster PUBLIC prism_client_scene prism_display_list_contract
     "${PRISM_SKIA_LIBRARY}"
     "${PRISM_SKIA_ROOT}/out/${PRISM_SKIA_VARIANT}/libskcms.a"
     "${PRISM_SKIA_ROOT}/out/${PRISM_SKIA_VARIANT}/libwuffs.a"
@@ -34,7 +34,7 @@ if(PRISM_ENABLE_GLES)
     pkg_check_modules(PRISM_GLES_RENDER REQUIRED IMPORTED_TARGET glesv2)
     pkg_check_modules(PRISM_EGL_RENDER REQUIRED IMPORTED_TARGET egl)
     pkg_check_modules(PRISM_GLX_LINK REQUIRED IMPORTED_TARGET gl)
-    add_library(prism_skia_gles STATIC gles_renderer.cpp)
+    add_library(prism_skia_gles STATIC gles_renderer.cpp gles_images.cpp)
     target_include_directories(prism_skia_gles PRIVATE "${PRISM_SKIA_ROOT}")
     target_include_directories(prism_skia_gles PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
     target_link_libraries(prism_skia_gles PUBLIC prism_skia_raster

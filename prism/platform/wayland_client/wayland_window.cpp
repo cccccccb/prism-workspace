@@ -168,6 +168,8 @@ SubmitResult WaylandWindow::CompleteSubmit(SubmitResult result)
         ++submit_stats_.failures;
         failed_ = true;
         break;
+    case SubmitResult::Deferred:
+        return result;
     }
     if (on_submitted_) {
         on_submitted_(result);
@@ -191,6 +193,9 @@ SubmitResult WaylandWindow::TrySubmit()
     if (!configured_ || !update_requested_ || !surface_) {
         return SubmitResult::None;
     }
+    if (submission_deferred_) {
+        return SubmitResult::Deferred;
+    }
     const bool allow_pixels = frame_callback_ == nullptr && PresentationCapacityAvailable();
     if (prepare_submit_) {
         const SubmitRequest request{display_,
@@ -202,6 +207,12 @@ SubmitResult WaylandWindow::TrySubmit()
         auto result = prepare_submit_(request);
         if (result == SubmitResult::Failed) {
             return CompleteSubmit(result);
+        }
+        if (result == SubmitResult::Deferred) {
+            // A configure/frame listener and Pump may both reach TrySubmit in
+            // one turn. A bounded preparation defers at most once per turn.
+            submission_deferred_ = true;
+            return result;
         }
         if (force_pixels_ && allow_pixels && result != SubmitResult::Pixels) {
             return CompleteSubmit(SubmitResult::Failed);
@@ -375,6 +386,7 @@ bool WaylandWindow::Pump(int timeout_ms, std::span<pollfd> wake_fds)
     if (!display_ || failed_) {
         return false;
     }
+    submission_deferred_ = false;
     if (TrySubmit() == SubmitResult::Failed) {
         return false;
     }
@@ -396,8 +408,12 @@ bool WaylandWindow::Pump(int timeout_ms, std::span<pollfd> wake_fds)
             if (TrySubmit() == SubmitResult::Failed) {
                 return false;
             }
-            const int flushed = wl_display_flush(display_);
-            return (flushed >= 0 || errno == EAGAIN) && !close_requested_;
+            if (!submission_deferred_) {
+                const int flushed = wl_display_flush(display_);
+                return (flushed >= 0 || errno == EAGAIN) && !close_requested_;
+            }
+            // A deferred preparation must also expose ready caller sources.
+            // Acquire/cancel the read intention and poll them without waiting.
         }
     }
     const int flushed = wl_display_flush(display_);
@@ -407,7 +423,7 @@ bool WaylandWindow::Pump(int timeout_ms, std::span<pollfd> wake_fds)
     }
     sources.front().events = static_cast<short>(POLLIN | (flushed < 0 ? POLLOUT : 0));
 
-    const int result = poll(sources.data(), sources.size(), timeout_ms);
+    const int result = poll(sources.data(), sources.size(), submission_deferred_ ? 0 : timeout_ms);
     const short revents = sources.front().revents;
     for (std::size_t i = 0; i < wake_fds.size(); ++i) {
         wake_fds[i].revents = sources[i + 1].revents;
@@ -589,6 +605,7 @@ void WaylandWindow::Close()
     configured_ = false;
     mapped_ = false;
     update_requested_ = force_pixels_ = state_pending_ = false;
+    submission_deferred_ = false;
 }
 
 } // namespace prism::platform

@@ -14,6 +14,7 @@ struct GlesRendererOptions {
 
 struct GlesRenderStats {
     std::uint64_t full_renders{}, partial_renders{}, empty_renders{}, repair_pixels{};
+    std::uint64_t image_upload_attempts{}, image_upload_successes{}, image_uploaded_bytes{};
 };
 
 // Draws a validated DisplayList into the current GLES framebuffer.
@@ -25,6 +26,13 @@ public:
     GlesRenderer(const GlesRenderer &) = delete;
     GlesRenderer &operator=(const GlesRenderer &) = delete;
     bool Ready() const;
+    // Requires the creation EGL context current. Success means a real backend
+    // texture exists and its upload was submitted, not that the GPU is finished.
+    bool UploadImage(contracts::ResourceId id);
+    bool ImageUploaded(contracts::ResourceId id) const;
+    void ReleaseImage(contracts::ResourceId id);
+    // Raw backend callers may synchronously upload missing images here. SDK
+    // applications preupload under their owner-turn count/byte/time budgets.
     bool Render(const contracts::DisplayList &list, int width, int height);
     bool Render(const contracts::DisplayList &list, int width, int height,
                 const contracts::DamageRegion &repair);
@@ -36,6 +44,7 @@ public:
     void Abandon();
 
 private:
+    bool EnsureImages(const contracts::DisplayList &list);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

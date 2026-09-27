@@ -44,3 +44,7 @@ endif()
 # The binary theme transport is a backend independent value codec.
 add_library(prism_theme_contract STATIC theme.cpp)
 target_link_libraries(prism_theme_contract PUBLIC prism_contracts)
+
+# Structural drawing validation has no resource registry or backend dependency.
+add_library(prism_display_list_contract STATIC display_list_validation.cpp)
+target_link_libraries(prism_display_list_contract PUBLIC prism_contracts)

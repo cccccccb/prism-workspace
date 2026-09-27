@@ -4,14 +4,19 @@
 #include "prism/contracts/surface_effect.hpp"
 #include "prism/contracts/theme.hpp"
 #include "prism/runtime/blueprint.hpp"
+#include "prism/runtime/ui_install.hpp"
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace prism::runtime {
@@ -63,6 +68,9 @@ struct SceneRenderStats {
     bool operator==(const SceneRenderStats &) const = default;
 };
 
+class SceneConstruction;
+class Scene;
+
 class Scene {
 public:
     explicit Scene(Blueprint root, ShapeText shaper, contracts::ResourceId font = {},
@@ -76,6 +84,26 @@ public:
     bool SetProperty(contracts::NodeId id, DslProperty property, PropertyValue value);
     // Validates a detached candidate before changing the retained scene.
     bool ApplyTheme(const contracts::ThemeSnapshot &, std::string *diagnostic = nullptr);
+
+    // Binding projection and validation are atomic; unknown unmounted keys are ignored.
+    bool Preflight(const BindingValues &, std::string *diagnostic = nullptr);
+    // Throwaway candidates only: avoids duplicating budgeted node construction.
+    // A failed candidate may be mutated and must not be installed.
+    bool PrepareDetached(const BindingValues &, std::string *diagnostic = nullptr);
+    bool MountRegions(std::span<const RegionUpdate>, const BindingValues &,
+                      std::string *diagnostic = nullptr);
+    Blueprint RegionBlueprint(std::span<const RegionUpdate>) const;
+    // Success consumes the detached candidate; failure never mutates the live scene.
+    bool MountRegions(std::span<const RegionUpdate>, const BindingValues &, Scene &candidate,
+                      std::uint64_t expected_revision, std::string *diagnostic = nullptr);
+    bool RegionMounted(std::string_view region) const;
+
+    std::uint64_t TransactionRevision() const noexcept
+    {
+        return transaction_revision_;
+    }
+
+    contracts::NodeId RegionId(std::string_view region) const;
 
     std::uint64_t ThemeGeneration() const
     {
@@ -122,8 +150,24 @@ public:
     std::optional<std::string> FocusedAction() const;
 
 private:
+    friend class SceneConstruction;
     struct Node;
-    std::unique_ptr<Node> MakeNode(Blueprint blueprint);
+
+    struct EmptyConstruction {};
+
+    Scene(EmptyConstruction, ShapeText, contracts::ResourceId,
+          std::optional<contracts::ThemeSnapshot>);
+    std::unique_ptr<Node> MakeNode(Blueprint blueprint, std::size_t depth = 1);
+    std::unique_ptr<Node> MakeShallowNode(Blueprint blueprint, std::size_t depth);
+    void ValidateCandidate(Scene &, const BindingValues &) const;
+    void ValidateRetainedValues(const std::vector<std::pair<Node *, Node *>> &,
+                                const BindingValues &) const;
+    void CopyResources(const Node &, Node &) const;
+    void CollectPairs(Node &, Node &, std::vector<std::pair<Node *, Node *>> &) const;
+    void CommitValues(const std::vector<std::pair<Node *, Node *>> &) noexcept;
+    void CollectNodes(Node &, std::vector<Node *> &) const;
+    void CollectMountPairs(Node &, Node &, const std::set<std::string> &,
+                           std::vector<std::pair<Node *, Node *>> &) const;
     Blueprint CurrentBlueprint(const Node &) const;
     Node *Find(contracts::NodeId id) const;
     bool IsVisible(const Node &) const;
@@ -142,6 +186,7 @@ private:
     contracts::ResourceId font_{};
     contracts::LogicalSize viewport_{};
     std::vector<Node *> nodes_;
+    std::unordered_map<std::string, Node *> regions_;
 
     struct BindingTarget {
         Node *node;
@@ -150,6 +195,7 @@ private:
 
     std::unordered_map<std::string, std::vector<BindingTarget>> bindings_;
     Dirty dirty_{Dirty::Layout | Dirty::Paint};
+    std::uint64_t transaction_revision_{1};
     std::uint64_t generation_{0};
     std::uint64_t pixels_revision_{1};
     std::uint64_t build_calls_{0}, layout_count_{0};

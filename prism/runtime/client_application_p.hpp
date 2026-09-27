@@ -1,4 +1,5 @@
 #pragma once
+#include "client_application_install_p.hpp"
 #include "prism/platform/wayland_egl_surface.hpp"
 #include "prism/platform/wayland_window.hpp"
 #include "prism/render_skia/gles_renderer.hpp"
@@ -9,6 +10,7 @@
 #include "prism/runtime/task_scheduler.hpp"
 #include "prism/sdk/client_application.hpp"
 #include <cstdio>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -27,12 +29,47 @@ struct ClientApplication::Impl {
           resources(render_skia::RasterRenderer::InspectPng,
                     render_skia::RasterRenderer::DecodePngBounded, config.task_scheduler)
     {
+        if (!config.install_limits.nodes_per_turn || !config.install_limits.images_per_turn ||
+            !config.install_limits.upload_bytes_per_turn ||
+            config.install_limits.cpu_per_turn.count() <= 0) {
+            throw std::invalid_argument("UI installation limits must be positive");
+        }
     }
+
+    ~Impl();
 
     bool InstallScene(runtime::UiLoadId load, const runtime::PreparedComponent &prepared,
                       runtime::LoadDiagnostic *diagnostic);
     void ReleaseUnusedImages(const std::set<std::uint64_t> &keep);
     void ClearPreloadedImages();
+    void DiscardInstall(runtime::UiInstallState state);
+    void DropImage(contracts::ResourceId id);
+    bool RegisterImage(contracts::ResourceId id);
+    void QueueImageUpload(contracts::ResourceId id);
+    bool EnsureRenderer(int width, int height);
+    bool AdvanceImageUploads();
+    void EnsureUiWorkBudget();
+    void ResetUiWorkBudget() noexcept;
+    void RecordUiWorkBudget() noexcept;
+
+    struct PumpTurnGuard {
+        Impl &app;
+
+        ~PumpTurnGuard()
+        {
+            if (!app.ui_work_turn_explicit) {
+                app.RecordUiWorkBudget();
+                app.ResetUiWorkBudget();
+                app.install_advanced_since_pump = false;
+            }
+        }
+    };
+
+    bool ImagesUploaded() const;
+    void CommitScene(runtime::UiLoadId load, std::unique_ptr<runtime::Scene> next,
+                     const std::set<std::uint64_t> &images);
+    bool OpenWindow(runtime::LoadDiagnostic *diagnostic, const runtime::ComponentSource &source);
+    bool CommitInstall(const runtime::BindingValues &bindings, runtime::LoadDiagnostic *diagnostic);
     contracts::ResourceId RequestImage(std::set<std::uint64_t> &images, std::string_view uri);
     runtime::ShapedText ShapeText(std::string_view text, double size);
     void HandleWindowEvent(const contracts::WindowEvent &event);
@@ -46,6 +83,21 @@ struct ClientApplication::Impl {
     std::set<std::uint64_t> scene_images;
     std::set<std::uint64_t> preloaded_images;
     runtime::UiLoadId preloaded_ui{};
+    std::set<std::uint64_t> registered_images;
+    std::deque<contracts::ResourceId> upload_queue;
+    std::set<std::uint64_t> queued_uploads;
+    std::unique_ptr<StagedUiInstall> install;
+    runtime::UiInstallState install_state{runtime::UiInstallState::Idle};
+    runtime::UiInstallStats install_stats;
+    runtime::BindingValues binding_values;
+    bool install_advanced_since_pump{};
+    bool ui_work_turn_explicit{};
+    bool ui_work_turn_started{};
+    std::chrono::steady_clock::time_point owner_turn_deadline{};
+    std::size_t owner_turn_uploads{};
+    std::uint64_t owner_turn_upload_bytes{};
+    std::size_t owner_turn_nodes{}, owner_turn_requests{}, owner_turn_registrations{},
+        owner_turn_image_ready{};
     runtime::UiLoadState ui_load;
     runtime::UiLoadId installed_ui{};
     runtime::UiLoadId prepared_ui{};

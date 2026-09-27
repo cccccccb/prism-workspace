@@ -1,9 +1,9 @@
 # Preview、Master 与 DSL 组件并行加载
 
 日期：2026-09-27。状态：**第一步已提交 `99101cf`，第二步已提交 `f82ef5d`；
-第三步组件图、统一调度与会话预算已实现，验证记录见第 10 节。
-分阶段挂载、业务异步准备和真实 demo 的性能对照仍待第四至六步。**
-本轮先提交代码规范化（`0aaca73`），再设计下一阶段。现有生产启动链继续以
+第三步已提交 `b4fdf5b`，验证记录见第 10 节。第四步分阶段安装已接入，
+契约与验证见第 11 节；业务异步准备和真实 demo 的性能对照仍待第五、六步。**
+本系列从代码规范化（`0aaca73`）后推进；本轮先提交第三步，再实现第四步。现有生产启动链继续以
 [统一 Host](APP_HOST_RUNTIME.md)、[待命池](LAUNCHER_WORKER_POOL.md)和
 [会话规范](SESSION_LAUNCH_RUNTIME.md)为实现依据。
 
@@ -13,8 +13,8 @@
 | --- | --- | --- |
 | Preview 优先 | Music 有 Preview；另外四包没有。Host 等实际 presented 后加载 Music 业务 | 轻量 Preview 先显示，并在 Master 准备期间保持事件响应 |
 | Preview/Master 分开 | 分开的 DSL 文件、同一个 surface/EGL，替换 Scene | 保持同一窗口，候选 Master 就绪后提交；延后区域逐步安装 |
-| Master 准备 | MasterLoadSession 编译加载图，依赖就绪后在共享 TaskScheduler 准备/组合；旧单文件使用同一入口 | 分阶段 Scene 安装与稳定区域挂载 |
-| 资源加载 | 尺寸检查与解码迁入共享调度器，执行前预留配额；首屏必需图就绪后安装 | 分阶段 GPU 上传与安装时间预算 |
+| Master 准备 | 共享调度器准备/组合；所有者线程分轮构造候选、事务安装 critical 和稳定 deferred 区域；旧单文件使用同一入口 | 真实多区域 demo 与关键路径测量 |
+| 资源加载 | 尺寸检查与解码使用共享调度器；分阶段注册及真实 GPU 上传使用所有者线程额度 | 大组件、驱动调用及内存的实测对照 |
 | 前端/业务解耦 | Host 管理前端，业务 `.so` 仅使用窄 C ABI；二者在同一 PID | 保留接口边界；耗时业务初始化必须异步，不能阻塞前端 |
 | 独立后台进程 | 没有单独的业务进程；应用实例之间才是独立进程 | 若需要进程隔离，另行实现业务消息端点与进程生命周期 |
 | 预热 | 提前 spawn/exec Host，准备字体、调度器句柄和主题；有任务才创建线程，分配时不再 exec | 优化应用准备关键路径；是否预热 GPU 由分段测量决定 |
@@ -26,22 +26,23 @@
 PrepareFrontend → Bind → 同步读取/解析轻量 Preview → Wayland configure
 → EGL/Ganesh 初始化 → Preview 成功像素提交 → 派发 Master 纯 CPU 准备
 → 事件循环继续处理 Preview / 主题 / 控制 / 实际 presented
-→ critical Master Prepared 且 Preview 实际 presented → 必需图片就绪
-→ 所有者线程安装 critical Master
+→ critical Master Prepared 且 Preview 实际 presented → 分轮申请/等待必需图片
+→ 分批 GPU 上传、节点构造 → 当前主题/绑定/视口下完整预检 → 安装 critical Master
 → 同步 dlopen/create → BackendReady → 后续 Pump 提交、实际呈现 Master
-→ 启用 deferred 纯准备（第四步接入区域挂载）
+→ 启用 deferred 纯准备 → 按已安装依赖选择批次 → 分轮候选构造 → 事务挂载 Slot
 ```
 
-入口为 `prism/host/app_host.cpp` 的 Bind/Pump/StartBusiness，UI 安装为
-`prism/runtime/client_application_scene.cpp` 的 InstallScene，业务入口为
+入口为 `prism/host/app_host.cpp` 的 Bind/Pump，Master 与区域协调分别在
+`app_host_loading.cpp`、`app_host_regions.cpp`；分阶段安装为
+`prism/runtime/client_application_install.cpp` 的 AdvanceUiInstall，业务入口为
 `prism/host/module_session.cpp` 的 Start。第一步将原来的完整树转换拆为纯
 PrepareComponent 和所有者线程 LinkComponent/InstallScene；图片资源只在链接时申请。
 第二步由 LoadSession 派发读取和纯准备；第三步 Host 统一改用 MasterLoadSession +
 TaskScheduler。LoadSession 作为单单元适配器也使用同一调度器，已删除其私有线程；
 链接、Scene 安装及平台对象仍归所有者线程。
 
-后台纯准备期间 Preview 继续响应；所有者线程的链接、Scene 安装、dlopen/create 仍可能
-产生停顿，不能将第二步解释为任意业务加载均不阻塞。BackendReady 仅表示业务通知，
+后台纯准备期间 Preview 继续响应；第四步对节点构造和 GPU 上传分轮推进，但整树快照、
+链接、最终布局/shaping、驱动调用及 dlopen/create 仍可能产生停顿。BackendReady 仅表示业务通知，
 不证明 Master 已提交或呈现。无 Preview 的包同样异步准备，完成后在 Pump 中打开窗口
 并加载业务，BackendReady 仍可早于首次 configure。
 
@@ -86,7 +87,7 @@ GPU/Wayland 归属，也不要求并发修改 Scene 或递归并行布局。
 ## 3. DSL 加载声明
 
 下列是**第三步已实现的 DSL v2 加载语义**：支持加载图编译、组件准备与 critical
-组合；deferred 的稳定区域挂载按第四步实现，当前只保存准备结果。
+组合；第四步接入完整候选事务和 deferred 的稳定区域挂载。
 沿用通用调用、参数、列表和子节点语法，在独立语义编译器中识别加载声明，
 不新增第二套文本 parser，不把加载属性塞进 Skia 或每个控件的绘制属性。
 
@@ -238,7 +239,7 @@ ModuleSession::Start 丢给工作线程会违反现有 Host API 的线程约束�
 - 建议初始图限制为 128 个组件、每文件 1 MiB、合计源码 8 MiB。现有深度 64、节点
   8,192、surface 效果区域 8 等限制需在整个链接结果上累计检查，不能每文件重新获得
   一份额度。第三步已实施这些上限；材质展开后的效果约束仍由当前主题下的 Scene
-  校验，第四步补完整候选预检和事务，数值不代表性能实测。
+  校验；第四步已补完整候选预检和事务，数值不代表性能实测。
 - 所有者线程每轮按任务数量、上传字节及耗时预算取结果；初始建议 CPU 安装预算 2ms。
   必须在单位之间让出事件处理；候选 Scene 构造也要可分段。单个 layout、shaping 或
   GPU 调用仍不能被时间预算抢占，需独立测量；超预算时先拆组件/限制批量，不声称已
@@ -252,7 +253,8 @@ ModuleSession::Start 丢给工作线程会违反现有 Host API 的线程约束�
 ## 7. 实施顺序与验收
 
 第零步已完成现状核对与规范。第一步已提交 `99101cf`，结果记录在第 8 节；第二步
-已提交 `f82ef5d`，记录在第 9 节；第三步记录在第 10 节，第四至六步尚未实现。
+已提交 `f82ef5d`，记录在第 9 节；第三步已提交 `b4fdf5b`，记录在第 10 节。
+第四步见第 11 节，第五、六步尚未实现。
 
 | 步骤 | 实现内容 | 必须证明的结果 |
 | --- | --- | --- |
@@ -606,3 +608,120 @@ legacy 入口提前解析改变适配器时序，已修复并重跑；初始失�
 以上是隔离 headless 会话的正确性回归，测试结束回收 WM 和子进程；未重新打包、替换
 已安装桌面或重启生产服务。并行屏障不构成启动性能结论，实际首屏、最大停顿和内存
 对照仍按第六步进行。
+
+## 11. 第四步：安装事务、稳定区域与所有者线程预算
+
+本轮先提交第三步 `b4fdf5b`，再接入分阶段安装。下述接口位于 SDK/客户端 Scene；
+WM 继续只接收 surface、输入区域、效果和已有呈现契约，launcher 继续只处理生命周期
+与会话准备配额。区域名称来自加载布局，不在 WM、Skia 或业务模块中写入特定应用名。
+
+### 事务与状态归属
+
+- `ComposeCritical` 给每个 Slot 的不可变包装节点附上 region 名及 mounted 状态；
+  critical 为已挂载，deferred 为占位。普通视觉 DSL 不接受 region/mounted 属性；
+  可见占位子节点不等于组件已经挂载。
+- `MasterLoadSession::TakeRegionCompletion` 独立交付 deferred 的 typed 准备结果/错误，
+  不重复交付 critical。Host 保存准备结果，挂载条件另行判断：前置区域必须已安装，
+  或属于同一个待提交批次。准备任务仍按 Prepared 依赖派发，不在池内等待 UI 安装。
+- critical 使用 `StartPreparedInstall → AdvanceUiInstall`。CPU 资源就绪后，构造独立
+  候选，使用安装时的当前 Binding 值、完整主题快照及 viewport；完成布局/绘制列表、
+  surface effects 和 input regions 的整体预检，成功后才替换 Preview Scene。
+- 提交前复用纯 `contracts::ValidateDisplayList` 校验命令数量、字形数量/index、数值
+  及 clip/transform 层次，并检查 shaping/layout metrics。该契约不依赖 Skia；后端
+  继续负责字体/图片句柄与资源注册检查。不能等替换 live Scene 后才发现绘制指令非法。
+- deferred 使用 `StartRegionInstall`。Scene 的 `RegionBlueprint` 生成组合候选，
+  `SceneConstruction` 分段构造，最后 `MountRegions` 只搬运目标包装节点的 children。
+  包装、父级、其他区域的节点对象与 NodeId 保留；既有属性、绑定值、焦点和悬停保持。
+  被删除占位的输入目标失效。新节点 ID 单调追加，旧位置作为空槽，不复用旧身份。
+- 分段候选除拓扑外还校验保留节点的属性与主题引用来源，只允许本次当前 Binding
+  值产生的投影；相同拓扑的外来或篡改候选不能覆盖其他区域。
+- 挂载一次性准备新的节点/绑定/资源表，所有可能失败的校验和分配都发生在提交前。
+  验证失败释放该候选新申请的资源，保留现有树和其他组件。成功批次一次合并 dirty、
+  请求一次更新，沿用同一个 UI generation、surface、EGL 与业务模块。
+- live 属性/绑定、viewport 或主题变化增加 transaction revision；指针悬停与焦点移动
+  不增加该版本。区域候选过期后从当前树重新分段构造；critical 的主题快照改变也重新
+  构造。最终再投影当前值，未挂载时收到的业务状态不会被声明初值覆盖。
+- Host 首轮合并最多四个就绪区域。组合批次失败时回到单区域尝试，以定位实际失败
+  单位，避免一个坏组件使同批有效组件一起丢失。失败 Slot 保留原占位，后继得到安装
+  依赖错误；当前不提供显式重试 UI。critical 失败仍按启动失败退出，保留 Preview。
+
+### 预算与 GPU 上传
+
+`UiInstallLimits` 是平台配置，默认每轮构造最多 128 个节点，分阶段安装的图片申请、
+CPU 注册和候选尺寸更新各最多 2 张，实际 GPU 上传最多 2 张/4 MiB，CPU 检查窗口
+2ms。Host 用 `BeginUiWorkTurn/EndUiWorkTurn` 包围整个 Pump，前后安装及 SDK 上传
+共用额度，时间从首次实际工作开始。`SceneConstruction` 每次仅创建浅节点，再
+交给下一轮；整树快照、符号链接、最终布局/shaping 和驱动调用仍是不可抢占的单元。
+它是协作预算，**不是所有者线程最大停顿的硬保证**；大组件仍需在第六步测量和拆分。
+同步 Open/Replace/Preload 便捷接口和既有 live Scene 的异步图片完成 CPU 注册，
+目前仍有整批处理；它们不属于分阶段安装的图片数硬限制。对应实际 GPU 上传统一
+进入有界队列。生产 Master 使用分阶段入口，后续若扩展富图片 Preview，应继续拆分
+其 live 完成处理，不能把当前安装额度泛化为 SDK 任意入口的工作上限。
+
+图片检查和解码仍使用第三步共享工作池。SkData 注册只关联已解码数据；真正 GLES
+上传使用 `GlesRenderer::UploadImage` 创建并保留 texture-backed SkImage，提交 Ganesh
+上传工作。生产绘制使用这些纹理，不能把 SkData 注册次数称作 GPU 上传次数。相同
+ResourceId 重新注册有独立版本，旧纹理失效；取消/逐出在创建上下文中释放 GPU 对象。
+
+一张图片超过本轮字节额度时，允许作为本轮唯一上传单元，以避免永远无法推进，并
+记录 oversized_uploads。额度限制的是提交的 RGBA 字节估计，不是 PCIe/驱动传输计数
+或 GPU 完成时间；flush/submit 也不等于 GPU 已完成。Ganesh cache 与 EGL/驱动内存
+继续按独立预算计量，不将纹理占用纳入第三步的 CPU 租约。
+
+有 Preview 时先在已有上下文分批预上传，再提交 critical。没有 Preview 时，候选
+完整预检后打开窗口，首次 configure 才创建 EGL/Ganesh；图片上传未完成时通过内部
+`SubmitResult::Deferred` 延后 pixels，不提交效果、frame/presentation 或伪造首帧。
+该结果保留强制首帧请求，Pump 归还控制让上传继续；普通 None 的原有含义保持。
+原生后端 Render 便捷入口可同步上传，生产 SDK 必须经过预算队列。
+
+Host 每个 Pump 至多推进一次安装，控制 FD 优先由外层消费。预算耗尽后回到事件处理；
+准备/解码未完成时等待现有完成 FD，尚未 configure 时等待 Wayland；只有存在可执行
+的安装或上传工作才用零超时继续，没有固定加载轮询。`UiInstallStats` 记录构造节点、
+图片注册、真实上传次数/字节、让出次数、超额单图及最大工作轮耗时，不扩展外部启动
+协议，不把这些局部计数解释为 FPS、首屏提速或输入延迟。
+
+### 验证记录
+
+2026-09-27，在 Pi 4B ARM64 上完成以下验证：
+
+- 最终 GLES 构建通过；完整 CTest **49/49**，17.35 秒。新增区域事务测试覆盖分段
+  构造、稳定 NodeId、悬停/焦点、当前绑定、过期候选、批次顺序、整体节点/深度/效果
+  限制、外来候选及主题引用来源。100000/100001 字形边界、异常 glyph/index/origin/
+  shaping metrics 在提交前校验，失败不改变 live Scene、revision 或像素统计。
+- 真实 Host/V3D 加载门槛 **18/18**：旧单文件十个场景和组件图八个场景。验证
+  critical 预检失败保留 Preview，主题变化后分段重建，deferred 成功挂载、坏图片/
+  材质局部失败、组合失败后有效区域仍安装，以及关键/区域构造中的控制优先与取消。
+- prepared-ui 与 SDK submission 两个真实 V3D 门槛通过。使用每轮 1 个节点、
+  1 张图片、1 字节上传额度检查同一显式工作轮次中 Pump、后续安装和第二次 Pump
+  不重复授予额度；单图超额计数、configure 后 Deferred、纹理就绪前无首帧提交、
+  新 UI generation 的实际呈现及取消/材质失败后的旧绑定保留通过。
+- GPU/pbuffer 测试通过：真实上传、重复上传复用、同 ResourceId 重新注册、释放/
+  注销失效与 CPU 像素对照。Wayland 测试验证 Deferred 保留强制首帧、每次 Pump
+  不重复 preparation、caller FD 可见及恢复提交；完整测试包含这两个门槛。
+- Host 单 surface、就绪时序、ABI 失败和退出，以及待命池分配、SDK/模块 Launch、
+  取消、崩溃、watchdog、会话清理与 launcher 异常死亡后的重启回归通过。
+- 纯加载图与绘制契约、WM/launcher 解耦、无 Qt 符号/依赖审计通过。格式、goto/
+  行数检查及 `git diff --check` 通过：245 个生产文件、61 个测试文件；最大生产
+  文件为 `prism/render_skia/raster_renderer.cpp`，688 行。
+
+```sh
+cmake --build build-gles --parallel 2
+ctest --test-dir build-gles --output-on-failure
+python3 tests/probes/async_master_probe.py build-gles --evidence dist/validation/prism-master-install --mode all
+python3 tests/probes/prepared_ui_probe.py build-gles --evidence dist/validation/prism-master-install/prepared-ui
+python3 tests/probes/app_host_probe.py build-gles
+python3 tests/probes/launcher_pool_probe.py build-gles
+python3 tools/check-code-style.py
+git diff --check
+```
+
+证据位于 `dist/validation/prism-master-install/`：最终构建为 `build-verified.log`，
+测试为 `ctest-final.log`、`native-gates.json`、`prepared-ui/native-gates.json`、
+`runtime-gates.json`、`pure-boundary.json` 和 `style-final.log`。初次构建期间新增的
+工作轮次编译单元尚未进入该次配置，出现缺符号链接错误；重新配置及最终构建通过，
+初始日志 `build.log` 保留。交叉审查发现的候选属性和绘制指令预检缺口已修复，并由
+最终回归覆盖；所有测试和 fixture 在 `tests/`，证据目录被忽略，无新增测试安装规则。
+
+本轮是隔离会话的正确性验证，不打 deb、不替换正在运行的显示器会话，也不将协作
+预算或可控屏障当作性能收益。第五步继续业务异步准备，第六步迁移一个真实多区域
+demo 并做串行/并行的实机性能对照。

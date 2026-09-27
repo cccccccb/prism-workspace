@@ -7,8 +7,12 @@
 #include <string>
 #include <string_view>
 class SkCanvas;
+class SkImage;
 
 namespace prism::render_skia {
+namespace detail {
+class ImageProvider;
+}
 class GlesRenderer;
 
 // Diagnostic CPU backend and shared command/font/image owner for GLES.
@@ -58,7 +62,10 @@ private:
                                                              int width, int height);
     bool Replay(const contracts::DisplayList &list, SkCanvas *canvas) const;
     bool Replay(const contracts::DisplayList &list, SkCanvas *canvas, int width, int height,
-                const contracts::DamageRegion &repair) const;
+                const contracts::DamageRegion &repair,
+                const detail::ImageProvider *images = nullptr) const;
+    const SkImage *RegisteredImage(contracts::ResourceId id) const noexcept;
+    std::uint64_t ImageGeneration(contracts::ResourceId id) const noexcept;
     struct Impl;
     std::unique_ptr<Impl> impl_;
     contracts::ResourceId default_font_{1};

@@ -1,4 +1,5 @@
 #include "prism/render_skia/raster_renderer.hpp"
+#include "image_provider_p.hpp"
 #include "include/core/SkBlurTypes.h"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkData.h"
@@ -14,6 +15,7 @@
 #include "include/core/SkRegion.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkTypeface.h"
+#include "prism/contracts/display_list_validation.hpp"
 #include "prism/runtime/buffer_damage.hpp"
 #include "vector_icons.hpp"
 #include <ft2build.h>
@@ -24,6 +26,7 @@
 #include <cstring>
 #include <hb-ft.h>
 #include <limits>
+#include <stdexcept>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -36,9 +39,14 @@ struct RasterRenderer::Impl {
         sk_sp<SkTypeface> typeface;
     };
 
+    struct ImageResource {
+        sk_sp<SkImage> image;
+        std::uint64_t generation{};
+    };
+
     FT_Library freetype{nullptr};
     std::unordered_map<std::uint64_t, FontResource> fonts;
-    std::unordered_map<std::uint64_t, sk_sp<SkImage>> images;
+    std::unordered_map<std::uint64_t, ImageResource> images;
     std::uint64_t resource_epoch{1};
 
     ~Impl()
@@ -102,101 +110,26 @@ SkRect IntegerHardClip(contracts::LogicalRect rect)
     return SkRect::Make(pixels);
 }
 
-bool ValidRect(contracts::LogicalRect r)
+bool Validate(const contracts::DisplayList &list, const auto &images, const auto &fonts)
 {
-    return std::isfinite(r.x) && std::isfinite(r.y) && std::isfinite(r.width) &&
-           std::isfinite(r.height) && r.width >= 0 && r.height >= 0 && std::abs(r.x) <= 1e6 &&
-           std::abs(r.y) <= 1e6 && r.width <= 1e6 && r.height <= 1e6;
-}
-
-bool Validate(const contracts::DisplayList &list,
-              const std::unordered_map<std::uint64_t, sk_sp<SkImage>> &images, const auto &fonts)
-{
-    if (!list.window || list.commands.size() > 100000) {
+    try {
+        contracts::ValidateDisplayList(list);
+    } catch (const std::invalid_argument &) {
         return false;
     }
-    std::vector<bool> stack;
+
     for (const auto &command : list.commands) {
-        if (auto *rect = std::get_if<contracts::FillRect>(&command)) {
-            if (!ValidRect(rect->bounds)) {
+        if (const auto *image = std::get_if<contracts::DrawImage>(&command)) {
+            if (!image->image || !images.contains(image->image.value)) {
                 return false;
             }
-        } else if (auto *rect = std::get_if<contracts::FillRoundedRect>(&command)) {
-            if (!ValidRect(rect->bounds) || !std::isfinite(rect->radius) || rect->radius < 0) {
+        } else if (const auto *run = std::get_if<contracts::DrawGlyphRun>(&command)) {
+            if (!run->font || !fonts.contains(run->font.value)) {
                 return false;
             }
-        } else if (auto *rect = std::get_if<contracts::StrokeRoundedRect>(&command)) {
-            if (!ValidRect(rect->bounds) || !std::isfinite(rect->radius) || rect->radius < 0 ||
-                !std::isfinite(rect->width) || rect->width < 0 || rect->width > 512) {
-                return false;
-            }
-        } else if (auto *shadow = std::get_if<contracts::RoundedRectShadow>(&command)) {
-            if (!ValidRect(shadow->bounds) || !std::isfinite(shadow->radius) ||
-                shadow->radius < 0 || !std::isfinite(shadow->blur) || shadow->blur < 0 ||
-                shadow->blur > 512 || !std::isfinite(shadow->offset_y) ||
-                std::abs(shadow->offset_y) > 16384) {
-                return false;
-            }
-        } else if (auto *icon = std::get_if<contracts::DrawIcon>(&command)) {
-            if (!ValidRect(icon->bounds) || icon->icon < contracts::VectorIcon::Grid ||
-                icon->icon > contracts::VectorIcon::Error) {
-                return false;
-            }
-        } else if (auto *image = std::get_if<contracts::DrawImage>(&command)) {
-            if (!image->image || !ValidRect(image->destination)) {
-                return false;
-            }
-            if (image->fit < contracts::ImageFit::Fill || image->fit > contracts::ImageFit::Cover) {
-                return false;
-            }
-            if (!images.contains(image->image.value)) {
-                return false;
-            }
-        } else if (auto *run = std::get_if<contracts::DrawGlyphRun>(&command)) {
-            if (!run->font || !fonts.contains(run->font.value) || run->glyphs.size() > 100000 ||
-                !std::isfinite(run->font_size) || run->font_size <= 0 || run->font_size > 512) {
-                return false;
-            }
-            for (auto glyph : run->glyphs) {
-                if (glyph.glyph_index > UINT16_MAX || !std::isfinite(glyph.origin.x) ||
-                    !std::isfinite(glyph.origin.y)) {
-                    return false;
-                }
-            }
-        } else if (auto *clip = std::get_if<contracts::PushClipRect>(&command)) {
-            if (!ValidRect(clip->bounds) || stack.size() >= 256) {
-                return false;
-            }
-            stack.push_back(true);
-        } else if (auto *clip = std::get_if<contracts::PushClipRoundedRect>(&command)) {
-            if (!ValidRect(clip->bounds) || !std::isfinite(clip->radius) || clip->radius < 0 ||
-                stack.size() >= 256) {
-                return false;
-            }
-            stack.push_back(true);
-        } else if (auto *transform = std::get_if<contracts::PushTransform>(&command)) {
-            if (stack.size() >= 256) {
-                return false;
-            }
-            for (double v : transform->values) {
-                if (!std::isfinite(v) || std::abs(v) > 1e6) {
-                    return false;
-                }
-            }
-            stack.push_back(false);
-        } else if (std::holds_alternative<contracts::PopClip>(command)) {
-            if (stack.empty() || !stack.back()) {
-                return false;
-            }
-            stack.pop_back();
-        } else if (std::holds_alternative<contracts::PopTransform>(command)) {
-            if (stack.empty() || stack.back()) {
-                return false;
-            }
-            stack.pop_back();
         }
     }
-    return stack.empty();
+    return true;
 }
 
 // The same SkPaint/SkFont configuration used by replay supplies ink bounds.
@@ -315,7 +248,8 @@ bool RasterRenderer::RegisterImage(contracts::ResourceId id, const runtime::Deco
     if (!sk_image) {
         return false;
     }
-    impl_->images[id.value] = std::move(sk_image);
+    impl_->images.insert_or_assign(
+        id.value, Impl::ImageResource{std::move(sk_image), impl_->resource_epoch + 1});
     ++impl_->resource_epoch;
     return true;
 }
@@ -349,7 +283,8 @@ bool RasterRenderer::RegisterImage(contracts::ResourceId id, const runtime::Deco
     if (!sk_image) {
         return false;
     }
-    impl_->images[id.value] = std::move(sk_image);
+    impl_->images.insert_or_assign(
+        id.value, Impl::ImageResource{std::move(sk_image), impl_->resource_epoch + 1});
     ++impl_->resource_epoch;
     return true;
 }
@@ -359,6 +294,18 @@ void RasterRenderer::UnregisterImage(contracts::ResourceId id)
     if (impl_->images.erase(id.value) && impl_->resource_epoch != UINT64_MAX) {
         ++impl_->resource_epoch;
     }
+}
+
+const SkImage *RasterRenderer::RegisteredImage(contracts::ResourceId id) const noexcept
+{
+    const auto found = impl_->images.find(id.value);
+    return found == impl_->images.end() ? nullptr : found->second.image.get();
+}
+
+std::uint64_t RasterRenderer::ImageGeneration(contracts::ResourceId id) const noexcept
+{
+    const auto found = impl_->images.find(id.value);
+    return found == impl_->images.end() ? 0 : found->second.generation;
 }
 
 std::uint64_t RasterRenderer::ResourceEpoch() const
@@ -584,7 +531,8 @@ bool RasterRenderer::Replay(const contracts::DisplayList &list, SkCanvas *canvas
 }
 
 bool RasterRenderer::Replay(const contracts::DisplayList &list, SkCanvas *canvas, int width,
-                            int height, const contracts::DamageRegion &repair) const
+                            int height, const contracts::DamageRegion &repair,
+                            const detail::ImageProvider *images) const
 {
     if (!Ready() || !canvas || !Validate(list, impl_->images, impl_->fonts)) {
         return false;
@@ -595,6 +543,14 @@ bool RasterRenderer::Replay(const contracts::DisplayList &list, SkCanvas *canvas
     }
     if (!clipped->full && clipped->rects.empty()) {
         return true;
+    }
+    if (images) {
+        for (const auto &command : list.commands) {
+            const auto *image = std::get_if<contracts::DrawImage>(&command);
+            if (image && !images->Find(image->image)) {
+                return false;
+            }
+        }
     }
     SkAutoCanvasRestore restore(canvas, true);
     if (!clipped->full) {
@@ -669,7 +625,8 @@ bool RasterRenderer::Replay(const contracts::DisplayList &list, SkCanvas *canvas
                                    SkPoint::Make(0, 0), font, paint);
             }
         } else if (auto *image = std::get_if<contracts::DrawImage>(&command)) {
-            auto resource = impl_->images.at(image->image.value);
+            const auto *resource = images ? images->Find(image->image)
+                                          : impl_->images.at(image->image.value).image.get();
             auto destination = ToSkRect(image->destination);
             if (destination.isEmpty()) {
                 continue;

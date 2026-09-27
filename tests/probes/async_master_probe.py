@@ -78,6 +78,8 @@ def packages(root, fixture):
         "bad-read": (True, MASTER),
         "cancel-preview": (True, MASTER),
         "cancel-master-only": (False, MASTER),
+        "cancel-install": (True, 'VStack { Text($status)' +
+                           ''.join('Text("Staged static label")' for _ in range(1000)) + '}'),
     }
     for name, (preview, master) in cases.items():
         package = root / name
@@ -104,14 +106,32 @@ def packages(root, fixture):
 
 
 def graph_packages(root, fixture, checker):
-    for name in ("graph-critical", "graph-bad-source", "graph-bad-image"):
+    for name in ("graph-critical", "graph-bad-source", "graph-bad-image",
+                 "graph-bad-effects", "graph-late-bad-image", "graph-late-bad-theme",
+                 "graph-batch-failure", "graph-cancel-deferred"):
         package = root / name
         (package / "assets").mkdir(parents=True)
         (package / "components").mkdir()
-        (package / "master.prism").write_text(GRAPH, encoding="utf-8")
-        (package / "layout.prism").write_text(GRAPH_LAYOUT, encoding="utf-8")
+        graph, layout = GRAPH, GRAPH_LAYOUT
+        if name == "graph-batch-failure":
+            graph = GRAPH.rsplit('}', 1)[0] + 'Component(id:"later",source:"components/later.prism",phase:"deferred") }'
+            layout = GRAPH_LAYOUT.replace('Slot(component:"late",height:32)',
+                                          'Slot(component:"later",height:32) Slot(component:"late",height:32)')
+        (package / "master.prism").write_text(graph, encoding="utf-8")
+        (package / "layout.prism").write_text(layout, encoding="utf-8")
         (package / "preview.prism").write_text(PREVIEW, encoding="utf-8")
-        for component, source in GRAPH_UNITS.items():
+        sources = dict(GRAPH_UNITS)
+        if name == "graph-bad-effects":
+            sources["first"] = 'VStack { Text($status) HStack {' + ''.join(
+                'Card(material:"probe",width:8,height:8) {}' for _ in range(9)) + '} }'
+        if name == "graph-late-bad-image":
+            sources["late"] = 'HStack { Text($future) Image("bad-late.png",width:16,height:16) }'
+            (package / "assets/bad-late.png").write_bytes(b"Invalid deferred PNG fixture\n")
+        if name in ("graph-late-bad-theme", "graph-batch-failure"):
+            sources["late"] = 'Card(material:"missing") { Text($future) }'
+        if name == "graph-batch-failure":
+            sources["later"] = 'Text($future,font:12)'
+        for component, source in sources.items():
             (package / "components" / (component + ".prism")).write_text(
                 source, encoding="utf-8")
         shutil.copyfile(fixture, package / "business.so")
@@ -134,7 +154,7 @@ def run(build, evidence, mode="all"):
     evidence.mkdir(parents=True, exist_ok=True)
     report = {"build": str(build), "gate": "native-async-master", "mode": mode, "passed": False,
               "wm_reclaimed": False,
-              "expected_scenarios": {"all": 12, "legacy": 9, "graph": 3}[mode],
+              "expected_scenarios": {"all": 18, "legacy": 10, "graph": 8}[mode],
               "scope": "deterministic compiler barrier, not a latency/performance benchmark"}
     with tempfile.TemporaryDirectory(prefix="prism-async-master-") as runtime:
         runtime_root = Path(runtime)

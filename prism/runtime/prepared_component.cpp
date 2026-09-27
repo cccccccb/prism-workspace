@@ -39,6 +39,8 @@ Blueprint LinkNode(const PreparedNode &node, const std::vector<contracts::Resour
 {
     Blueprint result;
     result.kind = node.kind;
+    result.region = node.region;
+    result.region_mounted = node.region_mounted;
     result.allowed_properties = node.allowed_properties;
     result.bindings = node.bindings;
     result.theme_refs = node.theme_refs;
@@ -65,7 +67,7 @@ std::uint64_t NodeBytes(const PreparedNode &node) noexcept
     std::uint64_t bytes = node.properties.capacity() * sizeof(PreparedPropertyAssignment) +
                           node.bindings.capacity() * sizeof(PropertyBinding) +
                           node.theme_refs.capacity() * sizeof(ThemeRef) +
-                          node.children.capacity() * sizeof(PreparedNode);
+                          node.children.capacity() * sizeof(PreparedNode) + node.region.capacity();
     for (const auto &property : node.properties) {
         if (const auto *text = std::get_if<std::string>(&property.value)) {
             bytes += text->capacity();

@@ -1,4 +1,5 @@
 #include "prism/render_skia/gles_renderer.hpp"
+#include "gles_renderer_p.hpp"
 #include "include/core/SkColorSpace.h"
 #include "include/core/SkSurface.h"
 #include "include/gpu/GrBackendSurface.h"
@@ -19,22 +20,6 @@ GrGLFuncPtr ResolveGlFunction(void *, const char *name)
     return eglGetProcAddress(name);
 }
 } // namespace
-
-struct GlesRenderer::Impl {
-    explicit Impl(const RasterRenderer &source) : commands(source)
-    {
-    }
-
-    const RasterRenderer &commands;
-    sk_sp<GrDirectContext> context;
-    sk_sp<SkSurface> surface;
-    EGLDisplay egl_display = EGL_NO_DISPLAY;
-    EGLContext egl_context = EGL_NO_CONTEXT;
-    int width = 0;
-    int height = 0;
-    GLint framebuffer = -1;
-    GlesRenderStats stats{};
-};
 
 GlesRenderer::GlesRenderer(const RasterRenderer &commands, GlesRendererOptions options)
     : impl_(std::make_unique<Impl>(commands))
@@ -60,7 +45,7 @@ GlesRenderer::~GlesRenderer()
 
 bool GlesRenderer::Ready() const
 {
-    return impl_->context != nullptr;
+    return impl_->context && !impl_->context->abandoned();
 }
 
 void GlesRenderer::Close()
@@ -70,6 +55,7 @@ void GlesRenderer::Close()
         Abandon();
         return;
     }
+    impl_->images.clear();
     impl_->surface.reset();
     impl_->context.reset();
 }
@@ -79,6 +65,7 @@ void GlesRenderer::Abandon()
     if (impl_->context) {
         impl_->context->abandonContext();
     }
+    impl_->images.clear();
     impl_->surface.reset();
     impl_->context.reset();
 }
@@ -107,6 +94,10 @@ bool GlesRenderer::Render(const contracts::DisplayList &list, int width, int hei
     if (!normalized) {
         return false;
     }
+    const bool empty = !normalized->full && normalized->rects.empty();
+    if (!empty && !EnsureImages(list)) {
+        return false;
+    }
     GLint framebuffer = 0, samples = 0, stencil = 0;
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebuffer);
     glGetIntegerv(GL_SAMPLES, &samples);
@@ -129,7 +120,8 @@ bool GlesRenderer::Render(const contracts::DisplayList &list, int width, int hei
         impl_->height = height;
         impl_->framebuffer = framebuffer;
     }
-    if (!impl_->commands.Replay(list, impl_->surface->getCanvas(), width, height, *normalized)) {
+    if (!impl_->commands.Replay(list, impl_->surface->getCanvas(), width, height, *normalized,
+                                impl_.get())) {
         return false;
     }
     if (!normalized->full && normalized->rects.empty()) {

@@ -63,6 +63,10 @@ struct PreparedNode {
     std::uint64_t allowed_properties{UINT64_MAX};
     std::vector<PreparedNode> children;
     int line{1};
+    // Named mount wrapper. Only the layout compiler/composer assigns this;
+    // ordinary visual DSL cannot invent a region or a live node identity.
+    std::string region;
+    bool region_mounted{};
 };
 
 using ResolveImage = std::function<contracts::ResourceId(std::string_view)>;

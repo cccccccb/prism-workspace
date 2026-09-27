@@ -53,21 +53,16 @@ ClientApplication::Impl::PrepareSubmit(const platform::SubmitRequest &request)
 
     try {
         if (pixels) {
-            if (!app.egl.Ready()) {
-                if (!app.egl.Open(request.display, request.surface, request.width,
-                                  request.height)) {
-                    throw std::runtime_error("EGL surface initialization failed");
-                }
-                app.gl_renderer = app.egl.GlRenderer();
-                const auto capability = app.egl.Capabilities();
-                app.render_stats.buffer_age_supported = capability.buffer_age;
-                app.render_stats.swap_damage_supported = capability.swap_damage;
-                app.render_stats.partial_update_supported = capability.partial_update;
-                app.damage_history.Reset({static_cast<std::uint32_t>(request.width),
-                                          static_cast<std::uint32_t>(request.height)});
-            }
-            if (!app.egl.Resize(request.width, request.height) || !app.egl.MakeCurrent()) {
+            if (!app.EnsureRenderer(request.width, request.height)) {
                 throw std::runtime_error("EGL renderer unavailable");
+            }
+            if (!app.ImagesUploaded()) {
+                for (auto value : app.scene_images) {
+                    if (app.registered_images.contains(value)) {
+                        app.QueueImageUpload({value});
+                    }
+                }
+                return platform::SubmitResult::Deferred;
             }
 
             if (!app.last_list || runtime::Has(dirty, runtime::Dirty::Layout) ||
@@ -119,16 +114,6 @@ ClientApplication::Impl::PrepareSubmit(const platform::SubmitRequest &request)
                 throw std::runtime_error("EGL repair declaration failed");
             }
 
-            if (!app.renderer) {
-                render_skia::GlesRendererOptions options;
-                if (app.config.gpu_resource_cache_bytes) {
-                    options.resource_cache_bytes = *app.config.gpu_resource_cache_bytes;
-                }
-                app.renderer = std::make_unique<render_skia::GlesRenderer>(app.commands, options);
-            }
-            if (!app.renderer->Ready()) {
-                throw std::runtime_error("GPU renderer unavailable");
-            }
         } else if (!runtime::Has(dirty, runtime::Dirty::Composite)) {
             return platform::SubmitResult::None;
         }

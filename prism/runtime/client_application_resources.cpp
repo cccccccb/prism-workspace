@@ -8,8 +8,7 @@ void ClientApplication::Impl::ReleaseUnusedImages(const std::set<std::uint64_t> 
     for (auto value : previous) {
         if (!keep.contains(value)) {
             const contracts::ResourceId id{value};
-            commands.UnregisterImage(id);
-            resources.Release(id);
+            DropImage(id);
         }
     }
 }
@@ -17,9 +16,8 @@ void ClientApplication::Impl::ReleaseUnusedImages(const std::set<std::uint64_t> 
 void ClientApplication::Impl::ClearPreloadedImages()
 {
     for (auto value : preloaded_images) {
-        if (!scene_images.contains(value)) {
-            commands.UnregisterImage({value});
-            resources.Release({value});
+        if (!scene_images.contains(value) && (!install || !install->owned_images.contains(value))) {
+            DropImage({value});
         }
     }
     preloaded_images.clear();
@@ -31,7 +29,7 @@ bool ClientApplication::PreloadImages(runtime::UiLoadId load,
                                       runtime::LoadDiagnostic *diagnostic)
 {
     auto &app = *impl_;
-    if (!prepared || !app.ui_load.Current(load) || app.failed || app.closed) {
+    if (!prepared || !app.ui_load.Current(load) || app.failed || app.closed || app.install) {
         if (diagnostic) {
             *diagnostic = {runtime::LoadStage::Cancelled,
                            prepared ? prepared.Source() : runtime::ComponentSource{}, 0,

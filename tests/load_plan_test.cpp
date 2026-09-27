@@ -339,6 +339,8 @@ void CheckComposition()
         (Texts(first.Root()) == std::vector<std::string>{"FIRST", "SECOND", "Deferred pending"}));
     assert(Texts(first.Root()) == Texts(reversed.Root()));
     assert(first.Root().children[0].kind == Kind::Box);
+    assert(first.Root().children[0].region == "first" && first.Root().children[0].region_mounted);
+    assert(first.Root().children[2].region == "later" && !first.Root().children[2].region_mounted);
     assert(first.Root().children[0].children.size() == 1);
     assert(first.Root().children[1].children[0].theme_refs[0].name == "late_theme");
     assert(first.Images().size() == 1 && first.Images()[0].uri == "checker.png");
@@ -347,6 +349,8 @@ void CheckComposition()
                                 units[1].prepared.SourceBytes() + units[2].prepared.SourceBytes();
     assert(first.SourceBytes() == expected_bytes && reversed.SourceBytes() == expected_bytes);
     const auto linked = LinkComponent(first, ImageResolver{});
+    assert(linked.children[0].region == "first" && linked.children[0].region_mounted);
+    assert(linked.children[2].region == "later" && !linked.children[2].region_mounted);
     const auto &image = linked.children[0].children[0].children[1];
     const auto &placeholder_image = linked.children[2].children[0].children[1];
     assert(std::get<prism::contracts::ResourceId>(image.properties[0].value).value == 77);

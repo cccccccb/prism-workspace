@@ -114,14 +114,31 @@ BackendReady 与 FirstPresented 是可独立发生的里程碑，上图不规定
 ### 2026-09-27 新功能执行顺序
 
 统一 Host、待命池、Preview 同 surface 切换与会话生产入口已经完成；单单元 Master 后台
-纯准备在新阶段第二步提交 `f82ef5d`，第三步已接入组件并行图与共享资源预算；
-分阶段挂载和业务异步准备待后续步骤。当前工厂采用最终 Host
+纯准备在新阶段第二步提交 `f82ef5d`，第三步组件并行图与共享资源预算已提交
+`b4fdf5b`；第四步现已接入候选安装事务、稳定 deferred 区域挂载及所有者轮次
+构造/图片上传预算，完整 CTest 49/49、原生加载 18/18 及 SDK/Host/待命池回归通过。
+第五步业务异步准备、第六步真实 demo
+性能对照尚未实现。当前工厂采用最终 Host
 提前 spawn，自身准备后待命；第 3 节的
 CPU seed 图是策略候选，不是当前进程实现。GPU 预热和独立业务进程也没有实现。
 
 渲染优化之后，按 [MASTER_PARALLEL_LOADING.md](MASTER_PARALLEL_LOADING.md) 的六步
 推进：准备/安装契约、异步 Master、组件图与资源调度、分阶段安装、业务异步准备、
 demo 与实机测量。新阶段不得将 FirstPresented/BackendReady 合并解释为 Master 已显示。
+
+第四步继续在最终 Host 的事件线程持有 Scene、字体、EGL/GPU 与 Wayland。纯准备
+结果先作为 detached 候选分轮构造，以当前主题、视口、绑定和事务版本整体预检后
+提交；取消或局部失败保留原界面。deferred 只在 Master 真实呈现后准备，并按依赖
+在稳定 Region 边界小批次挂载，未挂载的声明 binding 保留最新业务值。安装与业务
+初始化仍是不同阶段，当前业务 create/action/tick 依旧同步执行。
+
+完整 Host Pump 使用 `BeginUiWorkTurn` / `EndUiWorkTurn` 共享一个节点、资源数量、
+上传字节和协作式 CPU 截止时间预算，包括 Pump 前后两段安装与前端上传。GLES
+上传实际创建并保留纹理、在所属上下文 flush/submit，不能拿 CPU 注册代替；首帧
+configure 后的未完成上传用 `Deferred` 返回所有者，保留请求而不产生假提交或反馈。
+原子大图片超额单独计数，预检、单次 shaping/布局和驱动调用不可抢占；当前不宣称
+硬实时或性能改善。具体规则见
+[APP_HOST_RUNTIME.md 第 13 节](APP_HOST_RUNTIME.md#13-第四步安装事务与所有者线程预算)。
 
 ## 9. 实施状态与下一门槛
 

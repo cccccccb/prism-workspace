@@ -98,6 +98,8 @@ void MasterLoadSession::Impl::Dispatch()
                              {unit.id, (plan->package_root / unit.source_path).string(), {}},
                              unit.line,
                              "Component dependency failed: " + name});
+                        region_completions.push_back(
+                            {request->load, unit.id, {}, deferred_diagnostics.back()});
                         changed = true;
                         break;
                     }
@@ -205,6 +207,10 @@ void MasterLoadSession::Impl::Complete(TaskCompletion result)
         if (deferred) {
             deferred_diagnostics.push_back(std::move(*diagnostic));
             units[result.id - 4].complete = true;
+            region_completions.push_back({request->load,
+                                          plan->components[result.id - 4].id,
+                                          {},
+                                          deferred_diagnostics.back()});
         } else {
             Fail(std::move(*diagnostic));
         }
@@ -241,6 +247,8 @@ void MasterLoadSession::Impl::Complete(TaskCompletion result)
         units[i].prepared = output->prepared->WithRetention(result.output);
         if (deferred) {
             ++stats.deferred_prepared;
+            region_completions.push_back(
+                {request->load, plan->components[i].id, units[i].prepared, {}});
         } else {
             ++stats.critical_prepared;
         }
@@ -265,6 +273,19 @@ std::optional<MasterLoadCompletion> MasterLoadSession::TakeCompletion()
     return result;
 }
 
+std::optional<MasterRegionCompletion> MasterLoadSession::TakeRegionCompletion()
+{
+    auto &self = *impl_;
+    self.Drain();
+    if (self.failed || self.stopped || self.region_completions.empty()) {
+        return std::nullopt;
+    }
+
+    auto result = std::move(self.region_completions.front());
+    self.region_completions.pop_front();
+    return result;
+}
+
 void MasterLoadSession::MasterPresented(UiLoadId load)
 {
     auto &self = *impl_;
@@ -285,6 +306,7 @@ void MasterLoadSession::Cancel(UiLoadId load)
     if (self.delivered) {
         self.failed = true;
         self.CancelTasks();
+        self.region_completions.clear();
         return;
     }
 
@@ -303,6 +325,7 @@ void MasterLoadSession::Stop()
     self.stopped = true;
     self.channel->Stop();
     self.completion.reset();
+    self.region_completions.clear();
     self.units.clear();
     self.layout.reset();
     self.plan.reset();

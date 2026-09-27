@@ -174,12 +174,22 @@ Slot(component: "f")
     session.TakeCompletion();
     assert(!gate.Entered("f"));
     assert(session.DeferredDiagnostics().size() == 2);
+    auto region = session.TakeRegionCompletion();
+    assert(region && region->load == load && region->component == "d" && region->prepared &&
+           !region->diagnostic);
+    const auto bad = session.TakeRegionCompletion();
+    assert(bad && bad->component == "e" && bad->diagnostic && !bad->prepared);
+    const auto dependent = session.TakeRegionCompletion();
+    assert(dependent && dependent->component == "f" && dependent->diagnostic &&
+           !dependent->prepared);
+    assert(!session.TakeRegionCompletion());
     const auto held = budget->Stats().retained_bytes;
     assert(held > 0);
     session.Stop();
     assert(budget->Stats().active == 0 && scheduler->Stats().outstanding == 0);
     result.prepared.reset();
     result.plan.reset();
+    region.reset();
     assert(budget->Stats().reserved_bytes == 0);
 }
 
@@ -219,6 +229,7 @@ Slot(component: "e")
         session.MasterPresented(load);
         gate.Release("d");
         assert(!session.TakeCompletion());
+        assert(!session.TakeRegionCompletion());
         session.Stop();
         assert(session.Stats().deferred_started == started);
         assert(session.Stats().deferred_prepared == 0);

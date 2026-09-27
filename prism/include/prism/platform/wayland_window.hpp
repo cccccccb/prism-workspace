@@ -34,7 +34,7 @@ struct prism_surface_effect_v1;
 
 namespace prism::platform {
 
-enum class SubmitResult { None, State, Pixels, Failed };
+enum class SubmitResult { None, State, Pixels, Failed, Deferred };
 
 struct SubmitRequest {
     wl_display *display{};
@@ -76,6 +76,9 @@ public:
 
     // Prepare Pixels renders an uncommitted WSI buffer; only commit_pixels
     // swaps it, after the window requests its frame/presentation objects.
+    // Deferred preserves the request and yields one owner turn without a
+    // commit or observer notification. Use it for bounded work that can make
+    // progress next turn; None remains the result for no currently ready work.
     // State and None never request those objects. Failed is terminal: callbacks
     // must release external WSI resources before returning failure, then the
     // window destroys its surface to discard pending server-side state.
@@ -97,6 +100,16 @@ public:
     void SetSurfaceEffects(std::span<const contracts::SurfaceEffectRegion> regions);
     void SetInputRegions(std::span<const contracts::SurfaceInputRegion> regions);
     void Close();
+
+    wl_display *Display() const noexcept
+    {
+        return display_;
+    }
+
+    wl_surface *Surface() const noexcept
+    {
+        return surface_;
+    }
 
     bool IsConfigured() const
     {
@@ -295,6 +308,7 @@ private:
     bool state_pending_{false};
     bool failed_{false};
     bool dispatching_{false};
+    bool submission_deferred_{false};
     bool close_requested_{false};
 };
 

@@ -37,7 +37,10 @@ bool ClientApplication::ConfigureWindow(ClientConfig config)
     if (impl_->closed || impl_->opened_once || config.font_path != impl_->config.font_path) {
         return false;
     }
-    if (config.task_scheduler != impl_->config.task_scheduler) {
+    if (config.task_scheduler != impl_->config.task_scheduler ||
+        !config.install_limits.nodes_per_turn || !config.install_limits.images_per_turn ||
+        !config.install_limits.upload_bytes_per_turn ||
+        config.install_limits.cpu_per_turn.count() <= 0) {
         return false;
     }
     impl_->config = std::move(config);
@@ -79,6 +82,7 @@ runtime::UiLoadId ClientApplication::BeginUiLoad()
     if (impl_->closed || impl_->failed) {
         return {};
     }
+    impl_->DiscardInstall(runtime::UiInstallState::Cancelled);
     impl_->ClearPreloadedImages();
     return impl_->ui_load.Begin();
 }
@@ -86,6 +90,7 @@ runtime::UiLoadId ClientApplication::BeginUiLoad()
 void ClientApplication::CancelUiLoad()
 {
     impl_->ui_load.Cancel();
+    impl_->DiscardInstall(runtime::UiInstallState::Cancelled);
     impl_->ClearPreloadedImages();
 }
 
@@ -139,20 +144,19 @@ bool ClientApplication::OpenPrepared(runtime::UiLoadId load,
         return false;
     }
 
-    app.window.SetEventHandler(std::bind_front(&Impl::HandleWindowEvent, &app));
-    app.window.SetSubmitHandlers(std::bind_front(&Impl::PrepareSubmit, &app),
-                                 std::bind_front(&Impl::CommitPixels, &app),
-                                 std::bind_front(&Impl::Submitted, &app));
-    app.window.SetPresentationHandler(std::bind_front(&Impl::HandlePresentation, &app));
-
-    if (!app.window.Open(app.config.socket, app.config.app_id, app.config.title, app.config.width,
-                         app.config.height)) {
+    if (!app.OpenWindow(diagnostic, prepared.Source())) {
         if (app.scene) {
             AddSceneStats(app.render_stats, app.scene->GetRenderStats());
         }
         app.window.Close();
         app.scene.reset();
+        const auto discarded_images = app.scene_images;
         app.scene_images.clear();
+        for (auto value : discarded_images) {
+            if (!app.preloaded_images.contains(value)) {
+                app.DropImage({value});
+            }
+        }
         app.installed_ui = previous_ui;
         app.ui_presentation.Clear();
         app.prepared_ui = {};
@@ -190,6 +194,7 @@ void ClientApplication::Impl::FailFrontend()
 {
     failed = true;
     ui_load.Cancel();
+    DiscardInstall(runtime::UiInstallState::Cancelled);
     ui_presentation.Clear();
     prepared_ui = {};
     on_ui_submitted = {};
@@ -204,13 +209,12 @@ bool ClientApplication::Impl::PollResources()
             continue;
         }
         const auto *image = resources.Get(update.id);
-        if (update.state != runtime::ImageState::Ready || !image ||
-            !commands.RegisterImage(update.id, *image, resources.Retain(update.id)) ||
+        if (update.state != runtime::ImageState::Ready || !image || !RegisterImage(update.id) ||
             !scene->ImageReady(update.id, update.intrinsic_size)) {
             FailFrontend();
             continue;
         }
-        ++loaded_images;
+        QueueImageUpload(update.id);
         if (scene->PendingDirty() != runtime::Dirty::None) {
             window.RequestUpdate(true);
         }
@@ -221,6 +225,10 @@ bool ClientApplication::Impl::PollResources()
 bool ClientApplication::Pump(int timeout_ms, std::span<pollfd> wake_fds)
 {
     auto &app = *impl_;
+    if (!app.ui_work_turn_explicit && !app.install_advanced_since_pump) {
+        app.ResetUiWorkBudget();
+    }
+    Impl::PumpTurnGuard work_turn{app};
     for (auto &fd : wake_fds) {
         fd.revents = 0;
     }
@@ -236,6 +244,14 @@ bool ClientApplication::Pump(int timeout_ms, std::span<pollfd> wake_fds)
         if (app.failed) {
             app.window.Close();
             return false;
+        }
+        if (!app.AdvanceImageUploads()) {
+            app.FailFrontend();
+            app.window.Close();
+            return false;
+        }
+        if (app.ui_work_turn_started || (!app.upload_queue.empty() && app.window.IsConfigured())) {
+            timeout_ms = 0;
         }
 
         std::vector<pollfd> sources;
@@ -285,6 +301,7 @@ bool ClientApplication::SetBinding(std::string_view name, runtime::PropertyValue
     if (!app.scene || !app.scene->AcceptsBinding(name, value)) {
         return false;
     }
+    app.binding_values.insert_or_assign(std::string(name), value);
     app.scene->SetBinding(name, std::move(value));
     if (app.scene->PendingDirty() != runtime::Dirty::None) {
         app.window.RequestUpdate(true);
@@ -404,6 +421,8 @@ void ClientApplication::Close()
     }
     impl_->closed = true;
     impl_->ui_load.Cancel();
+    impl_->DiscardInstall(runtime::UiInstallState::Cancelled);
+    impl_->ClearPreloadedImages();
     impl_->ui_presentation.Clear();
     impl_->prepared_ui = {};
     impl_->on_ui_submitted = {};
@@ -416,5 +435,12 @@ void ClientApplication::Close()
     }
     impl_->scene.reset();
     impl_->last_list.reset();
+    const auto discarded_images = impl_->scene_images;
+    impl_->scene_images.clear();
+    for (auto value : discarded_images) {
+        impl_->DropImage({value});
+    }
+    impl_->upload_queue.clear();
+    impl_->queued_uploads.clear();
 }
 } // namespace prism::sdk

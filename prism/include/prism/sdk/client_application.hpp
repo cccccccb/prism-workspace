@@ -1,7 +1,9 @@
 #pragma once
 #include "prism/contracts/theme.hpp"
 #include "prism/runtime/prepared_component.hpp"
+#include "prism/runtime/prepared_regions.hpp"
 #include "prism/runtime/property.hpp"
+#include "prism/runtime/ui_install.hpp"
 #include "prism/runtime/ui_load.hpp"
 #include "prism/sdk/ui_presentation.hpp"
 #include <cstddef>
@@ -38,6 +40,7 @@ struct ClientConfig {
     // the same renderer and content damage contract, with full pixel repair.
     bool partial_rendering{true};
     std::shared_ptr<runtime::TaskScheduler> task_scheduler{};
+    runtime::UiInstallLimits install_limits{};
 };
 
 // Cumulative observations for this ClientApplication, including UI replacement.
@@ -85,6 +88,20 @@ public:
                       runtime::LoadDiagnostic *diagnostic = nullptr);
     bool ReplaceUiPrepared(runtime::UiLoadId load, const runtime::PreparedComponent &prepared,
                            runtime::LoadDiagnostic *diagnostic = nullptr);
+    bool StartPreparedInstall(runtime::UiLoadId load, const runtime::PreparedComponent &prepared,
+                              runtime::LoadDiagnostic *diagnostic = nullptr);
+    bool StartRegionInstall(runtime::UiLoadId load,
+                            std::span<const runtime::PreparedRegion> regions,
+                            runtime::LoadDiagnostic *diagnostic = nullptr);
+    runtime::UiInstallState AdvanceUiInstall(const runtime::BindingValues &bindings,
+                                             runtime::LoadDiagnostic *diagnostic = nullptr);
+    bool UiInstallPending() const noexcept;
+    bool UiInstallNeedsWork() const noexcept;
+    // Owner-only work scope. Nested Begin throws; an unbalanced End returns
+    // false. All installs/uploads in a scope share a lazily started allowance.
+    void BeginUiWorkTurn();
+    bool EndUiWorkTurn() noexcept;
+    runtime::UiInstallStats GetUiInstallStats() const noexcept;
     // Stage required images while keeping the current Scene. Resource parsing
     // and decode share the Host scheduler; registration stays on this owner.
     bool PreloadImages(runtime::UiLoadId, const runtime::PreparedComponent &,

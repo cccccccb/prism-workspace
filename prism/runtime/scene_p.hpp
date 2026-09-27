@@ -9,6 +9,9 @@ namespace prism::runtime {
 struct Scene::Node {
     contracts::NodeId id{};
     Kind kind{Kind::Box};
+    std::string region;
+    bool region_mounted{false};
+    std::vector<PropertyBinding> bindings;
     Node *parent{};
     Style style{};
     std::map<DslProperty, PropertyValue> properties;
