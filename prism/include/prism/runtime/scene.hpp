@@ -66,6 +66,12 @@ struct ShapedText {
 };
 using ShapeText = std::function<ShapedText(std::string_view, double)>;
 
+// Per-scene work; isolated theme validation candidates have their own counters.
+struct SceneRenderStats {
+    std::uint64_t build_calls{}, builds{}, layouts{};
+    bool operator==(const SceneRenderStats&) const = default;
+};
+
 class Scene {
 public:
     explicit Scene(Blueprint root, ShapeText shaper, contracts::ResourceId font = {},
@@ -86,7 +92,12 @@ public:
     std::optional<contracts::DisplayList> Build(contracts::WindowId window);
     std::optional<std::string> ActionAt(contracts::LogicalPoint point) const;
     Dirty PendingDirty() const { return dirty_; }
+    // Content invalidation is independent of display-list builds or surface
+    // commits. A failed presentation can retry an already-built list.
+    std::uint64_t PixelsRevision() const { return pixels_revision_; }
+    void AcknowledgeComposite();
     std::uint64_t Generation() const { return generation_; }
+    SceneRenderStats GetRenderStats() const { return {build_calls_, generation_, layout_count_}; }
     contracts::NodeId RootId() const;
     contracts::LogicalRect Bounds(contracts::NodeId id) const;
     bool IsVisible(contracts::NodeId id) const;
@@ -105,6 +116,7 @@ private:
     void ApplyCachedProperty(Node& node, DslProperty property, const PropertyValue& value);
     PropertyValue CurrentProperty(const Node& node, DslProperty property) const;
     std::optional<std::string> Hit(const Node& node, contracts::LogicalPoint point) const;
+    void Invalidate(Dirty affected);
 
     std::unique_ptr<Node> root_;
     ShapeText shaper_;
@@ -115,6 +127,8 @@ private:
     std::unordered_map<std::string, std::vector<BindingTarget>> bindings_;
     Dirty dirty_{Dirty::Layout | Dirty::Paint};
     std::uint64_t generation_{0};
+    std::uint64_t pixels_revision_{1};
+    std::uint64_t build_calls_{0}, layout_count_{0};
     std::unique_ptr<RenderTree> render_tree_;
     Node* hovered_{nullptr};
     Node* focused_{nullptr};

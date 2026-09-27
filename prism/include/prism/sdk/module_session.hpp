@@ -26,6 +26,8 @@ public:
     bool Start();
     void Action(std::string_view action);
     void Tick(std::uint64_t now_ns);
+    // Negative maximum means infinite; only an explicitly scheduled one-shot
+    // tick shortens that wait. Merely defining on_tick does not create a timer.
     int TimeoutMs(std::uint64_t now_ns, int maximum_ms) const;
     void Deliver(const contracts::LaunchEvent& event);
     void Deliver(const contracts::InstanceUpdate& event);

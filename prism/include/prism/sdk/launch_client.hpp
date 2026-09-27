@@ -20,6 +20,9 @@ public:
     bool Cancel(contracts::RequestId request);
     std::vector<contracts::LaunchEvent> Pump(int timeout_ms);
     bool Connected() const;
+    int Fd() const;
+    bool WantsWrite() const;
+    bool HasCompleteFrame() const;
 private:
     std::vector<contracts::InstanceUpdate> updates_;
     std::vector<contracts::ThemeEvent> themes_;

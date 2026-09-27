@@ -48,7 +48,7 @@ with tempfile.TemporaryDirectory(prefix="prism-host-") as runtime:
                       for line in content.splitlines() if line.startswith("host event=")]
             assert events == ["RuntimeReady", "SurfaceConfigured", "FirstPresented", "BackendReady"], content
             assert "request=71 instance=81" in content, content
-            assert wm_log.read_text().count("Mapped XDG toplevel: Prism Music Studio") == 1, wm_log.read_text()
+            assert wm_log.read_text().count("Mapped app_id='demo_player' shell role=0") == 1, wm_log.read_text()
             time.sleep(0.7)  # Exercise the business timer on the real host loop.
             assert host.poll() is None, host_log.read_text()
             host.terminate()

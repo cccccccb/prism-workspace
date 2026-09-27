@@ -2,14 +2,13 @@
 #include "worker.hpp"
 #include "prism/sdk/module_session.hpp"
 #include "prism/launch/error.hpp"
+#include "prism/host/event_wait.hpp"
 #include <charconv>
 #include <csignal>
 #include <iostream>
 #include <unistd.h>
 
 namespace {
-volatile std::sig_atomic_t stopping = 0;
-void Stop(int) { stopping = 1; }
 const char* Name(prism::contracts::LaunchMilestone value) {
     using M = prism::contracts::LaunchMilestone;
     switch (value) {
@@ -51,11 +50,13 @@ int main(int argc, char** argv) {
             if (arg == "--request-id") config.request = {id}; else config.instance = {id};
         } else { std::cerr << "Unknown option: " << arg << '\n'; return 2; }
     }
-    std::signal(SIGTERM, Stop);
-    std::signal(SIGINT, Stop);
+    std::unique_ptr<prism::host::SignalWake> signals;
+    try { signals=std::make_unique<prism::host::SignalWake>(); }
+    catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
+    const auto& stopping=signals->Stopping();
     if (worker_fd >= 0) {
         if (apps.empty() || !package.empty()) return 2;
-        try { return RunWorker(worker_fd, apps, config.socket, parent_pid, stopping); }
+        try { return RunWorker(worker_fd, apps, config.socket, parent_pid, stopping,signals->Fd()); }
         catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
     }
     if (package.empty()) { std::cerr << "--package is required\n"; return 2; }
@@ -70,7 +71,9 @@ int main(int argc, char** argv) {
         prism::sdk::AppHost host(std::move(config));
         if (!host.PrepareFrontend() || !host.Bind(loaded)) return 1;
         while (!stopping) {
-            if (!host.Pump(100)) return host.IsCloseRequested() ? 0 : 1;
+            pollfd signal{signals->Fd(),POLLIN,0};
+            if (!host.Pump(-1,std::span(&signal,1))) return host.IsCloseRequested() ? 0 : 1;
+            if(signal.revents)signals->Consume();
         }
         host.Close();
         return 0;

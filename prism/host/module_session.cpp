@@ -1,4 +1,5 @@
 #include "prism/sdk/module_session.hpp"
+#include "prism/host/event_wait.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -147,11 +148,7 @@ void ModuleSession::Tick(std::uint64_t now) {
     module_.Api().on_tick(instance_, now);
 }
 int ModuleSession::TimeoutMs(std::uint64_t now, int maximum) const {
-    maximum = std::max(0, maximum);
-    if (!tick_due_) return maximum;
-    if (now >= *tick_due_) return 0;
-    return static_cast<int>(std::min<std::uint64_t>(maximum,
-        (*tick_due_ - now) / 1000000 + ((*tick_due_ - now) % 1000000 != 0)));
+    return host::Timeout(now,tick_due_,maximum);
 }
 } // namespace prism::sdk
 

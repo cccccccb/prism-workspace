@@ -41,6 +41,7 @@ struct wlr_xcursor_manager;
 struct wlr_output;
 struct wlr_input_device;
 struct wlr_keyboard;
+struct wlr_surface;
 
 namespace prism::ipc {
 class IpcServer;
@@ -74,6 +75,15 @@ class WlrServer;
 struct WlrXdgView;
 struct WlrKeyboardBinding;
 class SurfaceEffects;
+struct WlrSurfaceWatch;
+
+struct FrameWorkCounters {
+    std::uint64_t frame_events{}, idle_skips{}, scene_commit_calls{}, scene_commit_noops{};
+    std::uint64_t output_commits{}, output_buffer_commits{}, frame_done_dispatches{};
+    std::uint64_t needs_frame_events{}, damage_events{};
+    std::uint64_t layout_requests{}, effects_requests{}, mode_requests{};
+    std::uint64_t surface_commits{}, surface_buffer_commits{}, surface_callback_commits{}, surface_nonvisual_commits{};
+};
 
 struct WlrOutput {
     WlrOutput(struct wlr_output* out, WlrServer* server);
@@ -84,8 +94,10 @@ struct WlrOutput {
     WlrServer* server{nullptr};
     struct wl_listener frame;
     struct wl_listener present;
+    struct wl_listener committed, needs_frame, damage;
     std::uint64_t last_present_ns{}, presented_count{}, discarded_count{};
     TimingSamples present_intervals;
+    std::uint64_t last_frame_ns{};
     struct wl_listener request_state;
     struct wl_listener destroy;
 };
@@ -94,6 +106,7 @@ struct WlrServerSignals {
     struct wl_listener new_output;
     struct wl_listener new_input;
     struct wl_listener new_xdg_toplevel;
+    struct wl_listener new_surface;
     struct wl_listener cursor_motion;
     struct wl_listener cursor_motion_absolute;
     struct wl_listener cursor_button;
@@ -152,6 +165,13 @@ public:
     void HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t state);
     void HandleCursorAxis(uint32_t time_msec, int axis, double value);
     void HandleOutputFrame(WlrOutput* output);
+    void HandleOutputCommit(const void* event);
+    void HandleOutputNeedsFrame() { ++frame_work_.needs_frame_events; }
+    void HandleOutputDamage() { ++frame_work_.damage_events; }
+    void HandleNewSurface(wlr_surface* surface);
+    void HandleSurfaceCommit(wlr_surface* surface);
+    void HandleSurfaceMapState(wlr_surface* surface);
+    void HandleSurfaceDestroy(wlr_surface* surface);
     void RemoveOutput(WlrOutput* output);
 
     std::shared_ptr<Compositor> GetCompositor() const { return compositor_; }
@@ -173,6 +193,10 @@ private:
     void SynchronizeXdgFocus();
     void SetXdgFullscreen(WlrXdgView* view, bool enabled);
     void UpdateXdgPointerFocus(uint32_t time_msec);
+    enum class FrameReason { Layout, Effects, Mode };
+    void ScheduleFrames(FrameReason reason);
+    void InvalidateEffects();
+    bool UpdateSurfaceEffects();
 
     WlrServerSignals signals_{};
     std::shared_ptr<Compositor> compositor_;
@@ -181,6 +205,7 @@ private:
 
     struct wl_display* wl_display_{nullptr};
     struct wl_event_loop* wl_event_loop_{nullptr};
+    struct wl_event_source* effects_idle_{nullptr};
     struct wlr_backend* backend_{nullptr};
     struct wlr_renderer* renderer_{nullptr};
     struct wlr_allocator* allocator_{nullptr};
@@ -237,6 +262,8 @@ private:
     std::vector<std::unique_ptr<WlrOutput>> outputs_;
     std::vector<std::unique_ptr<WlrXdgView>> xdg_views_;
     std::unique_ptr<SurfaceEffects> surface_effects_;
+    std::map<wlr_surface*, std::unique_ptr<WlrSurfaceWatch>> surface_watches_;
+    FrameWorkCounters frame_work_;
     struct Registration {
         launch::ShellPermit permit;
         int pidfd{-1};

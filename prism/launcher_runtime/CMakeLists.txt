@@ -7,4 +7,5 @@ target_link_libraries(prism-invoker PRIVATE prism_launch_client)
 set_target_properties(prism-launcher prism-invoker PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 add_executable(prism-session-runtime session.cpp)
+target_include_directories(prism-session-runtime PRIVATE "${PROJECT_SOURCE_DIR}/prism/include")
 set_target_properties(prism-session-runtime PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")

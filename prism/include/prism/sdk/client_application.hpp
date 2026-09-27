@@ -3,8 +3,11 @@
 #include "prism/contracts/theme.hpp"
 #include <functional>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
+#include <poll.h>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -25,6 +28,19 @@ struct ClientConfig {
     std::optional<std::size_t> gpu_resource_cache_bytes;
 };
 
+// Cumulative observations for this ClientApplication, including UI replacement.
+// A Build call can produce no DisplayList. GPU/swap attempts count calls to the
+// corresponding backend methods; successes count their true return values.
+// Detached theme preflight candidates are excluded from submitted scene work.
+struct ClientRenderStats {
+    std::uint64_t scene_build_attempts{}, scene_builds{}, scene_layouts{};
+    std::uint64_t gpu_render_attempts{}, gpu_render_successes{};
+    std::uint64_t swap_attempts{}, swap_successes{};
+    std::uint64_t frame_callbacks_done{};
+    std::uint64_t surface_state_commits{}, surface_pixel_commits{};
+    std::uint64_t surface_submission_failures{}, surface_noops{};
+};
+
 // Client-owned DSL scene, resources, Skia GLES renderer and Wayland window.
 // All methods except construction/destruction run on the Wayland thread.
 class ClientApplication {
@@ -39,7 +55,7 @@ public:
     bool ConfigureWindow(ClientConfig config); // Before Open only, common font unchanged.
     bool ReplaceUi(std::string_view dsl_source); // Keeps the same surface and EGL context.
     bool Open(std::string_view dsl_source);
-    bool Pump(int timeout_ms);
+    bool Pump(int timeout_ms, std::span<pollfd> wake_fds = {});
     bool SetSlot(std::string_view name, std::string value);
     bool SetBinding(std::string_view name, runtime::PropertyValue value);
     bool ApplyTheme(const contracts::ThemeSnapshot&, std::string* diagnostic = nullptr);
@@ -49,9 +65,11 @@ public:
     bool IsMapped() const;
     int ConfigureCount() const;
     int FrameDoneCount() const;
+    bool FrameCallbackPending() const;
     int PresentedCount() const; // Compatibility: swap submissions, not actual presentation.
     bool HasPresentationFeedback() const;
     int PresentationCount() const;
+    ClientRenderStats GetRenderStats() const;
     int RequestedImageCount() const;
     int LoadedImageCount() const;
     std::string GlRenderer() const;

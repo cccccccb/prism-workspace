@@ -80,6 +80,15 @@ bool ValidPropertyValue(DslProperty id, const PropertyValue& value) {
 
 Scene::~Scene() = default;
 
+void Scene::Invalidate(Dirty affected) {
+    dirty_ = dirty_ | affected;
+    if (Has(affected, Dirty::Layout) || Has(affected, Dirty::Paint)) ++pixels_revision_;
+}
+
+void Scene::AcknowledgeComposite() {
+    dirty_ = static_cast<Dirty>(static_cast<unsigned>(dirty_) & ~static_cast<unsigned>(Dirty::Composite));
+}
+
 Scene::Scene(Blueprint root, ShapeText shaper, contracts::ResourceId font,
              std::optional<contracts::ThemeSnapshot> theme)
     : shaper_(std::move(shaper)), font_(font), theme_(std::move(theme)) {
@@ -188,13 +197,26 @@ bool Scene::ApplyTheme(const contracts::ThemeSnapshot& theme, std::string* diagn
         }
         // All potentially failing work is complete. Swap prepared value objects
         // into the retained nodes; IDs, actions, bindings and resource IDs stay.
+        Dirty affected = Dirty::None;
+        const bool controls_changed = !theme_ || theme_->controls != theme.controls;
+        for (std::size_t i = 0; i < nodes_.size(); ++i) {
+            if (!IsVisible(*nodes_[i])) continue;
+            for (unsigned id = 0; id <= static_cast<unsigned>(DslProperty::Visible); ++id) {
+                const auto property = static_cast<DslProperty>(id);
+                // A material's label does not draw pixels; its resolved values do.
+                if (property == DslProperty::Material) continue;
+                if (CurrentProperty(*nodes_[i], property) != candidate.CurrentProperty(*candidate.nodes_[i], property))
+                    affected = affected | FindProperty(property)->affects;
+            }
+        }
+        if (controls_changed) affected = affected | Dirty::Paint;
         theme_.swap(candidate.theme_);
         for (std::size_t i = 0; i < nodes_.size(); ++i) {
             std::swap(nodes_[i]->style, candidate.nodes_[i]->style);
             nodes_[i]->properties.swap(candidate.nodes_[i]->properties);
             ++nodes_[i]->revision;
         }
-        dirty_ = dirty_ | Dirty::Layout | Dirty::Paint | Dirty::Composite;
+        Invalidate(affected);
         input_dirty_ = true;
         if (diagnostic) diagnostic->clear();
         return true;
@@ -377,8 +399,7 @@ bool Scene::SetProperty(contracts::NodeId id, DslProperty property, PropertyValu
         (property==DslProperty::BackdropBlur && (std::get<double>(previous)>0)!=(std::get<double>(value)>0)) ||
         (property==DslProperty::Action && std::get<std::string>(previous).empty()!=std::get<std::string>(value).empty());
     if(input_shape)input_dirty_=true;
-    dirty_ = dirty_ | affected;
-    if(input_shape && affected==Dirty::None)dirty_=dirty_|Dirty::Composite;
+    Invalidate(affected | (input_shape && affected == Dirty::None ? Dirty::Composite : Dirty::None));
     return true;
 }
 
@@ -387,7 +408,7 @@ bool Scene::SetViewport(contracts::LogicalSize size) {
     if (viewport_.width != size.width || viewport_.height != size.height) {
         viewport_ = size;
         input_dirty_=true;
-        dirty_ = dirty_ | Dirty::Layout | Dirty::Paint;
+        Invalidate(Dirty::Layout | Dirty::Paint);
     }
     return true;
 }
@@ -408,7 +429,7 @@ bool Scene::ImageReady(contracts::ResourceId image, contracts::LogicalSize intri
             node->image_ready = true;
             input_dirty_=true;
             ++node->revision;
-            dirty_ = dirty_ | Dirty::Paint | (affects_layout ? Dirty::Layout : Dirty::None);
+            if (IsVisible(*node)) Invalidate(Dirty::Paint | (affects_layout ? Dirty::Layout : Dirty::None));
             changed = true;
         }
     }
@@ -416,7 +437,9 @@ bool Scene::ImageReady(contracts::ResourceId image, contracts::LogicalSize intri
 }
 
 std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window) {
-    if (!window || !ValidSize(viewport_) || dirty_ == Dirty::None) return std::nullopt;
+    ++build_calls_;
+    if (!window || !ValidSize(viewport_) ||
+        (!Has(dirty_, Dirty::Layout) && !Has(dirty_, Dirty::Paint))) return std::nullopt;
     SceneSnapshot snapshot;
     if (theme_) snapshot.controls = theme_->controls;
     snapshot.root = root_->id;
@@ -443,6 +466,7 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window) {
     }
     if (Has(dirty_, Dirty::Layout)) {
         LayoutEngine::Compute(snapshot, viewport_, shaper_);
+        ++layout_count_;
         input_dirty_=true;
         for (const auto& item : snapshot.nodes) {
             Node* node = nodes_[item.id.index];
@@ -454,7 +478,7 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window) {
     auto list = DisplayListBuilder::Build(next, window, font_, generation_ + 1);
     render_tree_ = std::make_unique<RenderTree>(std::move(next));
     ++generation_;
-    dirty_ = Dirty::None;
+    dirty_ = Has(dirty_, Dirty::Composite) ? Dirty::Composite : Dirty::None;
     return list;
 }
 
@@ -610,7 +634,7 @@ bool Scene::SetPointer(contracts::LogicalPoint point) {
     if(hovered_)++hovered_->revision;
     hovered_=next;
     if(hovered_)++hovered_->revision;
-    dirty_=dirty_|Dirty::Paint;
+    Invalidate(Dirty::Paint);
     return true;
 }
 bool Scene::FocusNext() {
@@ -621,7 +645,7 @@ bool Scene::FocusNext() {
     Node* next=it==actions.end() || std::next(it)==actions.end() ? actions.front() : *std::next(it);
     if(focused_)++focused_->revision;
     focused_=next;++focused_->revision;
-    dirty_=dirty_|Dirty::Paint;
+    Invalidate(Dirty::Paint);
     return true;
 }
 std::optional<std::string> Scene::FocusedAction() const {

@@ -61,9 +61,11 @@ Accepted 关联实例，WorkerAssigned 使用实际 host PID；RuntimeReady/Surf
 
 服务每轮 WNOHANG waitpid 回收自己管理的 worker，并在没有新请求时继续回收/补池。Exited 依据真实 wait 状态：正常退出 0..255，信号退出为负信号值。初始化未完成便退出、非零退出或崩溃先报告 Failed，再报告 Exited；已报告的失败原因不会被后续退出覆盖。
 
-服务重置 SIGCHLD 默认处理并要求独占 worker 回收，不能在 SIG_IGN/SA_NOCLDWAIT 下运行；检测到外部回收会停止服务，避免向已重用 PID 发送信号。CLI 不虚构退出状态。
+生产 CLI 使用可轮询的 SIGCHLD 通知唤醒回收循环，服务要求独占 worker 的 waitpid 回收，不能在 SIG_IGN/SA_NOCLDWAIT 下运行；检测到外部回收会停止服务，避免向已重用 PID 发送信号。CLI 不虚构退出状态。
 
 从 Accepted 开始的独立进程外 watchdog 默认 15 秒，可调 100..60000 ms，覆盖等待 worker、configure、首次呈现与业务 Ready。超时先返回 Failed/Timeout，再发 SIGTERM，1 秒后仍未退出则 SIGKILL，最后以 waitpid 结果报告 Exited。因此模块同步初始化阻塞也会被服务处理。host 自己的 10 秒前端超时仍保留；两者取先实际触发者。
+
+收到身份和状态均合法的 worker 自报 Failed 后，先撤销窗口授权，将该 worker 标记为 Finishing，给予 250ms 自行清理退出的截止时间；届时仍未退出才发送 TERM，并在随后 1 秒升级 KILL。这样正常错误退出的真实状态可以保留，阻塞清理也不能等待整个启动 watchdog。用户取消、服务 watchdog 和会话停止仍立即进入 TERM 路径，不使用这段宽限。Finishing 与 KILL 截止时间都参与事件等待，不恢复周期轮询；Exited 始终来自 waitpid，不以错误类型推断退出码。
 
 取消只允许原请求 endpoint 操作自己的 request ID：
 

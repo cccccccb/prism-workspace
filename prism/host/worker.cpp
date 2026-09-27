@@ -4,6 +4,9 @@
 #include "prism/launch/stream.hpp"
 #include "prism/launch/worker_protocol.hpp"
 #include "prism/launch/error.hpp"
+#include "prism/host/event_wait.hpp"
+#include <array>
+#include <cerrno>
 #include <iostream>
 #include <poll.h>
 #include <sys/prctl.h>
@@ -11,7 +14,7 @@
 #include <unistd.h>
 
 int RunWorker(int fd, const std::filesystem::path& apps, const std::string& socket,
-              int parent, const volatile std::sig_atomic_t& stopping) {
+              int parent, const volatile std::sig_atomic_t& stopping,int signal_fd) {
     using namespace prism;
     ucred credential{}; socklen_t length = sizeof(credential);
     if (parent <= 1 || getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &credential, &length) ||
@@ -83,13 +86,19 @@ int RunWorker(int fd, const std::filesystem::path& apps, const std::string& sock
                     host.DeliverThemeEvent(*event);
                 } else throw std::runtime_error("Unexpected worker command");
             }
-            if (exit_code) break;
+            if (exit_code||stopping||channel.Closed()) break;
+            channel.Flush();
+            std::array<pollfd,2> wait{{
+                {channel.Fd(),static_cast<short>(POLLIN|(channel.WantsWrite()?POLLOUT:0)),0},
+                {signal_fd,POLLIN,0}}};
+            const int timeout=channel.HasCompleteFrame()?0:-1;
             if (bound) {
-                if (!host.Pump(20)) { exit_code = host.IsCloseRequested() ? 0 : 1; break; }
+                if (!host.Pump(timeout,wait)) { exit_code = host.IsCloseRequested() ? 0 : 1; break; }
             } else {
-                pollfd wait{channel.Fd(), static_cast<short>(POLLIN | (channel.WantsWrite() ? POLLOUT : 0)), 0};
-                poll(&wait, 1, 1000);
+                if(poll(wait.data(),wait.size(),timeout)<0&&errno!=EINTR)
+                    throw std::runtime_error("Worker event wait failed");
             }
+            if(wait[1].revents)prism::host::Drain(signal_fd);
             channel.Flush();
         }
     } catch (const launch::LaunchFailure& error) {
@@ -107,7 +116,10 @@ int RunWorker(int fd, const std::filesystem::path& apps, const std::string& sock
     const auto deadline = sdk::MonotonicNs() + 1000000000ULL;
     while (!channel.Closed() && channel.WantsWrite() && sdk::MonotonicNs() < deadline) {
         channel.Flush();
-        pollfd wait{channel.Fd(), POLLOUT, 0}; poll(&wait, 1, 10);
+        if(!channel.WantsWrite())break;
+        pollfd wait{channel.Fd(), POLLOUT, 0};
+        const int result=poll(&wait,1,prism::host::Timeout(sdk::MonotonicNs(),deadline));
+        if(result<0&&errno!=EINTR)break;
     }
     return exit_code;
 }

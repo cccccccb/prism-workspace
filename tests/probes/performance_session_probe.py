@@ -353,6 +353,16 @@ def aggregate(samples, ticks, cpu_count):
     before, after = first["wm"].get("performance", {}), last["wm"].get("performance", {})
     result["wm_counter_delta"] = {key: after[key] - before[key] for key in
         ("commit_successes", "commit_failures", "pointer_events") if key in before and key in after}
+    for name in ("scheduling", "effects_work"):
+        old, new = before.get(name, {}), after.get(name, {})
+        counter_deltas = {key: value - old[key] for key, value in new.items()
+                  if isinstance(value, int) and not isinstance(value, bool) and isinstance(old.get(key), int)}
+        if name == "scheduling":
+            previous_requests = old.get("schedule_requests", {})
+            counter_deltas["schedule_requests"] = {key: value - previous_requests[key]
+                for key, value in new.get("schedule_requests", {}).items() if key in previous_requests}
+        if counter_deltas:
+            result[name + "_delta"] = counter_deltas
     old_outputs = {row["output"]: row for row in before.get("presentation", [])}
     result["presentation_delta"] = [{"output": row["output"], **{key: row[key] - old_outputs[row["output"]][key]
         for key in ("presented", "discarded")}} for row in after.get("presentation", []) if row["output"] in old_outputs]

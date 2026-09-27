@@ -6,9 +6,9 @@
 
 Scene 支持 `HStack`、`VStack`、`Card`、`Text`、`Button`、`Image`、`Icon`、`IconButton`、`Separator`、`Progress`、`Toggle`。布局、样式与 binding 按 schema 检查；未支持的组件和修饰符抛出错误。按钮命中返回 action，业务状态仍由 module 更新。Slider 拖动语义尚未实现。
 
-`SetSlot` 是带类型的 `SetBinding` 的字符串便捷入口；Scene 的属性存储依据 schema 元数据决定 Layout/Paint dirty，背景色变化只标记 Paint，viewport 变化标记 Layout/Paint。`Build` 在无变化时返回空，不产生新的提交。输出是进程内 DisplayList。文字 glyph id 与位置由调用方提供的 shaping 接口生成；Skia 后端现提供 HarfBuzz + FreeType 实现。固定尺寸与均分的 Row/Column、基础裁剪、圆角和文字命令已通过单元测试。
+`SetSlot` 是带类型的 `SetBinding` 的字符串便捷入口；Scene 的属性存储依据 schema 元数据决定 Layout/Paint/Composite dirty，背景色变化标记 Paint，viewport 的实际尺寸变化标记 Layout/Paint。`Build` 在无 Paint/Layout 变化时返回空；纯 Composite 更新由平台提交状态，不生成 DisplayList。输出是进程内 DisplayList。文字 glyph id 与位置由调用方提供的 shaping 接口生成；Skia 后端现提供 HarfBuzz + FreeType 实现。固定尺寸与均分的 Row/Column、基础裁剪、圆角和文字命令已通过单元测试。
 
-构建链路现为 Scene snapshot → `LayoutEngine` → `RenderTreeBuilder` → `DisplayListBuilder`。Layout dirty 才重新计算几何与文字；Render Tree 保存视觉图元、裁剪、来源版本，并复用未变节点记录。当前 DisplayList 仍在每次提交时完整生成，增量布局和分块缓存尚未实现。
+构建链路现为 Scene snapshot → `LayoutEngine` → `RenderTreeBuilder` → `DisplayListBuilder`。Layout dirty 才重新计算几何与文字；Render Tree 保存视觉图元、裁剪、来源版本，并复用未变节点记录。需要新 DisplayList 时仍完整生成；纯状态提交不走这条链路，平台强制像素提交也可复用已构建列表。增量布局和分块缓存尚未实现。
 
 此文件记录 Scene 首个检查点。后续已加入 Skia CPU 诊断后端、HarfBuzz 字体排版和真实 Wayland 测试窗口，见 [SKIA_BACKEND_PI.md](SKIA_BACKEND_PI.md)。PNG 图片资源的首个异步检查点见 [IMAGE_RESOURCES.md](IMAGE_RESOURCES.md)；GLES GPU 后端及复用客户端入口见 [SKIA_GLES_PI.md](SKIA_GLES_PI.md) 和 [CLIENT_APP_SDK.md](CLIENT_APP_SDK.md)。
 
@@ -43,7 +43,15 @@ Card 叠放子项支持 `anchor: "left"/"center"/"right"`。center 子项依据�
 
 `ApplyTheme(snapshot, diagnostic)` 先在独立候选 Scene 中验证全部引用、布局、资源尺寸、效果和输入轮廓，再将准备好的样式值替换到现有节点。成功返回 true，包括合法的无变化更新；失败返回 false 并保留旧状态。现有 NodeId、业务 binding、动作、文本、勾选/进度值、图片 ID 与解码状态保持。主题 generation 与 DisplayList generation 分开。
 
-RenderTree 的 hover/focus 颜色和焦点线宽、Toggle 轨道/滑块圆角、滑块颜色/间距、默认内阴影偏移来自快照 Controls，后端不判断具体主题名称。主题更新统一标记布局、绘制和合成 dirty，圆角 clip、输入区域和 surface effects 随下一次 buffer commit 生效。完整会话分发、ACK 与失败恢复规则见 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md)。本节描述已接入的接口；验证结果由本轮测试记录给出。
+RenderTree 的 hover/focus 颜色和焦点线宽、Toggle 轨道/滑块圆角、滑块颜色/间距、默认内阴影偏移来自快照 Controls，后端不判断具体主题名称。主题安装比较可见节点解析后的属性，按 schema 标记需要的 Layout/Paint/Composite；只有身份或 generation 改变且解析样式相同，不推进像素版本。隐藏节点仍保存新样式，重新显示时读取最新值。Controls 的任一变化目前保守标记 Paint，尚未判断哪些可见控件实际使用了该值，因此不能把所有隐藏主题变化都视为零绘制。圆角 clip 与客户端图元随像素提交更新；纯背景效果或输入政策可独立提交 surface 状态。完整会话分发、ACK 与失败恢复规则见 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md)。本节描述已接入的接口；验证结果由本轮测试记录给出。
+
+相同快照可直接接受；身份或 generation 不同的候选仍执行隔离预检，可能重新布局和整形文字。候选的工作不计入已提交 Scene 的渲染计数，零 GPU/Swap 或零实际 Scene Build 不表示主题安装没有 CPU 工作。
+
+## 像素版本与状态确认（第三阶段）
+
+`PixelsRevision()` 从 1 开始，可见 Paint/Layout 失效推进该版本；它与 DisplayList generation、surface commit 和帧回调独立。`Build` 消耗 Paint/Layout，保留 Composite，不确认像素已经提交。SDK 只在像素提交成功后记录对应版本；失败终止当前前端连接，不能因列表已构建而确认 Swap 成功。
+
+`AcknowledgeComposite()` 只清除 Composite，不清除待处理 Paint/Layout。对应 metadata 随 State/Pixels 成功提交后才能确认；若准备阶段已检查 metadata，协议请求与上次相同，或可选效果扩展不可用而没有请求可发送，checked-identical `None` 也可确认该状态。因像素回调节流而推迟准备的 `None` 不属于这个例外，仍保留待处理状态和像素需求。四种提交结果及等待契约见 [RENDER_SCHEDULING_AND_INVALIDATION.md](RENDER_SCHEDULING_AND_INVALIDATION.md) 第 9 节。
 
 
 ## 通用可见性与图标（0.1.0-7）

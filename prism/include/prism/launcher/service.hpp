@@ -18,7 +18,7 @@ public:
     ~Service();
     Service(const Service&) = delete;
     Service& operator=(const Service&) = delete;
-    int Run(const volatile std::sig_atomic_t& stopping);
+    int Run(const volatile std::sig_atomic_t& stopping,int signal_fd=-1);
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

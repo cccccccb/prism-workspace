@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <poll.h>
 #include <string>
 #include <utility>
 #include <vector>
@@ -30,6 +31,17 @@ struct prism_surface_effect_v1;
 
 namespace prism::platform {
 
+enum class SubmitResult { None, State, Pixels, Failed };
+struct SubmitRequest {
+    wl_display* display{};
+    wl_surface* surface{};
+    int width{}, height{};
+    bool allow_pixels{}, force_pixels{};
+};
+struct SubmitStats {
+    std::uint64_t none{}, state_commits{}, pixel_commits{}, failures{};
+};
+
 // A single xdg-shell toplevel. It owns Wayland objects and temporary SHM
 // buffers; the DSL and renderer do not depend on these implementation types.
 class WaylandWindow {
@@ -47,13 +59,23 @@ public:
     void SetPaintHandler(std::function<void(void*, int, int, int)> handler) {
         paint_handler_ = std::move(handler);
     }
-    // EGL/WSI presenter owns its buffers and calls eglSwapBuffers; the window
-    // still owns configure, frame callbacks, input, and surface lifetime.
-    void SetPresentHandler(std::function<bool(wl_display*, wl_surface*, int, int)> handler) {
-        present_handler_ = std::move(handler);
+    // Prepare Pixels renders an uncommitted WSI buffer; only commit_pixels
+    // swaps it, after the window requests its frame/presentation objects.
+    // State and None never request those objects. Failed is terminal: callbacks
+    // must release external WSI resources before returning failure, then the
+    // window destroys its surface to discard pending server-side state.
+    void SetSubmitHandlers(std::function<SubmitResult(const SubmitRequest&)> prepare,
+            std::function<bool()> commit_pixels,
+            std::function<void(SubmitResult)> on_submitted = {}) {
+        prepare_submit_ = std::move(prepare);
+        commit_pixels_ = std::move(commit_pixels);
+        on_submitted_ = std::move(on_submitted);
     }
     void RequestRedraw(bool deferred = false);
-    bool Pump(int timeout_ms);
+    void RequestUpdate(bool deferred = false);
+    // External descriptors only wake this pump. Read/cancel of the Wayland
+    // read intention always precedes returning their revents to the caller.
+    bool Pump(int timeout_ms, std::span<pollfd> wake_fds = {});
     void RequestMaximize();
     void SetSurfaceEffects(std::span<const contracts::SurfaceEffectRegion> regions);
     void SetInputRegions(std::span<const contracts::SurfaceInputRegion> regions);
@@ -67,6 +89,9 @@ public:
     int PresentationCount() const { return presentation_count_; }
     int DiscardedCount() const { return discarded_count_; }
     int FrameDoneCount() const { return frame_done_count_; }
+    bool FrameCallbackPending() const { return frame_callback_ != nullptr; }
+    bool SurfaceStatePending() const { return state_pending_; }
+    SubmitStats GetSubmitStats() const { return submit_stats_; }
     int PointerEnterCount() const { return pointer_enter_count_; }
     int PointerButtonCount() const { return pointer_button_count_; }
     int KeyCount() const { return key_count_; }
@@ -110,11 +135,13 @@ private:
     static void PresentationDone(void*, wp_presentation_feedback*, std::uint32_t, std::uint32_t,
         std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t);
     static void PresentationDiscarded(void*, wp_presentation_feedback*);
-    void TrackPresentation();
+    wp_presentation_feedback* TrackPresentation();
     void FinishPresentation(wp_presentation_feedback*);
     ShmBuffer* AcquireBuffer();
     void Emit(contracts::WindowEvent event);
-    void TryRender();
+    SubmitResult TrySubmit();
+    SubmitResult CompleteSubmit(SubmitResult);
+    int DispatchPending();
     void ReapBuffers();
 
     wp_presentation* presentation_{nullptr};
@@ -143,7 +170,10 @@ private:
     std::vector<std::unique_ptr<ShmBuffer>> buffers_;
     std::function<void(const contracts::WindowEvent&)> event_handler_;
     std::function<void(void*, int, int, int)> paint_handler_;
-    std::function<bool(wl_display*, wl_surface*, int, int)> present_handler_;
+    std::function<SubmitResult(const SubmitRequest&)> prepare_submit_;
+    std::function<bool()> commit_pixels_;
+    std::function<void(SubmitResult)> on_submitted_;
+    SubmitStats submit_stats_{};
     contracts::WindowMetrics metrics_{};
     contracts::LogicalPoint pointer_position_{};
     int preferred_width_{640};
@@ -157,7 +187,11 @@ private:
     int key_count_{0};
     bool configured_{false};
     bool mapped_{false};
-    bool dirty_{false};
+    bool update_requested_{false};
+    bool force_pixels_{false};
+    bool state_pending_{false};
+    bool failed_{false};
+    bool dispatching_{false};
     bool close_requested_{false};
 };
 

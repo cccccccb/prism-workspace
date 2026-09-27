@@ -137,17 +137,23 @@ void WaylandWindow::SurfaceConfigure(void* data, xdg_surface* surface,
         : (self.configured_ ? static_cast<int>(self.metrics_.logical_size.height) : self.preferred_height_);
     const int safe_width = std::clamp(width, 1, 4096);
     const int safe_height = std::clamp(height, 1, 4096);
+    const bool resize = !self.mapped_ ||
+        self.metrics_.buffer_size.width != static_cast<std::uint32_t>(safe_width) ||
+        self.metrics_.buffer_size.height != static_cast<std::uint32_t>(safe_height);
     self.metrics_ = {{static_cast<double>(safe_width), static_cast<double>(safe_height)},
                      {static_cast<std::uint32_t>(safe_width), static_cast<std::uint32_t>(safe_height)}, 1.0};
     self.configured_ = true;
     ++self.configure_count_;
-    self.dirty_ = true;
+    self.update_requested_ = true;
+    self.state_pending_ = true; // The configure acknowledgement requires a commit.
+    self.force_pixels_ |= resize;
+    if (resize) self.input_sent_ = false;
     self.Emit(contracts::ConfigureEvent{contracts::WindowId{1}, self.metrics_});
-    if (self.frame_callback_) {
+    if (resize && self.frame_callback_) {
         wl_callback_destroy(self.frame_callback_);
         self.frame_callback_ = nullptr;
     }
-    self.TryRender();
+    self.TrySubmit();
 }
 
 void WaylandWindow::ToplevelConfigure(void* data, xdg_toplevel*, std::int32_t width,
@@ -276,7 +282,7 @@ void WaylandWindow::FrameDone(void* data, wl_callback* callback, std::uint32_t) 
     wl_callback_destroy(callback);
     if (self.frame_callback_ == callback) self.frame_callback_ = nullptr;
     ++self.frame_done_count_;
-    self.TryRender();
+    self.TrySubmit();
 }
 void WaylandWindow::BufferRelease(void* data, wl_buffer*) {
     auto* buffer = static_cast<ShmBuffer*>(data);
@@ -349,41 +355,84 @@ void WaylandWindow::PresentationDiscarded(void* data, struct wp_presentation_fee
     ++self.discarded_count_;
     self.FinishPresentation(feedback);
     // A discarded startup frame must not leave a static UI without another attempt.
-    if (!self.presentation_count_) self.dirty_ = true;
+    if (!self.presentation_count_) {
+        self.update_requested_ = true;
+        self.force_pixels_ = true;
+        // This callback belongs to an already committed, discarded frame.
+        // Its client proxy may be retired so startup can submit a replacement.
+        if (self.frame_callback_) wl_callback_destroy(self.frame_callback_);
+        self.frame_callback_ = nullptr;
+    }
 }
-void WaylandWindow::TrackPresentation() {
-    if (!presentation_ || feedbacks_.size() >= 8) return;
+struct wp_presentation_feedback* WaylandWindow::TrackPresentation() {
+    if (!presentation_ || feedbacks_.size() >= 8) return nullptr;
     auto* feedback = wp_presentation_feedback(presentation_, surface_);
     static const wp_presentation_feedback_listener listener{
         .sync_output = PresentationOutput, .presented = PresentationDone,
         .discarded = PresentationDiscarded};
     wp_presentation_feedback_add_listener(feedback, &listener, this);
     feedbacks_.push_back(feedback);
+    return feedback;
 }
 
-void WaylandWindow::TryRender() {
-    if (!configured_ || !dirty_ || frame_callback_ || !surface_ ||
-        (!paint_handler_ && !present_handler_)) return;
-    if (present_handler_) {
-        frame_callback_ = wl_surface_frame(surface_);
-        static const wl_callback_listener listener{.done = FrameDone};
-        wl_callback_add_listener(frame_callback_, &listener, this);
-        TrackPresentation();
-        const bool presented = present_handler_(display_, surface_,
-            static_cast<int>(metrics_.buffer_size.width),
-            static_cast<int>(metrics_.buffer_size.height));
-        if (!presented) {
-            wl_callback_destroy(frame_callback_);
-            frame_callback_ = nullptr;
-            return;
-        }
-        mapped_ = true;
-        dirty_ = false;
-        return;
+SubmitResult WaylandWindow::CompleteSubmit(SubmitResult result) {
+    switch (result) {
+        case SubmitResult::None: ++submit_stats_.none; break;
+        case SubmitResult::State: ++submit_stats_.state_commits; break;
+        case SubmitResult::Pixels: ++submit_stats_.pixel_commits; break;
+        case SubmitResult::Failed: ++submit_stats_.failures; failed_ = true; break;
     }
+    if (on_submitted_) on_submitted_(result);
+    // Destroying a client callback proxy cannot undo its pending server-side
+    // frame request. Terminal failure destroys the surface, never commits it.
+    if (result == SubmitResult::Failed && !dispatching_) Close();
+    return result;
+}
+
+SubmitResult WaylandWindow::TrySubmit() {
+    if (failed_) return SubmitResult::Failed;
+    if (!configured_ || !update_requested_ || !surface_) return SubmitResult::None;
+    const bool allow_pixels = frame_callback_ == nullptr;
+    if (prepare_submit_) {
+        const SubmitRequest request{display_, surface_,
+            static_cast<int>(metrics_.buffer_size.width),
+            static_cast<int>(metrics_.buffer_size.height), allow_pixels, force_pixels_};
+        auto result = prepare_submit_(request);
+        if (result == SubmitResult::Failed) return CompleteSubmit(result);
+        if (force_pixels_ && allow_pixels && result != SubmitResult::Pixels)
+            return CompleteSubmit(SubmitResult::Failed);
+        if (result == SubmitResult::Pixels) {
+            if (!allow_pixels || !commit_pixels_) return CompleteSubmit(SubmitResult::Failed);
+            frame_callback_ = wl_surface_frame(surface_);
+            static const wl_callback_listener listener{.done = FrameDone};
+            wl_callback_add_listener(frame_callback_, &listener, this);
+            TrackPresentation();
+            if (!commit_pixels_()) return CompleteSubmit(SubmitResult::Failed);
+            mapped_ = true;
+            force_pixels_ = state_pending_ = update_requested_ = false;
+            return CompleteSubmit(SubmitResult::Pixels);
+        }
+        if (result == SubmitResult::State || state_pending_) {
+            // State commits can pass an outstanding pixel frame callback. No
+            // new frame callback or presentation feedback is requested here.
+            wl_surface_commit(surface_);
+            state_pending_ = false;
+            if (allow_pixels) update_requested_ = false;
+            return CompleteSubmit(SubmitResult::State);
+        }
+        if (allow_pixels) update_requested_ = false;
+        return CompleteSubmit(SubmitResult::None);
+    }
+    if (state_pending_ && (!force_pixels_ || !allow_pixels)) {
+        wl_surface_commit(surface_);
+        state_pending_ = false;
+        if (!force_pixels_) update_requested_ = false;
+        return CompleteSubmit(SubmitResult::State);
+    }
+    if (!force_pixels_ || !allow_pixels || !paint_handler_) return SubmitResult::None;
     ReapBuffers();
     ShmBuffer* buffer = AcquireBuffer();
-    if (!buffer) return;
+    if (!buffer) return SubmitResult::None;
     paint_handler_(buffer->pixels, buffer->width, buffer->height, buffer->width * 4);
     buffer->busy = true;
     wl_surface_attach(surface_, buffer->handle, 0, 0);
@@ -394,18 +443,25 @@ void WaylandWindow::TryRender() {
     TrackPresentation();
     wl_surface_commit(surface_);
     mapped_ = true;
-    dirty_ = false;
+    force_pixels_ = state_pending_ = update_requested_ = false;
+    return CompleteSubmit(SubmitResult::Pixels);
 }
 
 void WaylandWindow::RequestRedraw(bool deferred) {
-    dirty_ = true;
-    if (!deferred) TryRender();
+    force_pixels_ = true;
+    RequestUpdate(deferred);
+}
+void WaylandWindow::RequestUpdate(bool deferred) {
+    if (failed_) return;
+    update_requested_ = true;
+    if (!deferred) TrySubmit();
 }
 
 bool WaylandWindow::Open(const std::string& socket_name, const std::string& app_id,
                          const std::string& title, int preferred_width,
                          int preferred_height) {
     if (display_) return false;
+    failed_ = false;
     preferred_width_ = std::clamp(preferred_width, 1, 4096);
     preferred_height_ = std::clamp(preferred_height, 1, 4096);
     display_ = wl_display_connect(socket_name.empty() ? nullptr : socket_name.c_str());
@@ -439,34 +495,63 @@ bool WaylandWindow::Open(const std::string& socket_name, const std::string& app_
     return wl_display_flush(display_) >= 0 || errno == EAGAIN;
 }
 
-bool WaylandWindow::Pump(int timeout_ms) {
-    if (!display_) return false;
-    TryRender(); // Flush deferred UI changes as one frame before waiting.
+int WaylandWindow::DispatchPending() {
+    dispatching_ = true;
+    const int result = wl_display_dispatch_pending(display_);
+    dispatching_ = false;
+    // A callback may reject a submission. Disconnect only after libwayland
+    // finishes dispatching its queue, never from inside one of its listeners.
+    if (failed_) { Close(); return -1; }
+    return result;
+}
+
+bool WaylandWindow::Pump(int timeout_ms, std::span<pollfd> wake_fds) {
+    for (auto& fd : wake_fds) fd.revents = 0;
+    if (!display_ || failed_) return false;
+    if (TrySubmit() == SubmitResult::Failed) return false;
+    // Allocate before acquiring the read intention so exceptions cannot leave
+    // an unmatched prepare_read behind.
+    std::vector<pollfd> sources;
+    sources.reserve(1 + wake_fds.size());
+    sources.push_back({wl_display_get_fd(display_), POLLIN, 0});
+    sources.insert(sources.end(), wake_fds.begin(), wake_fds.end());
     while (wl_display_prepare_read(display_) != 0) {
-        if (wl_display_dispatch_pending(display_) < 0) return false;
+        const int dispatched = DispatchPending();
+        if (dispatched < 0) return false;
+        if (dispatched > 0) {
+            // Actions may create a host descriptor or an earlier timer. Yield
+            // before blocking with the caller's now outdated wait sources.
+            if (TrySubmit() == SubmitResult::Failed) return false;
+            const int flushed = wl_display_flush(display_);
+            return (flushed >= 0 || errno == EAGAIN) && !close_requested_;
+        }
     }
     const int flushed = wl_display_flush(display_);
     if (flushed < 0 && errno != EAGAIN) {
         wl_display_cancel_read(display_);
         return false;
     }
-    pollfd pfd{wl_display_get_fd(display_),
-               static_cast<short>(POLLIN | (flushed < 0 ? POLLOUT : 0)), 0};
-    const int result = poll(&pfd, 1, timeout_ms);
-    if (result > 0 && (pfd.revents & (POLLERR | POLLHUP | POLLNVAL))) {
+    sources.front().events = static_cast<short>(POLLIN | (flushed < 0 ? POLLOUT : 0));
+    const int result = poll(sources.data(), sources.size(), timeout_ms);
+    const short revents = sources.front().revents;
+    for (std::size_t i = 0; i < wake_fds.size(); ++i) wake_fds[i].revents = sources[i + 1].revents;
+    if (result > 0 && (revents & (POLLERR | POLLHUP | POLLNVAL))) {
         wl_display_cancel_read(display_);
         return false;
     }
-    if (result > 0 && (pfd.revents & POLLOUT)) wl_display_flush(display_);
-    if (result > 0 && (pfd.revents & POLLIN)) {
+    if (result > 0 && (revents & POLLOUT) && wl_display_flush(display_) < 0 && errno != EAGAIN) {
+        wl_display_cancel_read(display_);
+        return false;
+    }
+    if (result > 0 && (revents & POLLIN)) {
         if (wl_display_read_events(display_) < 0) return false;
     } else {
         wl_display_cancel_read(display_);
         if (result < 0 && errno != EINTR) return false;
     }
-    if (wl_display_dispatch_pending(display_) < 0) return false;
+    if (DispatchPending() < 0) return false;
     ReapBuffers();
-    if (dirty_ && !frame_callback_) TryRender();
+    if (TrySubmit() == SubmitResult::Failed) return false;
     return !close_requested_;
 }
 
@@ -485,6 +570,7 @@ void WaylandWindow::SetSurfaceEffects(std::span<const contracts::SurfaceEffectRe
         wl_fixed_from_double(region.bounds.width),wl_fixed_from_double(region.bounds.height),
         wl_fixed_from_double(region.corner_radius),wl_fixed_from_double(region.blur_radius));
     sent_effects_=std::move(next);
+    state_pending_ = update_requested_ = true;
 }
 
 void WaylandWindow::SetInputRegions(std::span<const contracts::SurfaceInputRegion> regions) {
@@ -503,6 +589,7 @@ void WaylandWindow::SetInputRegions(std::span<const contracts::SurfaceInputRegio
     }
     wl_surface_set_input_region(surface_,input);wl_region_destroy(input);
     sent_input_=std::move(next);input_sent_=true;
+    state_pending_ = update_requested_ = true;
 }
 
 void WaylandWindow::Close() {
@@ -542,6 +629,7 @@ void WaylandWindow::Close() {
     toplevel_ = nullptr;
     configured_ = false;
     mapped_ = false;
+    update_requested_ = force_pixels_ = state_pending_ = false;
 }
 
 } // namespace prism::platform

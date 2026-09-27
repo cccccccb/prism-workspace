@@ -4,8 +4,10 @@
 #include "prism/sdk/launch_client.hpp"
 #include "prism/launch/error.hpp"
 #include "prism/theme/compiler.hpp"
+#include "prism/host/event_wait.hpp"
 #include <fstream>
 #include <iterator>
+#include <vector>
 #include <unistd.h>
 
 namespace prism::sdk {
@@ -33,7 +35,7 @@ struct AppHost::Impl {
     std::unique_ptr<LaunchClient> launches;
     std::optional<launch::AppPackage> package;
     std::uint64_t startup_deadline{};
-    bool configured{}, presented{}, ready{}, failed{}, bound_once{};
+    bool configured{}, presented{}, ready{}, failed{}, bound_once{},launch_disconnected{};
     void Event(contracts::LaunchMilestone milestone, contracts::LaunchError error = contracts::LaunchError::None,
                std::string detail = {}) {
         if (config.on_event) config.on_event({config.request, config.instance,
@@ -86,8 +88,27 @@ struct AppHost::Impl {
         }
         return true;
     }
+    void DrainLaunches() {
+        if(!launches||!business)return;
+        for(const auto& event:launches->Pump(0))business->Deliver(event);
+        for(const auto& event:launches->TakeInstanceUpdates())business->Deliver(event);
+        for(const auto& event:launches->TakeThemeEvents()){
+            if(event.status!=contracts::ThemeStatus::Rejected){
+                std::string diagnostic;
+                if(!owner->ApplyTheme(theme::LoadTheme(theme::DefaultThemeRoot(),event.id,event.generation,event.color_scheme),&diagnostic)){
+                    business->Deliver(contracts::ThemeEvent{event.request,owner->ThemeGeneration(),
+                        contracts::ThemeStatus::Rejected,event.id,event.name,std::move(diagnostic),event.color_scheme});
+                    continue;
+                }
+            }
+            business->Deliver(event);
+        }
+        if(launches->Connected())launch_disconnected=false;
+        else if(!launch_disconnected){launch_disconnected=true;business->Disconnected();}
+    }
+    AppHost* owner{};
 };
-AppHost::AppHost(HostConfig config) : impl_(std::make_unique<Impl>(std::move(config))) {}
+AppHost::AppHost(HostConfig config) : impl_(std::make_unique<Impl>(std::move(config))) { impl_->owner=this; }
 AppHost::~AppHost() { Close(); }
 bool AppHost::PrepareFrontend() {
     auto& self = *impl_;
@@ -166,33 +187,27 @@ bool AppHost::Bind(const launch::AppPackage& package) {
     } catch (const launch::LaunchFailure& error) { return self.Fail(error.Code(), error.what()); }
       catch (const std::exception& error) { return self.Fail(contracts::LaunchError::RuntimeFailed, error.what()); }
 }
-bool AppHost::Pump(int timeout) {
+bool AppHost::Pump(int timeout,std::span<pollfd> wake_fds) {
     auto& self = *impl_;
     if (!self.package || self.failed) return false;
     try {
-        if (self.launches) {
-            for (const auto& event : self.launches->Pump(0)) self.business->Deliver(event);
-            for (const auto& event:self.launches->TakeInstanceUpdates()) self.business->Deliver(event);
-            for (const auto& event:self.launches->TakeThemeEvents()) {
-                if (event.status != contracts::ThemeStatus::Rejected) {
-                    std::string diagnostic;
-                    if (!ApplyTheme(theme::LoadTheme(theme::DefaultThemeRoot(),event.id,event.generation,event.color_scheme),&diagnostic)) {
-                        self.business->Deliver(contracts::ThemeEvent{event.request,ThemeGeneration(),
-                            contracts::ThemeStatus::Rejected,event.id,event.name,std::move(diagnostic),event.color_scheme});
-                        continue;
-                    }
-                }
-                self.business->Deliver(event);
-            }
-            if (!self.launches->Connected()) self.business->Disconnected();
+        self.DrainLaunches();
+        if(self.business)self.business->Tick(MonotonicNs());
+        const auto now=MonotonicNs();
+        int wait=self.business?self.business->TimeoutMs(now,timeout):timeout;
+        if(!self.presented||!self.ready)wait=host::Timeout(now,self.startup_deadline,wait);
+        std::vector<pollfd> descriptors(wake_fds.begin(),wake_fds.end());
+        for(auto& fd:descriptors)fd.revents=0;
+        if(self.launches&&self.launches->Connected()){
+            descriptors.push_back({self.launches->Fd(),static_cast<short>(POLLIN|(self.launches->WantsWrite()?POLLOUT:0)),0});
+            if(self.launches->HasCompleteFrame())wait=0;
         }
-        const auto now = MonotonicNs();
-        if (self.business) self.business->Tick(now);
-        const int wait = self.business ? self.business->TimeoutMs(now, timeout) : timeout;
-        if (!self.frontend->Pump(wait)) {
+        if (!self.frontend->Pump(wait,descriptors)) {
             if (self.frontend->IsCloseRequested()) return false;
             return self.Fail(contracts::LaunchError::RuntimeFailed, "Wayland/render connection failed");
         }
+        for(std::size_t i=0;i<wake_fds.size();++i)wake_fds[i].revents=descriptors[i].revents;
+        self.DrainLaunches();
         self.Observe();
         if (!self.business && self.presented) {
             if (!self.frontend->ReplaceUi(ReadUi(self.package->ui)))
@@ -200,7 +215,9 @@ bool AppHost::Pump(int timeout) {
             if (!self.StartBusiness()) return false;
             self.Observe();
         }
-        if ((!self.presented || !self.ready) && MonotonicNs() > self.startup_deadline)
+        if(self.business)self.business->Tick(MonotonicNs());
+        self.Observe();
+        if ((!self.presented || !self.ready) && MonotonicNs() >= self.startup_deadline)
             return self.Fail(contracts::LaunchError::Timeout, "Presentation/backend startup timeout");
         return true;
     } catch (const launch::LaunchFailure& error) { return self.Fail(error.Code(), error.what()); }

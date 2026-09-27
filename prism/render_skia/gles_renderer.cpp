@@ -17,6 +17,8 @@ struct GlesRenderer::Impl {
     const RasterRenderer& commands;
     sk_sp<GrDirectContext> context;
     sk_sp<SkSurface> surface;
+    EGLDisplay egl_display = EGL_NO_DISPLAY;
+    EGLContext egl_context = EGL_NO_CONTEXT;
     int width = 0;
     int height = 0;
     GLint framebuffer = -1;
@@ -24,19 +26,34 @@ struct GlesRenderer::Impl {
 
 GlesRenderer::GlesRenderer(const RasterRenderer& commands, GlesRendererOptions options)
     : impl_(std::make_unique<Impl>(commands)) {
+    impl_->egl_display = eglGetCurrentDisplay();
+    impl_->egl_context = eglGetCurrentContext();
+    if (impl_->egl_display == EGL_NO_DISPLAY || impl_->egl_context == EGL_NO_CONTEXT) return;
     auto interface = GrGLMakeAssembledGLESInterface(nullptr,
         [](void*, const char* name) { return eglGetProcAddress(name); });
     if (interface) impl_->context = GrDirectContexts::MakeGL(std::move(interface));
     if (impl_->context) impl_->context->setResourceCacheLimit(options.resource_cache_bytes);
 }
-GlesRenderer::~GlesRenderer() = default;
+GlesRenderer::~GlesRenderer() { Close(); }
 bool GlesRenderer::Ready() const { return impl_->context != nullptr; }
 void GlesRenderer::Close() {
+    if (impl_->context && (eglGetCurrentDisplay() != impl_->egl_display ||
+                          eglGetCurrentContext() != impl_->egl_context)) {
+        Abandon();
+        return;
+    }
+    impl_->surface.reset();
+    impl_->context.reset();
+}
+void GlesRenderer::Abandon() {
+    if (impl_->context) impl_->context->abandonContext();
     impl_->surface.reset();
     impl_->context.reset();
 }
 bool GlesRenderer::Render(const contracts::DisplayList& list, int width, int height) {
-    if (!Ready() || width <= 0 || height <= 0 || width > 4096 || height > 4096) return false;
+    if (!Ready() || eglGetCurrentDisplay() != impl_->egl_display ||
+        eglGetCurrentContext() != impl_->egl_context ||
+        width <= 0 || height <= 0 || width > 4096 || height > 4096) return false;
     GLint framebuffer = 0, samples = 0, stencil = 0;
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebuffer);
     glGetIntegerv(GL_SAMPLES, &samples);

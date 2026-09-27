@@ -17,6 +17,11 @@ public:
     bool Closed() const { return closed_; }
     bool WantsWrite() const { return output_offset_ < output_.size(); }
     bool HasPartialFrame() const { return !input_.empty(); }
+    // Complete frames retained after the per-turn extraction budget are work
+    // even when the kernel socket is empty. A partial fragment is not readiness.
+    // Invalid cached headers also require an immediate drain. Parsing failures
+    // are raised by Receive in the endpoint's error scope, never by readiness.
+    bool HasCompleteFrame() const noexcept;
     bool Queue(std::span<const std::uint8_t> frame);
     void Flush();
     std::vector<std::vector<std::uint8_t>> Receive();
@@ -26,6 +31,6 @@ private:
     Sizer sizer_;
     std::vector<std::uint8_t> input_, output_;
     std::size_t output_offset_{};
-    bool closed_{};
+    bool closed_{}, read_eof_{};
 };
 } // namespace prism::launch

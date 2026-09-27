@@ -17,6 +17,13 @@ Stream::Stream(int fd, Sizer sizer) : fd_(fd), sizer_(std::move(sizer)) {
     }
 }
 Stream::~Stream() { Close(); }
+bool Stream::HasCompleteFrame() const noexcept {
+    if(closed_||input_.empty())return false;
+    try {
+        const auto size=sizer_(input_);
+        return size>kBufferLimit||(size&&size<=input_.size());
+    } catch(...) { return true; }
+}
 void Stream::Close() {
     if (fd_ >= 0) close(fd_);
     fd_ = -1; closed_ = true;
@@ -46,15 +53,14 @@ void Stream::Flush() {
 std::vector<std::vector<std::uint8_t>> Stream::Receive() {
     std::vector<std::vector<std::uint8_t>> frames;
     if (closed_) return frames;
-    bool eof = false;
     std::uint8_t buffer[8192];
     std::size_t budget = 65536;
-    while (budget) {
+    while (budget && !read_eof_) {
         const auto n = recv(fd_, buffer, std::min(budget, sizeof(buffer)), 0);
         if (n > 0) {
             if (static_cast<std::size_t>(n) > kBufferLimit - input_.size()) { Close(); return {}; }
             input_.insert(input_.end(), buffer, buffer + n); budget -= n;
-        } else if (n == 0) { eof = true; break; }
+        } else if (n == 0) { read_eof_ = true; break; }
         else if (errno == EINTR) continue;
         else if (errno == EAGAIN || errno == EWOULDBLOCK) break;
         else { Close(); return {}; }
@@ -64,14 +70,18 @@ std::vector<std::vector<std::uint8_t>> Stream::Receive() {
         while (offset < input_.size() && frames.size() < 64) {
             const auto remaining = std::span(input_).subspan(offset);
             const auto size = sizer_(remaining);
-            if (!size || size > remaining.size()) break;
             if (size > kBufferLimit) throw std::invalid_argument("Frame exceeds buffer");
+            if (!size || size > remaining.size()) break;
             frames.emplace_back(remaining.begin(), remaining.begin() + size);
             offset += size;
         }
         input_.erase(input_.begin(), input_.begin() + offset);
+        // Preserve complete messages across the 64-frame boundary even after
+        // EOF. An incomplete final fragment can never become another frame.
+        // Let consumers process the final batch before observing Closed().
+        // The EOF socket remains readable and the next empty drain closes it.
+        if(read_eof_&&frames.empty()&&!HasCompleteFrame())Close();
     } catch (...) { Close(); throw; }
-    if (eof) Close();
     return frames;
 }
 } // namespace prism::launch

@@ -104,3 +104,12 @@ ABI v1 的原有字段和布局前缀保留：HostApi 尾部增加 `select_theme
 ### 配色与 ABI 尾字段
 
 `HostConfig::select_color_scheme` 与 module 的可选 `select_color_scheme` 接口沿用主题请求通道。初始快照、Preview/Master 切换、预热 host、应用中快照更新及 `on_theme_event` 均携带同一 `color_scheme`。V1 的原前缀不变；新 module 处理旧 `PrismThemeEventV1` 时按旧前缀长度校验，完整尾字段存在才读取配色，否则 dark。独立 host 的事件回读同样用 ID 和实际配色加载资源，不能重置为默认 dark。
+
+
+## 10. 事件等待与 one-shot tick
+
+Host 的 `Pump(timeout_ms, wake_fds)` 合并前端 Wayland/资源、内部 launcher、调用者控制与退出通知；负 timeout 允许无限等待。业务 ABI v1 已有 `schedule_tick`，本轮不扩展模块结构。等待上限取业务下一次 tick、启动 10 秒 deadline 与调用者上限的最早值；没有 tick 时不设置固定轮询。业务回调仍在 Host 主线程执行。
+
+生产 worker、launcher 与 session supervisor 使用可轮询信号通知，SIGCHLD 驱动回收，watchdog/主题/片段/升级清理按真实截止时间处理。控制事件和完整用户态缓存消息均能唤醒；仅片段不选零 timeout。Music 暂停停止重排定时器，播放恢复 500ms 更新。Preview 实际呈现后再加载业务/Master、同 surface 替换、Ready 和取消协议沿用既有链路。实现规范与本轮结果见 [渲染调度与失效传播](RENDER_SCHEDULING_AND_INVALIDATION.md)。
+
+worker 自报合法 Failed 后，launcher 保留失败事件并给予 250ms 自行退出窗口，仍未退出则 TERM→1s KILL；正常退出和信号退出都由 waitpid 如实报告。取消、watchdog、会话停止立即 TERM，未增加等待宽限。该规则覆盖快速错误退出与失败后阻塞清理，详见 [待命池生命周期](LAUNCHER_WORKER_POOL.md#5-生命周期超时与取消)。

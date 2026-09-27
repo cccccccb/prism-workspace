@@ -34,6 +34,9 @@ bool LaunchClient::Connect() {
     stream_ = std::make_unique<launch::Stream>(fd, launch::FrameSize); return true;
 }
 bool LaunchClient::Connected() const { return stream_ && !stream_->Closed(); }
+int LaunchClient::Fd() const { return Connected()?stream_->Fd():-1; }
+bool LaunchClient::WantsWrite() const { return Connected()&&stream_->WantsWrite(); }
+bool LaunchClient::HasCompleteFrame() const { return Connected()&&stream_->HasCompleteFrame(); }
 std::uint64_t LaunchClient::Launch(std::string app_id, contracts::LaunchMode mode) {
     if (!Connect() || !next_request_) return 0;
     const contracts::RequestId request{next_request_++};
@@ -75,7 +78,7 @@ std::vector<contracts::LaunchEvent> LaunchClient::Pump(int timeout) {
     if (!Connected()) return events;
     stream_->Flush();
     pollfd fd{stream_->Fd(), static_cast<short>(POLLIN | (stream_->WantsWrite() ? POLLOUT : 0)), 0};
-    poll(&fd, 1, timeout);
+    poll(&fd, 1, stream_->HasCompleteFrame()?0:timeout);
     stream_->Flush();
     for (auto& frame:stream_->Receive()) {
         auto message=launch::DecodeMessage(frame);

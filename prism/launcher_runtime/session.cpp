@@ -1,4 +1,5 @@
 #include <chrono>
+#include "prism/host/event_wait.hpp"
 #include <csignal>
 #include <filesystem>
 #include <fstream>
@@ -13,8 +14,8 @@
 #include <vector>
 extern char** environ;
 namespace {
-volatile std::sig_atomic_t stopping{};
-void Stop(int) { stopping=1; }
+std::uint64_t Now(){return std::chrono::duration_cast<std::chrono::nanoseconds>(
+    std::chrono::steady_clock::now().time_since_epoch()).count();}
 std::vector<pid_t> Children() {
     const auto pid=std::to_string(getpid());
     std::ifstream input("/proc/self/task/"+pid+"/children");
@@ -51,7 +52,8 @@ int main(int argc,char** argv) {
         else if(option=="--theme") theme_id=argv[i];
         else if(option=="--color-scheme") color_scheme=argv[i]; else return 2;
     }
-    std::signal(SIGINT,Stop); std::signal(SIGTERM,Stop); std::signal(SIGCHLD,SIG_DFL);
+    prism::host::SignalWake signals(true);
+    const auto& stopping=signals.Stopping();
     // PAM/systemd can leave an existing sd-pam helper across exec. It ends
     // after its parent exits; waiting for it would deadlock session shutdown.
     const auto existing=Children();
@@ -65,26 +67,32 @@ int main(int argc,char** argv) {
         launcher_pid=Spawn(launcher,pair[1],pair[0],{"--wm-fd","3","--parent-pid",parent,
             "--start-shell","--apps-root",root.string(),"--themes-root",themes.string(),"--theme",theme_id,"--color-scheme",color_scheme,"--wayland","wayland-prism-0"});
         std::cout << "session wm=" << wm_pid << " launcher=" << launcher_pid << std::endl;
-    } catch (const std::exception& error) { std::cerr << error.what() << std::endl; stopping=1; result=1; }
+    } catch (const std::exception& error) { std::cerr << error.what() << std::endl; signals.RequestStop(); result=1; }
     close(pair[0]); close(pair[1]);
     while (!stopping) {
         for (auto* principal:{&wm_pid,&launcher_pid}) {
             if (!*principal) continue;
             int status{};
             const auto reaped=waitpid(*principal,&status,WNOHANG);
-            if (reaped==*principal) { *principal=0; result=1; stopping=1; }
+            if (reaped==*principal) { *principal=0; result=1; signals.RequestStop(); }
             else if (reaped<0 && errno!=EINTR) {
                 // Ownership was lost: never signal a possibly reused PID.
-                *principal=0; result=1; stopping=1;
+                *principal=0; result=1; signals.RequestStop();
             }
         }
-        if (!stopping) poll(nullptr,0,20);
+        if (!stopping){
+            pollfd wake{signals.Fd(),POLLIN,0};
+            const int waited=poll(&wake,1,-1);
+            if(waited<0&&errno!=EINTR){result=1;signals.RequestStop();}
+            if(wake.revents)signals.Consume();
+        }
     }
     if (wm_pid) kill(wm_pid,SIGTERM);
     if (launcher_pid) kill(launcher_pid,SIGTERM);
-    auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+    const auto deadline=prism::host::After(Now(),3000000000ULL);
+    bool escalated=false;
     for (;;) {
-        bool remaining=false;
+        bool remaining=false,rescan=false;
         for (const auto child:Children()) {
             if (inherited.contains(child)) continue;
             // Re-scan once after reaping a principal: it may just have
@@ -93,18 +101,29 @@ int main(int argc,char** argv) {
             int status{};
             const auto reaped=waitpid(child,&status,WNOHANG);
             if (reaped==child) {
+                rescan=true;
                 if (child==wm_pid) wm_pid=0;
                 if (child==launcher_pid) launcher_pid=0;
             } else if (reaped==0) {
                 remaining=true;
                 // Includes adopted hosts/descendants after a launcher crash.
-                if (std::chrono::steady_clock::now()>=deadline) kill(child,SIGKILL);
+                if (Now()>=deadline) kill(child,SIGKILL);
             } else if (errno!=ECHILD && errno!=EINTR) {
                 result=1;
             } else if (errno==EINTR) remaining=true;
+            else rescan=true;
         }
         if (!remaining) break;
-        poll(nullptr,0,20);
+        // Reaping a principal can expose already exited adopted descendants;
+        // no fresh SIGCHLD is required after a coalesced notification was read.
+        if(rescan)continue;
+        // SIGCHLD covers principal reaping and newly adopted descendants. Once
+        // escalation is sent, await reaping rather than polling an expired timer.
+        escalated|=Now()>=deadline;
+        pollfd wake{signals.Fd(),POLLIN,0};
+        const int waited=poll(&wake,1,prism::host::Timeout(Now(),escalated?std::nullopt:std::optional{deadline}));
+        if(waited<0&&errno!=EINTR){result=1;break;}
+        if(wake.revents)signals.Consume();
     }
     return result;
 }

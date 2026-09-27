@@ -2,6 +2,8 @@
 
 日期：2026-09-26。执行顺序：设置页 → 明暗配色 → 完整会话性能基线 → 根据测量专项修复。
 
+本文的性能表记录 0.1.0-8。2026-09-27 的 0.1.0-9 按需输出、效果失效规范及新会话对照结果见 [RENDER_SCHEDULING_AND_INVALIDATION.md](RENDER_SCHEDULING_AND_INVALIDATION.md)；静态内容的长呈现间隔不作为动画掉帧指标。
+
 ## 1. 设置页职责
 
 - 前端布局仍由 demo_settings/master.prism 描述，业务 module 只提交 bindings 和平台请求。
@@ -76,3 +78,7 @@ Glass 暗空闲的去重 client resident 采样峰值从约 279.05 降至 115.05
 ## 6. 实机验收
 
 最终 0.1.0-8 包已安装；30/30 CTest、真实 V3D 启动/呈现/激活协议检查与八种材料/配色组合通过。实际键盘 UI 检查覆盖分页、Light 全局切换、Music 播放及暂停、监控暂停/恢复和采样选择，截图与测量分开进行。用户现场答复“布局与配色满意，操作正常”，确认性能指标、采样/开关和全局明暗/材料切换清晰可用。主题和配色当前仍为会话级选择，尚不自动持久化。
+
+渲染第二阶段已随 0.1.0-10 部署：同条件新会话的 Music CPU 5.29% → 4.49%（单核 100%），玻璃 pass 60 capture / 120 blur / 60 material → 全零；客户端和输出更新保留。空闲会话 CPU 未改善，ondemand 频率与单次短测边界见 [渲染调度与失效传播](RENDER_SCHEDULING_AND_INVALIDATION.md) 第 8 节。
+
+第三阶段已随 **0.1.0-11** 部署并现场确认画面/操作正常。SDK 区分 None/State/Pixels/Failed，生产 Host、launcher、supervisor 按真实事件与 deadline 等待；Music 暂停不重排 tick。新的匹配 12 秒样本中，空闲 CPU 2.10% → 0.76%，模拟进度 CPU 4.56% → 2.98%（完整 session.scope、单核 100%）；输出提交均保留 12/36 次，PSS 约 218–219 MiB，额外玻璃 pass 为零。静置时多个无任务进程主线程的自愿上下文切换从数百次降到零；它不是精确唤醒或输入延迟指标。完整计数、present 端点差、起止频率和单次短测边界见上述规范第 10 节。下一阶段补 buffer age/damage 历史后实现安全局部像素绘制。

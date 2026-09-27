@@ -36,6 +36,17 @@ void CheckActions(prism::runtime::Scene& scene,const std::vector<ActionNode>& ac
     }
 }
 
+void SubmitTheme(prism::runtime::Scene& scene) {
+    const auto dirty=scene.PendingDirty();
+    const bool pixels=prism::runtime::Has(dirty,prism::runtime::Dirty::Layout) ||
+        prism::runtime::Has(dirty,prism::runtime::Dirty::Paint);
+    const auto list=scene.Build(prism::contracts::WindowId{1});
+    assert(list.has_value()==pixels);
+    // A template with no reference to changed theme values stays pixel-clean.
+    scene.AcknowledgeComposite();
+    assert(scene.PendingDirty()==prism::runtime::Dirty::None);
+}
+
 int main(int argc,char** argv) {
     struct Template { const char* path; double width,height; };
     const Template cases[]{
@@ -86,7 +97,7 @@ int main(int argc,char** argv) {
                         for (const auto* theme:{"glass","translucent","transparent","square"})
                             for (const auto* scheme:{"dark","light"}) {
                                 assert(scene.ApplyTheme(prism::theme::LoadTheme(prism::theme::DefaultThemeRoot(),theme,theme_request++,scheme)));
-                                assert(scene.Build(prism::contracts::WindowId{1}));
+                                SubmitTheme(scene);
                                 CheckActions(scene,actions,size.width,size.height);
                             }
                     }
@@ -115,7 +126,7 @@ int main(int argc,char** argv) {
         std::uint64_t generation=1;
         for (const auto* theme:{"translucent","transparent","square","glass"}) {
             assert(scene.ApplyTheme(prism::theme::LoadTheme(prism::theme::DefaultThemeRoot(),theme,generation++)));
-            assert(scene.Build(prism::contracts::WindowId{1}));
+            SubmitTheme(scene);
             CheckActions(scene,actions,item.width,item.height);
             assert(!scene.InputRegions().empty());
         }

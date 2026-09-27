@@ -126,6 +126,102 @@ static void handle_output_present(struct wl_listener* listener, void* data) {
     output->last_present_ns=now;
 }
 
+static void handle_output_commit(wl_listener* listener, void* data) {
+    auto* output=WlContainerOf<WlrOutput>(listener,offsetof(WlrOutput,committed));
+    output->server->HandleOutputCommit(data);
+}
+static void handle_output_needs_frame(wl_listener* listener, void*) {
+    auto* output=WlContainerOf<WlrOutput>(listener,offsetof(WlrOutput,needs_frame));
+    output->server->HandleOutputNeedsFrame();
+}
+static void handle_output_damage(wl_listener* listener, void*) {
+    auto* output=WlContainerOf<WlrOutput>(listener,offsetof(WlrOutput,damage));
+    output->server->HandleOutputDamage();
+}
+
+struct WlrSurfaceWatch {
+    struct ChildState {
+        wlr_subsurface* child{};
+        std::int32_t x{}, y{};
+        bool above{};
+        bool operator==(const ChildState&) const = default;
+    };
+    WlrServer* server{};
+    wlr_surface* surface{};
+    wl_listener commit{}, map{}, unmap{}, destroy{};
+    std::vector<ChildState> children;
+    wlr_box local_geometry{};
+    bool has_local_geometry{};
+
+    bool RefreshChildren() {
+        std::size_t index=0;
+        bool changed=false;
+        auto compare=[&](wl_list* list,bool above) {
+            wlr_subsurface* child;
+            wl_list_for_each(child,list,current.link) {
+                const ChildState value{child,child->current.x,child->current.y,above};
+                if(index>=children.size()||children[index]!=value)changed=true;
+                ++index;
+            }
+        };
+        compare(&surface->current.subsurfaces_below,false);
+        compare(&surface->current.subsurfaces_above,true);
+        if(!changed&&index==children.size())return false;
+        children.clear();
+        auto record=[&](wl_list* list,bool above) {
+            wlr_subsurface* child;
+            wl_list_for_each(child,list,current.link)
+                children.push_back({child,child->current.x,child->current.y,above});
+        };
+        record(&surface->current.subsurfaces_below,false);
+        record(&surface->current.subsurfaces_above,true);
+        return true;
+    }
+
+    bool RefreshLocalGeometry() {
+        auto* xdg=wlr_xdg_surface_try_from_wlr_surface(surface);
+        if(!xdg){const bool changed=has_local_geometry;has_local_geometry=false;return changed;}
+        wlr_box next{};
+        wlr_xdg_surface_get_geometry(xdg,&next);
+        const bool changed=!has_local_geometry||local_geometry.x!=next.x||
+            local_geometry.y!=next.y||local_geometry.width!=next.width||local_geometry.height!=next.height;
+        local_geometry=next;has_local_geometry=true;
+        return changed;
+    }
+
+    WlrSurfaceWatch(WlrServer* owner,wlr_surface* value):server(owner),surface(value) {
+        commit.notify=[](wl_listener* listener,void*) {
+            auto* watch=WlContainerOf<WlrSurfaceWatch>(listener,offsetof(WlrSurfaceWatch,commit));
+            watch->server->HandleSurfaceCommit(watch->surface);
+        };
+        destroy.notify=[](wl_listener* listener,void*) {
+            auto* watch=WlContainerOf<WlrSurfaceWatch>(listener,offsetof(WlrSurfaceWatch,destroy));
+            watch->server->HandleSurfaceDestroy(watch->surface);
+        };
+        map.notify=[](wl_listener* listener,void*) {
+            auto* watch=WlContainerOf<WlrSurfaceWatch>(listener,offsetof(WlrSurfaceWatch,map));
+            watch->server->HandleSurfaceMapState(watch->surface);
+        };
+        unmap.notify=[](wl_listener* listener,void*) {
+            auto* watch=WlContainerOf<WlrSurfaceWatch>(listener,offsetof(WlrSurfaceWatch,unmap));
+            watch->server->HandleSurfaceMapState(watch->surface);
+        };
+        wl_signal_add(&surface->events.commit,&commit);
+        wl_signal_add(&surface->events.map,&map);
+        wl_signal_add(&surface->events.unmap,&unmap);
+        wl_signal_add(&surface->events.destroy,&destroy);
+    }
+    ~WlrSurfaceWatch() {
+        wl_list_remove(&commit.link);wl_list_remove(&map.link);
+        wl_list_remove(&unmap.link);wl_list_remove(&destroy.link);
+    }
+};
+
+static void handle_server_new_surface(wl_listener* listener,void* data) {
+    auto* signals=WlContainerOf<WlrServerSignals>(listener,offsetof(WlrServerSignals,new_surface));
+    signals->server->HandleNewSurface(static_cast<wlr_surface*>(data));
+}
+
 static void handle_output_destroy(struct wl_listener* listener, void* data) {
     auto* output = WlContainerOf<WlrOutput>(listener, offsetof(WlrOutput, destroy));
     if (output && output->server) {
@@ -178,6 +274,12 @@ WlrOutput::WlrOutput(struct wlr_output* out, WlrServer* s)
 
     present.notify = handle_output_present;
     wl_signal_add(&wlr_output->events.present, &present);
+    committed.notify=handle_output_commit;
+    wl_signal_add(&wlr_output->events.commit,&committed);
+    needs_frame.notify=handle_output_needs_frame;
+    wl_signal_add(&wlr_output->events.needs_frame,&needs_frame);
+    damage.notify=handle_output_damage;
+    wl_signal_add(&wlr_output->events.damage,&damage);
     destroy.notify = handle_output_destroy;
     wl_signal_add(&wlr_output->events.destroy, &destroy);
 }
@@ -189,6 +291,9 @@ WlrOutput::~WlrOutput() {
     }
     wl_list_remove(&frame.link);
     wl_list_remove(&present.link);
+    wl_list_remove(&committed.link);
+    wl_list_remove(&needs_frame.link);
+    wl_list_remove(&damage.link);
     wl_list_remove(&destroy.link);
 }
 
@@ -228,7 +333,7 @@ static void handle_cursor_axis(struct wl_listener* listener, void* data) {
 }
 
 WlrServer::WlrServer(std::shared_ptr<Compositor> compositor)
-    : compositor_(std::move(compositor)) {}
+    : compositor_(std::move(compositor)) { wl_list_init(&signals_.new_surface.link); }
 
 WlrServer::~WlrServer() {
     Stop();
@@ -273,6 +378,9 @@ bool WlrServer::Initialize(const std::string& socket_name) {
 
     // 4. Compositor & Subcompositor globals
     wlr_compositor_ = wlr_compositor_create(wl_display_, 5, renderer_);
+    signals_.server=this;
+    signals_.new_surface.notify=handle_server_new_surface;
+    wl_signal_add(&wlr_compositor_->events.new_surface,&signals_.new_surface);
     subcompositor_ = wlr_subcompositor_create(wl_display_);
     if (!wlr_presentation_create(wl_display_, backend_)) {
         PRISM_LOG_ERROR("WLR-SERVER", "Failed to create presentation feedback global");
@@ -296,6 +404,7 @@ bool WlrServer::Initialize(const std::string& socket_name) {
     // 6. Initialize 100% Native GPU Scene-Graph hierarchy
     InitSceneGraph();
     surface_effects_=std::make_unique<SurfaceEffects>(wl_display_,renderer_,allocator_);
+    surface_effects_->SetWakeHandler([this] { ScheduleFrames(FrameReason::Effects); });
 
     // 7. XDG Shell Protocol (Wayland Window Standard Protocol)
     xdg_shell_ = wlr_xdg_shell_create(wl_display_, 3);
@@ -435,7 +544,38 @@ bool WlrServer::Initialize(const std::string& socket_name) {
                 {"effects_cpu",summary(effects_cpu_)},{"commit_cpu",summary(commit_cpu_)},
                 {"commit_successes",commit_successes_},{"commit_failures",commit_failures_},
                 {"pointer_events",pointer_events_},{"pointer_event_age",summary(pointer_event_age_)},
-                {"presentation",std::move(presentation)}};
+                {"presentation",std::move(presentation)},
+                {"scheduling",{{"frame_events",frame_work_.frame_events},{"idle_skips",frame_work_.idle_skips},
+                    {"scene_commit_calls",frame_work_.scene_commit_calls},{"scene_commit_noops",frame_work_.scene_commit_noops},
+                    {"output_commits",frame_work_.output_commits},{"output_buffer_commits",frame_work_.output_buffer_commits},
+                    {"frame_done_dispatches",frame_work_.frame_done_dispatches},
+                    {"needs_frame_events",frame_work_.needs_frame_events},{"damage_events",frame_work_.damage_events},
+                    {"surface_commits",frame_work_.surface_commits},{"surface_buffer_commits",frame_work_.surface_buffer_commits},
+                    {"surface_callback_commits",frame_work_.surface_callback_commits},
+                    {"surface_nonvisual_commits",frame_work_.surface_nonvisual_commits},
+                    {"schedule_requests",{{"layout",frame_work_.layout_requests},{"effects",frame_work_.effects_requests},
+                        {"mode",frame_work_.mode_requests}}}}},
+                {"effects_work",[this] {
+                    const auto c=surface_effects_?surface_effects_->Counters():SurfaceEffects::WorkCounters{};
+                    return nlohmann::json{{"update_calls",c.update_calls},{"skipped_updates",c.skipped_updates},
+                        {"unsupported_updates",c.unsupported_updates},{"dirty_transitions",c.dirty_transitions},
+                        {"wake_notifications",c.wake_notifications},{"regions_checked",c.regions_checked},
+                        {"cache_hits",c.cache_hits},{"cache_misses",c.cache_misses},
+                        {"capture_pass_attempts",c.capture_pass_attempts},{"capture_passes",c.capture_passes},
+                        {"blur_pass_attempts",c.blur_pass_attempts},{"blur_passes",c.blur_passes},
+                        {"material_pass_attempts",c.material_pass_attempts},{"material_passes",c.material_passes},
+                        {"allocation_attempts",c.allocation_attempts},{"allocated_buffers",c.allocated_buffers},
+                        {"allocation_failures",c.allocation_failures},{"rendered_regions",c.rendered_regions},
+                        {"rendered_pixels",c.rendered_pixels},{"failed_regions",c.failed_regions},
+                        {"invalid_regions",c.invalid_regions},{"removed_regions",c.removed_regions},
+                        {"scene_reorders",c.scene_reorders},
+                        {"dependency_leaves_checked",c.dependency_leaves_checked},
+                        {"dependency_leaves_included",c.dependency_leaves_included},
+                        {"dependency_leaves_skipped",c.dependency_leaves_skipped},
+                        {"content_revisions",c.content_revisions},{"metadata_commits",c.metadata_commits},
+                        {"damage_history_fallbacks",c.damage_history_fallbacks},
+                        {"partial_damage_cache_hits",c.partial_damage_cache_hits},{"capture_nodes",c.capture_nodes}};
+                }()}};
             std::ostringstream ss;
             ss << "{\n"
                << "  \"status\": \"ok\",\n"
@@ -474,6 +614,7 @@ bool WlrServer::Initialize(const std::string& socket_name) {
                 }
             }
             bool cur = compositor_ ? compositor_->IsDebugHudEnabled() : false;
+            if(hud_tree_)wlr_scene_node_set_enabled(&hud_tree_->node,cur);
             return std::string("{\"status\": \"ok\", \"debug_hud\": ") + (cur ? "true" : "false") + "}";
         };
         ipc_server_->RegisterHandler("set_debug", debug_handler);
@@ -794,7 +935,15 @@ void WlrServer::Stop() {
     if (!wl_display_) return;
     running_ = false;
     registrations_.clear();
+    if (surface_effects_) surface_effects_->SetWakeHandler({});
+    if(effects_idle_) {
+        wl_event_source_remove(effects_idle_);
+        effects_idle_=nullptr;
+    }
     if (wl_display_) wl_display_destroy_clients(wl_display_);
+    surface_watches_.clear();
+    wl_list_remove(&signals_.new_surface.link);
+    wl_list_init(&signals_.new_surface.link);
     surface_effects_.reset();
 
     focused_xdg_view_ = nullptr;
@@ -837,6 +986,7 @@ void WlrServer::Stop() {
     if (wl_display_) {
         wl_display_destroy(wl_display_);
         wl_display_ = nullptr;
+        wl_event_loop_ = nullptr;
     }
 
     if (ipc_server_) {
@@ -853,6 +1003,101 @@ void WlrServer::RunEventLoopIteration(int timeout_ms) {
     wl_event_loop_dispatch(wl_event_loop_, timeout_ms);
     PumpControl();
     wl_display_flush_clients(wl_display_);
+}
+
+void WlrServer::ScheduleFrames(FrameReason reason) {
+    switch(reason) {
+        case FrameReason::Layout: ++frame_work_.layout_requests; break;
+        case FrameReason::Effects: ++frame_work_.effects_requests; break;
+        case FrameReason::Mode: ++frame_work_.mode_requests; break;
+    }
+    if(reason==FrameReason::Effects && wl_event_loop_) {
+        // Resolve effects after surface/scene listeners settle. Only changed
+        // paint nodes produce native scene damage on their affected outputs.
+        if(effects_idle_)return;
+        effects_idle_=wl_event_loop_add_idle(wl_event_loop_,[](void* data) {
+            auto* server=static_cast<WlrServer*>(data);
+            server->effects_idle_=nullptr;
+            server->UpdateSurfaceEffects();
+        },this);
+        if(effects_idle_)return;
+        // Preserve progress if allocating the idle source failed.
+    }
+    for(const auto& output:outputs_)
+        if(output->wlr_output && output->wlr_output->enabled)
+            wlr_output_schedule_frame(output->wlr_output);
+}
+
+void WlrServer::InvalidateEffects() {
+    if(surface_effects_)surface_effects_->MarkDirty();
+}
+
+bool WlrServer::UpdateSurfaceEffects() {
+    if(!surface_effects_ || !surface_effects_->NeedsUpdate() || !scene_)return false;
+    if(effects_idle_) {
+        wl_event_source_remove(effects_idle_);
+        effects_idle_=nullptr;
+    }
+    const auto start=core::CurrentTimeNs();
+    std::vector<WlrXdgView*> views;
+    views.reserve(xdg_views_.size());
+    for(auto& view:xdg_views_)views.push_back(view.get());
+    surface_effects_->Update(scene_,views,focused_xdg_view_,theme_snapshot_.get());
+    effects_cpu_.Record((core::CurrentTimeNs()-start)/1e6);
+    return true;
+}
+
+void WlrServer::HandleOutputCommit(const void* data) {
+    ++frame_work_.output_commits;
+    const auto* event=static_cast<const wlr_output_event_commit*>(data);
+    if(event->state->committed & WLR_OUTPUT_STATE_BUFFER)++frame_work_.output_buffer_commits;
+}
+
+void WlrServer::HandleNewSurface(wlr_surface* surface) {
+    surface_watches_.emplace(surface,std::make_unique<WlrSurfaceWatch>(this,surface));
+}
+
+void WlrServer::HandleSurfaceCommit(wlr_surface* surface) {
+    ++frame_work_.surface_commits;
+    // Damage describes this commit only. Preserve it before later commits and
+    // before scene listeners update their surface buffers.
+    if(surface_effects_)surface_effects_->NotifySurfaceCommit(surface);
+    const auto fields=surface->current.committed;
+    if(fields & WLR_SURFACE_STATE_BUFFER)++frame_work_.surface_buffer_commits;
+    if(fields & WLR_SURFACE_STATE_FRAME_CALLBACK_LIST)++frame_work_.surface_callback_commits;
+    constexpr std::uint32_t visual_fields=WLR_SURFACE_STATE_BUFFER | WLR_SURFACE_STATE_SURFACE_DAMAGE |
+        WLR_SURFACE_STATE_BUFFER_DAMAGE | WLR_SURFACE_STATE_OPAQUE_REGION | WLR_SURFACE_STATE_TRANSFORM |
+        WLR_SURFACE_STATE_SCALE | WLR_SURFACE_STATE_VIEWPORT | WLR_SURFACE_STATE_OFFSET;
+    bool geometry_changed=false;
+    if(auto it=surface_watches_.find(surface);it!=surface_watches_.end()) {
+        // Parent commits apply position and stacking of child surfaces without
+        // a dedicated committed-field bit. Keep ordered, exact state snapshots.
+        const bool children_changed=it->second->RefreshChildren();
+        const bool local_changed=it->second->RefreshLocalGeometry();
+        geometry_changed=children_changed||local_changed;
+    }
+    if(!(fields & visual_fields)&&!geometry_changed) {
+        ++frame_work_.surface_nonvisual_commits;
+        // wlroots 0.18 scene surfaces already schedule visible callback-only
+        // commits. Do not invalidate cached backgrounds for input/callback state.
+        return;
+    }
+    // This observer runs before scene listeners. Output membership may still
+    // describe the previous mapping; stage 1 conservatively invalidates all
+    // visual commits, including currently hidden and newly mapped surfaces.
+    InvalidateEffects();
+}
+
+void WlrServer::HandleSurfaceMapState(wlr_surface*) {
+    // Map/unmap can precede commit, and scene listeners can remove output
+    // membership before this observer sees the corresponding buffer detach.
+    InvalidateEffects();
+}
+
+void WlrServer::HandleSurfaceDestroy(wlr_surface* surface) {
+    if(surface_effects_)surface_effects_->ForgetSurface(surface);
+    InvalidateEffects();
+    surface_watches_.erase(surface);
 }
 
 void WlrServer::HandleNewOutput(struct wlr_output* output) {
@@ -898,7 +1143,7 @@ void WlrServer::HandleNewOutput(struct wlr_output* output) {
 
     // The initial DRM modeset may already have a page-flip pending.
     // Let wlroots emit the frame event once the output can accept a commit.
-    wlr_output_schedule_frame(output);
+    ScheduleFrames(FrameReason::Mode);
 }
 
 void WlrServer::RemoveOutput(WlrOutput* output) {
@@ -991,6 +1236,8 @@ void WlrServer::HandleNewXdgToplevel(struct wlr_xdg_toplevel* toplevel) {
         if (item->toplevel->base->initial_commit)
             wlr_xdg_toplevel_set_size(item->toplevel, item->width, item->height);
         UpdateCommittedGeometry(item);
+        // The all-surface observer compares the full local XDG geometry,
+        // including x/y and Shell clients without a managed Window.
     };
     wl_signal_add(&toplevel->base->surface->events.commit, &view->commit);
     view->set_title.notify = [](wl_listener* listener, void*) {
@@ -1133,7 +1380,8 @@ void WlrServer::ArrangeXdgViews() {
         }
     }
     UpdateXdgPointerFocus(static_cast<uint32_t>(core::CurrentTimeNs() / 1000000));
-    for (auto& out : outputs_) if (out && out->wlr_output) wlr_output_schedule_frame(out->wlr_output);
+    InvalidateEffects();
+    ScheduleFrames(FrameReason::Layout);
 }
 
 void WlrServer::SynchronizeXdgFocus() {
@@ -1145,6 +1393,7 @@ void WlrServer::SynchronizeXdgFocus() {
         wlr_xdg_toplevel_set_activated(focused_xdg_view_->toplevel, false);
     focused_xdg_view_ = nullptr;
     wlr_seat_keyboard_notify_clear_focus(seat_);
+    InvalidateEffects();
 }
 
 void WlrServer::FocusXdgView(WlrXdgView* view) {
@@ -1172,6 +1421,7 @@ void WlrServer::FocusXdgView(WlrXdgView* view) {
         wlr_xdg_toplevel_set_activated(focused_xdg_view_->toplevel, false);
     focused_xdg_view_ = view;
     wlr_scene_node_raise_to_top(&view->scene_tree->node);
+    if(changed)InvalidateEffects();
     if (changed) wlr_xdg_toplevel_set_activated(view->toplevel, true);
     if (auto* keyboard = wlr_seat_get_keyboard(seat_); keyboard && (changed || seat_->keyboard_state.focused_surface != view->toplevel->base->surface))
         wlr_seat_keyboard_notify_enter(seat_, view->toplevel->base->surface,
@@ -1256,9 +1506,6 @@ void WlrServer::HandleCursorMotion(uint32_t time_msec, double dx, double dy) {
     const auto age=static_cast<std::uint32_t>(core::CurrentTimeNs()/1000000ULL)-time_msec;
     if (age < 60000) pointer_event_age_.Record(age);
     wlr_cursor_move(cursor_, nullptr, dx, dy);
-    if (cursor_mgr_) {
-        wlr_cursor_set_xcursor(cursor_, cursor_mgr_, "left_ptr");
-    }
     UpdateXdgPointerFocus(time_msec);
     if (compositor_) {
         compositor_->OnPointerMotion(static_cast<float>(cursor_->x), static_cast<float>(cursor_->y), static_cast<float>(dx), static_cast<float>(dy));
@@ -1266,11 +1513,9 @@ void WlrServer::HandleCursorMotion(uint32_t time_msec, double dx, double dy) {
     if (drag_manager_ && drag_manager_->IsDragging() && compositor_) {
         drag_manager_->UpdateDrag(static_cast<float>(cursor_->x), static_cast<float>(cursor_->y), compositor_->GetWindows());
     }
-    for (auto& out : outputs_) {
-        if (out && out->wlr_output) {
-            wlr_output_schedule_frame(out->wlr_output);
-        }
-    }
+    // wlroots handles hardware cursor plane updates and software cursor damage.
+    // Client hover changes submit their own damage; ordinary motion does not
+    // force every output to redraw or reset an unchanged cursor image.
 }
 
 void WlrServer::HandleCursorMotionAbsolute(uint32_t time_msec, double x, double y) {
@@ -1278,20 +1523,12 @@ void WlrServer::HandleCursorMotionAbsolute(uint32_t time_msec, double x, double 
     const auto age=static_cast<std::uint32_t>(core::CurrentTimeNs()/1000000ULL)-time_msec;
     if (age < 60000) pointer_event_age_.Record(age);
     wlr_cursor_warp_absolute(cursor_, nullptr, x, y);
-    if (cursor_mgr_) {
-        wlr_cursor_set_xcursor(cursor_, cursor_mgr_, "left_ptr");
-    }
     UpdateXdgPointerFocus(time_msec);
     if (compositor_) {
         compositor_->OnPointerMotion(static_cast<float>(cursor_->x), static_cast<float>(cursor_->y));
     }
     if (drag_manager_ && drag_manager_->IsDragging() && compositor_) {
         drag_manager_->UpdateDrag(static_cast<float>(cursor_->x), static_cast<float>(cursor_->y), compositor_->GetWindows());
-    }
-    for (auto& out : outputs_) {
-        if (out && out->wlr_output) {
-            wlr_output_schedule_frame(out->wlr_output);
-        }
     }
 }
 
@@ -1418,11 +1655,7 @@ void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t
         }
     }
 
-    for (auto& out : outputs_) {
-        if (out && out->wlr_output) {
-            wlr_output_schedule_frame(out->wlr_output);
-        }
-    }
+    // Focus/topology changes and client reactions carry their own frame demand.
 }
 
 void WlrServer::HandleCursorAxis(uint32_t time_msec, int axis, double value) {
@@ -1495,23 +1728,40 @@ void WlrServer::UpdateSceneGraph(int width, int height, float dt) {
 
 void WlrServer::HandleOutputFrame(WlrOutput* output) {
     if (!output || !output->scene_output) return;
-
+    ++frame_work_.frame_events;
+    const auto frame_start=core::CurrentTimeNs();
+    // A backend event may precede the queued idle pass. Resolve pending effects
+    // here once, then evaluate the output's actual damage again.
+    const bool effects_updated=UpdateSurfaceEffects();
+    // The headless backend can emit periodic frame events while idle. Damage
+    // and needs_frame are the same wlroots 0.18 gates used by scene commit.
+    // Callback-only commits set needs_frame through wlr_scene_surface.
+    const bool output_work=output->wlr_output->needs_frame ||
+        pixman_region32_not_empty(&output->scene_output->pending_commit_damage);
+    if(!output_work) {
+        ++frame_work_.idle_skips;
+        if(effects_updated)frame_cpu_.Record((core::CurrentTimeNs()-frame_start)/1e6);
+        return;
+    }
     static int s_frame_log_count = 0;
     uint64_t now_ns = core::CurrentTimeNs();
-    float dt = 0.016f;
-    if (last_frame_time_ns_ > 0) {
-        dt = static_cast<float>(now_ns - last_frame_time_ns_) / 1e9f;
+    float dt = 0.0f;
+    if (output->last_frame_ns > 0) {
+        dt = static_cast<float>(now_ns - output->last_frame_ns) / 1e9f;
         if (dt > 0.0001f && dt < 1.0f) {
             float inst_fps = 1.0f / dt;
             current_fps_ = (current_fps_ <= 0.0f) ? inst_fps : (0.9f * current_fps_ + 0.1f * inst_fps);
         }
     }
+    output->last_frame_ns=now_ns;
     last_frame_time_ns_ = now_ns;
     frame_count_++;
 
     if (compositor_) {
         compositor_->SetPerformanceStats(current_fps_, dt, frame_count_);
-        compositor_->Tick(dt);
+        // A long idle gap is not a physics step. Native views are event-owned;
+        // future animation demand must use its own monotonic time origin.
+        compositor_->Tick(std::min(dt,0.05f));
     }
 
     int out_w = output->wlr_output->width;
@@ -1520,22 +1770,24 @@ void WlrServer::HandleOutputFrame(WlrOutput* output) {
     if (out_w > 0 && out_h > 0) {
         // 1. Update Hardware GPU Scene-graph layout (Windows, Divider, Dock, HUD)
         UpdateSceneGraph(out_w, out_h, dt);
-        const auto effects_start=core::CurrentTimeNs();
-        if(surface_effects_){std::vector<WlrXdgView*> views;for(auto& view:xdg_views_)views.push_back(view.get());
-            surface_effects_->Update(scene_,views,focused_xdg_view_,theme_snapshot_.get());}
-        effects_cpu_.Record((core::CurrentTimeNs()-effects_start)/1e6);
 
         // 2. Hardware-accelerated GPU render & commit (wlr_scene natively dispatches GLES2 render pass & Direct Scanout!)
         uint64_t t_gpu_start = core::CurrentTimeNs();
+        const auto commit_sequence=output->wlr_output->commit_seq;
+        ++frame_work_.scene_commit_calls;
         commit_ok = wlr_scene_output_commit(output->scene_output, nullptr);
         uint64_t t_gpu_done = core::CurrentTimeNs();
         commit_cpu_.Record((t_gpu_done-t_gpu_start)/1e6);
         if (commit_ok) ++commit_successes_; else ++commit_failures_;
+        if(commit_ok && commit_sequence==output->wlr_output->commit_seq)++frame_work_.scene_commit_noops;
 
         // 3. Send frame_done to client surfaces
         struct timespec now;
         clock_gettime(CLOCK_MONOTONIC, &now);
-        wlr_scene_output_send_frame_done(output->scene_output, &now);
+        if(commit_ok) {
+            wlr_scene_output_send_frame_done(output->scene_output, &now);
+            ++frame_work_.frame_done_dispatches;
+        }
 
         if (++s_frame_log_count % 60 == 1) {
             float gpu_ms = static_cast<float>(t_gpu_done - t_gpu_start) / 1e6f;
@@ -1546,12 +1798,10 @@ void WlrServer::HandleOutputFrame(WlrOutput* output) {
         }
     }
 
-    frame_cpu_.Record((core::CurrentTimeNs()-now_ns)/1e6);
+    frame_cpu_.Record((core::CurrentTimeNs()-frame_start)/1e6);
 
-    // Schedule next frame for continuous presentation aligned with monitor VSync
-    if (commit_ok) {
-        wlr_output_schedule_frame(output->wlr_output);
-    }
+    // The scene/backend schedule real damage and callback demand. Successful
+    // presentation alone does not create a new frame request.
 }
 
 std::vector<OutputInfo> WlrServer::GetOutputsInfo() const {
@@ -1640,7 +1890,8 @@ bool WlrServer::SetOutputMode(const std::string& name, int width, int height, in
             any_success = true;
             ArrangeXdgViews();
             UpdateSceneGraph(w_out->width, w_out->height);
-            wlr_output_schedule_frame(w_out);
+            InvalidateEffects();
+            ScheduleFrames(FrameReason::Mode);
         } else {
             PRISM_LOG_ERROR("WLR-MODE", "Failed to commit mode change on output '%s'", w_out->name);
         }

@@ -1,6 +1,6 @@
 # Pi Debian 安装包与物理显示会话
 
-日期：2026-09-26。当前安装版本为 **0.1.0-8 arm64**，Preferences 分为性能和外观页，增加真实 GPU 时钟、监控设置和独立明暗配色。统一 session/launcher/host 保持生产入口。30 项测试、真实 DRM 启动和八种材质/配色组合切换已通过；用户现场确认“布局与配色满意，操作正常”。0.1.0-7 的图标视觉及主要交互已经用户验收。
+日期：2026-09-27。当前安装版本为 **0.1.0-11 arm64**，在 v9/v10 按需调度与空间依赖上，分离 SDK 状态/像素提交并取消生产 Host、launcher、supervisor 的固定轮询。36 项测试、真实 V3D 与完整启动/回收回归、安装后的 DRM/八种配色门槛通过；用户现场确认“画面和操作都正常”。统一 session/launcher/host 保持生产入口；结果见第 8 节。
 
 ## 1. 发布规范
 
@@ -12,7 +12,7 @@
 
 ```sh
 tools/package-deb.sh
-sudo apt install ./dist/deb/prism-wm_0.1.0-8_arm64.deb
+sudo apt install ./dist/deb/prism-wm_0.1.0-11_arm64.deb
 sudo systemctl daemon-reload
 systemctl --user daemon-reload
 ```
@@ -127,4 +127,34 @@ sudo chvt 1
 - 实际 UI 键盘选择 Appearance 与 Light 已生效，四个 Shell/demo 前景统一换色；性能/外观和播放状态截图保存在 `dist/validation/prism-v8-preferences/`。背景保持现有资源。GPU 显示真实时钟 MHz，不冒充利用率；监控暂停及采样设置经模块测试和实际 UI 检查。
 - 根据第一轮测量修复隐藏子树无用重画，并通过接口将默认 Ganesh 缓存软预算设为 32 MiB。有效空闲、125 Hz 指针、Music 进度、Square 暗和 Glass 亮测试已记录；约 223–224 MiB PSS，CPU 约 4.4–8.7%（单核 100%），没有提交失败。样本边界、孤立呈现间隔及尚未解决的实鼠标体验问题见 [PREFERENCES_AND_PERFORMANCE.md](PREFERENCES_AND_PERFORMANCE.md)。
 
-本轮用户现场答复“布局与配色满意，操作正常”，确认性能指标、监控/采样和明暗/材质操作；该新增功能验收与旧 0.1.0-7 分开记录。此确认不代表鼠标主观卡顿已完成定位。
+该版本用户现场答复“布局与配色满意，操作正常”，确认性能指标、监控/采样和明暗/材质操作；该新增功能验收与旧 0.1.0-7 分开记录。此确认不代表鼠标主观卡顿已完成定位。
+
+## 6. 0.1.0-9 按需渲染
+
+- 发布包 `dist/deb/prism-wm_0.1.0-9_arm64.deb`，7606126 字节，SHA-256 `564f7cec562b1195e03ead622aa48cd3c8c6741ed94039255b9b0ec0a53335c4`。安装为 `install ok installed 0.1.0-9 arm64`，`dpkg -V` 无差异；旧会话十个 PID 已回收。沿用 tty8/seat0 和现有服务参数，不开启自启动。
+- 最终 CTest 32/32；独立真实 V3D 调度 probe 25 场景通过，包含无像素提交的 callback、子 surface 位置/层级/显隐和 XDG 局部原点。源码与测试位于各自目录，生产包九个平台入口/五个业务包，无 diagnostics/ImGui，WM 无 DSL/Skia 前端符号。
+- 安装后的真实 V3D 首帧/Ready、激活、新实例、取消退出、Shell 拒绝、实例流和八种材质/配色组合再次通过。真实键盘 Play/Pause、进度、HUD 显隐及最终截图通过，诊断窗口已关闭，Music 暂停、Preferences 聚焦、Glass dark 保留供现场操作；新会话日志未见 `[ERROR]` / `commit=FAILED`。
+- 同日同条件 12 秒新会话对照：空闲会话 CPU 4.97% → 2.15%、实际呈现 717 → 12；125Hz 指针 CPU 7.77% → 6.07%、呈现仍 718。CPU 均以单核 100% 计。指针下效果工作仅每秒一次，没有随 60Hz 输出增长。PSS 约 218.5MiB，未作为内存优化收益。
+- 规范、计数解释、完整测量条件与后续阶段见 [RENDER_SCHEDULING_AND_INVALIDATION.md](RENDER_SCHEDULING_AND_INVALIDATION.md)。原始证据位于 `dist/validation/prism-v9-render-scheduling/`。用户静置后手动确认“操作正常，鼠标更顺畅”，覆盖 Play/Pause、Dock 激活及明暗切换；此主观改善与协议/CPU 证据一起记录，端到端延迟仍未量化。
+
+## 7. 0.1.0-10 空间依赖优化发布
+
+生产包 `dist/deb/prism-wm_0.1.0-10_arm64.deb`，7612778 字节，SHA256 `b2b97ede9ca9254828c631c650f6c6821fb61320f8f9f8b9ce54abf47cb65364`。
+
+最终 33/33 CTest、V3D 50 功能场景（另 4 诊断记录）、安装后的物理启动/实例门槛、八种材质/明暗配色均通过。九个平台入口、五应用包，无 tests/probes/fixtures/ImGui；生产 WM 无客户端 Scene、DSL/theme 前端及 Skia 符号。升级前完整回收旧 session.scope 的十个 PID，安装后 `dpkg -V` 无差异。服务和启动参数沿用原入口，当前 MainPID 为 8329。
+
+新会话匹配短测中，空闲及 Music 更新都复用全部背景效果缓存，capture/blur/material 为零，客户端与输出仍更新 12/36 次。Music 会话 CPU 观察值 5.29% → 4.49%（单核 100%），空闲会话 CPU 未改善；PSS 基本持平。测量条件、governor 差异及证据边界见 [渲染调度与失效传播](RENDER_SCHEDULING_AND_INVALIDATION.md) 第 8 节。记录保存在 `dist/validation/prism-v10-spatial-effects/`。用户现场确认“画面和操作都正常”：玻璃/阴影边缘、Music、Dock 及主题/明暗切换均已验收。
+
+本会话在 11:08:25 手动操作期间记录一次 libinput 的 Razer Orochi V2 事件处理积压约 50ms。没有效果提交或区域失败；该输入积压尚未归因，不能据本轮零额外玻璃 pass 宣称所有交互阻塞已消除。
+
+## 8. 0.1.0-11 SDK 提交与事件等待发布
+
+生产包 `dist/deb/prism-wm_0.1.0-11_arm64.deb`，7624518 字节，SHA256 `4593c42c2ea4ab8742064933e21f608b4f2dac0f680c95d2f553197b0f0dda89`。安装为 0.1.0-11 arm64，`dpkg -V` 无差异；停止升级前 session.scope 的十个进程身份全部回收。服务沿用 tty8/seat0 与原参数，没有开启自启动；部署后 MainPID 12236，Result=success。
+
+最终 36/36 CTest、V3D SDK 状态/像素/资源/多客户端清理门槛、WM 50 功能场景 + 4 诊断记录，以及 Host/launcher/session 回归通过。包含 Preview/Master 同 surface、启动/取消/watchdog、失败 worker 清理和带继承 helper 的四种退出场景。包仍九入口/五应用，不含 tests/probes/fixtures/ImGui；发布 WM 对应经符号审计的构建产物。
+
+安装后的 DRM 真实 V3D 首帧/Ready、实例激活/新增/取消、Shell 身份拒绝、实例流、八种材质/配色及错误事务全部通过。Glass dark 物理截图确认双窗与装饰；本轮现场答复“画面和操作都正常”，覆盖 Music、Dock 和主题/明暗切换。新会话自动门槛与测试结束时 journal 未见 `[ERROR]`、`commit=FAILED`、SDK 提交失败或输入积压；这不代替持续输入延迟测量。
+
+匹配新会话短测：空闲会话 CPU 2.10% → 0.76%，Music 模拟进度 CPU 4.56% → 2.98%（单核 100%）；输出提交保留 12/36 次，额外玻璃 pass 仍为零，PSS 基本持平。单独 12 秒观察中，supervisor/launcher、暂停 Music、Desktop、Dock 与预热 host 的主线程自愿上下文切换均为零。温度、频率、present 端点差、计数定义与一次短测限制见 [渲染调度与失效传播](RENDER_SCHEDULING_AND_INVALIDATION.md) 第 10 节。
+
+证据位于 `dist/validation/prism-v11-sdk-event-wait/`；未将诊断或性能采样工具安装进生产环境。下一步按 buffer age/damage 历史与安全局部像素绘制主线推进，当前 Pixels 仍完整绘制 surface。

@@ -76,17 +76,31 @@ int main() {
             return;
         }
         bool maximized = false;
+        bool redrawn = false;
+        int configure_before_maximize = 0;
+        prism::platform::SubmitStats before_maximize{};
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
         while (std::chrono::steady_clock::now() < deadline) {
             if (!window.Pump(20) && !window.IsCloseRequested()) break;
             if (window.IsMapped()) client_mapped = true;
             if (!maximized && window.FrameDoneCount() > 0) {
+                configure_before_maximize = window.ConfigureCount();
+                before_maximize = window.GetSubmitStats();
                 window.RequestMaximize();
                 maximized = true;
             }
+            if (maximized && !redrawn && window.ConfigureCount() > configure_before_maximize) {
+                // BSP already gives this client its maximized size. Confirming
+                // that same geometry is metadata, then explicitly request a
+                // second pixel frame to verify rendering/callback recovery.
+                if (window.GetSubmitStats().pixel_commits != before_maximize.pixel_commits ||
+                    window.GetSubmitStats().state_commits <= before_maximize.state_commits) break;
+                window.RequestRedraw(true);
+                redrawn = true;
+            }
             if (window.IsCloseRequested()) break;
         }
-        client_pass = window.IsConfigured() && window.IsMapped() &&
+        client_pass = redrawn && window.IsConfigured() && window.IsMapped() &&
                       window.ConfigureCount() >= 2 && window.FrameDoneCount() >= 2 &&
                       window.Metrics().buffer_size.width == static_cast<std::uint32_t>(1280 - 2 * fixture.layout.outer_gap) &&
                       window.PointerEnterCount() > 0 && window.PointerButtonCount() >= 2 &&

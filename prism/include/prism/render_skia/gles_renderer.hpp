@@ -21,7 +21,11 @@ public:
     GlesRenderer& operator=(const GlesRenderer&) = delete;
     bool Ready() const;
     bool Render(const contracts::DisplayList& list, int width, int height);
+    // Release GPU objects with their creation context current. If that context
+    // is unavailable, Abandon forgets the objects without deleting another
+    // context's identically numbered GL resources.
     void Close();
+    void Abandon();
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

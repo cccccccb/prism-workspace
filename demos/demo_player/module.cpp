@@ -39,7 +39,7 @@ void* Create(const PrismAppInitV1* init) noexcept {
     Player* player = nullptr;
     try {
         player = new Player{init->host};
-        if (!player->TrackTitle() || !player->Progress() || !player->Schedule() ||
+        if (!player->TrackTitle() || !player->Progress() ||
             !player->Text("playback_icon", "play") ||
             init->host->backend_ready(init->host->context) != 0) {
             delete player; return nullptr;
@@ -55,6 +55,7 @@ void Action(void* instance, PrismStringViewV1 text) noexcept {
         if (action == "player:toggle") {
             player.playing = !player.playing;
             player.Text("playback_icon", player.playing ? "pause" : "play");
+            if(player.playing)player.Schedule();
         } else if (action == "nav:favorites") {
             player.track=2;
             player.TrackTitle(); player.progress = 0; player.Progress();
@@ -70,9 +71,10 @@ void Action(void* instance, PrismStringViewV1 text) noexcept {
 void Tick(void* instance, uint64_t) noexcept {
     try {
         auto& player = *static_cast<Player*>(instance);
-        if (player.playing) player.progress = player.progress + 0.02 > 1.0 ? 0 : player.progress + 0.02;
-        player.Progress();
-        player.Schedule();
+        // Consume one already queued callback after pause, then stay asleep.
+        if(!player.playing)return;
+        player.progress = player.progress + 0.02 > 1.0 ? 0 : player.progress + 0.02;
+        player.Progress();player.Schedule();
     } catch (...) {}
 }
 const PrismAppModuleV1 api{sizeof(api), PRISM_APP_ABI_V1, Create, Destroy, Action, Tick, nullptr, nullptr, nullptr};

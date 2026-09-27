@@ -6,6 +6,10 @@
 #include <stdexcept>
 #include <thread>
 #include <utility>
+#include <cerrno>
+#include <system_error>
+#include <sys/eventfd.h>
+#include <unistd.h>
 
 namespace prism::runtime {
 
@@ -19,11 +23,16 @@ struct ImageResources::Shared {
     std::deque<Completion> completed;
     std::thread worker;
     bool stop{false};
+    int completion_fd{-1};
+    ~Shared() { if (completion_fd >= 0) close(completion_fd); }
 };
 
 ImageResources::ImageResources(Decoder decoder, std::size_t max_bytes)
     : shared_(std::make_unique<Shared>()), max_bytes_(max_bytes) {
     if (!decoder || max_bytes == 0) throw std::invalid_argument("ImageResources requires decoder and budget");
+    shared_->completion_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (shared_->completion_fd < 0)
+        throw std::system_error(errno, std::generic_category(), "Image completion eventfd");
     shared_->decoder = std::move(decoder);
     shared_->worker = std::thread([this] {
         for (;;) {
@@ -44,6 +53,10 @@ ImageResources::ImageResources(Decoder decoder, std::size_t max_bytes)
             {
                 std::lock_guard lock(shared_->mutex);
                 shared_->completed.push_back({job.id, std::move(image)});
+                const std::uint64_t one = 1;
+                // The queue is bounded to one completion. EAGAIN already means
+                // readable; retry interruption without losing the notification.
+                while (write(shared_->completion_fd, &one, sizeof(one)) < 0 && errno == EINTR) {}
             }
         }
     });
@@ -77,6 +90,8 @@ std::vector<ImageUpdate> ImageResources::Poll() {
     {
         std::lock_guard lock(shared_->mutex);
         completed.swap(shared_->completed);
+        std::uint64_t value;
+        while (read(shared_->completion_fd, &value, sizeof(value)) < 0 && errno == EINTR) {}
     }
     shared_->wake.notify_one();
     std::vector<ImageUpdate> updates;
@@ -102,6 +117,7 @@ std::vector<ImageUpdate> ImageResources::Poll() {
     }
     return updates;
 }
+int ImageResources::CompletionFd() const noexcept { return shared_->completion_fd; }
 const DecodedImage* ImageResources::Get(contracts::ResourceId id) const {
     auto it = entries_.find(id.value);
     return it != entries_.end() && it->second.state == ImageState::Ready ? &*it->second.pixels : nullptr;

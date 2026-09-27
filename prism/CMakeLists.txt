@@ -21,6 +21,7 @@ add_library(prism_core
     src/wm/compositor.cpp
     src/wm/wlr_server.cpp
     src/wm/surface_effects.cpp
+    src/wm/effect_dependencies.cpp
     src/wm/layer_manager.cpp
     src/decoration/tiling_decoration_spec.cpp
     src/decoration/tiling_window_decorator.cpp

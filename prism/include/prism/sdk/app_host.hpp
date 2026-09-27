@@ -5,6 +5,8 @@
 #include <functional>
 #include <cstddef>
 #include <memory>
+#include <span>
+#include <poll.h>
 
 namespace prism::sdk {
 struct HostConfig {
@@ -36,7 +38,9 @@ public:
     bool ApplyTheme(const contracts::ThemeSnapshot&, std::string* diagnostic = nullptr);
     std::uint64_t ThemeGeneration() const;
     bool Bind(const launch::AppPackage& package);
-    bool Pump(int timeout_ms);
+    // Negative timeout waits for events/deadlines. Descriptors are borrowed;
+    // readiness is returned to the caller after Wayland's read lock is released.
+    bool Pump(int timeout_ms, std::span<pollfd> wake_fds = {});
     bool IsCloseRequested() const;
     void Close();
 private:

@@ -38,6 +38,9 @@ public:
     // supplied decoder runs on the worker thread.
     contracts::ResourceId Request(std::string uri);
     std::vector<ImageUpdate> Poll();
+    // Borrowed, nonblocking completion notification. Poll drains it atomically
+    // with the completion queue; callers must not read or close this descriptor.
+    int CompletionFd() const noexcept;
     const DecodedImage* Get(contracts::ResourceId id) const;
     ImageState State(contracts::ResourceId id) const;
     std::size_t DecodedBytes() const { return decoded_bytes_; }

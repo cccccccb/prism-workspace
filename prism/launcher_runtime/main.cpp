@@ -1,13 +1,10 @@
 #include "prism/launcher/service.hpp"
+#include "prism/host/event_wait.hpp"
 #include <charconv>
 #include <csignal>
 #include <iostream>
 #include <unistd.h>
 #include <sys/prctl.h>
-namespace {
-volatile std::sig_atomic_t stopping = 0;
-void Stop(int) { stopping = 1; }
-}
 int main(int argc, char** argv) {
     prism::launcher::ServiceConfig config;
     const auto bin = std::filesystem::canonical("/proc/self/exe").parent_path();
@@ -44,8 +41,12 @@ int main(int argc, char** argv) {
         }
     }
     if (config.parent_pid && (prctl(PR_SET_PDEATHSIG,SIGTERM) || getppid()!=config.parent_pid)) return 1;
-    std::signal(SIGTERM, Stop); std::signal(SIGINT, Stop); std::signal(SIGPIPE, SIG_IGN);
-    std::signal(SIGCHLD, SIG_DFL); // The service owns worker waitpid/reaping.
-    try { prism::launcher::Service service(std::move(config)); return service.Run(stopping); }
+    std::signal(SIGPIPE, SIG_IGN);
+    try {
+        // SIGCHLD wakes waitpid/reaping without a periodic pool scan.
+        prism::host::SignalWake signals(true);
+        prism::launcher::Service service(std::move(config));
+        return service.Run(signals.Stopping(),signals.Fd());
+    }
     catch (const std::exception& error) { std::cerr << "Launcher failure: " << error.what() << '\n'; return 1; }
 }
