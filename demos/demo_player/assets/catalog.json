@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "tracks": [
+    {"id": "hotel-california", "title": "Hotel California", "artist": "Eagles", "duration_seconds": 391, "favorite": true},
+    {"id": "bohemian-rhapsody", "title": "Bohemian Rhapsody", "artist": "Queen", "duration_seconds": 354, "favorite": false},
+    {"id": "starboy", "title": "Starboy", "artist": "The Weeknd", "duration_seconds": 230, "favorite": true}
+  ]
+}

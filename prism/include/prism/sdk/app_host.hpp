@@ -32,6 +32,7 @@ struct HostConfig {
     // Optional pure CPU compiler adapter; ownership/thread rules match LoadSession.
     runtime::PrepareFunction prepare_component;
     std::shared_ptr<runtime::SessionTaskBudget> task_budget;
+    std::size_t task_workers{2}; // Same pipeline; 1 provides serial preparation.
     runtime::UiInstallLimits install_limits{};
     ModuleSessionLimits module_limits{};
 };
@@ -53,7 +54,24 @@ struct HostUiState {
     std::size_t master_image_count{};
     std::uint64_t read_us{}, prepare_us{};
     std::uint64_t master_first_submission{}, master_presented_submission{};
+    std::uint64_t submission_count{}, presentation_count{}, last_presented_submission{};
     std::optional<runtime::LoadDiagnostic> master_diagnostic;
+};
+
+// Monotonic owner observations, not raw GPU or worker event timestamps.
+// Processing time excludes poll waits but includes scheduler descheduling.
+struct HostStartupStats {
+    std::uint64_t bind_ns{}, master_queued_ns{};
+    std::uint64_t preview_submitted_ns{}, preview_presented_ns{};
+    std::uint64_t master_prepared_ns{}, master_installed_ns{};
+    std::uint64_t master_submitted_ns{}, master_presented_ns{};
+    std::uint64_t backend_ready_ns{}, deferred_complete_ns{};
+    std::uint64_t frontend_prepare_us{}, preview_prepare_us{};
+    std::uint64_t module_load_us{}, module_create_us{};
+    std::uint64_t egl_init_us{}, ganesh_init_us{}, first_submit_build_us{};
+    std::uint64_t first_render_us{}, first_swap_us{};
+    std::uint64_t pump_processing_last_us{}, pump_processing_count{};
+    std::uint64_t pump_processing_total_us{}, pump_processing_max_us{};
 };
 
 // Constructible in a single-thread seed. PrepareFrontend must run in the final
@@ -77,6 +95,7 @@ public:
     // readiness is returned to the caller after Wayland's read lock is released.
     bool Pump(int timeout_ms, std::span<pollfd> wake_fds = {});
     HostUiState GetUiState() const;
+    HostStartupStats GetStartupStats() const;
     bool IsCloseRequested() const;
     void Close();
 

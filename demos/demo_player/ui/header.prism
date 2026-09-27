@@ -1,0 +1,15 @@
+HStack(height: 28, spacing: 6, align: "center") {
+    Icon("music", width: 20, height: 20, foreground: "@musicAccent")
+    Text("Music", width: 44, font: "@font_body", foreground: "@text")
+    Text($catalog_status, flex: 1, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
+    Card(width: 14, height: 14, align: "center", justify: "center") {
+        Icon("refresh", width: 14, height: 14, foreground: "@mutedText", visible: $catalog_pending)
+        Icon("check", width: 14, height: 14, foreground: "@musicAccent", visible: $catalog_ready)
+    }
+    IconButton("refresh", "player:retry", width: 28, height: 28, padding: 6,
+               material: "control", foreground: "@musicAccent", visible: $catalog_error)
+    IconButton("grid", "nav:library", width: 28, height: 28, padding: 6,
+               material: "control", foreground: "@mutedText")
+    IconButton("heart", "nav:favorites", width: 28, height: 28, padding: 6,
+               material: "control", foreground: "@musicAccent")
+}

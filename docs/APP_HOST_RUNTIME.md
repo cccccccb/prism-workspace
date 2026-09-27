@@ -6,7 +6,11 @@
 
 `prism-app-host` 是平台提供的客户端可执行文件，静态链接统一 DSL/Scene/Skia GLES/Wayland SDK。`prism_app_host_runtime` 接管前端生命周期，并链接主题编译器用于直接启动模式的主题包加载；生产 worker 接收 launcher 编译完成的纯 ThemeSnapshot。`prism_module_session` 将窄 C ABI 转换为绑定、动作、单次定时回调、BackendReady 和主题请求/结果。
 
-五个应用均以目录包发布。音乐包包含 manifest.json、master.prism、preview.prism、player.so、assets/；其余应用使用同一 host 与模块 ABI。业务模块只依赖 prism_contracts，不链接 Wayland、Skia 或 Scene，不创建窗口或编写 Pump 循环。音乐仍是曲目、播放状态与进度演示，没有音频解码和真实播放引擎；BackendReady 表示这份演示业务完成初始化。
+五个应用均以目录包发布。音乐包包含 manifest.json、master.prism、preview.prism、
+layout.prism、ui/、player.so 和 assets/catalog.json；其余应用使用同一 host 与模块 ABI。
+业务模块依赖纯 prism_contracts；Music 另使用 nlohmann/json 处理 typed 曲库 DTO，
+不链接 Wayland、Skia 或 Scene，不创建窗口或编写 Pump 循环。音乐仍是曲目、播放状态
+与进度演示，没有音频解码和真实播放引擎；BackendReady 表示这份演示业务完成初始化。
 
 每个实例仍有自己的 host 进程与窗口；业务模块加载到该进程。WM 只处理 Wayland surface、合成与窗口身份，未加入 DSL/应用控件代码。
 
@@ -15,12 +19,12 @@
 | 阶段 | 执行动作 | fork 约束 |
 | --- | --- | --- |
 | AppHost 构造 | 配置与生命周期数据；不构造 ClientApplication | 不主动创建线程/Wayland/EGL；完整 seed/pool 边界见 LAUNCHER_WORKER_POOL.md |
-| PrepareFrontend | 构造字体命令渲染器和图片资源工作线程 | 必须在最终 worker 中执行，随后不再 fork 应用 |
+| PrepareFrontend | 构造字体命令渲染器和懒启动资源调度句柄 | 必须在最终 worker 中执行，随后不再 fork 应用 |
 | 初始主题安装 | 校验并保存 ThemeSnapshot，向 launcher ACK 当前 generation | 生产 worker 在主题确认前不能 Bind；不创建 Wayland/GPU 对象 |
-| Bind | 固定一个应用包/实例；设置窗口身份和资源根；解析 Preview 或 Master；连接 Wayland | 单个 worker 一生只允许绑定一次 |
+| Bind | 固定包/实例与资源根；解析轻量 Preview，或排队无 Preview 的 Master | 单个 worker 一生只允许绑定一次 |
 | 首次 configure/绘制 | 初始化该 surface 的 EGL/GLES/Ganesh，按 configure 尺寸布局 | GPU 和协议对象仅属于此实例 |
-| 业务初始化 | dlopen 模块、create、应用绑定及 Ready | 有 Preview 时先等其实际呈现，才加载业务模块 |
-| 运行/关闭 | host Pump、动作、定时回调；关闭先 destroy/卸载模块，再销毁前端 | 模块 destroy 必须停止自己的工作线程 |
+| 业务初始化 | 快速 dlopen/create；通过 work 准备，owner 完成回调更新绑定及 Ready | 有 Preview 时先等其实际呈现，才加载业务模块 |
+| 运行/关闭 | host Pump、动作、定时回调；先取消/join 业务工作，再 destroy/卸载模块与销毁前端 | 模块另起的私有线程也必须在 destroy 中停止 |
 
 PrepareFrontend 当前预热字体、资源调度句柄与主题，工作线程按需启动，尚未预热 EGL/GPU。第三步已接入真正待命池，由最终 worker 自身调用此阶段；见 LAUNCHER_WORKER_POOL.md。完整硬件性能与最优池容量仍需后续测量。
 
@@ -133,8 +137,8 @@ HostUiState 本地记录 MasterPrepared/Installed/Submitted/Presented，呈现�
 并通过验证。第三步组件图、统一资源调度与全会话预算已提交 `b4fdf5b`；第四步
 已提交 `56704a5`，在事件线程分轮构造和安装候选，执行真实图片 GPU 上传预算。字体、布局、GPU/
 Wayland 和业务回调仍归事件线程，单次库/驱动调用及慢业务初始化不能被预算抢占。
-第五步业务异步准备当前接入新工作接口，规范见第 14 节；第六步真实 demo 性能对照
-尚未实现。进度与验证以加载规范的实施记录为准；第四步验证见加载规范第 11 节。
+第五步已提交 `527df14`，规范见第 14 节。第六步真实 Music 已拆分 critical/deferred
+组件并迁入曲库 work，正在统一构建与实机测量。进度与验证以加载规范第 13 节为准。
 
 
 ## 12. 组件加载调度（2026-09-27）
@@ -205,5 +209,22 @@ FD 在前后两段均先于完成回调；消费结果而无像素更新也返�
 
 本轮 Pi GLES 构建、完整 CTest **50/50**、原生异步业务 **3/3**、Master 加载
 **18/18**、Prepared UI/SDK 提交 **2/2**、Host/待命池回归及依赖/风格检查通过。
-完整证据与验证范围见加载规范第 12 节；真实 demo 与启动性能对照属于第六步，
-尚未迁移或部署。
+完整证据与验证范围见加载规范第 12 节。第六步迁移与对照见下节。
+
+## 15. 真实 Music 与加载观测
+
+Music 的 Interface v2 声明三个 critical 组件和一个 deferred 曲库，Host 保留稳定
+Slot 并在首屏实际呈现后安装曲库。create 复制 init.assets_root，通过 Host work
+读取 catalog.json；owner 完成回调更新声明绑定，成功才报告 Ready。资源根来自包
+校验，与视觉 DSL/绘制器无关；原生业务模块仍不是沙箱。新 Music 随匹配平台部署，
+缺完整 init 或 work capability 时不采用同步后备入口。
+
+HostConfig.task_workers 为 1/2，默认 2；同一管线可作串行/并行准备对照。
+GetStartupStats 返回 monotonic 所有者观察，不增加启动 wire 里程碑；deferred_complete
+指安装完成。pump_processing 仅扣除直接计量的 poll 等待，保留内部 roundtrip/IO/
+驱动阻塞；实际 CPU、内存及主题反馈由隔离 probe 单独测量。规范、矩阵、验证及
+发布状态见 [加载规范第 13 节](MASTER_PARALLEL_LOADING.md#13-第六步真实-music多区域与同管线实机对照)。
+
+第六步最终 CTest 51/51、直接 Host 40 组、生产 launcher 24 组及原生回归通过。
+0.1.0-13 已审计/安装并通过 DRM 启动和实例门槛，曲库/收藏及原有操作现场确认通过。小 demo
+未呈现稳定的并行提速；下一阶段优先细分 EGL 初始化与首次 Render 的同步成本。

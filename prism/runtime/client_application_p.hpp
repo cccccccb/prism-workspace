@@ -9,6 +9,7 @@
 #include "prism/runtime/scene.hpp"
 #include "prism/runtime/task_scheduler.hpp"
 #include "prism/sdk/client_application.hpp"
+#include <chrono>
 #include <cstdio>
 #include <deque>
 #include <filesystem>
@@ -23,6 +24,35 @@
 #include <vector>
 
 namespace prism::sdk {
+class FirstCallTimer {
+public:
+    FirstCallTimer(std::uint64_t &duration, bool &sampled) : duration_(duration), record_(!sampled)
+    {
+        if (record_) {
+            sampled = true;
+            start_ = std::chrono::steady_clock::now();
+        }
+    }
+
+    ~FirstCallTimer()
+    {
+        if (record_) {
+            duration_ =
+                static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                               std::chrono::steady_clock::now() - start_)
+                                               .count());
+        }
+    }
+
+    FirstCallTimer(const FirstCallTimer &) = delete;
+    FirstCallTimer &operator=(const FirstCallTimer &) = delete;
+
+private:
+    std::uint64_t &duration_;
+    bool record_;
+    std::chrono::steady_clock::time_point start_{};
+};
+
 struct ClientApplication::Impl {
     explicit Impl(ClientConfig value)
         : config(std::move(value)), commands(config.font_path),
@@ -123,6 +153,9 @@ struct ClientApplication::Impl {
     int loaded_images{0};
     int presented{0};
     ClientRenderStats render_stats{}; // Scene fields retain retired UI counters.
+    ClientStartupStats startup_stats{};
+    bool egl_init_sampled{}, ganesh_init_sampled{}, submit_build_sampled{};
+    bool render_sampled{}, swap_sampled{};
     std::uint64_t committed_pixels_revision{0};
     std::uint64_t prepared_pixels_revision{0};
     bool state_prepared{false};

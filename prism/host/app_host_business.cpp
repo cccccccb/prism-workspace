@@ -77,9 +77,13 @@ bool AppHost::Impl::StartBusiness()
         package->module, package->manifest.app_id, config.instance.value,
         std::bind_front(&Impl::SetBinding, this), std::bind_front(&Impl::LaunchApplication, this),
         std::bind_front(&Impl::SubscribeInstances, this), std::bind_front(&Impl::SelectTheme, this),
-        std::bind_front(&Impl::SelectColorScheme, this), scheduler, config.module_limits);
+        std::bind_front(&Impl::SelectColorScheme, this), scheduler, config.module_limits,
+        package->assets);
 
-    if (!business->Start()) {
+    const bool started = business->Start();
+    startup.module_load_us = business->LoadDurationNs() / 1000;
+    startup.module_create_us = business->CreateDurationNs() / 1000;
+    if (!started) {
         return Fail(contracts::LaunchError::RuntimeFailed, business->StartDiagnostic());
     }
 

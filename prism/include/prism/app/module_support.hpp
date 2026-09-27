@@ -7,8 +7,9 @@
 namespace prism::app {
 inline bool ValidHost(const PrismAppInitV1 *init)
 {
-    return init && init->struct_size >= sizeof(*init) && init->abi_version == PRISM_APP_ABI_V1 &&
-           init->host && init->host->struct_size >= offsetof(PrismHostApiV1, subscribe_instances) &&
+    return init && init->struct_size >= offsetof(PrismAppInitV1, assets_root) &&
+           init->abi_version == PRISM_APP_ABI_V1 && init->host &&
+           init->host->struct_size >= offsetof(PrismHostApiV1, subscribe_instances) &&
            init->host->abi_version == PRISM_APP_ABI_V1 && init->host->set_binding &&
            init->host->backend_ready && init->host->schedule_tick;
 }

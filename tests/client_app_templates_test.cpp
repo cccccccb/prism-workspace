@@ -1,13 +1,151 @@
 #include "prism/runtime/dsl_frontend.hpp"
+#include "prism/runtime/load_plan.hpp"
 #include "prism/runtime/scene.hpp"
 #include "prism/sdk/module_session.hpp"
 #include "prism/theme/compiler.hpp"
 #include <cassert>
+#include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iterator>
+#include <map>
+#include <poll.h>
 #include <string>
+#include <variant>
 #include <vector>
+
+namespace {
+std::string ReadSource(const std::filesystem::path &path)
+{
+    std::ifstream file(path);
+    assert(file);
+    return {std::istreambuf_iterator<char>{file}, {}};
+}
+
+prism::contracts::ResourceId ResolveImage(std::string_view)
+{
+    return {12};
+}
+
+prism::runtime::ShapedText Shape(std::string_view text, double font)
+{
+    return {{}, text.size() * font * 0.5, font};
+}
+
+struct TemplateContent {
+    prism::runtime::Blueprint blueprint;
+    std::vector<prism::runtime::LoadBinding> declarations;
+};
+
+TemplateContent ReadTemplate(const std::filesystem::path &path)
+{
+    const auto source = ReadSource(path);
+    if (!prism::runtime::IsInterfaceSource(source)) {
+        return {prism::runtime::ParseBlueprint(source, ResolveImage), {}};
+    }
+    const auto plan = prism::runtime::CompileLoadPlan(source, {"master", path.string(), "test"},
+                                                      path.parent_path());
+    const auto layout =
+        prism::runtime::PrepareLayout(ReadSource(plan.package_root / plan.layout_path), plan);
+    std::vector<prism::runtime::PreparedUnit> units;
+    std::vector<prism::runtime::RegionUpdate> deferred;
+    for (const auto &unit : plan.components) {
+        auto prepared =
+            prism::runtime::PrepareComponent(ReadSource(plan.package_root / unit.source_path),
+                                             {unit.id, unit.source_path.string(), "test"});
+        if (unit.phase == prism::runtime::LoadPhase::Deferred) {
+            deferred.push_back({unit.id, prism::runtime::LinkComponent(prepared, ResolveImage)});
+        }
+        units.push_back({unit.id, std::move(prepared)});
+    }
+    const auto critical = prism::runtime::ComposeCritical(plan, layout, units);
+    auto blueprint = prism::runtime::LinkComponent(critical, ResolveImage);
+    if (!deferred.empty()) {
+        // This test validates the completed template layout. Runtime deferred
+        // readiness and mount ordering are tested separately by native probes.
+        prism::runtime::Scene candidate(
+            std::move(blueprint), Shape, prism::contracts::ResourceId{1},
+            prism::theme::LoadTheme(prism::theme::DefaultThemeRoot(), "glass"));
+        blueprint = candidate.RegionBlueprint(deferred);
+    }
+    return {std::move(blueprint), plan.bindings};
+}
+
+class TemplateBindings {
+public:
+    TemplateBindings(prism::runtime::Scene &scene,
+                     const std::vector<prism::runtime::LoadBinding> &declarations)
+        : scene_(scene)
+    {
+        for (const auto &binding : declarations) {
+            types_.emplace(binding.name, binding.type);
+            assert(Set(binding.name, binding.initial));
+        }
+    }
+
+    bool Set(std::string_view key, prism::runtime::PropertyValue value)
+    {
+        const auto declared = types_.find(key);
+        if (declared != types_.end()) {
+            using Type = prism::runtime::LoadBindingType;
+            const bool valid =
+                (declared->second == Type::String && std::holds_alternative<std::string>(value)) ||
+                (declared->second == Type::Number && std::holds_alternative<double>(value)) ||
+                (declared->second == Type::Boolean && std::holds_alternative<bool>(value)) ||
+                (declared->second == Type::Color &&
+                 std::holds_alternative<prism::contracts::Color>(value));
+            if (!valid) {
+                return false;
+            }
+            if (scene_.AcceptsBinding(key, value)) {
+                scene_.SetBinding(key, value);
+            }
+            return true;
+        }
+        if (!scene_.AcceptsBinding(key, value)) {
+            return false;
+        }
+        scene_.SetBinding(key, std::move(value));
+        return true;
+    }
+
+private:
+    prism::runtime::Scene &scene_;
+    std::map<std::string, prism::runtime::LoadBindingType, std::less<>> types_;
+};
+
+struct ModuleRequests {
+    std::uint64_t theme_request{7};
+
+    std::uint64_t Launch(std::string_view)
+    {
+        return 6;
+    }
+
+    std::uint64_t Subscribe()
+    {
+        return 5;
+    }
+
+    std::uint64_t Theme(std::string_view)
+    {
+        return theme_request++;
+    }
+};
+
+void AwaitReady(prism::sdk::ModuleSession &module)
+{
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!module.BackendReady()) {
+        assert(module.WorkPending() && std::chrono::steady_clock::now() < deadline);
+        pollfd source{module.WorkCompletionFd(), POLLIN, 0};
+        assert(poll(&source, 1, 5000) == 1 && (source.revents & POLLIN));
+        assert(module.DispatchWork() > 0);
+    }
+}
+} // namespace
 
 struct ActionNode {
     prism::contracts::NodeId node;
@@ -74,44 +212,49 @@ int main(int argc, char **argv)
                            {"demos/demo_player/preview.prism", 482, 420}};
     for (unsigned n = 0; n < std::size(cases); ++n) {
         const auto &item = cases[n];
-        std::ifstream file(std::string(PRISM_SOURCE_ROOT) + "/" + item.path);
-        assert(file);
-        std::string source(std::istreambuf_iterator<char>{file}, {});
-        auto blueprint = prism::runtime::ParseBlueprint(
-            source, [](std::string_view) { return prism::contracts::ResourceId{12}; });
+        auto content = ReadTemplate(std::filesystem::path(PRISM_SOURCE_ROOT) / item.path);
         std::uint64_t id{};
         std::vector<ActionNode> actions;
-        CollectActions(blueprint, id, actions);
+        CollectActions(content.blueprint, id, actions);
         prism::runtime::Scene scene(
-            std::move(blueprint),
-            [](std::string_view text, double font) {
-                return prism::runtime::ShapedText{{}, text.size() * font * 0.5, font};
-            },
-            prism::contracts::ResourceId{1},
+            std::move(content.blueprint), Shape, prism::contracts::ResourceId{1},
             prism::theme::LoadTheme(prism::theme::DefaultThemeRoot(), "glass"));
+        TemplateBindings bindings(scene, content.declarations);
         assert(scene.SetViewport({item.width, item.height}));
-        if (argc == 6 && n < 5) {
+        if (argc == 7 && n < 5) {
             // Business startup must satisfy the actual template binding schema,
             // including typed progress, color and icon properties.
-            std::uint64_t theme_request = 7;
+            ModuleRequests requests;
+            auto &theme_request = requests.theme_request;
             prism::sdk::ModuleSession module(
                 argv[n + 1], "template_test", 42,
-                [&](auto key, auto value) {
-                    if (!scene.AcceptsBinding(key, value)) {
-                        return false;
-                    }
-                    scene.SetBinding(key, std::move(value));
-                    return true;
-                },
-                [](auto) { return 6; }, [] { return 5; }, [&](auto) { return theme_request++; },
-                [&](auto) { return theme_request++; });
-            assert(module.Start() && module.BackendReady());
+                std::bind_front(&TemplateBindings::Set, &bindings),
+                std::bind_front(&ModuleRequests::Launch, &requests),
+                std::bind_front(&ModuleRequests::Subscribe, &requests),
+                std::bind_front(&ModuleRequests::Theme, &requests),
+                std::bind_front(&ModuleRequests::Theme, &requests), {}, {},
+                n == 3 ? std::filesystem::path(argv[6]) : std::filesystem::path{});
+            assert(module.Start());
+            AwaitReady(module);
             module.Action(n == 3 ? "player:toggle" : n == 4 ? "theme:transparent" : "ignored");
             if (n == 4) {
                 module.Deliver(prism::contracts::ThemeEvent{
                     0, 0, prism::contracts::ThemeStatus::Current, "glass", "Prism Glass"});
             }
             module.Tick(prism::sdk::MonotonicNs() + 1000000000ULL);
+            if (n == 3) {
+                for (const auto page : {"nav:library", "nav:favorites"}) {
+                    module.Action(page);
+                    for (const auto size : {prism::contracts::LogicalSize{482, 420},
+                                            prism::contracts::LogicalSize{482, 204},
+                                            prism::contracts::LogicalSize{244, 420}}) {
+                        assert(scene.SetViewport(size));
+                        SubmitTheme(scene);
+                        CheckActions(scene, actions, size.width, size.height);
+                    }
+                }
+                assert(scene.SetViewport({item.width, item.height}));
+            }
             if (n == 4) {
                 // Both settings pages must fit every real BSP allocation, in
                 // every material/palette combination. Hidden actions must not hit.

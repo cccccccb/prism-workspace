@@ -1,6 +1,9 @@
 #include "prism/contracts/app_module.h"
 _Static_assert(sizeof(((PrismAppInitV1 *)0)->instance_id) == 8, "Stable ID width");
 _Static_assert(sizeof(((PrismHostApiV1 *)0)->abi_version) == 4, "Stable version width");
+_Static_assert(offsetof(PrismAppInitV1, assets_root) ==
+                   offsetof(PrismAppInitV1, host) + sizeof(((PrismAppInitV1 *)0)->host),
+               "Asset directory must append to the original init prefix");
 _Static_assert(offsetof(PrismHostApiV1, submit_work) ==
                    offsetof(PrismHostApiV1, select_color_scheme) +
                        sizeof(((PrismHostApiV1 *)0)->select_color_scheme),

@@ -1,0 +1,4 @@
+HStack(spacing: 8, align: "center") {
+    Icon("grid", width: 20, height: 20, foreground: "@accent")
+    Text("Counter", flex: 1, font: "@font_title", foreground: "@text")
+}

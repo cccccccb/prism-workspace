@@ -1,0 +1,12 @@
+{
+  "format_version": 1,
+  "runtime_abi": 1,
+  "app_id": "counter_app",
+  "name": "Prism Counter",
+  "version": "0.1.0",
+  "ui": "master.prism",
+  "preview": "preview.prism",
+  "module": "counter.so",
+  "assets": "assets",
+  "window": {"width": 480, "height": 340}
+}

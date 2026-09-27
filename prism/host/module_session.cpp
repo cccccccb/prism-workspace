@@ -27,10 +27,10 @@ ModuleSession::ModuleSession(const std::filesystem::path &module, std::string ap
                              std::uint64_t instance, BindingSink bindings, LaunchSink launch,
                              SubscribeSink subscribe, ThemeSink themes, ColorSchemeSink schemes,
                              std::shared_ptr<runtime::TaskScheduler> scheduler,
-                             ModuleSessionLimits limits)
-    : module_(module), app_id_(std::move(app_id)), instance_id_(instance),
-      bindings_(std::move(bindings)), launch_(std::move(launch)), subscribe_(std::move(subscribe)),
-      themes_(std::move(themes)), schemes_(std::move(schemes)),
+                             ModuleSessionLimits limits, std::filesystem::path assets_root)
+    : module_(module), app_id_(std::move(app_id)), assets_root_(assets_root.string()),
+      instance_id_(instance), bindings_(std::move(bindings)), launch_(std::move(launch)),
+      subscribe_(std::move(subscribe)), themes_(std::move(themes)), schemes_(std::move(schemes)),
       host_{sizeof(host_), PRISM_APP_ABI_V1, this,      SetBinding,  Ready,
             Launch,        Schedule,         Subscribe, SelectTheme, SelectColorScheme,
             SubmitWork,    CancelWork},
@@ -71,15 +71,18 @@ bool ModuleSession::Start()
         return false;
     }
 
-    PrismAppInitV1 init{
-        sizeof(init), PRISM_APP_ABI_V1, instance_id_, {app_id_.data(), app_id_.size()}, &host_};
+    PrismAppInitV1 init{sizeof(init), PRISM_APP_ABI_V1,
+                        instance_id_, {app_id_.data(), app_id_.size()},
+                        &host_,       {assets_root_.data(), assets_root_.size()}};
     const auto start = std::chrono::steady_clock::now();
     try {
         instance_ = module_.Api().create(&init);
     } catch (...) {
         start_diagnostic_ = "Module create threw across the application ABI";
     }
-    if (std::chrono::steady_clock::now() - start > limits_.entry_budget) {
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    create_duration_ns_ = std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count();
+    if (elapsed > limits_.entry_budget) {
         start_diagnostic_ = "Module create exceeded its cooperative entry budget";
     } else if (!instance_ && start_diagnostic_.empty()) {
         start_diagnostic_ = "Module create returned no instance";
@@ -109,6 +112,16 @@ const std::string &ModuleSession::StartDiagnostic() const noexcept
 {
     static const std::string empty;
     return OnOwnerThread() ? start_diagnostic_ : empty;
+}
+
+std::uint64_t ModuleSession::LoadDurationNs() const noexcept
+{
+    return OnOwnerThread() ? module_.LoadDurationNs() : 0;
+}
+
+std::uint64_t ModuleSession::CreateDurationNs() const noexcept
+{
+    return OnOwnerThread() ? create_duration_ns_ : 0;
 }
 
 int32_t ModuleSession::SetBinding(void *ctx, PrismStringViewV1 key, PrismValueV1 value) noexcept

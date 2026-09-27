@@ -423,7 +423,13 @@ bool WaylandWindow::Pump(int timeout_ms, std::span<pollfd> wake_fds)
     }
     sources.front().events = static_cast<short>(POLLIN | (flushed < 0 ? POLLOUT : 0));
 
+    const auto wait_started = std::chrono::steady_clock::now();
     const int result = poll(sources.data(), sources.size(), submission_deferred_ ? 0 : timeout_ms);
+    const int poll_error = errno;
+    wait_duration_ns_ += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                             std::chrono::steady_clock::now() - wait_started)
+                             .count();
+    errno = poll_error;
     const short revents = sources.front().revents;
     for (std::size_t i = 0; i < wake_fds.size(); ++i) {
         wake_fds[i].revents = sources[i + 1].revents;

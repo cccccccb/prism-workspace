@@ -26,6 +26,35 @@ std::string UiFailureDetail(const runtime::LoadDiagnostic &);
 bool CallerInputReady(std::span<const pollfd>);
 void CollectBindings(const runtime::PreparedNode &, std::set<std::string, std::less<>> &);
 bool MatchesBinding(runtime::LoadBindingType, const runtime::PropertyValue &);
+
+class DurationTimer {
+public:
+    explicit DurationTimer(std::uint64_t &microseconds)
+        : value_(microseconds), start_(MonotonicNs())
+    {
+    }
+
+    ~DurationTimer()
+    {
+        value_ = (MonotonicNs() - start_) / 1000;
+    }
+
+private:
+    std::uint64_t &value_;
+    std::uint64_t start_;
+};
+
+class PumpProcessingTimer {
+public:
+    PumpProcessingTimer(HostStartupStats &, const ClientApplication &, const std::uint64_t &);
+    ~PumpProcessingTimer();
+
+private:
+    HostStartupStats &stats_;
+    const ClientApplication &frontend_;
+    const std::uint64_t &host_wait_ns_;
+    std::uint64_t start_ns_, wait_ns_;
+};
 } // namespace host_detail
 
 struct AppHost::Impl {
@@ -52,6 +81,8 @@ struct AppHost::Impl {
     std::vector<runtime::LoadDiagnostic> region_diagnostics;
     std::size_t region_batch_limit{4};
     HostUiState ui;
+    HostStartupStats startup;
+    std::uint64_t wait_duration_ns{};
     std::uint64_t startup_deadline{};
     bool configured{}, presented{}, ready{}, failed{}, bound_once{}, launch_disconnected{};
     bool window_open{}, closed{};
@@ -61,6 +92,7 @@ struct AppHost::Impl {
                std::string detail = {});
     bool Fail(contracts::LaunchError error, std::string detail);
     void Observe();
+    void ObserveStartup();
     bool SetBinding(std::string_view key, runtime::PropertyValue value);
     std::uint64_t LaunchApplication(std::string_view app_id);
     std::uint64_t SubscribeInstances();

@@ -37,7 +37,7 @@ public:
                   BindingSink bindings, LaunchSink launch = {}, SubscribeSink subscribe = {},
                   ThemeSink themes = {}, ColorSchemeSink schemes = {},
                   std::shared_ptr<runtime::TaskScheduler> scheduler = {},
-                  ModuleSessionLimits limits = {});
+                  ModuleSessionLimits limits = {}, std::filesystem::path assets_root = {});
     ~ModuleSession();
     ModuleSession(const ModuleSession &) = delete;
     ModuleSession &operator=(const ModuleSession &) = delete;
@@ -58,6 +58,8 @@ public:
     // Permanently rejects Host API calls, cancels and joins this channel only.
     void StopWork() noexcept;
     const std::string &StartDiagnostic() const noexcept;
+    std::uint64_t LoadDurationNs() const noexcept;
+    std::uint64_t CreateDurationNs() const noexcept;
 
     bool BackendReady() const
     {
@@ -79,6 +81,7 @@ private:
     const std::thread::id owner_thread_{std::this_thread::get_id()};
     launch::AppModule module_;
     std::string app_id_;
+    std::string assets_root_;
     std::uint64_t instance_id_;
     BindingSink bindings_;
     LaunchSink launch_;
@@ -105,6 +108,7 @@ private:
     ModuleSessionLimits limits_;
     std::unique_ptr<ModuleWorkState> work_;
     std::string start_diagnostic_;
+    std::uint64_t create_duration_ns_{};
 };
 
 std::uint64_t MonotonicNs();

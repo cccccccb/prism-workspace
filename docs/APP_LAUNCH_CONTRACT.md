@@ -139,3 +139,18 @@ ShellPermit 是私有 launcher↔WM 数据：会话标识、请求/实例 ID、�
 ## 第四步协议追加
 
 PRL1 追加 milestone Activated=8、InstanceSubscribe=4、InstanceUpdate=5；PRW1 追加类型 7/8；C ABI v1 追加可选 subscribe_instances/on_instance_event 尾部，加载器按 struct_size 读取完整字段。WM 信任通道使用 PWC1，独立于公共 socket。完整字段、身份、取消、窗口状态与会话约束以 [SESSION_LAUNCH_RUNTIME.md](SESSION_LAUNCH_RUNTIME.md) 为准；原字段和 0..7 milestone 编号保持。
+
+## 2026-09-27 异步工作与资产目录尾字段
+
+Host v1 新增 optional submit_work/cancel_work，模块表新增 on_work_completed。工作
+只有复制的值输入、取消接口和有界结果 writer；提交/取消和完成回调归 Host 线程，
+work 归共享池，不能使用 instance、Host API 或渲染/平台对象。关闭先停止交付并
+取消/join 工作，再 destroy/dlclose。详细预算、线程与错误契约见
+[加载规范第 12 节](MASTER_PARALLEL_LOADING.md#12-第五步业务工作完成通知与模块生命周期)。
+
+PrismAppInitV1 追加 optional PrismStringViewV1 assets_root，为 manifest 校验后的
+绝对资产目录，借用仅限 create；异步请求须复制路径。最低 init prefix 仍结束于
+完整 host 指针，新字段不改变旧字段偏移。模块访问 optional tail 前检查完整字段
+大小和功能指针；旧平台 ABI 1 不保证这些新增能力。新 Music 需要新 init/work
+能力且随匹配平台统一发布，不保留同步目录读取入口。资产目录不是权限沙箱；
+包在实例期间不可变及原生模块信任边界保持原约束。

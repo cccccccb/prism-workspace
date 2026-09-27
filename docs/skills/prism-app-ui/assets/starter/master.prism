@@ -1,0 +1,9 @@
+Interface(version: 2, layout: "layout.prism") {
+    Binding(name: "count_text", type: "string", initial: "0")
+    Binding(name: "count_progress", type: "number", initial: 0)
+    Binding(name: "status", type: "string", initial: "Value 0 of 10")
+    Binding(name: "detail_visible", type: "bool", initial: true)
+    Component(id: "header", source: "ui/header.prism", phase: "critical")
+    Component(id: "controls", source: "ui/controls.prism", phase: "critical")
+    Component(id: "detail", source: "ui/detail.prism", phase: "deferred")
+}

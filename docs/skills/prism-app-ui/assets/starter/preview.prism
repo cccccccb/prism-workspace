@@ -1,0 +1,7 @@
+Card(material: "window", padding: "@window_padding", clip: true) {
+    VStack(spacing: 8, justify: "center", align: "center") {
+        Icon("grid", width: 28, height: 28, foreground: "@accent")
+        Text("Counter", font: "@font_title", foreground: "@text")
+        Text("Preparing controls", font: "@font_caption", foreground: "@mutedText")
+    }
+}

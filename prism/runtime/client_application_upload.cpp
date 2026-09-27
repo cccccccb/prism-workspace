@@ -53,7 +53,12 @@ bool ClientApplication::Impl::EnsureRenderer(int width, int height)
         return false;
     }
     if (!egl.Ready()) {
-        if (!egl.Open(window.Display(), window.Surface(), width, height)) {
+        bool opened;
+        {
+            FirstCallTimer timer(startup_stats.egl_init_us, egl_init_sampled);
+            opened = egl.Open(window.Display(), window.Surface(), width, height);
+        }
+        if (!opened) {
             return false;
         }
         gl_renderer = egl.GlRenderer();
@@ -72,6 +77,7 @@ bool ClientApplication::Impl::EnsureRenderer(int width, int height)
         if (config.gpu_resource_cache_bytes) {
             options.resource_cache_bytes = *config.gpu_resource_cache_bytes;
         }
+        FirstCallTimer timer(startup_stats.ganesh_init_us, ganesh_init_sampled);
         renderer = std::make_unique<render_skia::GlesRenderer>(commands, options);
     }
     return renderer->Ready();

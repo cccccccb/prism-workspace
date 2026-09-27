@@ -80,15 +80,16 @@ with tempfile.TemporaryDirectory(prefix="prism-host-") as runtime:
                             assert "event=Failed" in case_content and "error=4" in case_content, case_content
                             assert "event=BackendReady" not in case_content, case_content
                             break
-                        if not bad_module and "event=FirstPresented" in case_content:
-                            assert case_content.index("event=BackendReady") < case_content.index("event=FirstPresented"), case_content
+                        if not bad_module and "event=FirstPresented" in case_content and "event=BackendReady" in case_content:
+                            # Ready comes from asynchronous catalogue completion;
+                            # it is independent of the first presentation feedback.
                             case.terminate()
                             assert case.wait(timeout=5) == 0, case_content
                             break
                         assert case.poll() is None, case_content
                         assert time.monotonic() < deadline, case_content
                         time.sleep(0.05)
-            print("Master-only readiness ordering and post-Preview ABI failure passed.")
+            print("Master-only presentation/readiness and post-Preview ABI failure passed.")
 
         finally:
             for process in reversed(processes):

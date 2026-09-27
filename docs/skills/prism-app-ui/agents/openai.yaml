@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prism 应用 UI 开发"
+  short_description: "按统一 DSL、主题与 Host 契约设计开发 Prism 第三方应用"
+  default_prompt: "使用 $prism-app-ui 为 Prism 桌面设计并实现一个遵循统一主题和 Host 生命周期的应用包。"

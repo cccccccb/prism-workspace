@@ -1,56 +1,32 @@
-Card(padding: "@window_padding", material: "window", clip: true) {
-    VStack(spacing: 6) {
-        HStack(height: 28, spacing: 8, align: "center") {
-            Icon("music", width: 20, height: 20, foreground: "@musicAccent")
-            Text("Music", flex: 1, font: "@font_body", foreground: "@text")
-            IconButton("grid", "nav:library", width: 28, height: 28, padding: 6,
-                       material: "control", foreground: "@mutedText")
-            IconButton("heart", "nav:favorites", width: 28, height: 28, padding: 6,
-                       material: "control", foreground: "@musicAccent")
-        }
-        Card(flex: 1, padding: 8, material: "album") {
-            Card(justify: "center", align: "center", overflow: "clip") {
-                HStack(width: 44, height: 30, anchor: "left", spacing: 4, align: "center") {
-                    Separator(width: 3, height: 8, background: "@indicator")
-                    Separator(width: 3, height: 18, background: "@indicator")
-                    Separator(width: 3, height: 30, background: "@indicator")
-                    Separator(width: 3, height: 22, background: "@indicator")
-                    Separator(width: 3, height: 12, background: "@indicator")
-                }
-                Card(width: 72, height: 72, anchor: "center", justify: "center", align: "center",
-                     material: "control", cornerRadius: 36, background: "@musicAccent",
-                     borderWidth: 1, borderColor: "@border") {
-                    Card(width: 48, height: 48, cornerRadius: 24, anchor: "center", justify: "center", align: "center",
-                         background: "@albumTint", borderWidth: 1, borderColor: "@border") {
-                        Icon("music", width: 24, height: 24, anchor: "center", foreground: "@onAccent")
-                    }
-                }
-                HStack(width: 44, height: 30, anchor: "right", spacing: 4, align: "center") {
-                    Separator(width: 3, height: 12, background: "@indicator")
-                    Separator(width: 3, height: 22, background: "@indicator")
-                    Separator(width: 3, height: 30, background: "@indicator")
-                    Separator(width: 3, height: 18, background: "@indicator")
-                    Separator(width: 3, height: 8, background: "@indicator")
-                }
-            }
-        }
-        VStack(height: 38, spacing: 2) {
-            Text($track_title, height: 22, font: "@font_title", foreground: "@text", overflow: "clip")
-            Text($track_artist, height: 14, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
-        }
-        Progress(value: $playback_progress, height: "@indicator_height", cornerRadius: "@progress_radius",
-                 foreground: "@musicAccent", background: "@progressTrack")
-        HStack(height: 12, justify: "spaceBetween", align: "center", spacing: 0) {
-            Text($playback_elapsed, font: "@font_caption", foreground: "@mutedText")
-            Text($playback_duration, font: "@font_caption", foreground: "@mutedText")
-        }
-        HStack(height: 36, spacing: 12, align: "center", justify: "center") {
-            IconButton("previous", "player:previous", width: 32, height: 32, padding: 7,
-                       material: "control", foreground: "@text")
-            IconButton($playback_icon, "player:toggle", width: 44, height: 36, padding: 8,
-                       material: "control", foreground: "@onAccent", background: "@musicAccent")
-            IconButton("next", "player:next", width: 32, height: 32, padding: 7,
-                       material: "control", foreground: "@text")
-        }
-    }
+Interface(version: 2, layout: "layout.prism") {
+    Binding(name: "track_title", type: "string", initial: "Preparing library")
+    Binding(name: "track_artist", type: "string", initial: "")
+    Binding(name: "playback_elapsed", type: "string", initial: "0:00")
+    Binding(name: "playback_duration", type: "string", initial: "0:00")
+    Binding(name: "playback_icon", type: "string", initial: "play")
+    Binding(name: "playback_progress", type: "number", initial: 0)
+    Binding(name: "catalog_status", type: "string", initial: "Loading library")
+    Binding(name: "catalog_pending", type: "bool", initial: true)
+    Binding(name: "catalog_error", type: "bool", initial: false)
+    Binding(name: "catalog_ready", type: "bool", initial: false)
+    Binding(name: "artwork_visible", type: "bool", initial: true)
+    Binding(name: "library_visible", type: "bool", initial: false)
+    Binding(name: "metadata_visible", type: "bool", initial: true)
+    Binding(name: "transport_height", type: "number", initial: 104)
+    Binding(name: "library_title_1", type: "string", initial: "")
+    Binding(name: "library_artist_1", type: "string", initial: "")
+    Binding(name: "library_duration_1", type: "string", initial: "")
+    Binding(name: "library_row_1", type: "bool", initial: false)
+    Binding(name: "library_title_2", type: "string", initial: "")
+    Binding(name: "library_artist_2", type: "string", initial: "")
+    Binding(name: "library_duration_2", type: "string", initial: "")
+    Binding(name: "library_row_2", type: "bool", initial: false)
+    Binding(name: "library_title_3", type: "string", initial: "")
+    Binding(name: "library_artist_3", type: "string", initial: "")
+    Binding(name: "library_duration_3", type: "string", initial: "")
+    Binding(name: "library_row_3", type: "bool", initial: false)
+    Component(id: "header", source: "ui/header.prism", phase: "critical")
+    Component(id: "artwork", source: "ui/artwork.prism", phase: "critical")
+    Component(id: "transport", source: "ui/transport.prism", phase: "critical")
+    Component(id: "library", source: "ui/library.prism", phase: "deferred")
 }

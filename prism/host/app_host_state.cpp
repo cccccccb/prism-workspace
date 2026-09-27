@@ -43,6 +43,8 @@ void AppHost::Impl::Observe()
         ui.deferred_rejected = rejected_regions.size();
     }
     ui.install_stats = frontend->GetUiInstallStats();
+    ui.submission_count = frontend->PresentedCount();
+    ui.presentation_count = frontend->PresentationCount();
     ui.business_work_pending = business && business->WorkPending();
     ui.business_work_completion_ready = false;
     if (business && business->WorkCompletionFd() >= 0) {
@@ -54,6 +56,8 @@ void AppHost::Impl::Observe()
         const auto preview = frontend->GetUiPresentation(ui.preview_load);
         ui.preview_submitted |= preview.submitted;
         ui.preview_presented |= preview.presented;
+        ui.last_presented_submission =
+            std::max(ui.last_presented_submission, preview.last_presented_submission);
     }
     if (ui.master_load.owner) {
         const auto master = frontend->GetUiPresentation(ui.master_load);
@@ -64,6 +68,8 @@ void AppHost::Impl::Observe()
         }
         ui.master_first_submission = master.first_submission;
         ui.master_presented_submission = master.last_presented_submission;
+        ui.last_presented_submission =
+            std::max(ui.last_presented_submission, master.last_presented_submission);
     }
 
     if (!configured && frontend->ConfigureCount()) {
@@ -79,5 +85,6 @@ void AppHost::Impl::Observe()
         ready = true;
         Event(contracts::LaunchMilestone::BackendReady);
     }
+    ObserveStartup();
 }
 } // namespace prism::sdk

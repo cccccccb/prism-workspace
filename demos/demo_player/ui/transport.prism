@@ -1,0 +1,20 @@
+VStack(spacing: 6) {
+    VStack(height: 38, spacing: 2, visible: $metadata_visible) {
+        Text($track_title, height: 22, font: "@font_title", foreground: "@text", overflow: "clip")
+        Text($track_artist, height: 14, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
+    }
+    Progress(value: $playback_progress, height: "@indicator_height", cornerRadius: "@progress_radius",
+             foreground: "@musicAccent", background: "@progressTrack")
+    HStack(height: 12, justify: "spaceBetween", align: "center", spacing: 0) {
+        Text($playback_elapsed, font: "@font_caption", foreground: "@mutedText")
+        Text($playback_duration, font: "@font_caption", foreground: "@mutedText")
+    }
+    HStack(height: 32, spacing: 12, align: "center", justify: "center") {
+        IconButton("previous", "player:previous", width: 28, height: 28, padding: 6,
+                   material: "control", foreground: "@text")
+        IconButton($playback_icon, "player:toggle", width: 44, height: 32, padding: 7,
+                   material: "control", foreground: "@onAccent", background: "@musicAccent")
+        IconButton("next", "player:next", width: 28, height: 28, padding: 6,
+                   material: "control", foreground: "@text")
+    }
+}

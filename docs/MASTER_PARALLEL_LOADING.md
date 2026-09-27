@@ -2,9 +2,9 @@
 
 日期：2026-09-27。状态：**第一步已提交 `99101cf`，第二步已提交 `f82ef5d`；
 第三步已提交 `b4fdf5b`，验证记录见第 10 节。第四步已提交 `56704a5`，
-契约与验证见第 11 节；第五步业务异步准备已实现并验证，见第 12 节。
-真实 demo 与性能对照仍待第六步。**
-本系列从代码规范化（`0aaca73`）后推进；本轮先提交第四步，再实现第五步。现有生产启动链继续以
+契约与验证见第 11 节；第五步已提交 `527df14`，见第 12 节。
+第六步真实 Music 已实现并完成同管线测量与回归验证，随 `0.1.0-13` 部署，见第 13 节。**
+本系列从代码规范化（`0aaca73`）后推进；本轮先提交第五步，再实现第六步。现有生产启动链继续以
 [统一 Host](APP_HOST_RUNTIME.md)、[待命池](LAUNCHER_WORKER_POOL.md)和
 [会话规范](SESSION_LAUNCH_RUNTIME.md)为实现依据。
 
@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | Preview 优先 | Music 有 Preview；另外四包没有。Host 等实际 presented 后加载 Music 业务 | 轻量 Preview 先显示，并在 Master 准备期间保持事件响应 |
 | Preview/Master 分开 | 分开的 DSL 文件、同一个 surface/EGL，替换 Scene | 保持同一窗口，候选 Master 就绪后提交；延后区域逐步安装 |
-| Master 准备 | 共享调度器准备/组合；所有者线程分轮构造候选、事务安装 critical 和稳定 deferred 区域；旧单文件使用同一入口 | 真实多区域 demo 与关键路径测量 |
+| Master 准备 | Music 已拆为三个 critical 和一个 deferred 区域；共享调度器准备/组合，所有者线程分轮事务安装；旧单文件使用同一入口 | 依据实机分段数据优化图形初始化与首次 Render 的关键路径 |
 | 资源加载 | 尺寸检查与解码使用共享调度器；分阶段注册及真实 GPU 上传使用所有者线程额度 | 大组件、驱动调用及内存的实测对照 |
 | 前端/业务解耦 | Host 管理前端，业务 `.so` 仅使用窄 C ABI；新增 submit_work/取消/完成回调，二者在同一 PID | 真实应用把耗时准备迁入有界任务，保留快速所有者线程入口 |
 | 独立后台进程 | 没有单独的业务进程；应用实例之间才是独立进程 | 若需要进程隔离，另行实现业务消息端点与进程生命周期 |
@@ -29,8 +29,9 @@ PrepareFrontend → Bind → 同步读取/解析轻量 Preview → Wayland confi
 → 事件循环继续处理 Preview / 主题 / 控制 / 实际 presented
 → critical Master Prepared 且 Preview 实际 presented → 分轮申请/等待必需图片
 → 分批 GPU 上传、节点构造 → 当前主题/绑定/视口下完整预检 → 安装 critical Master
-→ 同步 dlopen/create → BackendReady → 后续 Pump 提交、实际呈现 Master
+→ 快速 dlopen/create、提交曲库 work → 后续 Pump 提交、实际呈现 Master
 → 启用 deferred 纯准备 → 按已安装依赖选择批次 → 分轮候选构造 → 事务挂载 Slot
+业务 work 的完成 FD 并行接入 Pump → 所有者消费目录结果、更新绑定 → BackendReady
 ```
 
 入口为 `prism/host/app_host.cpp` 的 Bind/Pump，Master 与区域协调分别在
@@ -44,7 +45,7 @@ TaskScheduler。LoadSession 作为单单元适配器也使用同一调度器，�
 
 后台纯准备期间 Preview 继续响应；第四步对节点构造和 GPU 上传分轮推进，但整树快照、
 链接、最终布局/shaping、驱动调用及 dlopen/create 仍可能产生停顿。第五步提供业务 work
-契约并检查已经返回的入口耗时，不能抢占这些入口；真实 Music 迁移在第六步。
+契约并检查已经返回的入口耗时，不能抢占这些入口；第六步 Music 已迁入该接口。
 BackendReady 仅表示业务通知，
 不证明 Master 已提交或呈现。无 Preview 的包同样异步准备，完成后在 Pump 中打开窗口
 并加载业务，BackendReady 仍可早于首次 configure。
@@ -258,7 +259,8 @@ ModuleSession::Start 丢给工作线程会违反现有 Host API 的线程约束�
 
 第零步已完成现状核对与规范。第一步已提交 `99101cf`，结果记录在第 8 节；第二步
 已提交 `f82ef5d`，记录在第 9 节；第三步已提交 `b4fdf5b`，记录在第 10 节。
-第四步已提交 `56704a5`，见第 11 节；第五步见第 12 节，第六步尚未实现。
+第四步已提交 `56704a5`，见第 11 节；第五步已提交 `527df14`，见第 12 节。
+第六步实施与验收见第 13 节。
 
 | 步骤 | 实现内容 | 必须证明的结果 |
 | --- | --- | --- |
@@ -835,3 +837,208 @@ AppModule 记录 dlopen/符号解析/入口查询的历时；ModuleSession 测�
 关闭耗时或待命池单次观测解释为启动性能收益。
 
 第六步才迁移真实多区域 demo、打包及串行/并行性能对照；本轮不重新部署显示器会话。
+
+## 13. 第六步：真实 Music、多区域与同管线实机对照
+
+第五步先提交为 `527df14`。本步执行顺序：先明确契约，再迁移 Music DSL 与业务，
+增加隔离测量工具，统一构建/回归，最后构建并审计 deb。所有测量工具继续只在 tests。
+
+### 应用边界与内容
+
+Music 保留轻量 Preview，同一 Host/surface 下切换 Master。Master 使用 Interface v2：
+header、artwork、transport 为三个独立 critical 区域，library 为 deferred 区域，
+预留稳定 Slot。无真实准备依赖的组件不填写 after。曲库具有实际三首曲目的选择、
+收藏过滤与已有播放/前后曲控制，保持图标为主的主题布局。
+
+曲目从包的 assets/catalog.json 加载，删除编译在模块中的曲目数组。create 仅建立
+状态、复制资产位置并提交具名 work；工作线程执行有界普通文件读取及 typed DTO
+校验/序列化，所有者完成回调消费结果并更新绑定，成功后才通知 BackendReady。
+失败显示错误和重试入口；不在 create 或工作线程直接更新 UI，不用人为延迟制造收益。
+首次曲库加载失败仍受 Host 的 10 秒启动期限约束，只能在剩余期限内重试；期限耗尽由
+现有失败/回收链处理。错误页不冒充 BackendReady，也不承诺无限保留窗口。
+
+PrismAppInitV1 增加 optional assets_root 尾字段，内容是 Host 依据 manifest 已校验的
+绝对资产目录，借用期仅限 create。模块复制路径后才提交工作；不依赖当前工作目录。
+它是资源位置接口，不是文件系统安全沙箱。旧 init 所需 prefix 与旧模块兼容；新 Music
+需要完整 assets_root 和 submit_work 能力，缺失时明确拒绝，不保留同步加载退路。
+
+### 测量接口与解释
+
+HostConfig 增加 task_workers（1 或 2，生产默认 2），仍使用同一 TaskScheduler。
+HostStartupStats 记录所有者观察的 bind、Preview 提交/实际呈现、Master 队列/准备/
+安装/提交/实际呈现、业务 Ready 和 deferred 安装完成时刻，以及前端、Preview 和
+模块入口历时。新增 ClientStartupStats 的 egl_init_us、ganesh_init_us、
+first_submit_build_us、first_render_us、first_swap_us 仅包围第一次真实对应调用，
+保留独立采样标记；失败调用也记时，零微秒不是未执行标志。Build 不包括安装预检，
+Render/Swap 墙钟不代表 GPU 完成或实际呈现。时间戳使用 monotonic；观察时刻可能晚于 worker/协议原始事件，不
+把观察差解释为精确工作或 GPU 耗时。deferred 安装完成不代表像素已呈现。
+
+每轮 Pump 计时扣除实际 poll 等待，保留准备、回调、渲染、提交和事件分发的历时，
+输出最近值、总量和最大值；probe 保存样本并计算 p95/p99。该指标包括 OS 调度停顿，
+不是纯 CPU 执行时间；仅扣除直接计量的 poll，内部 roundtrip、文件/驱动阻塞仍计入。
+主题控制到对应新提交实际 feedback 单独测量，不冒充鼠标
+输入延迟。若真实小应用的 pending 阶段太短，明确记录未观察，不注入 sleep 屏障。
+
+诊断矩阵交错比较并发 1/2、未 Prepare 的 Host/已 Prepare 的 Host、单 Host/双 Host，
+内容和资源相同，不清 Linux 页缓存。已 Prepare 的诊断 Host 不等于生产待命池。
+双 Host 诊断在同进程独立所有者线程，共享会话预算；CPU/PSS 为整个诊断进程，不
+代表两个生产进程的内存。生产 launcher 的 pool=0/预热和多 PID 结果另列，沿用
+--load-active-limit 控制会话并发。样本记录温度/频率、CPU、峰值 RSS、采样 PSS、
+失败和退出回收；峰值 RSS 与采样 PSS 不混称为精确峰值 PSS。直接 Host 组 CPU
+包含预准备与最终验证/关闭成本，排除附加响应/取消组；生产 launcher CPU 从池就绪
+基线开始，包含派发后补池成本，两者不混为同一 CPU 口径。
+
+direct 的请求计时从包/主题预校验后开始；1/2 同时改变 Host task_workers 与共享
+active_limit。launcher 只改变会话 active_limit，Host 默认仍有两个 worker。两组均
+使用隔离 HEADLESS-1 1280×720 和真实 V3D；direct 给 SDK 初始主题，但 WM 保持
+neutral bootstrap，launcher 则将主题提交给 WM，装饰/工作区成本不同，不能把两组
+时间相减当作待命池收益。物理 DRM 会话继续运行，结果包含当前机器背景负载；两窗
+映射/resize 的时序也可能变化，不声称各轮绘制次数完全相同或已测物理输入延迟。
+
+全部内容验收先等业务成功和 deferred 安装完成，再触发明确主题变化，等待该变化
+对应的提交实际呈现，记录 all_content_verified；它表示全部数据/区域已安装后的
+当前可见帧，默认隐藏的曲库页不会因此被绘制。曲库页展示与选曲另由布局/业务测试
+及部署后交互验证。该指标包含额外验证提交等待，不称首次完整内容呈现。
+发布包必须包含各 DSL 组件与 catalog，排除 tests/probes/fixtures，
+保持 WM 不链接客户端 Scene/DSL/Skia 前端。最终回归、测量与部署验收记录如下。
+
+### 最终 Release 回归与测量（2026-09-27）
+
+最终使用 `build-prod` 的 Release 二进制。该构建命令同时带有 Release 的 `-O3`
+与顶层后置 `-O2`，实际生效为 **O2**，不能将以下结果标为 O3 对照。tests 目录新增
+统一 `-UNDEBUG`，使既有 assert 及其中的调用在 Release 下仍执行；不以关闭断言后的
+通过结果作为验收。较早 `build-gles` 的构建、失败和修正记录保留为诊断证据，以下
+性能结论仅使用最终 Release 报告。
+
+首轮 configure 与 build 并发读取旧 Ninja 图，导致新源文件的对象未纳入该次链接；
+现已串行重配并完整重建，不将这次构建失败解释为仓库源码缺失。Release 的旧测试
+assert 执行问题由上述 tests 目录 `-UNDEBUG` 修复，随后完整 51 项回归通过。
+
+| 回归门槛 | 最终结果 |
+| --- | --- |
+| Release CTest | 51/51 通过，0 失败 |
+| 原生异步业务 | 3/3 场景通过，包含结果交付、typed 失败与关闭取消 |
+| 原生异步 Master | 18/18 场景通过，包含 critical/deferred 安装、取消和失败保留 |
+| 原生准备/SDK 提交 | 2/2 门槛通过 |
+| 既有 Host、生产 launcher 待命池 | 两项 probe 均通过 |
+| 真实 Music 直接 Host 对照 | 40 组、60 个 Host 样本通过；每配置 5 组，无失败，WM 已回收 |
+| 真实 Music 生产 launcher 对照 | 24 组通过；每配置 3 组，无失败，实例与 worker 均已回收 |
+
+#### 直接 Host 启动阶段
+
+下表单位为 ms，均为各配置中位数。workers 同时控制本地工作线程和共享 active_limit；
+cold 表示没有预先 Prepare Host，warm 表示已 Prepare 的诊断 Host，不表示清空页缓存
+或生产待命池。双 Host 的阶段统计合并该配置的 10 个 Host 样本，单 Host 为 5 个。
+Preview、Master 与 all verified 从请求计时；Ready 从 bind 计时，保持报告原字段口径。
+all verified 是前述额外主题提交验收，不能称首次完整内容呈现。
+
+| workers | Host 准备 | Host 数 | 请求→Preview presented | 请求→Master presented | bind→BackendReady | 请求→all verified |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| 1 | cold | 1 | 259.869 | 342.974 | 266.295 | 398.392 |
+| 1 | cold | 2 | 281.598 | 393.127 | 290.908 | 456.265 |
+| 1 | warm | 1 | 242.060 | 320.133 | 248.064 | 376.212 |
+| 1 | warm | 2 | 288.023 | 401.221 | 294.960 | 473.616 |
+| 2 | cold | 1 | 256.533 | 335.831 | 262.733 | 390.739 |
+| 2 | cold | 2 | 299.077 | 400.222 | 307.626 | 460.901 |
+| 2 | warm | 1 | 244.479 | 322.699 | 251.087 | 377.215 |
+| 2 | warm | 2 | 271.259 | 394.333 | 299.003 | 449.518 |
+
+CPU 为每组整个诊断进程生命周期消耗的中位 ms，包含预准备、内容验证与关闭；PSS
+为该配置所有采样中的最大 KiB，不是连续测量的精确峰值。双 Host 共享同一进程，不能
+将此表拆成单应用内存，也不能与下表生产多 PID 会话直接相减。
+Pump 列只使用 `startup_pump_processing_samples_us`，单位 ms；分位由该配置所有
+启动 Pump 样本合并计算，不是 5 组延迟的分位。数值包含首次驱动阻塞和调度停顿，
+不能视为每轮安装工作预算或纯 CPU 时间。
+
+| workers / 准备 / Host 数 | CPU 中位 ms | 最大采样 PSS KiB | Pump 中位 | Pump p95 | Pump p99 | Pump 最大 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 / cold / 1 | 333.389 | 40,518 | 0.092 | 209.460 | 220.689 | 220.689 |
+| 1 / cold / 2 | 641.764 | 48,535 | 0.125 | 219.496 | 223.037 | 225.749 |
+| 1 / warm / 1 | 331.532 | 40,273 | 0.100 | 202.579 | 242.392 | 242.392 |
+| 1 / warm / 2 | 659.851 | 48,740 | 0.127 | 213.478 | 254.797 | 257.578 |
+| 2 / cold / 1 | 325.898 | 40,341 | 0.243 | 207.566 | 210.333 | 210.333 |
+| 2 / cold / 2 | 656.746 | 48,733 | 0.180 | 220.440 | 228.490 | 229.338 |
+| 2 / warm / 1 | 329.490 | 40,337 | 0.255 | 209.857 | 212.812 | 212.812 |
+| 2 / warm / 2 | 667.161 | 48,722 | 0.218 | 219.016 | 239.082 | 239.421 |
+
+#### 生产 launcher 与待命池
+
+下表仍是同一生产加载管线，Host 默认两个 worker，仅改变会话 active_limit。
+pool=0 无已有待命 Host；warm 的池大小分别为单应用 1、双应用 2。elapsed 等待所请求
+的全部应用收到 FirstPresented 与 BackendReady；FirstPresented 是 Preview，未在
+wire 上增加 Master 里程碑，不能把 elapsed 称作 Master 呈现耗时。单位为 ms。
+每配置仅 3 组，p95 是小样本顺序统计量，不能估计稳定的总体尾延迟。
+CPU 使用 WM、launcher 与 worker 的进程 ticks，包含派发后补池；PSS 同样为这些进程
+的采样总和最大值，不能混入直接 Host 的单进程口径，也不是完整 GPU 内存统计。
+
+| active_limit | pool | 应用数 | elapsed 中位 | elapsed p95 | 会话 CPU 中位 | 最大采样会话 PSS KiB |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| 1 | 0 | 1 | 273.750 | 281.224 | 240 | 64,850 |
+| 1 | 0 | 2 | 435.018 | 459.768 | 690 | 95,534 |
+| 1 | warm=1 | 1 | 262.420 | 262.953 | 250 | 66,650 |
+| 1 | warm=2 | 2 | 405.462 | 419.110 | 700 | 98,761 |
+| 2 | 0 | 1 | 278.277 | 282.527 | 240 | 64,886 |
+| 2 | 0 | 2 | 414.986 | 417.919 | 640 | 95,493 |
+| 2 | warm=1 | 1 | 257.586 | 257.615 | 240 | 66,610 |
+| 2 | warm=2 | 2 | 403.774 | 407.606 | 680 | 98,791 |
+
+#### 首次绘制停顿与测量边界
+
+以直接 Host 的 workers=2、cold、单 Host 配置为代表，各阶段中位如下。它们来自
+同一配置，但独立中位数不能相加当作某个真实样本的完整分解。
+
+| 首次调用/准备阶段 | 中位 ms |
+| --- | ---: |
+| Preview 纯准备 | 0.167 |
+| EGL 初始化 | 97.759 |
+| Ganesh 构造 | 1.175 |
+| 首次提交 Scene Build | 0.312 |
+| 首次 Render | 105.987 |
+| 首次 Swap | 0.499 |
+| 模块 load | 0.549 |
+| 模块 create | 0.136 |
+
+八个直接 Host 配置的 EGL 中位范围为 97.749–100.673 ms，首次 Render 为
+105.987–118.106 ms，Ganesh 构造为 0.980–1.270 ms。当前证据将主要首轮停顿定位到
+EGL 初始化与首次 Render 的调用边界，不能误判为约百毫秒的 Ganesh 构造，也不能
+直接推断其中多少是 shader 编译、GPU 执行或驱动内部等待。
+
+这个小 demo 的文件、纯编译和业务任务较轻。直接 Host 的 cold 单窗 Master 中位
+由 342.974 降至 335.831 ms，但 warm 单窗由 320.133 增至 322.699 ms；双窗也出现
+相反方向的变化。生产池三组样本中的 warm 中位较低，仍不足以证明稳定提速。
+本轮证明多区域加载、业务准备、真实呈现与待命池走同一管线，没有证明小 demo
+获得稳定的并行性能收益。
+
+直接 Host 每组前后采样温度为 43.329–45.764 °C、频率 0.8–1.8 GHz；launcher 为
+43.329–46.251 °C、频率采样均为 1.8 GHz，governor 为 ondemand。直接 Host 有效
+`vcgencmd` 读数为 `throttled=0x50000`：当前状态低 16 位为 0，历史标记不为 0。
+这仅说明这些采样时刻未报告当前节流，不能声称历史无节流或运行全程无节流。
+launcher 的逐组环境记录没有 throttle 字段，不补造该组结果；温度/频率也不是连续
+监控。物理桌面持续运行，页缓存与背景负载未隔离，5/3 组不支持更强的因果结论。
+
+下一轮先拆分 EGL 内部初始化调用和首次 Render 的 replay/flush 等子调用，继续使用
+同一 surface、所有者线程及共享任务预算，记录真实提交/呈现。GPU 预热方案尚未验证，
+不承诺迁移线程、提前执行或新增缓存一定降低首屏停顿，也不启动永久绘制循环。
+
+测量证据：`dist/validation/prism-music-parallel/release-validation.json`、
+`release-direct-host/startup-report.json`、`release-launcher/summary.json` 与
+`release-launcher/samples.json`，以及对应 Release 门槛日志。
+
+### 发布与现场验收
+
+`prism-wm_0.1.0-13_arm64.deb` 已构建、审计并安装到 Pi，大小 8,014,060 bytes，
+SHA-256 为 `591643bc357649a226ece12b9cbc9b786a8a93056baa017c52d581c2c65ae9a2`。
+包包含 Music 布局、四个组件和 catalog，以及五个业务模块；无 tests/probes/fixtures
+或 ImGui 载荷，WM 未发现客户端前端符号，包内 WM 与已审计构建的 stripped 二进制一致。
+
+旧实际 PAM session 的十个进程已全部回收，新会话 supervisor 为 PID 41210；安装
+文件校验通过（dpkg -V 无差异），服务 active/running，journal 错误行为空。
+安装后的物理 DRM 功能门槛通过，`physical-music-settings.png` 记录默认 BSP 布局。
+用户现场确认“曲库、收藏和原有操作都正常”，覆盖曲库/收藏页、选曲、播放状态控制、
+Dock 激活与主题切换。该确认是功能与交互验收，不是鼠标延迟或物理 scanout 测量。
+坏 catalog 后的错误/重试由 CPU 业务测试覆盖，本轮没有在物理会话注入坏数据，
+不将其列为人工确认内容。
+
+发布证据为同目录 `package-audit.json`、`deployment.json`、`v13-physical.json` 与
+`physical-music-settings.png`。本节记录第六步实现及 `0.1.0-13` 发布结果，未为
+第六步填写尚未产生的代码提交号。

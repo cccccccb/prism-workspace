@@ -5,6 +5,7 @@ if(TARGET prism_client_app)
         app_host.cpp
         app_host_helpers.cpp
         app_host_state.cpp
+        app_host_startup.cpp
         app_host_business.cpp
         app_host_loading.cpp
         app_host_regions.cpp)

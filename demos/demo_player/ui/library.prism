@@ -1,0 +1,25 @@
+Card(material: "card", padding: 6, overflow: "clip") {
+    VStack(spacing: 2, justify: "center") {
+        HStack(height: 18, spacing: 6, align: "center", visible: $library_row_1) {
+            IconButton("play", "library:track:1", width: 18, height: 18, padding: 3,
+                       material: "control", foreground: "@musicAccent")
+            Text($library_title_1, flex: 1, font: "@font_caption", foreground: "@text", overflow: "clip")
+            Text($library_artist_1, width: 64, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
+            Text($library_duration_1, width: 32, font: "@font_caption", foreground: "@mutedText")
+        }
+        HStack(height: 18, spacing: 6, align: "center", visible: $library_row_2) {
+            IconButton("play", "library:track:2", width: 18, height: 18, padding: 3,
+                       material: "control", foreground: "@musicAccent")
+            Text($library_title_2, flex: 1, font: "@font_caption", foreground: "@text", overflow: "clip")
+            Text($library_artist_2, width: 64, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
+            Text($library_duration_2, width: 32, font: "@font_caption", foreground: "@mutedText")
+        }
+        HStack(height: 18, spacing: 6, align: "center", visible: $library_row_3) {
+            IconButton("play", "library:track:3", width: 18, height: 18, padding: 3,
+                       material: "control", foreground: "@musicAccent")
+            Text($library_title_3, flex: 1, font: "@font_caption", foreground: "@text", overflow: "clip")
+            Text($library_artist_3, width: 64, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
+            Text($library_duration_3, width: 32, font: "@font_caption", foreground: "@mutedText")
+        }
+    }
+}

@@ -1,0 +1,6 @@
+Card(material: "card", padding: 8, overflow: "clip") {
+    HStack(spacing: 6, align: "center") {
+        Icon("check", width: 14, height: 14, foreground: "@accent")
+        Text($status, flex: 1, font: "@font_caption", foreground: "@mutedText")
+    }
+}

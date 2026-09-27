@@ -67,7 +67,13 @@ ClientApplication::Impl::PrepareSubmit(const platform::SubmitRequest &request)
 
             if (!app.last_list || runtime::Has(dirty, runtime::Dirty::Layout) ||
                 runtime::Has(dirty, runtime::Dirty::Paint)) {
-                if (auto next = app.scene->Build(contracts::WindowId{1})) {
+                std::optional<contracts::DisplayList> next;
+                {
+                    FirstCallTimer timer(app.startup_stats.first_submit_build_us,
+                                         app.submit_build_sampled);
+                    next = app.scene->Build(contracts::WindowId{1});
+                }
+                if (next) {
                     app.last_list = std::move(next);
                 }
             }
@@ -130,7 +136,13 @@ ClientApplication::Impl::PrepareSubmit(const platform::SubmitRequest &request)
         const auto &repair = app.prepared_damage->repair_damage;
         const auto area = runtime::DamageArea(repair, {static_cast<std::uint32_t>(request.width),
                                                        static_cast<std::uint32_t>(request.height)});
-        if (!app.renderer->Render(*app.prepared_list, request.width, request.height, repair)) {
+        bool rendered;
+        {
+            FirstCallTimer timer(app.startup_stats.first_render_us, app.render_sampled);
+            rendered =
+                app.renderer->Render(*app.prepared_list, request.width, request.height, repair);
+        }
+        if (!rendered) {
             throw std::runtime_error("GPU rendering failed");
         }
         ++app.render_stats.gpu_render_successes;
@@ -157,7 +169,12 @@ bool ClientApplication::Impl::CommitPixels()
     auto &app = *this;
     ++app.render_stats.swap_attempts;
 
-    if (!app.prepared_damage || !app.egl.Swap(app.prepared_damage->content_damage)) {
+    bool swapped = false;
+    if (app.prepared_damage) {
+        FirstCallTimer timer(app.startup_stats.first_swap_us, app.swap_sampled);
+        swapped = app.egl.Swap(app.prepared_damage->content_damage);
+    }
+    if (!swapped) {
         app.FailFrontend();
         return false;
     }

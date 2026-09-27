@@ -1,0 +1,18 @@
+VStack(spacing: 6) {
+    Text($count_text, height: 30, font: "@font_heading", foreground: "@accent")
+    HStack(height: 28, spacing: 8) {
+        Button("-1", "counter:decrement", flex: 1, padding: 6,
+               material: "control", font: "@font_body", foreground: "@text")
+        Button("+1", "counter:increment", flex: 1, padding: 6,
+               material: "control", font: "@font_body", foreground: "@text")
+        IconButton("refresh", "counter:reset", width: 28, height: 28, padding: 6,
+                   material: "control", foreground: "@text")
+    }
+    Progress(value: $count_progress, height: 4, cornerRadius: "@progress_radius",
+             foreground: "@accent", background: "@progressTrack")
+    HStack(height: 22, spacing: 8, align: "center") {
+        Text("Show details", flex: 1, font: "@font_caption", foreground: "@mutedText")
+        Toggle(checked: $detail_visible, action: "counter:details", width: 38, height: 22,
+               foreground: "@accent")
+    }
+}

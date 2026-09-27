@@ -141,6 +141,11 @@ public:
         return presentation_count_;
     }
 
+    std::uint64_t WaitDurationNs() const noexcept
+    {
+        return wait_duration_ns_;
+    }
+
     int DiscardedCount() const
     {
         return discarded_count_;
@@ -263,6 +268,7 @@ private:
     PixelSubmissionId frame_callback_submission_{};
     int presentation_count_{0};
     int discarded_count_{0};
+    std::uint64_t wait_duration_ns_{};
     wl_display *display_{nullptr};
     wl_registry *registry_{nullptr};
     wl_compositor *compositor_{nullptr};

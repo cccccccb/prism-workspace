@@ -186,3 +186,40 @@ sudo chvt 1
 同条件一次 12 秒短测中，Music 更新会话 CPU 从 3.07% 降至 1.91%，WM 保持 0.50%；空闲会话 CPU 0.69% → 1.02%，没有改善。输出提交/实际呈现保留 12/36 次，玻璃额外 pass 均零；PSS 未下降。v12 空闲结束时 ondemand 频率为 700MHz，其他起止 1.8GHz；结果与限制见 [渲染调度与失效传播](RENDER_SCHEDULING_AND_INVALIDATION.md) 第 12 节。
 
 第一次自动部署脚本过早在 launcher socket 就绪后检查 theme，实际主题提交尚未完成；初始 JSON/日志保留为 `.initial`，修正为等待非零主题 generation 后重新启动干净会话测量。最终记录为 `deployment.json`、`v12-physical.json`、`appearance/results.json`、`physical-glass-dark.png`、`journal-installed.log` 与四组逐秒性能报告。
+
+## 10. 0.1.0-13 真实多区域 Music 与异步业务
+
+本系列第五步先提交为 `527df14`。第六步的 Music 使用三个 critical 和一个 deferred
+DSL 区域，曲目从包内 catalog.json 通过 Host work 异步读取；成功结果在所有者线程
+更新绑定并报告 Ready。新 Music 与匹配的 Host 一起升级，不依赖源码工作目录。
+
+- 发布包：`dist/deb/prism-wm_0.1.0-13_arm64.deb`，**8014060 字节**，SHA-256
+  `591643bc357649a226ece12b9cbc9b786a8a93056baa017c52d581c2c65ae9a2`。
+- Release 构建及保留断言的 CTest **51/51** 通过；真实异步业务 **3/3**、Master
+  加载 **18/18**、Prepared UI/SDK 提交 **2/2**、Host/待命池回归通过。测试保持在
+  tests，打包重新配置 BUILD_TESTING=OFF。
+- 包审计确认九个平台入口、五个业务包及四个 Music DSL 组件和曲库数据，无
+  tests/probes/fixtures/ImGui；Music 模块与 WM 的前端符号边界通过，包内剥离后的
+  WM 与被审计构建一致，无 Qt 依赖。
+- 已安装为 `0.1.0-13 arm64`，`dpkg -V` 无差异；旧会话十个进程身份全部回收。
+  `prism-demo@ss.service` active，supervisor PID 41210，沿用 tty8/seat0 与原参数，
+  未启用自启动。新会话 DRM/V3D 首帧/Ready、激活、新实例、取消回收、保留 Shell
+  拒绝和实例流全部通过，保留 Glass dark、Music 与 Preferences 供现场查看。
+- 默认双窗截图通过人工图像检查，journal 未见 ERROR 或失败提交；用户现场答复
+  “曲库、收藏和原有操作都正常”，确认曲库/收藏显示、选曲及原有播放、Dock、主题
+  操作。该交互验收不代表已量化鼠标或物理扫描输出延迟。
+
+性能证据：直接 Host **40 组/60 样本**、生产 launcher **24 组**均通过。单应用
+workers=2 未预准备 Host 的中位 Preview 为 **256.53ms**、Master 为 **335.83ms**。
+首次 EGL **97.76ms**、首次 Render **105.99ms**，Ganesh **1.18ms**；小 demo 没有
+稳定的并行提速。两组矩阵、CPU/PSS/处理分位、条件与下一阶段见
+[加载规范第 13 节](MASTER_PARALLEL_LOADING.md#13-第六步真实-music多区域与同管线实机对照)，
+不将 headless V3D 数字解释为物理显示/输入延迟。
+
+证据在 `dist/validation/prism-music-parallel/`：`release-validation.json`、两个
+release 启动目录、`release-pure-boundary.json`、`package-audit.json`、
+`deployment.json`、`v13-physical.json`、`v13-session-journal.log` 与
+`physical-music-settings.png`。首次部署预检查只读取 systemd unit 的 ControlGroup，
+未包含 PAM 创建的实际 session.scope；在改用 supervisor 的真实 cgroup 并检查两者后
+升级成功。首次失败发生在停止/安装之前，记录保留为 deployment-preflight.json 和
+deploy-preflight.log。

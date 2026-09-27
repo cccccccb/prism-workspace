@@ -61,6 +61,14 @@ struct ClientRenderStats {
     bool buffer_age_supported{}, swap_damage_supported{}, partial_update_supported{};
 };
 
+// First actual backend/submit-path calls, measured with a monotonic wall clock.
+// A zero duration may be a sub-microsecond call; it does not mean unexecuted.
+// Failed calls are measured too. Render/Swap do not imply GPU completion.
+struct ClientStartupStats {
+    std::uint64_t egl_init_us{}, ganesh_init_us{}, first_submit_build_us{};
+    std::uint64_t first_render_us{}, first_swap_us{};
+};
+
 // Client-owned DSL scene, resources, Skia GLES renderer and Wayland window.
 // All methods except construction/destruction run on the Wayland thread.
 class ClientApplication {
@@ -123,7 +131,9 @@ public:
     int PresentedCount() const; // Compatibility: swap submissions, not actual presentation.
     bool HasPresentationFeedback() const;
     int PresentationCount() const;
+    std::uint64_t WaitDurationNs() const noexcept;
     ClientRenderStats GetRenderStats() const;
+    ClientStartupStats GetStartupStats() const noexcept;
     int RequestedImageCount() const;
     int LoadedImageCount() const;
     std::string GlRenderer() const;

@@ -13,3 +13,8 @@ Read [docs/CODING_STYLE.md](docs/CODING_STYLE.md) before changing production cod
 - Separate validation, preparation, processing, submission and cleanup with meaningful blank lines.
 - Run `python3 tools/check-code-style.py` and the tests relevant to changed behavior. Keep tests and
   probes out of production sources and packages.
+
+For third-party Prism application UI/package work, use the project skill at
+[docs/skills/prism-app-ui/SKILL.md](docs/skills/prism-app-ui/SKILL.md). It routes to current visual,
+Host/DSL/module contracts and a standalone starter; see [docs/README.md](docs/README.md) for the
+document index. Read only the references needed for the task.

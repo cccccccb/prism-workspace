@@ -129,6 +129,9 @@ typedef struct PrismAppInitV1 {
     PrismStringViewV1 app_id;
     /* Valid for this module instance until destroy() returns. */
     const PrismHostApiV1 *host;
+    /* Optional tail: validated absolute package asset directory. Borrowed only
+     * during create(); copy before submitting work. Not a filesystem sandbox. */
+    PrismStringViewV1 assets_root;
 } PrismAppInitV1;
 
 /* Projected by the host from platform instance events; borrowed for callback.

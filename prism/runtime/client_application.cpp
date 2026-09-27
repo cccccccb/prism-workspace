@@ -384,6 +384,11 @@ int ClientApplication::PresentationCount() const
     return impl_->window.PresentationCount();
 }
 
+std::uint64_t ClientApplication::WaitDurationNs() const noexcept
+{
+    return impl_->window.WaitDurationNs();
+}
+
 ClientRenderStats ClientApplication::GetRenderStats() const
 {
     auto stats = impl_->render_stats;
@@ -397,6 +402,11 @@ ClientRenderStats ClientApplication::GetRenderStats() const
     stats.surface_submission_failures = submitted.failures;
     stats.surface_noops = submitted.none;
     return stats;
+}
+
+ClientStartupStats ClientApplication::GetStartupStats() const noexcept
+{
+    return impl_->startup_stats;
 }
 
 int ClientApplication::RequestedImageCount() const

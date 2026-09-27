@@ -10,6 +10,7 @@ bool AppHost::Impl::StartMasterPreparation()
     }
 
     ui.master_load = frontend->BeginUiLoad();
+    startup.master_queued_ns = MonotonicNs();
     const auto result = master_loader->Submit({ui.master_load, package->ui, package->root});
     if (result != runtime::LoadSubmitResult::Accepted) {
         return Fail(contracts::LaunchError::RuntimeFailed, "Cannot queue Master preparation");
@@ -23,6 +24,9 @@ void AppHost::Impl::UiSubmitted(runtime::UiLoadId load)
         return;
     }
     ui.preview_submitted = true;
+    if (!startup.preview_submitted_ns) {
+        startup.preview_submitted_ns = MonotonicNs();
+    }
 
     // Only dispatch pure CPU work here. Installation never runs inside a
     // Wayland submission callback, and the completion FD is already polled.
@@ -42,6 +46,9 @@ void AppHost::Impl::TakeMasterCompletion()
         ui.read_us = completion->timings.read_us;
         ui.prepare_us = completion->timings.prepare_us;
         ui.master_prepared = completion->prepared.has_value();
+        if (ui.master_prepared) {
+            startup.master_prepared_ns = MonotonicNs();
+        }
         master_completion = std::move(completion);
     }
 }
@@ -93,6 +100,7 @@ bool AppHost::Impl::InstallMaster()
 
     ui.master_images_ready = true;
     ui.master_installed = true;
+    startup.master_installed_ns = MonotonicNs();
     installed_plan = completion.plan;
     CollectBindings(completion.prepared->Root(), mounted_bindings);
     master_completion.reset();
@@ -105,8 +113,8 @@ bool AppHost::Impl::InstallMaster()
         Event(contracts::LaunchMilestone::RuntimeReady);
     }
 
-    // The business ABI still runs on the owner thread. Its asynchronous
-    // initialization contract is the next independent runtime stage.
+    // Quick lifecycle entry stays on the owner. Modules submit preparation work
+    // through the Host ABI and receive its result on a later owner turn.
     return StartBusiness();
 }
 } // namespace prism::sdk

@@ -119,8 +119,24 @@ BackendReady 与 FirstPresented 是可独立发生的里程碑，上图不规定
 构造/图片上传预算，完整 CTest 49/49、原生加载 18/18 及 SDK/Host/待命池回归通过。
 第四步已提交 `56704a5`；第五步已接入业务异步工作、完成 FD 与所有者线程回调，
 完整 CTest 50/50、原生业务 3/3 及启动/加载回归通过，验收见加载规范第 12 节。
-第六步真实 demo 性能对照尚未实现。当前工厂采用最终 Host
-提前 spawn，自身准备后待命；第 3 节的
+第五步已提交 `527df14`。第六步已将真实 Music 迁入 Interface v2：header、artwork、
+transport 为三个独立 critical 组件，library 为 deferred 组件，使用稳定 Slot 且不填写
+不存在的准备依赖。曲目从包内 `assets/catalog.json` 异步读取，删除编译曲目数组；
+create 只复制资产目录并提交具名 work，工作线程完成有界普通文件读取、typed DTO
+校验和序列化，所有者完成回调更新绑定，成功后才报告 BackendReady。失败有明确错误
+和重试入口，不提供同步加载退路；播放进度仍是 demo 业务，不代表真实音频解码。
+
+`PrismAppInitV1` 新增 optional `assets_root` 尾字段，由 Host 提供 manifest 已校验的
+绝对资产目录。旧 ABI prefix 保持兼容，新 Music 要求完整资产尾字段与异步工作能力。
+测量接口和独立工具覆盖准备/安装、EGL/Ganesh 与首次绘制/Swap、Preview/Master 实际
+presentation feedback、业务 Ready 和 deferred 安装；串行/并行与生产 launcher
+无池/预热对照沿用同一加载管线。51/51 CTest、40 组直接 Host 与 24 组生产 launcher
+采样、原生回归均通过；0.1.0-13 已审计并安装，真实 DRM 启动/实例/取消门槛通过，
+曲库/收藏及原有操作现场确认通过。EGL 与首次 Render 占主要同步启动成本，小 demo 尚无
+稳定的并行提速；不把准备完成或安装完成解释为实际呈现。具体结果与边界见
+[MASTER_PARALLEL_LOADING.md 第 13 节](MASTER_PARALLEL_LOADING.md#13-第六步真实-music多区域与同管线实机对照)。
+
+当前工厂采用最终 Host 提前 spawn，自身准备后待命；第 3 节的
 CPU seed 图是策略候选，不是当前进程实现。GPU 预热和独立业务进程也没有实现。
 
 渲染优化之后，按 [MASTER_PARALLEL_LOADING.md](MASTER_PARALLEL_LOADING.md) 的六步

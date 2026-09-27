@@ -1,3 +1,6 @@
+# Release diagnostics must execute assertions used by the test suite.
+add_compile_options(-UNDEBUG)
+
 add_executable(ipc_benchmark
     ipc_benchmark.cpp
 )
@@ -34,7 +37,7 @@ target_link_libraries(client_scene_test PRIVATE prism_client_dsl prism_client_sc
 add_test(NAME client_scene_test COMMAND client_scene_test)
 target_compile_options(client_scene_test PRIVATE -UNDEBUG)
 add_executable(client_app_templates_test client_app_templates_test.cpp)
-target_link_libraries(client_app_templates_test PRIVATE prism_client_dsl prism_client_scene prism_module_session prism_theme_compiler)
+target_link_libraries(client_app_templates_test PRIVATE prism_client_dsl prism_client_scene prism_module_session prism_theme_compiler prism_load_plan)
 target_compile_options(client_app_templates_test PRIVATE -UNDEBUG)
 target_compile_definitions(client_app_templates_test PRIVATE PRISM_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
 if(TARGET prism_music_module AND TARGET prism_desktop_module)
@@ -43,9 +46,20 @@ if(TARGET prism_music_module AND TARGET prism_desktop_module)
     add_test(NAME client_app_templates_test COMMAND client_app_templates_test
         $<TARGET_FILE:prism_desktop_module> $<TARGET_FILE:prism_topbar_module>
         $<TARGET_FILE:prism_dock_module> $<TARGET_FILE:prism_music_module>
-        $<TARGET_FILE:prism_settings_module>)
+        $<TARGET_FILE:prism_settings_module> "${CMAKE_BINARY_DIR}/share/prism/apps/demo_player/assets")
 else()
     add_test(NAME client_app_templates_test COMMAND client_app_templates_test)
+endif()
+
+if(TARGET prism_music_module)
+    add_executable(demo_player_work_test demo_player_work_test.cpp)
+    target_link_libraries(demo_player_work_test PRIVATE prism_module_session prism_task_scheduler
+        nlohmann_json::nlohmann_json Threads::Threads)
+    target_compile_options(demo_player_work_test PRIVATE -UNDEBUG)
+    add_dependencies(demo_player_work_test prism_music_module)
+    add_test(NAME demo_player_work_test COMMAND demo_player_work_test
+        $<TARGET_FILE:prism_music_module>)
+    set_tests_properties(demo_player_work_test PROPERTIES TIMEOUT 25)
 endif()
 add_executable(render_tree_test render_tree_test.cpp)
 target_link_libraries(render_tree_test PRIVATE prism_client_scene)
@@ -282,6 +296,13 @@ if(TARGET prism_app_host_runtime)
     target_link_libraries(async_master_probe PRIVATE prism_app_host_runtime Threads::Threads)
     target_compile_options(async_master_probe PRIVATE -UNDEBUG)
     add_dependencies(async_master_probe async_master_fixture)
+endif()
+
+if(TARGET prism_app_host_runtime)
+    add_executable(demo_startup_probe probes/demo_startup_probe.cpp)
+    target_link_libraries(demo_startup_probe PRIVATE prism_app_host_runtime prism_theme_compiler
+        Threads::Threads nlohmann_json::nlohmann_json)
+    target_compile_options(demo_startup_probe PRIVATE -UNDEBUG)
 endif()
 
 add_executable(task_scheduler_test task_scheduler_test.cpp)

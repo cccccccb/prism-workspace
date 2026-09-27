@@ -40,10 +40,12 @@ bool AppHost::PrepareFrontend()
     if (self.frontend) {
         return self.frontend->FrontendReady();
     }
+    DurationTimer frontend_timer(self.startup.frontend_prepare_us);
     try {
         ClientConfig config;
         config.font_path = self.config.font_path;
-        self.scheduler = std::make_shared<runtime::TaskScheduler>(self.config.task_budget);
+        self.scheduler = std::make_shared<runtime::TaskScheduler>(self.config.task_budget,
+                                                                  self.config.task_workers);
         config.task_scheduler = self.scheduler;
         config.install_limits = self.config.install_limits;
         self.frontend = std::make_unique<ClientApplication>(std::move(config));
@@ -126,6 +128,7 @@ bool AppHost::Bind(const launch::AppPackage &package)
         !self.config.instance.value) {
         return false;
     }
+    self.startup.bind_ns = MonotonicNs();
     if (!PrepareFrontend()) {
         return false;
     }
@@ -165,7 +168,9 @@ bool AppHost::Bind(const launch::AppPackage &package)
         }
 
         self.ui.preview_load = self.frontend->BeginUiLoad();
+        const auto prepare_started = MonotonicNs();
         const auto prepared = PrepareUi(*package.preview, "preview");
+        self.startup.preview_prepare_us = (MonotonicNs() - prepare_started) / 1000;
         runtime::LoadDiagnostic diagnostic;
         if (!self.frontend->OpenPrepared(self.ui.preview_load, prepared, &diagnostic)) {
             return self.Fail(contracts::LaunchError::RuntimeFailed, UiFailureDetail(diagnostic));
@@ -204,6 +209,7 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
     if (!self.package || self.failed || self.closed) {
         return false;
     }
+    PumpProcessingTimer processing_timer(self.startup, *self.frontend, self.wait_duration_ns);
     try {
         UiWorkTurn work_turn(*self.frontend);
         self.frontend->PollImageResources();
@@ -269,9 +275,15 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
                 return self.Fail(contracts::LaunchError::RuntimeFailed,
                                  "Wayland/render connection failed");
             }
-        } else if (poll(descriptors.data(), descriptors.size(), wait) < 0 && errno != EINTR) {
-            return self.Fail(contracts::LaunchError::RuntimeFailed,
-                             "Master/control completion wait failed");
+        } else {
+            const auto wait_started = MonotonicNs();
+            const int result = poll(descriptors.data(), descriptors.size(), wait);
+            const int poll_error = errno;
+            self.wait_duration_ns += MonotonicNs() - wait_started;
+            if (result < 0 && poll_error != EINTR) {
+                return self.Fail(contracts::LaunchError::RuntimeFailed,
+                                 "Master/control completion wait failed");
+            }
         }
         for (std::size_t i = 0; i < wake_fds.size(); ++i) {
             wake_fds[i].revents = descriptors[i].revents;

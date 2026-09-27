@@ -1,0 +1,9 @@
+Card(material: "window", padding: "@window_padding", clip: true) {
+    VStack(spacing: 6) {
+        Slot(component: "header", height: 28)
+        Slot(component: "controls", height: 104)
+        Slot(component: "detail", flex: 1, visible: $detail_visible) {
+            Text("Preparing details", font: "@font_caption", foreground: "@mutedText")
+        }
+    }
+}

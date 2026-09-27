@@ -1,0 +1,26 @@
+Card(padding: 8, material: "album") {
+    Card(justify: "center", align: "center", overflow: "clip") {
+        HStack(width: 44, height: 30, anchor: "left", spacing: 4, align: "center") {
+            Separator(width: 3, height: 8, background: "@indicator")
+            Separator(width: 3, height: 18, background: "@indicator")
+            Separator(width: 3, height: 30, background: "@indicator")
+            Separator(width: 3, height: 22, background: "@indicator")
+            Separator(width: 3, height: 12, background: "@indicator")
+        }
+        Card(width: 72, height: 72, anchor: "center", justify: "center", align: "center",
+             material: "control", cornerRadius: 36, background: "@musicAccent",
+             borderWidth: 1, borderColor: "@border") {
+            Card(width: 48, height: 48, cornerRadius: 24, anchor: "center", justify: "center", align: "center",
+                 background: "@albumTint", borderWidth: 1, borderColor: "@border") {
+                Icon("music", width: 24, height: 24, anchor: "center", foreground: "@onAccent")
+            }
+        }
+        HStack(width: 44, height: 30, anchor: "right", spacing: 4, align: "center") {
+            Separator(width: 3, height: 12, background: "@indicator")
+            Separator(width: 3, height: 22, background: "@indicator")
+            Separator(width: 3, height: 30, background: "@indicator")
+            Separator(width: 3, height: 18, background: "@indicator")
+            Separator(width: 3, height: 8, background: "@indicator")
+        }
+    }
+}
