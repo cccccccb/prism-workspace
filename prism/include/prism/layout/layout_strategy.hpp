@@ -13,11 +13,16 @@ public:
     virtual ~LayoutStrategy() = default;
 
     virtual std::string GetStrategyName() const = 0;
-    virtual void CalculateLayout(core::Rect screen_bounds, core::Rect& win_a, core::Rect& win_b) = 0;
-    
-    virtual void CalculateMultiLayout(core::Rect screen_bounds, size_t count, std::vector<core::Rect>& out_bounds) {
+    virtual void CalculateLayout(core::Rect screen_bounds, core::Rect &win_a,
+                                 core::Rect &win_b) = 0;
+
+    virtual void CalculateMultiLayout(core::Rect screen_bounds, size_t count,
+                                      std::vector<core::Rect> &out_bounds)
+    {
         out_bounds.clear();
-        if (count == 0) return;
+        if (count == 0) {
+            return;
+        }
         if (count == 1) {
             out_bounds.push_back(screen_bounds);
             return;

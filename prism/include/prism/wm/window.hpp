@@ -15,44 +15,125 @@ namespace prism::wm {
 
 class Window {
 public:
-    Window(std::string app_id, std::string title, core::Rect bounds, std::shared_ptr<ipc::Channel> channel);
+    Window(std::string app_id, std::string title, core::Rect bounds,
+           std::shared_ptr<ipc::Channel> channel);
     ~Window();
 
     void SetBounds(core::Rect bounds);
     void SetFocused(bool focused);
-    bool IsFocused() const { return is_focused_; }
 
-    void SetLayerType(LayerType type) { layer_type_ = type; }
-    LayerType GetLayerType() const { return layer_type_; }
+    bool IsFocused() const
+    {
+        return is_focused_;
+    }
 
-    void SetExclusiveMargin(float margin) { exclusive_margin_ = margin; }
-    float GetExclusiveMargin() const { return exclusive_margin_; }
+    void SetLayerType(LayerType type)
+    {
+        layer_type_ = type;
+    }
+
+    LayerType GetLayerType() const
+    {
+        return layer_type_;
+    }
+
+    void SetExclusiveMargin(float margin)
+    {
+        exclusive_margin_ = margin;
+    }
+
+    float GetExclusiveMargin() const
+    {
+        return exclusive_margin_;
+    }
 
     void SetDecorator(std::unique_ptr<decoration::TilingWindowDecorator> decorator);
-    decoration::TilingWindowDecorator* GetDecorator() const { return decorator_.get(); }
 
+    decoration::TilingWindowDecorator *GetDecorator() const
+    {
+        return decorator_.get();
+    }
 
     // Accessors
-    const std::string& GetAppId() const { return app_id_; }
-    const std::string& GetTitle() const { return title_; }
-    const core::Rect& GetBounds() const { return bounds_; }
-    std::shared_ptr<ipc::Channel> GetChannel() const { return channel_; }
-    void UpdateIdentity(std::string app_id, std::string title, int pid, std::uint64_t instance) {
-        app_id_ = std::move(app_id); title_ = std::move(title); pid_ = pid; instance_ = instance;
+    const std::string &GetAppId() const
+    {
+        return app_id_;
     }
-    int GetPid() const { return pid_; }
-    std::uint64_t GetInstance() const { return instance_; }
-    void SetNative(bool value) { native_ = value; }
-    bool IsNative() const { return native_; }
-    void SetCommittedBounds(core::Rect value) { committed_bounds_ = value; }
-    const core::Rect& GetCommittedBounds() const { return committed_bounds_; }
-    void SetVisible(bool value) { visible_ = value; }
-    bool IsVisible() const { return visible_; }
-    void SetFullscreen(bool value) { fullscreen_ = value; }
-    bool IsFullscreen() const { return fullscreen_; }
+
+    const std::string &GetTitle() const
+    {
+        return title_;
+    }
+
+    const core::Rect &GetBounds() const
+    {
+        return bounds_;
+    }
+
+    std::shared_ptr<ipc::Channel> GetChannel() const
+    {
+        return channel_;
+    }
+
+    void UpdateIdentity(std::string app_id, std::string title, int pid, std::uint64_t instance)
+    {
+        app_id_ = std::move(app_id);
+        title_ = std::move(title);
+        pid_ = pid;
+        instance_ = instance;
+    }
+
+    int GetPid() const
+    {
+        return pid_;
+    }
+
+    std::uint64_t GetInstance() const
+    {
+        return instance_;
+    }
+
+    void SetNative(bool value)
+    {
+        native_ = value;
+    }
+
+    bool IsNative() const
+    {
+        return native_;
+    }
+
+    void SetCommittedBounds(core::Rect value)
+    {
+        committed_bounds_ = value;
+    }
+
+    const core::Rect &GetCommittedBounds() const
+    {
+        return committed_bounds_;
+    }
+
+    void SetVisible(bool value)
+    {
+        visible_ = value;
+    }
+
+    bool IsVisible() const
+    {
+        return visible_;
+    }
+
+    void SetFullscreen(bool value)
+    {
+        fullscreen_ = value;
+    }
+
+    bool IsFullscreen() const
+    {
+        return fullscreen_;
+    }
 
 private:
-
     std::string app_id_;
     std::string title_;
     core::Rect bounds_;

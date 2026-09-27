@@ -14,24 +14,30 @@ struct Color {
     std::uint8_t g{0};
     std::uint8_t b{0};
     std::uint8_t a{255};
-    constexpr bool operator==(const Color&) const noexcept = default;
+    constexpr bool operator==(const Color &) const noexcept = default;
 };
 
 struct FillRect {
     LogicalRect bounds{};
     Color color{};
-    bool operator==(const FillRect&) const noexcept = default;
+    bool operator==(const FillRect &) const noexcept = default;
 };
 
 struct FillRoundedRect {
     LogicalRect bounds{};
     double radius{0.0};
     Color color{};
-    bool operator==(const FillRoundedRect&) const noexcept = default;
+    bool operator==(const FillRoundedRect &) const noexcept = default;
 };
 
-struct StrokeRoundedRect { LogicalRect bounds{}; double radius{0}; double width{1}; Color color{};
-    bool operator==(const StrokeRoundedRect&) const noexcept = default; };
+struct StrokeRoundedRect {
+    LogicalRect bounds{};
+    double radius{0};
+    double width{1};
+    Color color{};
+    bool operator==(const StrokeRoundedRect &) const noexcept = default;
+};
+
 struct RoundedRectShadow {
     LogicalRect bounds{};
     double radius{0};
@@ -39,27 +45,58 @@ struct RoundedRectShadow {
     double offset_y{0};
     Color color{};
     bool inset{false};
-    bool operator==(const RoundedRectShadow&) const noexcept = default;
+    bool operator==(const RoundedRectShadow &) const noexcept = default;
 };
 // SDK vector resources; these are geometric icons, independent of installed fonts.
-enum class VectorIcon { Grid, Music, Settings, Folder, Terminal, Play, Pause, Previous,
-    Next, Volume, Wifi, Battery, Search, Sun, Moon, Power, Check, Chevron, Refresh, Cpu, Memory, Heart,
-    Layers, Rectangle, Drop, WifiOff, Error };
-struct DrawIcon { VectorIcon icon{VectorIcon::Grid}; LogicalRect bounds{}; Color color{};
-    bool operator==(const DrawIcon&) const noexcept = default; };
+enum class VectorIcon {
+    Grid,
+    Music,
+    Settings,
+    Folder,
+    Terminal,
+    Play,
+    Pause,
+    Previous,
+    Next,
+    Volume,
+    Wifi,
+    Battery,
+    Search,
+    Sun,
+    Moon,
+    Power,
+    Check,
+    Chevron,
+    Refresh,
+    Cpu,
+    Memory,
+    Heart,
+    Layers,
+    Rectangle,
+    Drop,
+    WifiOff,
+    Error
+};
+
+struct DrawIcon {
+    VectorIcon icon{VectorIcon::Grid};
+    LogicalRect bounds{};
+    Color color{};
+    bool operator==(const DrawIcon &) const noexcept = default;
+};
 enum class ImageFit { Fill, Contain, Cover };
 
 struct DrawImage {
     ResourceId image{};
     LogicalRect destination{};
     ImageFit fit{ImageFit::Fill};
-    bool operator==(const DrawImage&) const noexcept = default;
+    bool operator==(const DrawImage &) const noexcept = default;
 };
 
 struct GlyphPlacement {
     std::uint32_t glyph_index{0};
     LogicalPoint origin{};
-    bool operator==(const GlyphPlacement&) const noexcept = default;
+    bool operator==(const GlyphPlacement &) const noexcept = default;
 };
 
 struct DrawGlyphRun {
@@ -67,24 +104,37 @@ struct DrawGlyphRun {
     std::vector<GlyphPlacement> glyphs;
     Color color{};
     double font_size{16.0};
-    bool operator==(const DrawGlyphRun&) const noexcept = default;
+    bool operator==(const DrawGlyphRun &) const noexcept = default;
 };
 
-struct PushClipRect { LogicalRect bounds{}; bool operator==(const PushClipRect&) const noexcept = default; };
-struct PushClipRoundedRect { LogicalRect bounds{}; double radius{0};
-    bool operator==(const PushClipRoundedRect&) const noexcept = default; };
-struct PopClip { bool operator==(const PopClip&) const noexcept = default; };
+struct PushClipRect {
+    LogicalRect bounds{};
+    bool operator==(const PushClipRect &) const noexcept = default;
+};
+
+struct PushClipRoundedRect {
+    LogicalRect bounds{};
+    double radius{0};
+    bool operator==(const PushClipRoundedRect &) const noexcept = default;
+};
+
+struct PopClip {
+    bool operator==(const PopClip &) const noexcept = default;
+};
 
 // Row-major 2D affine transform: [a, c, tx, b, d, ty].
 struct PushTransform {
     std::array<double, 6> values{1.0, 0.0, 0.0, 0.0, 1.0, 0.0};
-    bool operator==(const PushTransform&) const noexcept = default;
+    bool operator==(const PushTransform &) const noexcept = default;
 };
-struct PopTransform { bool operator==(const PopTransform&) const noexcept = default; };
 
-using DrawCommand = std::variant<FillRect, FillRoundedRect, StrokeRoundedRect,
-    RoundedRectShadow, DrawIcon, DrawImage, DrawGlyphRun, PushClipRect,
-    PushClipRoundedRect, PopClip, PushTransform, PopTransform>;
+struct PopTransform {
+    bool operator==(const PopTransform &) const noexcept = default;
+};
+
+using DrawCommand = std::variant<FillRect, FillRoundedRect, StrokeRoundedRect, RoundedRectShadow,
+                                 DrawIcon, DrawImage, DrawGlyphRun, PushClipRect,
+                                 PushClipRoundedRect, PopClip, PushTransform, PopTransform>;
 
 // In-process, ordered renderer input. Logical coordinates map to the target canvas;
 // caller owns any output scale. Clips/transforms use matched, nested push/pop pairs.

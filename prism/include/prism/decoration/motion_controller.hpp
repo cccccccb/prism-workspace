@@ -7,17 +7,11 @@
 
 namespace prism::decoration {
 
-enum class MotionType {
-    None,
-    SplitMove,
-    Fold,
-    Fullscreen,
-    Focus
-};
+enum class MotionType { None, SplitMove, Fold, Fullscreen, Focus };
 
 /**
  * @brief High-precision Damped Harmonic Oscillator (Spring Physics)
- * 
+ *
  * Differential equation: m*x'' + c*x' + k*(x - target) = 0
  * With unit mass m=1, damping coefficient c = 2 * damping * sqrt(stiffness).
  * Uses clamped sub-stepping for unconditional stability regardless of frame time jitter.
@@ -29,20 +23,25 @@ struct SpringSolver {
     float damping{0.80f};
     float stiffness{220.0f};
 
-    void SnapTo(float val) {
+    void SnapTo(float val)
+    {
         pos = val;
         target = val;
         vel = 0.0f;
     }
 
-    void SetTarget(float new_target, float new_damping, float new_stiffness) {
+    void SetTarget(float new_target, float new_damping, float new_stiffness)
+    {
         target = new_target;
         damping = new_damping;
         stiffness = new_stiffness;
     }
 
-    void Step(float dt) {
-        if (IsSettled()) return;
+    void Step(float dt)
+    {
+        if (IsSettled()) {
+            return;
+        }
 
         // Sub-stepping: dt_sub <= 1/240s to guarantee numerical stability
         const float sub_dt = 1.0f / 240.0f;
@@ -64,14 +63,15 @@ struct SpringSolver {
         }
     }
 
-    bool IsSettled() const {
+    bool IsSettled() const
+    {
         return pos == target && vel == 0.0f;
     }
 };
 
 /**
  * @brief Cubic Bézier Curve Timing Evaluator
- * 
+ *
  * Solves B_x(u) = t using Newton-Raphson iteration, then evaluates B_y(u).
  */
 class CubicBezierEvaluator {
@@ -99,7 +99,8 @@ struct TweenSolver {
     float y2{1.00f};
     bool active{false};
 
-    void Start(float from, float to, float duration, float bx1, float by1, float bx2, float by2) {
+    void Start(float from, float to, float duration, float bx1, float by1, float bx2, float by2)
+    {
         start = from;
         current = from;
         target = to;
@@ -112,8 +113,11 @@ struct TweenSolver {
         active = true;
     }
 
-    void Step(float dt) {
-        if (!active) return;
+    void Step(float dt)
+    {
+        if (!active) {
+            return;
+        }
         elapsed_ms += dt * 1000.0f;
         float progress = std::clamp(elapsed_ms / duration_ms, 0.0f, 1.0f);
         float eased = CubicBezierEvaluator::Solve(x1, y1, x2, y2, progress);
@@ -125,14 +129,15 @@ struct TweenSolver {
         }
     }
 
-    bool IsSettled() const {
+    bool IsSettled() const
+    {
         return !active;
     }
 };
 
 /**
  * @brief Window Motion Controller
- * 
+ *
  * Orchestrates multi-channel kinetic animations for a window decorator:
  * - 4-axis Geometry Springs (Split / Tile Slide / Reorder)
  * - Fold & Roll-up Spring/Tween (Collapse to Titlebar)
@@ -144,26 +149,46 @@ public:
     MotionController();
 
     void SnapToBounds(core::Rect bounds);
-    void AnimateToBounds(core::Rect target, const MotionCurveSpec& spec);
-    void SetFolded(bool folded, const MotionCurveSpec& spec);
-    void SetFullscreen(bool fullscreen, core::Rect screen_bounds, const MotionCurveSpec& spec);
-    void SetFocused(bool focused, const MotionCurveSpec& spec);
+    void AnimateToBounds(core::Rect target, const MotionCurveSpec &spec);
+    void SetFolded(bool folded, const MotionCurveSpec &spec);
+    void SetFullscreen(bool fullscreen, core::Rect screen_bounds, const MotionCurveSpec &spec);
+    void SetFocused(bool focused, const MotionCurveSpec &spec);
 
     // Advances physics by dt (seconds). Returns true if animations are still running.
     bool Step(float dt);
 
     // Visual State Queries
     core::Rect GetVisualBounds(float header_height, float border_width) const;
-    core::Rect GetTargetBounds() const { return target_bounds_; }
+
+    core::Rect GetTargetBounds() const
+    {
+        return target_bounds_;
+    }
+
     float GetFoldRatio() const;
     float GetFullscreenRatio() const;
     float GetFocusRatio() const;
     float GetContentAlpha() const;
 
-    bool IsFolded() const { return is_folded_; }
-    bool IsFullscreen() const { return is_fullscreen_; }
-    bool IsFocused() const { return is_focused_; }
-    bool IsAnimating() const { return is_animating_; }
+    bool IsFolded() const
+    {
+        return is_folded_;
+    }
+
+    bool IsFullscreen() const
+    {
+        return is_fullscreen_;
+    }
+
+    bool IsFocused() const
+    {
+        return is_focused_;
+    }
+
+    bool IsAnimating() const
+    {
+        return is_animating_;
+    }
 
 private:
     core::Rect current_bounds_{0, 0, 0, 0};
@@ -178,19 +203,19 @@ private:
 
     // Fold Channel (0.0 = fully open, 1.0 = fully folded to titlebar)
     SpringSolver spring_fold_;
-    TweenSolver  tween_fold_;
-    bool         fold_uses_spring_{true};
-    bool         is_folded_{false};
+    TweenSolver tween_fold_;
+    bool fold_uses_spring_{true};
+    bool is_folded_{false};
 
     // Fullscreen Channel (0.0 = tiled, 1.0 = fullscreen)
     SpringSolver spring_fs_;
-    TweenSolver  tween_fs_;
-    bool         fs_uses_spring_{false};
-    bool         is_fullscreen_{false};
+    TweenSolver tween_fs_;
+    bool fs_uses_spring_{false};
+    bool is_fullscreen_{false};
 
     // Focus Channel (0.0 = unfocused, 1.0 = focused)
-    TweenSolver  tween_focus_;
-    bool         is_focused_{false};
+    TweenSolver tween_focus_;
+    bool is_focused_{false};
 
     bool is_animating_{false};
 };

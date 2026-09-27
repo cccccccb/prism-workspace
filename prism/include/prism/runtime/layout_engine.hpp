@@ -4,7 +4,7 @@
 namespace prism::runtime {
 class LayoutEngine {
 public:
-    static void Compute(SceneSnapshot& snapshot, contracts::LogicalSize viewport,
-                        const ShapeText& shaper);
+    static void Compute(SceneSnapshot &snapshot, contracts::LogicalSize viewport,
+                        const ShapeText &shaper);
 };
 } // namespace prism::runtime

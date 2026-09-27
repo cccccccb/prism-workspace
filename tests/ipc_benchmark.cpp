@@ -1,13 +1,14 @@
-#include "prism/ipc/channel.hpp"
 #include "prism/core/logging.hpp"
+#include "prism/ipc/channel.hpp"
+#include <chrono>
 #include <iostream>
 #include <thread>
 #include <vector>
-#include <chrono>
 
 using namespace prism;
 
-void RunBenchmark() {
+void RunBenchmark()
+{
     const std::string channel_name = "/prism_bench_test";
     const int TEST_PACKETS = 1000000; // 1 Million packets
 
@@ -59,7 +60,8 @@ void RunBenchmark() {
     double qps = TEST_PACKETS / duration_sec;
 
     std::cout << "-> Processed: " << TEST_PACKETS << " packets in " << duration_sec << " seconds\n";
-    std::cout << "-> Throughput: " << static_cast<uint64_t>(qps) << " pkts/sec (" << (qps / 1000000.0) << " Million msg/s)\n";
+    std::cout << "-> Throughput: " << static_cast<uint64_t>(qps) << " pkts/sec ("
+              << (qps / 1000000.0) << " Million msg/s)\n";
 
     // 2. Round-trip Ping-Pong Latency Test
     const int PING_COUNT = 100000;
@@ -99,14 +101,17 @@ void RunBenchmark() {
     ping_server.join();
 
     double total_lat = 0;
-    for (double lat : latencies_us) total_lat += lat;
+    for (double lat : latencies_us) {
+        total_lat += lat;
+    }
     double avg_lat_us = total_lat / PING_COUNT;
 
     std::cout << "-> Average Round-Trip Latency: " << avg_lat_us << " microseconds (us)\n";
     std::cout << "=========================================================\n";
 }
 
-int main() {
+int main()
+{
     RunBenchmark();
     return 0;
 }

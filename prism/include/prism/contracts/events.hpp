@@ -8,9 +8,7 @@
 namespace prism::contracts {
 
 enum class ButtonState : std::uint8_t { Released, Pressed };
-enum class PointerButton : std::uint8_t {
-    Primary, Secondary, Middle, Back, Forward, Other
-};
+enum class PointerButton : std::uint8_t { Primary, Secondary, Middle, Back, Forward, Other };
 
 struct PointerMotionEvent {
     WindowId window{};
@@ -63,8 +61,8 @@ struct CloseRequestedEvent {
     WindowId window{};
 };
 
-using WindowEvent = std::variant<PointerMotionEvent, PointerButtonEvent,
-    PointerScrollEvent, KeyEvent, TextInputEvent, ConfigureEvent,
-    FocusEvent, CloseRequestedEvent>;
+using WindowEvent =
+    std::variant<PointerMotionEvent, PointerButtonEvent, PointerScrollEvent, KeyEvent,
+                 TextInputEvent, ConfigureEvent, FocusEvent, CloseRequestedEvent>;
 
 } // namespace prism::contracts

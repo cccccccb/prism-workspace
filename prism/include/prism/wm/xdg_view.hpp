@@ -8,15 +8,16 @@
 
 struct wlr_xdg_toplevel;
 struct wlr_scene_tree;
+
 namespace prism::wm {
 class WlrServer;
 
 // One lifecycle record for a real Wayland toplevel. Geometry is a configure
 // target; the last committed size is tracked independently by the Window.
 struct WlrXdgView {
-    WlrServer* server{};
-    wlr_xdg_toplevel* toplevel{};
-    wlr_scene_tree* scene_tree{};
+    WlrServer *server{};
+    wlr_xdg_toplevel *toplevel{};
+    wlr_scene_tree *scene_tree{};
     wl_listener map{}, commit{}, unmap{}, destroy{}, request_maximize{}, request_fullscreen{};
     wl_listener set_title{}, set_app_id{};
     std::shared_ptr<Window> managed;
@@ -29,4 +30,4 @@ struct WlrXdgView {
     WlrXdgView();
     ~WlrXdgView();
 };
-}
+} // namespace prism::wm

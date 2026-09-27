@@ -19,6 +19,7 @@ add_custom_command(OUTPUT "${PRESENTATION_HEADER}" "${PRESENTATION_CODE}"
 
 add_library(prism_wayland_client STATIC
     wayland_window.cpp
+    wayland_window_events.cpp
     "${PRESENTATION_HEADER}"
     "${PRESENTATION_CODE}"
     "${XDG_CLIENT_HEADER}"

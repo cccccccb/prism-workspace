@@ -20,6 +20,7 @@ struct DecodedImage {
 };
 
 enum class ImageState { Loading, Ready, Failed };
+
 struct ImageUpdate {
     contracts::ResourceId id{};
     ImageState state{ImageState::Failed};
@@ -28,11 +29,11 @@ struct ImageUpdate {
 
 class ImageResources {
 public:
-    using Decoder = std::function<std::optional<DecodedImage>(const std::string&)>;
+    using Decoder = std::function<std::optional<DecodedImage>(const std::string &)>;
     explicit ImageResources(Decoder decoder, std::size_t max_bytes = 128 * 1024 * 1024);
     ~ImageResources();
-    ImageResources(const ImageResources&) = delete;
-    ImageResources& operator=(const ImageResources&) = delete;
+    ImageResources(const ImageResources &) = delete;
+    ImageResources &operator=(const ImageResources &) = delete;
 
     // Request, Poll, Get, and State belong to one runtime thread. Only the
     // supplied decoder runs on the worker thread.
@@ -41,16 +42,23 @@ public:
     // Borrowed, nonblocking completion notification. Poll drains it atomically
     // with the completion queue; callers must not read or close this descriptor.
     int CompletionFd() const noexcept;
-    const DecodedImage* Get(contracts::ResourceId id) const;
+    const DecodedImage *Get(contracts::ResourceId id) const;
     ImageState State(contracts::ResourceId id) const;
-    std::size_t DecodedBytes() const { return decoded_bytes_; }
+
+    std::size_t DecodedBytes() const
+    {
+        return decoded_bytes_;
+    }
 
 private:
     struct Shared;
+    void RunWorker();
+
     struct Entry {
         ImageState state{ImageState::Loading};
         std::optional<DecodedImage> pixels;
     };
+
     std::unique_ptr<Shared> shared_;
     std::map<std::uint64_t, Entry> entries_;
     std::map<std::string, contracts::ResourceId, std::less<>> by_uri_;

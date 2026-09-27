@@ -1,16 +1,18 @@
 #pragma once
+#include "prism/contracts/theme.hpp"
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <span>
-#include "prism/contracts/theme.hpp"
 struct wl_display;
 struct wlr_renderer;
 struct wlr_allocator;
 struct wlr_scene;
 struct wlr_surface;
+
 namespace prism::wm {
 struct WlrXdgView;
+
 // Compositor-only typed backdrop/material pass. Never sees client DSL or Skia.
 class SurfaceEffects {
 public:
@@ -31,16 +33,19 @@ public:
         std::uint64_t removed_regions{}, scene_reorders{};
         // Leaves are counted per dependency evaluation, before/after footprint
         // filtering. Capture nodes count queued draws, including failed passes.
-        std::uint64_t dependency_leaves_checked{}, dependency_leaves_included{}, dependency_leaves_skipped{};
+        std::uint64_t dependency_leaves_checked{}, dependency_leaves_included{},
+            dependency_leaves_skipped{};
         std::uint64_t content_revisions{}, metadata_commits{}, damage_history_fallbacks{};
         // Successful cache hits whose observations advanced past outside damage.
         std::uint64_t partial_damage_cache_hits{}, capture_nodes{};
     };
+
     struct UpdateResult {
         bool processed{};     // The current lower-scene dependencies were examined.
         bool scene_changed{}; // A paint was added, removed, repositioned or replaced.
     };
-    SurfaceEffects(wl_display*,wlr_renderer*,wlr_allocator*);
+
+    SurfaceEffects(wl_display *, wlr_renderer *, wlr_allocator *);
     ~SurfaceEffects();
     bool Supported() const;
     // Event-thread-only. The WM must invalidate all lower-scene content, geometry,
@@ -50,14 +55,15 @@ public:
     // Call after wlroots applies current state, before commit filtering. Damage
     // and mapping are copied here; buffer identity and callback sequence are not
     // content versions. Forget on destruction before a surface address is reused.
-    void NotifySurfaceCommit(wlr_surface*);
-    void ForgetSurface(wlr_surface*);
+    void NotifySurfaceCommit(wlr_surface *);
+    void ForgetSurface(wlr_surface *);
     bool NeedsUpdate() const;
-    const WorkCounters& Counters() const;
-    UpdateResult Update(wlr_scene*,std::span<WlrXdgView* const>,WlrXdgView* focused,
-                        const contracts::ThemeSnapshot* theme);
+    const WorkCounters &Counters() const;
+    UpdateResult Update(wlr_scene *, std::span<WlrXdgView *const>, WlrXdgView *focused,
+                        const contracts::ThemeSnapshot *theme);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
-}
+} // namespace prism::wm

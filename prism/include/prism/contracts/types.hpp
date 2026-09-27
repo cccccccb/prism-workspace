@@ -5,12 +5,15 @@
 namespace prism::contracts {
 
 // These identifiers are local to one client runtime. They are not wire handles.
-template <typename Tag>
-struct LocalId {
+template <typename Tag> struct LocalId {
     std::uint64_t value{0};
 
-    constexpr explicit operator bool() const noexcept { return value != 0; }
-    constexpr bool operator==(const LocalId&) const noexcept = default;
+    constexpr explicit operator bool() const noexcept
+    {
+        return value != 0;
+    }
+
+    constexpr bool operator==(const LocalId &) const noexcept = default;
 };
 
 struct WindowTag;
@@ -24,22 +27,24 @@ struct NodeId {
     std::uint32_t index{UINT32_MAX};
     std::uint32_t generation{0};
 
-    constexpr explicit operator bool() const noexcept {
+    constexpr explicit operator bool() const noexcept
+    {
         return index != UINT32_MAX && generation != 0;
     }
-    constexpr bool operator==(const NodeId&) const noexcept = default;
+
+    constexpr bool operator==(const NodeId &) const noexcept = default;
 };
 
 struct LogicalPoint {
     double x{0.0};
     double y{0.0};
-    constexpr bool operator==(const LogicalPoint&) const noexcept = default;
+    constexpr bool operator==(const LogicalPoint &) const noexcept = default;
 };
 
 struct LogicalSize {
     double width{0.0};
     double height{0.0};
-    constexpr bool operator==(const LogicalSize&) const noexcept = default;
+    constexpr bool operator==(const LogicalSize &) const noexcept = default;
 };
 
 struct LogicalRect {
@@ -47,7 +52,7 @@ struct LogicalRect {
     double y{0.0};
     double width{0.0};
     double height{0.0};
-    constexpr bool operator==(const LogicalRect&) const noexcept = default;
+    constexpr bool operator==(const LogicalRect &) const noexcept = default;
 };
 
 struct BufferSize {

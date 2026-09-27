@@ -8,8 +8,8 @@ protected:
     ~NonCopyable() = default;
 
 public:
-    NonCopyable(const NonCopyable&) = delete;
-    NonCopyable& operator=(const NonCopyable&) = delete;
+    NonCopyable(const NonCopyable &) = delete;
+    NonCopyable &operator=(const NonCopyable &) = delete;
 };
 
 } // namespace prism::core

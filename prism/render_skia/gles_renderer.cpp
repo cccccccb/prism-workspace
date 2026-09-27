@@ -1,21 +1,31 @@
 #include "prism/render_skia/gles_renderer.hpp"
-#include "prism/render_skia/raster_renderer.hpp"
-#include "prism/runtime/buffer_damage.hpp"
-#include "include/core/SkSurface.h"
 #include "include/core/SkColorSpace.h"
-#include "include/gpu/GrDirectContext.h"
+#include "include/core/SkSurface.h"
 #include "include/gpu/GrBackendSurface.h"
+#include "include/gpu/GrDirectContext.h"
 #include "include/gpu/ganesh/SkSurfaceGanesh.h"
 #include "include/gpu/ganesh/gl/GrGLBackendSurface.h"
 #include "include/gpu/ganesh/gl/GrGLDirectContext.h"
 #include "include/gpu/gl/GrGLAssembleInterface.h"
+#include "prism/render_skia/raster_renderer.hpp"
+#include "prism/runtime/buffer_damage.hpp"
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 
 namespace prism::render_skia {
+namespace {
+GrGLFuncPtr ResolveGlFunction(void *, const char *name)
+{
+    return eglGetProcAddress(name);
+}
+} // namespace
+
 struct GlesRenderer::Impl {
-    explicit Impl(const RasterRenderer& source) : commands(source) {}
-    const RasterRenderer& commands;
+    explicit Impl(const RasterRenderer &source) : commands(source)
+    {
+    }
+
+    const RasterRenderer &commands;
     sk_sp<GrDirectContext> context;
     sk_sp<SkSurface> surface;
     EGLDisplay egl_display = EGL_NO_DISPLAY;
@@ -26,44 +36,77 @@ struct GlesRenderer::Impl {
     GlesRenderStats stats{};
 };
 
-GlesRenderer::GlesRenderer(const RasterRenderer& commands, GlesRendererOptions options)
-    : impl_(std::make_unique<Impl>(commands)) {
+GlesRenderer::GlesRenderer(const RasterRenderer &commands, GlesRendererOptions options)
+    : impl_(std::make_unique<Impl>(commands))
+{
     impl_->egl_display = eglGetCurrentDisplay();
     impl_->egl_context = eglGetCurrentContext();
-    if (impl_->egl_display == EGL_NO_DISPLAY || impl_->egl_context == EGL_NO_CONTEXT) return;
-    auto interface = GrGLMakeAssembledGLESInterface(nullptr,
-        [](void*, const char* name) { return eglGetProcAddress(name); });
-    if (interface) impl_->context = GrDirectContexts::MakeGL(std::move(interface));
-    if (impl_->context) impl_->context->setResourceCacheLimit(options.resource_cache_bytes);
+    if (impl_->egl_display == EGL_NO_DISPLAY || impl_->egl_context == EGL_NO_CONTEXT) {
+        return;
+    }
+    auto interface = GrGLMakeAssembledGLESInterface(nullptr, ResolveGlFunction);
+    if (interface) {
+        impl_->context = GrDirectContexts::MakeGL(std::move(interface));
+    }
+    if (impl_->context) {
+        impl_->context->setResourceCacheLimit(options.resource_cache_bytes);
+    }
 }
-GlesRenderer::~GlesRenderer() { Close(); }
-bool GlesRenderer::Ready() const { return impl_->context != nullptr; }
-void GlesRenderer::Close() {
+
+GlesRenderer::~GlesRenderer()
+{
+    Close();
+}
+
+bool GlesRenderer::Ready() const
+{
+    return impl_->context != nullptr;
+}
+
+void GlesRenderer::Close()
+{
     if (impl_->context && (eglGetCurrentDisplay() != impl_->egl_display ||
-                          eglGetCurrentContext() != impl_->egl_context)) {
+                           eglGetCurrentContext() != impl_->egl_context)) {
         Abandon();
         return;
     }
     impl_->surface.reset();
     impl_->context.reset();
 }
-void GlesRenderer::Abandon() {
-    if (impl_->context) impl_->context->abandonContext();
+
+void GlesRenderer::Abandon()
+{
+    if (impl_->context) {
+        impl_->context->abandonContext();
+    }
     impl_->surface.reset();
     impl_->context.reset();
 }
-bool GlesRenderer::Render(const contracts::DisplayList& list, int width, int height) {
+
+bool GlesRenderer::Render(const contracts::DisplayList &list, int width, int height)
+{
     return Render(list, width, height, contracts::DamageRegion::Full());
 }
-GlesRenderStats GlesRenderer::GetRenderStats() const { return impl_->stats; }
-bool GlesRenderer::Render(const contracts::DisplayList& list, int width, int height,
-                          const contracts::DamageRegion& repair) {
+
+GlesRenderStats GlesRenderer::GetRenderStats() const
+{
+    return impl_->stats;
+}
+
+bool GlesRenderer::Render(const contracts::DisplayList &list, int width, int height,
+                          const contracts::DamageRegion &repair)
+{
     if (!Ready() || eglGetCurrentDisplay() != impl_->egl_display ||
-        eglGetCurrentContext() != impl_->egl_context ||
-        width <= 0 || height <= 0 || width > 4096 || height > 4096) return false;
-    const contracts::BufferSize size{static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height)};
+        eglGetCurrentContext() != impl_->egl_context || width <= 0 || height <= 0 || width > 4096 ||
+        height > 4096) {
+        return false;
+    }
+    const contracts::BufferSize size{static_cast<std::uint32_t>(width),
+                                     static_cast<std::uint32_t>(height)};
     const auto normalized = RasterRenderer::ClipRepair(repair, width, height);
-    if (!normalized) return false;
+    if (!normalized) {
+        return false;
+    }
     GLint framebuffer = 0, samples = 0, stencil = 0;
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebuffer);
     glGetIntegerv(GL_SAMPLES, &samples);
@@ -73,23 +116,35 @@ bool GlesRenderer::Render(const contracts::DisplayList& list, int width, int hei
         impl_->surface.reset();
         GrGLFramebufferInfo info{static_cast<GrGLuint>(framebuffer), GL_RGBA8};
         auto target = GrBackendRenderTargets::MakeGL(width, height, samples, stencil, info);
-        if (!target.isValid()) return false;
-        impl_->surface = SkSurfaces::WrapBackendRenderTarget(impl_->context.get(), target,
-            kBottomLeft_GrSurfaceOrigin, kRGBA_8888_SkColorType, nullptr, nullptr);
-        if (!impl_->surface) return false;
+        if (!target.isValid()) {
+            return false;
+        }
+        impl_->surface = SkSurfaces::WrapBackendRenderTarget(
+            impl_->context.get(), target, kBottomLeft_GrSurfaceOrigin, kRGBA_8888_SkColorType,
+            nullptr, nullptr);
+        if (!impl_->surface) {
+            return false;
+        }
         impl_->width = width;
         impl_->height = height;
         impl_->framebuffer = framebuffer;
     }
-    if (!impl_->commands.Replay(list, impl_->surface->getCanvas(), width, height, *normalized)) return false;
+    if (!impl_->commands.Replay(list, impl_->surface->getCanvas(), width, height, *normalized)) {
+        return false;
+    }
     if (!normalized->full && normalized->rects.empty()) {
         ++impl_->stats.empty_renders;
         return true;
     }
     impl_->context->flushAndSubmit(impl_->surface.get());
-    if (glGetError() != GL_NO_ERROR) return false;
-    if (normalized->full) ++impl_->stats.full_renders;
-    else ++impl_->stats.partial_renders;
+    if (glGetError() != GL_NO_ERROR) {
+        return false;
+    }
+    if (normalized->full) {
+        ++impl_->stats.full_renders;
+    } else {
+        ++impl_->stats.partial_renders;
+    }
     impl_->stats.repair_pixels += runtime::DamageArea(*normalized, size);
     return true;
 }

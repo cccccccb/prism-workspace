@@ -9,20 +9,39 @@ class WorkspaceNode : public TreeNode {
 public:
     WorkspaceNode(int id, std::string name);
 
-    int GetId() const { return id_; }
-    const std::string& GetName() const { return name_; }
+    int GetId() const
+    {
+        return id_;
+    }
 
-    bool IsActive() const { return is_active_; }
-    void SetActive(bool active) { is_active_ = active; }
+    const std::string &GetName() const
+    {
+        return name_;
+    }
 
-    std::shared_ptr<ContainerNode> GetRootContainer() const { return root_container_; }
+    bool IsActive() const
+    {
+        return is_active_;
+    }
+
+    void SetActive(bool active)
+    {
+        is_active_ = active;
+    }
+
+    std::shared_ptr<ContainerNode> GetRootContainer() const
+    {
+        return root_container_;
+    }
 
     // Arrange the entire workspace subtree
-    void Arrange(const core::Rect& screen_area, int inner_gap, int outer_gap, bool smart_gaps, float header_height);
+    void Arrange(const core::Rect &screen_area, int inner_gap, int outer_gap, bool smart_gaps,
+                 float header_height);
 
     // Count all views in this workspace
     size_t GetViewCount();
 
+    ipc::TreeNodeMessage ToMessage(bool is_focused = false) const override;
     std::string ToJson(bool is_focused = false) const override;
 
 private:

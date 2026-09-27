@@ -1,12 +1,13 @@
+#include "prism/compiler/binary_generator.hpp"
 #include "prism/compiler/lexer.hpp"
 #include "prism/compiler/parser.hpp"
-#include "prism/compiler/binary_generator.hpp"
 #include "prism/core/logging.hpp"
-#include <iostream>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[])
+{
     if (argc < 3) {
         std::cerr << "Usage: prism-compiler <input.prism> <output.prismb>\n";
         return 1;
@@ -15,7 +16,8 @@ int main(int argc, char* argv[]) {
     std::string input_path = argv[1];
     std::string output_path = argv[2];
 
-    PRISM_LOG_INFO("COMPILER", "Compiling Prism DSL: '%s' -> '%s'...", input_path.c_str(), output_path.c_str());
+    PRISM_LOG_INFO("COMPILER", "Compiling Prism DSL: '%s' -> '%s'...", input_path.c_str(),
+                   output_path.c_str());
 
     std::ifstream file(input_path);
     if (!file) {
@@ -48,7 +50,7 @@ int main(int argc, char* argv[]) {
 
         PRISM_LOG_INFO("COMPILER", "Compilation completed successfully!");
         return 0;
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
         PRISM_LOG_ERROR("COMPILER", "Compilation error: %s", e.what());
         return 1;
     }

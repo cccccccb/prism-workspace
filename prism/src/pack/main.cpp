@@ -1,10 +1,11 @@
-#include "prism/pack/package.hpp"
 #include "prism/core/logging.hpp"
-#include <iostream>
+#include "prism/pack/package.hpp"
 #include <fstream>
 #include <iomanip>
+#include <iostream>
 
-void PrintUsage() {
+void PrintUsage()
+{
     std::cout << "Prism Application Packaging Tool (prism-pack)\n"
               << "Usage:\n"
               << "  prism-pack pack <app_dir> <output.prismpkg> [bin_dir]\n"
@@ -13,7 +14,8 @@ void PrintUsage() {
               << "  prism-pack extract <package.prismpkg> <file_name> <dest_file>\n";
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[])
+{
     if (argc < 2) {
         PrintUsage();
         return 1;
@@ -56,12 +58,11 @@ int main(int argc, char* argv[]) {
                   << "--------------------------------------------------------\n"
                   << "  Entry Name               Offset      Size (bytes)   Checksum\n"
                   << "--------------------------------------------------------\n";
-        for (const auto& ent : info->entries) {
-            std::cout << "  " << std::left << std::setw(24) << ent.file_name
-                      << std::right << std::setw(8) << ent.file_offset
-                      << std::setw(14) << ent.file_size
-                      << "   0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << ent.checksum
-                      << std::dec << std::setfill(' ') << "\n";
+        for (const auto &ent : info->entries) {
+            std::cout << "  " << std::left << std::setw(24) << ent.file_name << std::right
+                      << std::setw(8) << ent.file_offset << std::setw(14) << ent.file_size
+                      << "   0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0')
+                      << ent.checksum << std::dec << std::setfill(' ') << "\n";
         }
         std::cout << "========================================================\n";
         return 0;
@@ -84,7 +85,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         std::ofstream out(argv[4], std::ios::binary);
-        out.write(reinterpret_cast<const char*>(data.data()), data.size());
+        out.write(reinterpret_cast<const char *>(data.data()), data.size());
         std::cout << "Extracted " << data.size() << " bytes to " << argv[4] << "\n";
         return 0;
 

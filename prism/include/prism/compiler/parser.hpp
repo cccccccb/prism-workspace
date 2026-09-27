@@ -1,7 +1,7 @@
 #pragma once
 
-#include "prism/compiler/lexer.hpp"
 #include "prism/compiler/ast.hpp"
+#include "prism/compiler/lexer.hpp"
 #include <memory>
 #include <vector>
 
@@ -14,18 +14,18 @@ public:
     std::shared_ptr<AstNode> Parse();
 
 private:
-    const Token& Peek() const;
-    const Token& Previous() const;
+    const Token &Peek() const;
+    const Token &Previous() const;
     bool IsAtEnd() const;
-    const Token& Advance();
+    const Token &Advance();
     bool Check(TokenType type) const;
     bool Match(TokenType type);
-    const Token& Consume(TokenType type, const std::string& err_msg);
+    const Token &Consume(TokenType type, const std::string &err_msg);
 
     std::shared_ptr<AstNode> ParseNode();
     AstModifier ParseModifier();
 
-    BinaryNodeType ResolveNodeType(const std::string& name);
+    BinaryNodeType ResolveNodeType(const std::string &name);
 
     std::vector<Token> tokens_;
     size_t current_{0};

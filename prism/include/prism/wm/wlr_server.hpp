@@ -2,18 +2,18 @@
 
 #include "prism/core/noncopyable.hpp"
 #include "prism/core/types.hpp"
-#include "prism/wm/compositor.hpp"
-#include "prism/wm/theme.hpp"
-#include "prism/wm/performance.hpp"
 #include "prism/decoration/tiling_drag_manager.hpp"
+#include "prism/wm/compositor.hpp"
+#include "prism/wm/performance.hpp"
+#include "prism/wm/theme.hpp"
 
-#include <string>
-#include <memory>
-#include <vector>
-#include <map>
-#include <sys/types.h>
 #include "prism/launch/control_protocol.hpp"
 #include "prism/launch/stream.hpp"
+#include <map>
+#include <memory>
+#include <string>
+#include <sys/types.h>
+#include <vector>
 
 #include <wayland-server-core.h>
 
@@ -82,16 +82,17 @@ struct FrameWorkCounters {
     std::uint64_t output_commits{}, output_buffer_commits{}, frame_done_dispatches{};
     std::uint64_t needs_frame_events{}, damage_events{};
     std::uint64_t layout_requests{}, effects_requests{}, mode_requests{};
-    std::uint64_t surface_commits{}, surface_buffer_commits{}, surface_callback_commits{}, surface_nonvisual_commits{};
+    std::uint64_t surface_commits{}, surface_buffer_commits{}, surface_callback_commits{},
+        surface_nonvisual_commits{};
 };
 
 struct WlrOutput {
-    WlrOutput(struct wlr_output* out, WlrServer* server);
+    WlrOutput(struct wlr_output *out, WlrServer *server);
     ~WlrOutput();
 
-    struct wlr_output* wlr_output{nullptr};
-    struct wlr_scene_output* scene_output{nullptr};
-    WlrServer* server{nullptr};
+    struct wlr_output *wlr_output{nullptr};
+    struct wlr_scene_output *scene_output{nullptr};
+    WlrServer *server{nullptr};
     struct wl_listener frame;
     struct wl_listener present;
     struct wl_listener committed, needs_frame, damage;
@@ -112,7 +113,7 @@ struct WlrServerSignals {
     struct wl_listener cursor_button;
     struct wl_listener cursor_axis;
     struct wl_listener cursor_frame;
-    WlrServer* server{nullptr};
+    WlrServer *server{nullptr};
 };
 
 /**
@@ -126,72 +127,163 @@ public:
     explicit WlrServer(std::shared_ptr<Compositor> compositor);
     ~WlrServer();
 
-    bool Initialize(const std::string& socket_name = "");
+    bool Initialize(const std::string &socket_name = "");
     void Start();
     void AttachControl(int fd, int parent_pid);
-    bool ControlHealthy() const { return !control_failed_; }
+
+    bool ControlHealthy() const
+    {
+        return !control_failed_;
+    }
+
     // Called on the Wayland event loop. Validation precedes all state changes.
-    contracts::ThemeApplied InstallTheme(const contracts::ThemeSnapshot& theme);
-    const contracts::ThemeSnapshot* GetTheme() const { return theme_snapshot_.get(); }
+    contracts::ThemeApplied InstallTheme(const contracts::ThemeSnapshot &theme);
+
+    const contracts::ThemeSnapshot *GetTheme() const
+    {
+        return theme_snapshot_.get();
+    }
+
     void Stop();
 
     void RunEventLoopIteration(int timeout_ms = 0);
 
-    struct wl_display* GetDisplay() const { return wl_display_; }
-    struct wl_event_loop* GetEventLoop() const { return wl_event_loop_; }
-    struct wlr_backend* GetBackend() const { return backend_; }
-    struct wlr_renderer* GetRenderer() const { return renderer_; }
-    struct wlr_output_layout* GetOutputLayout() const { return output_layout_; }
-    struct wlr_scene* GetScene() const { return scene_; }
-    struct wlr_cursor* GetCursor() const { return cursor_; }
-    struct wlr_seat* GetSeat() const { return seat_; }
+    struct wl_display *GetDisplay() const
+    {
+        return wl_display_;
+    }
 
-    const std::string& GetSocketName() const { return socket_name_; }
-    bool IsRunning() const { return running_; }
+    struct wl_event_loop *GetEventLoop() const
+    {
+        return wl_event_loop_;
+    }
 
-    void HandleNewOutput(struct wlr_output* output);
-    void HandleNewInput(struct wlr_input_device* device);
-    void HandleNewXdgToplevel(struct wlr_xdg_toplevel* toplevel);
-    void HandleXdgMap(WlrXdgView* view);
-    void HandleXdgUnmap(WlrXdgView* view);
-    void HandleXdgDestroy(WlrXdgView* view);
-    void HandleXdgMaximize(WlrXdgView* view);
-    void HandleKeyboardKey(WlrKeyboardBinding* binding, void* event);
-    void HandleKeyboardModifiers(WlrKeyboardBinding* binding);
-    void HandleKeyboardDestroy(WlrKeyboardBinding* binding);
+    struct wlr_backend *GetBackend() const
+    {
+        return backend_;
+    }
+
+    struct wlr_renderer *GetRenderer() const
+    {
+        return renderer_;
+    }
+
+    struct wlr_output_layout *GetOutputLayout() const
+    {
+        return output_layout_;
+    }
+
+    struct wlr_scene *GetScene() const
+    {
+        return scene_;
+    }
+
+    struct wlr_cursor *GetCursor() const
+    {
+        return cursor_;
+    }
+
+    struct wlr_seat *GetSeat() const
+    {
+        return seat_;
+    }
+
+    const std::string &GetSocketName() const
+    {
+        return socket_name_;
+    }
+
+    bool IsRunning() const
+    {
+        return running_;
+    }
+
+    void HandleNewOutput(struct wlr_output *output);
+    void HandleNewInput(struct wlr_input_device *device);
+    void HandleNewXdgToplevel(struct wlr_xdg_toplevel *toplevel);
+    void HandleXdgMap(WlrXdgView *view);
+    void HandleXdgUnmap(WlrXdgView *view);
+    void HandleXdgDestroy(WlrXdgView *view);
+    void HandleXdgMaximize(WlrXdgView *view);
+    void HandleKeyboardKey(WlrKeyboardBinding *binding, void *event);
+    void HandleKeyboardModifiers(WlrKeyboardBinding *binding);
+    void HandleKeyboardDestroy(WlrKeyboardBinding *binding);
     void CloseFocusedXdgView();
     void HandleCursorMotion(uint32_t time_msec, double dx, double dy);
     void HandleCursorMotionAbsolute(uint32_t time_msec, double x, double y);
     void HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t state);
     void HandleCursorAxis(uint32_t time_msec, int axis, double value);
-    void HandleOutputFrame(WlrOutput* output);
-    void HandleOutputCommit(const void* event);
-    void HandleOutputNeedsFrame() { ++frame_work_.needs_frame_events; }
-    void HandleOutputDamage() { ++frame_work_.damage_events; }
-    void HandleNewSurface(wlr_surface* surface);
-    void HandleSurfaceCommit(wlr_surface* surface);
-    void HandleSurfaceMapState(wlr_surface* surface);
-    void HandleSurfaceDestroy(wlr_surface* surface);
-    void RemoveOutput(WlrOutput* output);
+    void HandleOutputFrame(WlrOutput *output);
+    void HandleOutputCommit(const void *event);
 
-    std::shared_ptr<Compositor> GetCompositor() const { return compositor_; }
+    void HandleOutputNeedsFrame()
+    {
+        ++frame_work_.needs_frame_events;
+    }
+
+    void HandleOutputDamage()
+    {
+        ++frame_work_.damage_events;
+    }
+
+    void HandleNewSurface(wlr_surface *surface);
+    void HandleSurfaceCommit(wlr_surface *surface);
+    void HandleSurfaceMapState(wlr_surface *surface);
+    void HandleSurfaceDestroy(wlr_surface *surface);
+    void RemoveOutput(WlrOutput *output);
+
+    std::shared_ptr<Compositor> GetCompositor() const
+    {
+        return compositor_;
+    }
 
     // Dynamic Display & Mode control (Sway architecture)
-    bool SetOutputMode(const std::string& name, int width, int height, int refresh_mhz = 0);
-    bool SetAdaptiveSync(const std::string& name, bool enabled);
+    bool SetOutputMode(const std::string &name, int width, int height, int refresh_mhz = 0);
+    bool SetAdaptiveSync(const std::string &name, bool enabled);
     std::vector<OutputInfo> GetOutputsInfo() const;
 
-    float GetCurrentFps() const { return current_fps_; }
-    uint64_t GetFrameCount() const { return frame_count_; }
-    ipc::IpcServer* GetIpcServer() const { return ipc_server_.get(); }
+    float GetCurrentFps() const
+    {
+        return current_fps_;
+    }
+
+    uint64_t GetFrameCount() const
+    {
+        return frame_count_;
+    }
+
+    ipc::IpcServer *GetIpcServer() const
+    {
+        return ipc_server_.get();
+    }
 
 private:
+    void InitializeIpc();
+    std::string IpcOutputs(const std::string &, const std::vector<std::string> &);
+    std::string IpcMode(const std::string &, const std::vector<std::string> &);
+    std::string IpcStatus(const std::string &, const std::vector<std::string> &);
+    std::string IpcDebug(const std::string &, const std::vector<std::string> &);
+    std::string IpcLayout(const std::string &, const std::vector<std::string> &);
+    std::string IpcFocus(const std::string &, const std::vector<std::string> &);
+    std::string IpcSwap(const std::string &, const std::vector<std::string> &);
+    std::string IpcWorkspace(const std::string &, const std::vector<std::string> &);
+    std::string IpcMoveWorkspace(const std::string &, const std::vector<std::string> &);
+    std::string IpcTree(const std::string &, const std::vector<std::string> &);
+    std::string IpcClose(const std::string &, const std::vector<std::string> &);
+    std::string IpcTheme(const std::string &, const std::vector<std::string> &);
+    std::string IpcFold(const std::string &, const std::vector<std::string> &);
+    std::string IpcFullscreen(const std::string &, const std::vector<std::string> &);
+    std::string IpcAction(const std::string &, const std::vector<std::string> &);
+    std::string IpcBenchmark(const std::string &, const std::vector<std::string> &);
+
+    void HandleEffectsWake();
+    static void HandleEffectsIdle(void *data);
     void InitSceneGraph();
     void UpdateSceneGraph(int width, int height, float dt = 0.016f);
-    void FocusXdgView(WlrXdgView* view);
+    void FocusXdgView(WlrXdgView *view);
     void ArrangeXdgViews();
     void SynchronizeXdgFocus();
-    void SetXdgFullscreen(WlrXdgView* view, bool enabled);
+    void SetXdgFullscreen(WlrXdgView *view, bool enabled);
     void UpdateXdgPointerFocus(uint32_t time_msec);
     enum class FrameReason { Layout, Effects, Mode };
     void ScheduleFrames(FrameReason reason);
@@ -203,67 +295,68 @@ private:
     std::string socket_name_;
     bool running_{false};
 
-    struct wl_display* wl_display_{nullptr};
-    struct wl_event_loop* wl_event_loop_{nullptr};
-    struct wl_event_source* effects_idle_{nullptr};
-    struct wlr_backend* backend_{nullptr};
-    struct wlr_renderer* renderer_{nullptr};
-    struct wlr_allocator* allocator_{nullptr};
-    struct wlr_compositor* wlr_compositor_{nullptr};
-    struct wlr_subcompositor* subcompositor_{nullptr};
-    struct wlr_output_layout* output_layout_{nullptr};
-    struct wlr_cursor* cursor_{nullptr};
-    struct wlr_xcursor_manager* cursor_mgr_{nullptr};
-    struct wlr_seat* seat_{nullptr};
-    struct wlr_xdg_shell* xdg_shell_{nullptr};
+    struct wl_display *wl_display_{nullptr};
+    struct wl_event_loop *wl_event_loop_{nullptr};
+    struct wl_event_source *effects_idle_{nullptr};
+    struct wlr_backend *backend_{nullptr};
+    struct wlr_renderer *renderer_{nullptr};
+    struct wlr_allocator *allocator_{nullptr};
+    struct wlr_compositor *wlr_compositor_{nullptr};
+    struct wlr_subcompositor *subcompositor_{nullptr};
+    struct wlr_output_layout *output_layout_{nullptr};
+    struct wlr_cursor *cursor_{nullptr};
+    struct wlr_xcursor_manager *cursor_mgr_{nullptr};
+    struct wlr_seat *seat_{nullptr};
+    struct wlr_xdg_shell *xdg_shell_{nullptr};
 
     // Hardware GPU wlr_scene graph trees
-    struct wlr_scene* scene_{nullptr};
-    struct wlr_scene_tree* background_tree_{nullptr};
-    struct wlr_scene_tree* windows_tree_{nullptr};
-    struct wlr_scene_tree* chrome_tree_{nullptr};
-    struct wlr_scene_tree* hud_tree_{nullptr};
+    struct wlr_scene *scene_{nullptr};
+    struct wlr_scene_tree *background_tree_{nullptr};
+    struct wlr_scene_tree *windows_tree_{nullptr};
+    struct wlr_scene_tree *chrome_tree_{nullptr};
+    struct wlr_scene_tree *hud_tree_{nullptr};
 
     // GPU-native geometry nodes
-    struct wlr_scene_rect* wallpaper_rect_{nullptr};
-    struct wlr_scene_rect* bg_sky_mid_{nullptr};
-    struct wlr_scene_rect* bg_sunset_glow_{nullptr};
-    struct wlr_scene_rect* bg_sunset_horizon_{nullptr};
-    struct wlr_scene_rect* bg_silhouette_{nullptr};
-    struct wlr_scene_rect* bg_water_glow_{nullptr};
+    struct wlr_scene_rect *wallpaper_rect_{nullptr};
+    struct wlr_scene_rect *bg_sky_mid_{nullptr};
+    struct wlr_scene_rect *bg_sunset_glow_{nullptr};
+    struct wlr_scene_rect *bg_sunset_horizon_{nullptr};
+    struct wlr_scene_rect *bg_silhouette_{nullptr};
+    struct wlr_scene_rect *bg_water_glow_{nullptr};
 
-    struct wlr_scene_rect* top_bar_rect_{nullptr};
-    struct wlr_scene_rect* top_bar_border_{nullptr};
-    struct wlr_scene_rect* top_bar_icon_{nullptr};
-    struct wlr_scene_rect* top_bar_clock_pill_{nullptr};
-    struct wlr_scene_rect* top_bar_clock_handle_{nullptr};
-    struct wlr_scene_rect* top_bar_wifi_pill_{nullptr};
-    struct wlr_scene_rect* top_bar_battery_pill_{nullptr};
-    struct wlr_scene_rect* top_bar_bell_pill_{nullptr};
+    struct wlr_scene_rect *top_bar_rect_{nullptr};
+    struct wlr_scene_rect *top_bar_border_{nullptr};
+    struct wlr_scene_rect *top_bar_icon_{nullptr};
+    struct wlr_scene_rect *top_bar_clock_pill_{nullptr};
+    struct wlr_scene_rect *top_bar_clock_handle_{nullptr};
+    struct wlr_scene_rect *top_bar_wifi_pill_{nullptr};
+    struct wlr_scene_rect *top_bar_battery_pill_{nullptr};
+    struct wlr_scene_rect *top_bar_bell_pill_{nullptr};
 
-    struct wlr_scene_rect* split_divider_line_{nullptr};
-    struct wlr_scene_rect* split_divider_pill_{nullptr};
+    struct wlr_scene_rect *split_divider_line_{nullptr};
+    struct wlr_scene_rect *split_divider_pill_{nullptr};
 
-    struct wlr_scene_rect* dock_border_rect_{nullptr};
-    struct wlr_scene_rect* dock_bg_rect_{nullptr};
-    struct wlr_scene_rect* dock_launcher_card_{nullptr};
-    std::vector<struct wlr_scene_rect*> dock_launcher_tiles_;
-    struct wlr_scene_rect* dock_separator_{nullptr};
-    std::vector<struct wlr_scene_rect*> dock_icon_rects_;
-    std::vector<struct wlr_scene_rect*> dock_active_dots_;
-    struct wlr_scene_rect* dock_active_dot_{nullptr};
+    struct wlr_scene_rect *dock_border_rect_{nullptr};
+    struct wlr_scene_rect *dock_bg_rect_{nullptr};
+    struct wlr_scene_rect *dock_launcher_card_{nullptr};
+    std::vector<struct wlr_scene_rect *> dock_launcher_tiles_;
+    struct wlr_scene_rect *dock_separator_{nullptr};
+    std::vector<struct wlr_scene_rect *> dock_icon_rects_;
+    std::vector<struct wlr_scene_rect *> dock_active_dots_;
+    struct wlr_scene_rect *dock_active_dot_{nullptr};
 
-    struct wlr_scene_rect* hud_bg_rect_{nullptr};
-    struct wlr_scene_rect* hud_border_rect_{nullptr};
-    struct wlr_scene_rect* hud_status_pill_{nullptr};
+    struct wlr_scene_rect *hud_bg_rect_{nullptr};
+    struct wlr_scene_rect *hud_border_rect_{nullptr};
+    struct wlr_scene_rect *hud_status_pill_{nullptr};
 
     std::unique_ptr<decoration::TilingDragManager> drag_manager_;
 
     std::vector<std::unique_ptr<WlrOutput>> outputs_;
     std::vector<std::unique_ptr<WlrXdgView>> xdg_views_;
     std::unique_ptr<SurfaceEffects> surface_effects_;
-    std::map<wlr_surface*, std::unique_ptr<WlrSurfaceWatch>> surface_watches_;
+    std::map<wlr_surface *, std::unique_ptr<WlrSurfaceWatch>> surface_watches_;
     FrameWorkCounters frame_work_;
+
     struct Registration {
         launch::ShellPermit permit;
         int pidfd{-1};
@@ -271,15 +364,16 @@ private:
         std::unique_ptr<launch::ShellPermitGuard> guard;
         ~Registration();
     };
+
     void PumpControl();
-    void NotifyView(WlrXdgView* view, launch::ControlType type);
+    void NotifyView(WlrXdgView *view, launch::ControlType type);
     std::unique_ptr<launch::Stream> control_;
     std::map<pid_t, std::unique_ptr<Registration>> registrations_;
     std::uint64_t control_session_{};
     bool control_failed_{};
     std::vector<std::unique_ptr<WlrKeyboardBinding>> keyboards_;
-    WlrXdgView* focused_xdg_view_{nullptr};
-    WlrXdgView* dragged_xdg_view_{nullptr};
+    WlrXdgView *focused_xdg_view_{nullptr};
+    WlrXdgView *dragged_xdg_view_{nullptr};
     ThemeGeometry theme_{};
     std::shared_ptr<const contracts::ThemeSnapshot> theme_snapshot_;
     uint64_t last_frame_time_ns_{0};
@@ -289,8 +383,6 @@ private:
     TimingSamples frame_cpu_, effects_cpu_, commit_cpu_, pointer_event_age_;
 
     std::unique_ptr<ipc::IpcServer> ipc_server_;
-
-
 };
 
 } // namespace prism::wm

@@ -1,4 +1,3 @@
-find_package(nlohmann_json 3.11 REQUIRED)
 # Launch foundations are independent of compositor, renderer and DSL parser.
 add_library(prism_control STATIC control_protocol.cpp shell_permit.cpp stream.cpp)
 target_link_libraries(prism_control PUBLIC prism_contracts prism_theme_contract)

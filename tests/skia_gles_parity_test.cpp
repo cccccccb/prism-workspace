@@ -6,21 +6,32 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdlib>
-#include <vector>
 #include <utility>
+#include <vector>
 
-int main() {
+int main()
+{
     constexpr int width = 32, height = 24;
     auto get_platform_display = reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(
         eglGetProcAddress("eglGetPlatformDisplayEXT"));
     assert(get_platform_display);
-    EGLDisplay display = get_platform_display(EGL_PLATFORM_SURFACELESS_MESA,
-                                              EGL_DEFAULT_DISPLAY, nullptr);
+    EGLDisplay display =
+        get_platform_display(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY, nullptr);
     assert(display != EGL_NO_DISPLAY && eglInitialize(display, nullptr, nullptr));
     assert(eglBindAPI(EGL_OPENGL_ES_API));
-    const EGLint config_attributes[] = {EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT, EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8,
-        EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8, EGL_NONE};
+    const EGLint config_attributes[] = {EGL_SURFACE_TYPE,
+                                        EGL_PBUFFER_BIT,
+                                        EGL_RENDERABLE_TYPE,
+                                        EGL_OPENGL_ES3_BIT,
+                                        EGL_RED_SIZE,
+                                        8,
+                                        EGL_GREEN_SIZE,
+                                        8,
+                                        EGL_BLUE_SIZE,
+                                        8,
+                                        EGL_ALPHA_SIZE,
+                                        8,
+                                        EGL_NONE};
     EGLConfig config{};
     EGLint count = 0;
     assert(eglChooseConfig(display, config_attributes, &config, 1, &count) && count == 1);
@@ -37,35 +48,42 @@ int main() {
     prism::contracts::DisplayList list;
     list.window = prism::contracts::WindowId{1};
     list.generation = 1;
-    list.commands.emplace_back(prism::contracts::FillRect{{0, 0, width, height}, {12, 34, 56, 255}});
+    list.commands.emplace_back(
+        prism::contracts::FillRect{{0, 0, width, height}, {12, 34, 56, 255}});
     list.commands.emplace_back(prism::contracts::PushClipRect{{8, 6, 12, 10}});
-    list.commands.emplace_back(prism::contracts::FillRect{{0, 0, width, height}, {200, 100, 40, 255}});
+    list.commands.emplace_back(
+        prism::contracts::FillRect{{0, 0, width, height}, {200, 100, 40, 255}});
     list.commands.emplace_back(prism::contracts::PopClip{});
     std::vector<std::uint8_t> cpu_pixels(width * height * 4), gpu_pixels(width * height * 4);
     assert(cpu.Render(list, cpu_pixels.data(), width, height, width * 4));
     assert(gpu.Render(list, width, height));
     glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, gpu_pixels.data());
     assert(glGetError() == GL_NO_ERROR);
-    for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
-        const auto* c = &cpu_pixels[(y * width + x) * 4];
-        const auto* g = &gpu_pixels[((height - y - 1) * width + x) * 4];
-        // CPU target is BGRA; GPU readback is RGBA. Edges are excluded from
-        // this exact comparison so backend-specific antialiasing can vary.
-        if (x == 8 || x == 19 || y == 6 || y == 15) continue;
-        assert(c[2] == g[0] && c[1] == g[1] && c[0] == g[2] && c[3] == g[3]);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const auto *c = &cpu_pixels[(y * width + x) * 4];
+            const auto *g = &gpu_pixels[((height - y - 1) * width + x) * 4];
+            // CPU target is BGRA; GPU readback is RGBA. Edges are excluded from
+            // this exact comparison so backend-specific antialiasing can vary.
+            if (x == 8 || x == 19 || y == 6 || y == 15) {
+                continue;
+            }
+            assert(c[2] == g[0] && c[1] == g[1] && c[0] == g[2] && c[3] == g[3]);
+        }
     }
     list.commands.clear();
-    list.commands.emplace_back(prism::contracts::PushClipRoundedRect{{4,4,24,16},6});
-    list.commands.emplace_back(prism::contracts::FillRect{{0,0,width,height},{200,100,40,128}});
+    list.commands.emplace_back(prism::contracts::PushClipRoundedRect{{4, 4, 24, 16}, 6});
+    list.commands.emplace_back(
+        prism::contracts::FillRect{{0, 0, width, height}, {200, 100, 40, 128}});
     list.commands.emplace_back(prism::contracts::PopClip{});
-    assert(cpu.Render(list,cpu_pixels.data(),width,height,width*4));
-    assert(gpu.Render(list,width,height));
-    glReadPixels(0,0,width,height,GL_RGBA,GL_UNSIGNED_BYTE,gpu_pixels.data());
-    assert(glGetError()==GL_NO_ERROR);
-    for(const auto point: {std::pair{0,0},std::pair{16,12},std::pair{4,4}}) {
-        const auto* c=&cpu_pixels[(point.second*width+point.first)*4];
-        const auto* g=&gpu_pixels[((height-point.second-1)*width+point.first)*4];
-        assert(c[2]==g[0] && c[1]==g[1] && c[0]==g[2] && c[3]==g[3]);
+    assert(cpu.Render(list, cpu_pixels.data(), width, height, width * 4));
+    assert(gpu.Render(list, width, height));
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, gpu_pixels.data());
+    assert(glGetError() == GL_NO_ERROR);
+    for (const auto point : {std::pair{0, 0}, std::pair{16, 12}, std::pair{4, 4}}) {
+        const auto *c = &cpu_pixels[(point.second * width + point.first) * 4];
+        const auto *g = &gpu_pixels[((height - point.second - 1) * width + point.first) * 4];
+        assert(c[2] == g[0] && c[1] == g[1] && c[0] == g[2] && c[3] == g[3]);
     }
     gpu.Close();
     assert(eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));

@@ -6,19 +6,24 @@
 namespace prism::layout {
 
 MissionControlStrategy::MissionControlStrategy(std::unique_ptr<LayoutStrategy> base_strategy)
-    : base_strategy_(std::move(base_strategy)) {}
+    : base_strategy_(std::move(base_strategy))
+{
+}
 
-void MissionControlStrategy::SetOverview(bool enabled) {
+void MissionControlStrategy::SetOverview(bool enabled)
+{
     target_progress_ = enabled ? 1.0f : 0.0f;
     PRISM_LOG_INFO("LAYOUT-MC", "Mission Control overview %s (target_progress: %.1f)",
                    enabled ? "ENGAGED" : "DISENGAGED", target_progress_);
 }
 
-void MissionControlStrategy::ToggleOverview() {
+void MissionControlStrategy::ToggleOverview()
+{
     SetOverview(target_progress_ < 0.5f);
 }
 
-void MissionControlStrategy::StepPhysics(float dt) {
+void MissionControlStrategy::StepPhysics(float dt)
+{
     if (base_strategy_) {
         base_strategy_->StepPhysics(dt);
     }
@@ -40,7 +45,9 @@ void MissionControlStrategy::StepPhysics(float dt) {
     }
 }
 
-void MissionControlStrategy::CalculateLayout(core::Rect screen_bounds, core::Rect& win_a, core::Rect& win_b) {
+void MissionControlStrategy::CalculateLayout(core::Rect screen_bounds, core::Rect &win_a,
+                                             core::Rect &win_b)
+{
     std::vector<core::Rect> results;
     CalculateMultiLayout(screen_bounds, 2, results);
     if (results.size() >= 2) {
@@ -49,9 +56,13 @@ void MissionControlStrategy::CalculateLayout(core::Rect screen_bounds, core::Rec
     }
 }
 
-void MissionControlStrategy::CalculateMultiLayout(core::Rect screen_bounds, size_t count, std::vector<core::Rect>& out_bounds) {
+void MissionControlStrategy::CalculateMultiLayout(core::Rect screen_bounds, size_t count,
+                                                  std::vector<core::Rect> &out_bounds)
+{
     out_bounds.clear();
-    if (count == 0) return;
+    if (count == 0) {
+        return;
+    }
 
     // 1. Compute Base Layout (from underlying strategy, e.g. MacFluidSplit)
     std::vector<core::Rect> base_bounds;
@@ -101,12 +112,9 @@ void MissionControlStrategy::CalculateMultiLayout(core::Rect screen_bounds, size
         for (size_t i = 0; i < count; ++i) {
             int r = i / cols;
             int c = i % cols;
-            overview_bounds[i] = core::Rect{
-                screen_bounds.x + side_margin + c * (card_w + gap),
-                screen_bounds.y + top_margin + r * (card_h + gap),
-                card_w,
-                card_h
-            };
+            overview_bounds[i] =
+                core::Rect{screen_bounds.x + side_margin + c * (card_w + gap),
+                           screen_bounds.y + top_margin + r * (card_h + gap), card_w, card_h};
         }
     }
 
@@ -114,20 +122,19 @@ void MissionControlStrategy::CalculateMultiLayout(core::Rect screen_bounds, size
     out_bounds.resize(count);
     float t = std::clamp(progress_, 0.0f, 1.0f);
     for (size_t i = 0; i < count; ++i) {
-        const auto& b = base_bounds[i];
-        const auto& o = overview_bounds[i];
-        out_bounds[i] = core::Rect{
-            b.x + (o.x - b.x) * t,
-            b.y + (o.y - b.y) * t,
-            b.width + (o.width - b.width) * t,
-            b.height + (o.height - b.height) * t
-        };
+        const auto &b = base_bounds[i];
+        const auto &o = overview_bounds[i];
+        out_bounds[i] =
+            core::Rect{b.x + (o.x - b.x) * t, b.y + (o.y - b.y) * t,
+                       b.width + (o.width - b.width) * t, b.height + (o.height - b.height) * t};
     }
 }
 
-int MissionControlStrategy::HitTestWindow(float x, float y, const std::vector<core::Rect>& bounds) const {
+int MissionControlStrategy::HitTestWindow(float x, float y,
+                                          const std::vector<core::Rect> &bounds) const
+{
     for (int i = static_cast<int>(bounds.size()) - 1; i >= 0; --i) {
-        const auto& r = bounds[i];
+        const auto &r = bounds[i];
         if (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height) {
             return i;
         }

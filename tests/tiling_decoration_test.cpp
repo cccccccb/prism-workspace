@@ -1,12 +1,12 @@
-#include "prism/decoration/tiling_decoration_spec.hpp"
-#include "prism/decoration/tiling_window_decorator.hpp"
-#include "prism/decoration/tiling_drag_manager.hpp"
+#include "prism/compiler/binary_generator.hpp"
 #include "prism/compiler/binary_loader.hpp"
 #include "prism/compiler/lexer.hpp"
 #include "prism/compiler/parser.hpp"
-#include "prism/compiler/binary_generator.hpp"
-#include "prism/wm/window.hpp"
 #include "prism/core/logging.hpp"
+#include "prism/decoration/tiling_decoration_spec.hpp"
+#include "prism/decoration/tiling_drag_manager.hpp"
+#include "prism/decoration/tiling_window_decorator.hpp"
+#include "prism/wm/window.hpp"
 #include <cassert>
 #include <iostream>
 #include <vector>
@@ -14,7 +14,8 @@
 using namespace prism;
 using namespace prism::decoration;
 
-void TestDecorationSpec() {
+void TestDecorationSpec()
+{
     std::cout << "[TEST] 1. TilingDecorationSpec Presets...\n";
     auto def = TilingDecorationSpec::CreateDefault();
     assert(def != nullptr);
@@ -36,7 +37,8 @@ void TestDecorationSpec() {
     std::cout << "  -> TilingDecorationSpec Presets PASSED\n";
 }
 
-void TestWindowDecoratorGeometryAndHitTest() {
+void TestWindowDecoratorGeometryAndHitTest()
+{
     std::cout << "[TEST] 2. TilingWindowDecorator Geometry & Hit-Testing...\n";
     core::Rect initial_bounds{100.0f, 100.0f, 800.0f, 600.0f};
     auto win = std::make_shared<wm::Window>("test_app", "Test Window", initial_bounds, nullptr);
@@ -91,7 +93,8 @@ void TestWindowDecoratorGeometryAndHitTest() {
     std::cout << "  -> TilingWindowDecorator Geometry & Hit-Testing PASSED\n";
 }
 
-void TestTilingDragManager() {
+void TestTilingDragManager()
+{
     std::cout << "[TEST] 3. TilingDragManager Drag-to-Split & Quadrants...\n";
     core::Rect b1{0.0f, 30.0f, 960.0f, 1050.0f};
     core::Rect b2{960.0f, 30.0f, 960.0f, 1050.0f};
@@ -139,7 +142,8 @@ void TestTilingDragManager() {
     std::cout << "  -> TilingDragManager Drag-to-Split & Quadrants PASSED\n";
 }
 
-void TestThemeAotCompilationAndLoading() {
+void TestThemeAotCompilationAndLoading()
+{
     std::cout << "[TEST] 4. AOT Theme DSL Compilation & Zero-Copy Loading...\n";
     std::string dsl_source = R"(
         TilingDecoration("CustomAmberGlass") {
@@ -204,7 +208,8 @@ void TestThemeAotCompilationAndLoading() {
     std::cout << "  -> AOT Theme DSL Compilation & Zero-Copy Loading PASSED\n";
 }
 
-void TestKineticMotionAndAnimation() {
+void TestKineticMotionAndAnimation()
+{
     std::cout << "[TEST] 5. Kinetic Motion Physics, Springs & Decorator Transitions...\n";
 
     // 1. SpringSolver convergence test
@@ -276,7 +281,8 @@ void TestKineticMotionAndAnimation() {
     std::cout << "  -> Kinetic Motion Physics, Springs & Decorator Transitions PASSED\n";
 }
 
-int main() {
+int main()
+{
     std::cout << "=================================================\n";
     std::cout << "  PrismWM Tiling Window Decoration System Tests  \n";
     std::cout << "=================================================\n";

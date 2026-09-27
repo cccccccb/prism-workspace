@@ -30,24 +30,24 @@ class SceneVisitor {
 public:
     virtual ~SceneVisitor() = default;
 
-    virtual void Visit(VStackNode& node) = 0;
-    virtual void Visit(HStackNode& node) = 0;
-    virtual void Visit(ZStackNode& node) = 0;
-    virtual void Visit(CardNode& node) = 0;
-    virtual void Visit(DesktopNode& node) = 0;
-    virtual void Visit(TopBarNode& node) = 0;
-    virtual void Visit(DockNode& node) = 0;
-    virtual void Visit(AppGroupNode& node) = 0;
-    virtual void Visit(TextNode& node) = 0;
-    virtual void Visit(ButtonNode& node) = 0;
-    virtual void Visit(SliderNode& node) = 0;
-    virtual void Visit(SkeletonNode& node) = 0;
-    virtual void Visit(IconNode& node) = 0;
-    virtual void Visit(ToggleNode& node) = 0;
-    virtual void Visit(TextInputNode& node) = 0;
-    virtual void Visit(ProgressBarNode& node) = 0;
-    virtual void Visit(BadgeNode& node) = 0;
-    virtual void Visit(SpacerNode& node) = 0;
+    virtual void Visit(VStackNode &node) = 0;
+    virtual void Visit(HStackNode &node) = 0;
+    virtual void Visit(ZStackNode &node) = 0;
+    virtual void Visit(CardNode &node) = 0;
+    virtual void Visit(DesktopNode &node) = 0;
+    virtual void Visit(TopBarNode &node) = 0;
+    virtual void Visit(DockNode &node) = 0;
+    virtual void Visit(AppGroupNode &node) = 0;
+    virtual void Visit(TextNode &node) = 0;
+    virtual void Visit(ButtonNode &node) = 0;
+    virtual void Visit(SliderNode &node) = 0;
+    virtual void Visit(SkeletonNode &node) = 0;
+    virtual void Visit(IconNode &node) = 0;
+    virtual void Visit(ToggleNode &node) = 0;
+    virtual void Visit(TextInputNode &node) = 0;
+    virtual void Visit(ProgressBarNode &node) = 0;
+    virtual void Visit(BadgeNode &node) = 0;
+    virtual void Visit(SpacerNode &node) = 0;
 };
 
 } // namespace prism::scene

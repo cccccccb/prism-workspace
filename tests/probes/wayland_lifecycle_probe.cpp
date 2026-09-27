@@ -4,17 +4,17 @@
 #include <cstdlib>
 #include <string>
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv)
+{
     const std::string socket = argc > 1 ? argv[1] : "wayland-prism-0";
     prism::platform::WaylandWindow window;
-    window.SetPaintHandler([](void* data, int width, int height, int stride) {
-        auto* pixels = static_cast<std::uint32_t*>(data);
+    window.SetPaintHandler([](void *data, int width, int height, int stride) {
+        auto *pixels = static_cast<std::uint32_t *>(data);
         const int pitch = stride / 4;
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
-                pixels[y * pitch + x] =
-                    (static_cast<std::uint32_t>(x % 256) << 16) |
-                    (static_cast<std::uint32_t>(y % 256) << 8) | 0x70;
+                pixels[y * pitch + x] = (static_cast<std::uint32_t>(x % 256) << 16) |
+                                        (static_cast<std::uint32_t>(y % 256) << 8) | 0x70;
             }
         }
     });
@@ -25,13 +25,16 @@ int main(int argc, char** argv) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(6);
     bool maximize_requested = false;
     while (std::chrono::steady_clock::now() < deadline && !window.IsCloseRequested()) {
-        if (!window.Pump(100)) break;
+        if (!window.Pump(100)) {
+            break;
+        }
         if (window.IsMapped() && window.FrameDoneCount() > 0 && !maximize_requested) {
             window.RequestMaximize();
             maximize_requested = true;
         }
-        if (maximize_requested && window.ConfigureCount() >= 2 && window.FrameDoneCount() >= 2)
+        if (maximize_requested && window.ConfigureCount() >= 2 && window.FrameDoneCount() >= 2) {
             break;
+        }
     }
     const auto metrics = window.Metrics();
     std::printf("probe: configured=%d mapped=%d configure_count=%d frame_done=%d "

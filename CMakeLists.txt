@@ -41,6 +41,7 @@ find_program(WAYLAND_SCANNER wayland-scanner REQUIRED)
 add_compile_definitions(WLR_USE_UNSTABLE)
 
 find_package(Threads REQUIRED)
+find_package(nlohmann_json 3.11 REQUIRED)
 include(CTest)
 option(PRISM_ENABLE_GLES "Build Skia Ganesh GLES backend" OFF)
 
@@ -72,6 +73,15 @@ endif()
 # 4. Tests and manual diagnostics are excluded from production builds.
 if(BUILD_TESTING)
     add_subdirectory(tests)
+
+    find_program(PRISM_STYLE_PYTHON python3)
+    if(PRISM_STYLE_PYTHON)
+        add_custom_target(prism-code-style
+            COMMAND "${PRISM_STYLE_PYTHON}" "${CMAKE_SOURCE_DIR}/tools/check-code-style.py"
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+            COMMENT "Checking C/C++ formatting, goto and production file sizes"
+            VERBATIM)
+    endif()
 endif()
 
 

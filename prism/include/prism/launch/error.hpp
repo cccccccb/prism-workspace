@@ -8,8 +8,15 @@ namespace prism::launch {
 class LaunchFailure : public std::runtime_error {
 public:
     LaunchFailure(contracts::LaunchError code, std::string message)
-        : std::runtime_error(std::move(message)), code_(code) {}
-    contracts::LaunchError Code() const { return code_; }
+        : std::runtime_error(std::move(message)), code_(code)
+    {
+    }
+
+    contracts::LaunchError Code() const
+    {
+        return code_;
+    }
+
 private:
     contracts::LaunchError code_;
 };

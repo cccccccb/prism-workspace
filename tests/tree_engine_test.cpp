@@ -1,14 +1,15 @@
+#include "prism/core/logging.hpp"
 #include "prism/tree/tree_engine.hpp"
 #include "prism/wm/window.hpp"
-#include "prism/core/logging.hpp"
 #include <cassert>
-#include <iostream>
 #include <cmath>
+#include <iostream>
 
 using namespace prism;
 using namespace prism::tree;
 
-void TestSingleWindowSmartGaps() {
+void TestSingleWindowSmartGaps()
+{
     std::cout << "[TEST] 1. Single Window & Smart Gaps...\n";
     TreeEngine engine;
     auto spec = std::make_shared<TreeLayoutConfig>(TreeLayoutConfig{10, 12, true, 32});
@@ -17,7 +18,8 @@ void TestSingleWindowSmartGaps() {
     spec->smart_gaps = true;
 
     core::Rect screen{0, 0, 1920, 1080};
-    auto win1 = std::make_shared<wm::Window>("term", "Terminal", core::Rect{0, 0, 100, 100}, nullptr);
+    auto win1 =
+        std::make_shared<wm::Window>("term", "Terminal", core::Rect{0, 0, 100, 100}, nullptr);
     auto v1 = engine.InsertWindow(win1);
     assert(v1 != nullptr);
     assert(engine.GetFocusedWindow() == win1);
@@ -45,7 +47,8 @@ void TestSingleWindowSmartGaps() {
     std::cout << "  -> Single Window & Smart Gaps PASSED\n";
 }
 
-void TestSplitHorizontal() {
+void TestSplitHorizontal()
+{
     std::cout << "[TEST] 2. Split Horizontal (2 & 3 Windows)...\n";
     TreeEngine engine;
     auto spec = std::make_shared<TreeLayoutConfig>(TreeLayoutConfig{10, 12, true, 32});
@@ -64,7 +67,7 @@ void TestSplitHorizontal() {
     auto layout = engine.GetCalculatedLayout();
     assert(layout.size() == 2);
 
-    float usable_w = 1920.0f - 24.0f - 10.0f; // 1886
+    float usable_w = 1920.0f - 24.0f - 10.0f;   // 1886
     float half_w = std::round(usable_w * 0.5f); // 943
 
     assert(layout[0].second.x == 12.0f);
@@ -74,7 +77,8 @@ void TestSplitHorizontal() {
     std::cout << "  -> Split Horizontal PASSED\n";
 }
 
-void TestRecursiveBspGrid() {
+void TestRecursiveBspGrid()
+{
     std::cout << "[TEST] 3. Recursive BSP Fission (2x2 Nested Grid)...\n";
     TreeEngine engine;
     auto spec = std::make_shared<TreeLayoutConfig>(TreeLayoutConfig{10, 12, true, 32});
@@ -106,11 +110,16 @@ void TestRecursiveBspGrid() {
 
     // Find bounds for each window
     core::Rect r1{}, r2{}, r3{}, r4{};
-    for (const auto& item : layout) {
-        if (item.first == win1) r1 = item.second;
-        else if (item.first == win2) r2 = item.second;
-        else if (item.first == win3) r3 = item.second;
-        else if (item.first == win4) r4 = item.second;
+    for (const auto &item : layout) {
+        if (item.first == win1) {
+            r1 = item.second;
+        } else if (item.first == win2) {
+            r2 = item.second;
+        } else if (item.first == win3) {
+            r3 = item.second;
+        } else if (item.first == win4) {
+            r4 = item.second;
+        }
     }
 
     // Verify 2x2 grid geometry:
@@ -128,7 +137,8 @@ void TestRecursiveBspGrid() {
     std::cout << "  -> Recursive BSP Fission (2x2 Nested Grid) PASSED\n";
 }
 
-void TestGeometricFocusNavigation() {
+void TestGeometricFocusNavigation()
+{
     std::cout << "[TEST] 4. Geometric Closest-Neighbour Focus Navigation...\n";
     TreeEngine engine;
     auto spec = std::make_shared<TreeLayoutConfig>(TreeLayoutConfig{10, 12, true, 32});
@@ -171,7 +181,8 @@ void TestGeometricFocusNavigation() {
     std::cout << "  -> Geometric Closest-Neighbour Focus Navigation PASSED\n";
 }
 
-void TestTabbedAndStackedLayout() {
+void TestTabbedAndStackedLayout()
+{
     std::cout << "[TEST] 5. Tabbed & Stacked Container Grouping...\n";
     TreeEngine engine;
     auto spec = std::make_shared<TreeLayoutConfig>(TreeLayoutConfig{10, 12, true, 32});
@@ -200,7 +211,8 @@ void TestTabbedAndStackedLayout() {
     std::cout << "  -> Tabbed & Stacked Container Grouping PASSED\n";
 }
 
-void TestWindowRemovalAndAutoPrune() {
+void TestWindowRemovalAndAutoPrune()
+{
     std::cout << "[TEST] 6. Window Removal & Auto-Pruning...\n";
     TreeEngine engine;
     auto spec = std::make_shared<TreeLayoutConfig>(TreeLayoutConfig{10, 12, true, 32});
@@ -228,7 +240,8 @@ void TestWindowRemovalAndAutoPrune() {
     std::cout << "  -> Window Removal & Auto-Pruning PASSED\n";
 }
 
-void TestWorkspaceSwitchingAndFocusMemory() {
+void TestWorkspaceSwitchingAndFocusMemory()
+{
     std::cout << "[TEST] 7. Dynamic Workspaces & Focus Memory...\n";
     TreeEngine engine;
     auto win_ws1_a = std::make_shared<wm::Window>("w1a", "WS1 Window A", core::Rect{}, nullptr);
@@ -255,7 +268,8 @@ void TestWorkspaceSwitchingAndFocusMemory() {
     std::cout << "  -> Dynamic Workspaces & Focus Memory PASSED\n";
 }
 
-void TestSwapDirection() {
+void TestSwapDirection()
+{
     std::cout << "[TEST] 8. Geometric Window Swap Direction...\n";
     TreeEngine engine;
     auto spec = std::make_shared<TreeLayoutConfig>(TreeLayoutConfig{10, 12, true, 32});
@@ -288,7 +302,8 @@ void TestSwapDirection() {
     std::cout << "  -> Geometric Window Swap Direction PASSED\n";
 }
 
-void TestDumpTreeJson() {
+void TestDumpTreeJson()
+{
     std::cout << "[TEST] 9. Swaymsg-like JSON Tree Introspection...\n";
     TreeEngine engine;
     auto spec = std::make_shared<TreeLayoutConfig>(TreeLayoutConfig{10, 12, true, 32});
@@ -315,7 +330,8 @@ void TestDumpTreeJson() {
     std::cout << "  -> Swaymsg-like JSON Tree Introspection PASSED\n";
 }
 
-void TestDragToSplitSimulation() {
+void TestDragToSplitSimulation()
+{
     std::cout << "[TEST] 10. Titlebar Drag-to-Split Fission Lifecycle...\n";
     TreeEngine engine;
     auto spec = std::make_shared<TreeLayoutConfig>(TreeLayoutConfig{10, 12, true, 32});
@@ -358,53 +374,63 @@ void TestDragToSplitSimulation() {
     std::cout << "  -> Titlebar Drag-to-Split Fission Lifecycle PASSED\n";
 }
 
-void TestSmallAreasAndLargeGaps() {
+void TestSmallAreasAndLargeGaps()
+{
     TreeEngine engine;
     std::vector<std::shared_ptr<wm::Window>> windows;
-    for(int i=0;i<4;++i)windows.push_back(std::make_shared<wm::Window>("small", "Small", core::Rect{}, nullptr));
-    auto first=engine.InsertWindow(windows[0]);
-    auto second=engine.InsertWindow(windows[1],Direction::Right,first);
-    engine.InsertWindow(windows[2],Direction::Down,first);
-    engine.InsertWindow(windows[3],Direction::Down,second);
-    const TreeLayoutConfig oversized{256,256,false,0};
-    for(const core::Rect screen: {core::Rect{5,7,100,40}, core::Rect{5,7,24,9},
-                                 core::Rect{5,7,1,1}, core::Rect{5,7,.5f,.5f}}) {
-        engine.Arrange(screen,oversized);
-        const auto layout=engine.GetCalculatedLayout();
-        assert(layout.size()==4);
-        for(const auto& [window,rect]:layout) {
-            assert(rect.width>0 && rect.height>0);
-            assert(rect.x>=screen.x && rect.y>=screen.y);
-            assert(rect.x+rect.width<=screen.x+screen.width+.0001f);
-            assert(rect.y+rect.height<=screen.y+screen.height+.0001f);
+    for (int i = 0; i < 4; ++i) {
+        windows.push_back(std::make_shared<wm::Window>("small", "Small", core::Rect{}, nullptr));
+    }
+    auto first = engine.InsertWindow(windows[0]);
+    auto second = engine.InsertWindow(windows[1], Direction::Right, first);
+    engine.InsertWindow(windows[2], Direction::Down, first);
+    engine.InsertWindow(windows[3], Direction::Down, second);
+    const TreeLayoutConfig oversized{256, 256, false, 0};
+    for (const core::Rect screen : {core::Rect{5, 7, 100, 40}, core::Rect{5, 7, 24, 9},
+                                    core::Rect{5, 7, 1, 1}, core::Rect{5, 7, .5f, .5f}}) {
+        engine.Arrange(screen, oversized);
+        const auto layout = engine.GetCalculatedLayout();
+        assert(layout.size() == 4);
+        for (const auto &[window, rect] : layout) {
+            assert(rect.width > 0 && rect.height > 0);
+            assert(rect.x >= screen.x && rect.y >= screen.y);
+            assert(rect.x + rect.width <= screen.x + screen.width + .0001f);
+            assert(rect.y + rect.height <= screen.y + screen.height + .0001f);
         }
-        auto check=[&](auto&& self,const std::shared_ptr<TreeNode>& node)->void {
-            if(auto container=std::dynamic_pointer_cast<ContainerNode>(node);container && !container->children.empty()) {
-                const bool horizontal=container->GetLayoutMode()==LayoutMode::SplitHorizontal;
-                const auto& last=container->children.back()->bounds;
-                assert(std::abs((horizontal?last.x+last.width:last.y+last.height)-
-                               (horizontal?node->bounds.x+node->bounds.width:node->bounds.y+node->bounds.height))<.0001f);
-                for(std::size_t i=1;i<container->children.size();++i) {
-                    const auto& a=container->children[i-1]->bounds;
-                    const auto& b=container->children[i]->bounds;
-                    assert(horizontal?a.x+a.width<=b.x+.0001f:a.y+a.height<=b.y+.0001f);
+        auto check = [&](auto &&self, const std::shared_ptr<TreeNode> &node) -> void {
+            if (auto container = std::dynamic_pointer_cast<ContainerNode>(node);
+                container && !container->children.empty()) {
+                const bool horizontal = container->GetLayoutMode() == LayoutMode::SplitHorizontal;
+                const auto &last = container->children.back()->bounds;
+                assert(std::abs((horizontal ? last.x + last.width : last.y + last.height) -
+                                (horizontal ? node->bounds.x + node->bounds.width
+                                            : node->bounds.y + node->bounds.height)) < .0001f);
+                for (std::size_t i = 1; i < container->children.size(); ++i) {
+                    const auto &a = container->children[i - 1]->bounds;
+                    const auto &b = container->children[i]->bounds;
+                    assert(horizontal ? a.x + a.width <= b.x + .0001f
+                                      : a.y + a.height <= b.y + .0001f);
                 }
             }
-            for(const auto& child:node->children)self(self,child);
+            for (const auto &child : node->children) {
+                self(self, child);
+            }
         };
-        check(check,engine.GetActiveWorkspace());
+        check(check, engine.GetActiveWorkspace());
     }
     // Ordinary gap sizes still preserve user split fractions and exact coverage.
     TreeEngine ratio;
-    auto left=ratio.InsertWindow(windows[0]);
-    auto right=ratio.InsertWindow(windows[1],Direction::Right,left);
-    left->width_fraction=.25;right->width_fraction=.75;
-    ratio.Arrange({0,0,110,40},{10,0,false,0});
-    assert(left->bounds.width==25 && right->bounds.width==75);
+    auto left = ratio.InsertWindow(windows[0]);
+    auto right = ratio.InsertWindow(windows[1], Direction::Right, left);
+    left->width_fraction = .25;
+    right->width_fraction = .75;
+    ratio.Arrange({0, 0, 110, 40}, {10, 0, false, 0});
+    assert(left->bounds.width == 25 && right->bounds.width == 75);
     std::cout << "  -> Small areas, large gaps, positive nested geometry and split ratios PASSED\n";
 }
 
-int main() {
+int main()
+{
     std::cout << "========================================================\n";
     std::cout << "  PrismWM Multi-Level Recursive BSP Tree Engine Tests  \n";
     std::cout << "========================================================\n";
@@ -424,23 +450,23 @@ int main() {
     // A later activation must not restore a removed node or stale focus flag.
     {
         TreeEngine engine;
-        auto a=std::make_shared<wm::Window>("a", "A", core::Rect{}, nullptr);
-        auto b=std::make_shared<wm::Window>("b", "B", core::Rect{}, nullptr);
+        auto a = std::make_shared<wm::Window>("a", "A", core::Rect{}, nullptr);
+        auto b = std::make_shared<wm::Window>("b", "B", core::Rect{}, nullptr);
         engine.InsertWindow(a);
-        auto first=engine.GetActiveWorkspace();
+        auto first = engine.GetActiveWorkspace();
         engine.SwitchWorkspace("2");
         engine.InsertWindow(b);
         assert(engine.RemoveWindow(a));
-        assert(first->GetRootContainer()->GetParent()==first);
-        assert(engine.GetFocusedWindow()==b && b->IsFocused());
+        assert(first->GetRootContainer()->GetParent() == first);
+        assert(engine.GetFocusedWindow() == b && b->IsFocused());
         engine.SwitchWorkspace("1");
         assert(!engine.GetFocusedWindow() && !b->IsFocused());
         engine.InsertWindow(a);
-        assert(first->GetViewCount()==1);
-        assert(engine.MoveWindowToWorkspace(a,"2"));
-        assert(first->GetViewCount()==0 && !engine.GetFocusedWindow());
+        assert(first->GetViewCount() == 1);
+        assert(engine.MoveWindowToWorkspace(a, "2"));
+        assert(first->GetViewCount() == 0 && !engine.GetFocusedWindow());
         engine.SetFocusedWindow(a);
-        assert(engine.GetActiveWorkspace()->GetName()=="2" && engine.GetFocusedWindow()==a);
+        assert(engine.GetActiveWorkspace()->GetName() == "2" && engine.GetFocusedWindow() == a);
     }
 
     std::cout << "\n>>> ALL 10 MULTI-LEVEL RECURSIVE BSP TREE TESTS PASSED CLEANLY! <<<\n";

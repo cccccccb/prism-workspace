@@ -1,8 +1,8 @@
 #pragma once
 
 #include "prism/scene/node.hpp"
-#include <string>
 #include <memory>
+#include <string>
 
 namespace prism::decoration {
 class TilingDecorationSpec;
@@ -16,9 +16,10 @@ namespace prism::compiler {
  */
 class BinarySceneLoader {
 public:
-    static std::shared_ptr<scene::SceneNode> LoadFromFile(const std::string& prismb_path);
-    static std::shared_ptr<scene::SceneNode> LoadFromPackage(const std::string& pkg_path, const std::string& internal_file_name);
-    static std::shared_ptr<scene::SceneNode> LoadFromMemory(const uint8_t* data, size_t size);
+    static std::shared_ptr<scene::SceneNode> LoadFromFile(const std::string &prismb_path);
+    static std::shared_ptr<scene::SceneNode> LoadFromPackage(const std::string &pkg_path,
+                                                             const std::string &internal_file_name);
+    static std::shared_ptr<scene::SceneNode> LoadFromMemory(const uint8_t *data, size_t size);
 };
 
 /**
@@ -27,8 +28,10 @@ public:
  */
 class BinaryThemeLoader {
 public:
-    static std::shared_ptr<decoration::TilingDecorationSpec> LoadFromFile(const std::string& prismb_path);
-    static std::shared_ptr<decoration::TilingDecorationSpec> LoadFromMemory(const uint8_t* data, size_t size);
+    static std::shared_ptr<decoration::TilingDecorationSpec>
+    LoadFromFile(const std::string &prismb_path);
+    static std::shared_ptr<decoration::TilingDecorationSpec> LoadFromMemory(const uint8_t *data,
+                                                                            size_t size);
 };
 
 } // namespace prism::compiler

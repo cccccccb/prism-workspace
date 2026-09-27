@@ -1,11 +1,12 @@
 #pragma once
-#include "prism/runtime/scene.hpp"
 #include "prism/runtime/property.hpp"
+#include "prism/runtime/scene.hpp"
 #include <string_view>
 
 namespace prism::runtime {
 enum class DslValueType { Number, Color, Boolean, String, Text };
 enum class StoredValueType { Number, Color, Boolean, String, Resource };
+
 struct PropertySpec {
     std::string_view name;
     DslProperty id;
@@ -16,6 +17,7 @@ struct PropertySpec {
     double max_value{16384};
     bool allow_zero{true};
 };
+
 struct ComponentSpec {
     std::string_view name;
     Kind kind;
@@ -26,8 +28,13 @@ struct ComponentSpec {
     std::uint64_t allowed_properties;
     double default_spacing;
 };
-constexpr std::uint64_t PropertyBit(DslProperty id) { return 1ULL << static_cast<unsigned>(id); }
-const PropertySpec* FindProperty(std::string_view name);
-const PropertySpec* FindProperty(DslProperty id);
-const ComponentSpec* FindComponent(std::string_view name);
+
+constexpr std::uint64_t PropertyBit(DslProperty id)
+{
+    return 1ULL << static_cast<unsigned>(id);
+}
+
+const PropertySpec *FindProperty(std::string_view name);
+const PropertySpec *FindProperty(DslProperty id);
+const ComponentSpec *FindComponent(std::string_view name);
 } // namespace prism::runtime

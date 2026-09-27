@@ -1,14 +1,14 @@
 #pragma once
 
 #include "prism/core/types.hpp"
-#include <string>
 #include <memory>
+#include <string>
 
 namespace prism::decoration {
 
 struct GapsSpec {
-    int inner{10};       // Gap between adjacent tiles (px)
-    int outer{12};       // Gap between outer tiles and screen edges (px)
+    int inner{10};         // Gap between adjacent tiles (px)
+    int outer{12};         // Gap between outer tiles and screen edges (px)
     bool smart_gaps{true}; // If true, single window takes full screen without gaps
 };
 
@@ -21,8 +21,8 @@ struct BorderSpec {
 };
 
 struct BackdropSpec {
-    core::Color bg_focused{20, 24, 34, 230};         // #141822 ~90% opacity
-    core::Color bg_unfocused{14, 16, 22, 217};       // #0E1016 ~85% opacity
+    core::Color bg_focused{20, 24, 34, 230};   // #141822 ~90% opacity
+    core::Color bg_unfocused{14, 16, 22, 217}; // #0E1016 ~85% opacity
     float blur_radius{28.0f};
     int blur_passes{4};
 };
@@ -38,16 +38,12 @@ struct HeaderSpec {
 };
 
 struct DropZoneSpec {
-    core::Color fill_color{0, 122, 255, 60};        // Semi-transparent blue fill
-    core::Color border_color{0, 122, 255, 230};     // Sharp blue boundary
+    core::Color fill_color{0, 122, 255, 60};    // Semi-transparent blue fill
+    core::Color border_color{0, 122, 255, 230}; // Sharp blue boundary
     float border_width{2.0f};
 };
 
-enum class MotionEngine : uint8_t {
-    None        = 0,
-    Spring      = 1,
-    CubicBezier = 2
-};
+enum class MotionEngine : uint8_t { None = 0, Spring = 1, CubicBezier = 2 };
 
 struct MotionCurveSpec {
     MotionEngine engine{MotionEngine::Spring};

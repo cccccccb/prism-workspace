@@ -2,10 +2,11 @@
 #include <cassert>
 #include <condition_variable>
 #include <mutex>
-#include <thread>
 #include <pthread.h>
+#include <thread>
 
-int main() {
+int main()
+{
     prism::host::SignalWake signals(true);
     pollfd source{signals.Fd(), POLLIN, 0};
     assert(poll(&source, 1, 0) == 0 && !signals.Stopping());
@@ -30,7 +31,10 @@ int main() {
     assert(signals.Stopping());
     signals.Consume();
     assert(poll(&source, 1, 0) == 0);
-    { std::lock_guard lock(mutex); release = true; }
+    {
+        std::lock_guard lock(mutex);
+        release = true;
+    }
     condition.notify_one();
     resource_thread.join();
 

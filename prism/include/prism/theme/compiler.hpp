@@ -5,10 +5,11 @@
 
 namespace prism::theme {
 // Resolve a complete theme DSL into a backend-independent immutable value.
-contracts::ThemeSnapshot CompileTheme(std::string_view source,std::uint64_t generation=0,
-                                      std::string_view color_scheme="dark");
+contracts::ThemeSnapshot CompileTheme(std::string_view source, std::uint64_t generation = 0,
+                                      std::string_view color_scheme = "dark");
 // Packages contain one versioned theme.prism. The ID and resources stay below root.
-contracts::ThemeSnapshot LoadTheme(const std::filesystem::path& root,std::string_view id,
-                                   std::uint64_t generation=0,std::string_view color_scheme="dark");
+contracts::ThemeSnapshot LoadTheme(const std::filesystem::path &root, std::string_view id,
+                                   std::uint64_t generation = 0,
+                                   std::string_view color_scheme = "dark");
 std::filesystem::path DefaultThemeRoot();
 } // namespace prism::theme

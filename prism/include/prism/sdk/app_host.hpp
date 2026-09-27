@@ -2,11 +2,11 @@
 #include "prism/contracts/launch.hpp"
 #include "prism/contracts/theme.hpp"
 #include "prism/launch/package.hpp"
-#include <functional>
 #include <cstddef>
+#include <functional>
 #include <memory>
-#include <span>
 #include <poll.h>
+#include <span>
 
 namespace prism::sdk {
 struct HostConfig {
@@ -14,7 +14,7 @@ struct HostConfig {
     std::string font_path{"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"};
     contracts::RequestId request{1};
     contracts::InstanceId instance{1};
-    std::function<void(const contracts::LaunchEvent&)> on_event;
+    std::function<void(const contracts::LaunchEvent &)> on_event;
     std::function<std::uint64_t(std::string_view)> launch_app;
     std::function<std::uint64_t()> subscribe_instances;
     std::function<std::uint64_t(std::string_view)> select_theme;
@@ -22,27 +22,29 @@ struct HostConfig {
     std::optional<std::size_t> gpu_resource_cache_bytes;
     std::optional<contracts::ThemeSnapshot> initial_theme;
 };
+
 // Constructible in a single-thread seed. PrepareFrontend must run in the final
 // worker: it creates resource threads. Bind creates the application surface/GPU.
 class AppHost {
 public:
     explicit AppHost(HostConfig config);
     ~AppHost();
-    AppHost(const AppHost&) = delete;
-    AppHost& operator=(const AppHost&) = delete;
+    AppHost(const AppHost &) = delete;
+    AppHost &operator=(const AppHost &) = delete;
     bool PrepareFrontend();
     bool Assign(contracts::RequestId request, contracts::InstanceId instance);
-    void DeliverLaunchEvent(const contracts::LaunchEvent& event);
-    void DeliverInstanceEvent(const contracts::InstanceUpdate& event);
-    void DeliverThemeEvent(const contracts::ThemeEvent& event);
-    bool ApplyTheme(const contracts::ThemeSnapshot&, std::string* diagnostic = nullptr);
+    void DeliverLaunchEvent(const contracts::LaunchEvent &event);
+    void DeliverInstanceEvent(const contracts::InstanceUpdate &event);
+    void DeliverThemeEvent(const contracts::ThemeEvent &event);
+    bool ApplyTheme(const contracts::ThemeSnapshot &, std::string *diagnostic = nullptr);
     std::uint64_t ThemeGeneration() const;
-    bool Bind(const launch::AppPackage& package);
+    bool Bind(const launch::AppPackage &package);
     // Negative timeout waits for events/deadlines. Descriptors are borrowed;
     // readiness is returned to the caller after Wayland's read lock is released.
     bool Pump(int timeout_ms, std::span<pollfd> wake_fds = {});
     bool IsCloseRequested() const;
     void Close();
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

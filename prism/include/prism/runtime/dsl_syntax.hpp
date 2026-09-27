@@ -7,23 +7,35 @@
 
 namespace prism::runtime {
 
-struct BindingValue { std::string name; };
-struct IdentifierValue { std::string name; };
-struct ColorValue { std::uint32_t rgba; };
+struct BindingValue {
+    std::string name;
+};
+
+struct IdentifierValue {
+    std::string name;
+};
+
+struct ColorValue {
+    std::uint32_t rgba;
+};
+
 struct SyntaxValue {
     using List = std::vector<SyntaxValue>;
     std::variant<double, bool, std::string, BindingValue, IdentifierValue, ColorValue, List> data;
 };
+
 struct SyntaxArgument {
     std::string name; // Empty for a positional argument.
     SyntaxValue value;
     int line{1};
 };
+
 struct SyntaxModifier {
     std::string name;
     std::vector<SyntaxArgument> arguments;
     int line{1};
 };
+
 struct SyntaxNode {
     std::string name;
     std::vector<SyntaxArgument> arguments;

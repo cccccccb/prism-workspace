@@ -1,10 +1,11 @@
+#include "prism/runtime/display_list_builder.hpp"
 #include "prism/runtime/layout_engine.hpp"
 #include "prism/runtime/render_tree.hpp"
-#include "prism/runtime/display_list_builder.hpp"
 #include <cassert>
 #include <variant>
 
-int main() {
+int main()
+{
     using namespace prism;
     runtime::SceneSnapshot snapshot;
     snapshot.root = {0, 1};
@@ -33,7 +34,7 @@ int main() {
     assert(list.commands.size() == 4);
     assert(std::holds_alternative<contracts::PushClipRect>(list.commands[0]));
     assert(std::holds_alternative<contracts::FillRect>(list.commands[1]));
-    auto* run = std::get_if<contracts::DrawGlyphRun>(&list.commands[2]);
+    auto *run = std::get_if<contracts::DrawGlyphRun>(&list.commands[2]);
     assert(run && run->font.value == 7 && run->glyphs[0].glyph_index == 42);
     assert(std::holds_alternative<contracts::PopClip>(list.commands[3]));
     auto same = runtime::RenderTreeBuilder::Build(snapshot, &first);

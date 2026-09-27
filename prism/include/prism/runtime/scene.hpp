@@ -6,18 +6,19 @@
 #include "prism/runtime/property.hpp"
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <vector>
 #include <unordered_map>
-#include <map>
+#include <vector>
 
 namespace prism::runtime {
 struct RenderTree;
 
 enum class Kind { Row, Column, Box, Text, Image, Icon, IconButton, Progress, Toggle, Separator };
+
 struct Style {
     bool visible{true};
     double width{0};  // automatic: intrinsic leaves, remaining-space containers
@@ -64,12 +65,13 @@ struct ShapedText {
     double width{0};
     double height{0};
 };
+
 using ShapeText = std::function<ShapedText(std::string_view, double)>;
 
 // Per-scene work; isolated theme validation candidates have their own counters.
 struct SceneRenderStats {
     std::uint64_t build_calls{}, builds{}, layouts{};
-    bool operator==(const SceneRenderStats&) const = default;
+    bool operator==(const SceneRenderStats &) const = default;
 };
 
 class Scene {
@@ -77,32 +79,55 @@ public:
     explicit Scene(Blueprint root, ShapeText shaper, contracts::ResourceId font = {},
                    std::optional<contracts::ThemeSnapshot> theme = {});
     ~Scene();
-    Scene(const Scene&) = delete;
-    Scene& operator=(const Scene&) = delete;
+    Scene(const Scene &) = delete;
+    Scene &operator=(const Scene &) = delete;
     bool SetSlot(std::string_view name, std::string value);
-    bool AcceptsBinding(std::string_view name, const PropertyValue& value) const;
+    bool AcceptsBinding(std::string_view name, const PropertyValue &value) const;
     bool SetBinding(std::string_view name, PropertyValue value);
     bool SetProperty(contracts::NodeId id, DslProperty property, PropertyValue value);
     // Validates a detached candidate before changing the retained scene.
-    bool ApplyTheme(const contracts::ThemeSnapshot&, std::string* diagnostic = nullptr);
-    std::uint64_t ThemeGeneration() const { return theme_ ? theme_->generation : 0; }
+    bool ApplyTheme(const contracts::ThemeSnapshot &, std::string *diagnostic = nullptr);
+
+    std::uint64_t ThemeGeneration() const
+    {
+        return theme_ ? theme_->generation : 0;
+    }
+
     bool SetViewport(contracts::LogicalSize size);
     bool SetBackground(contracts::NodeId id, contracts::Color color);
     bool ImageReady(contracts::ResourceId image, contracts::LogicalSize intrinsic_size);
     std::optional<contracts::DisplayList> Build(contracts::WindowId window);
     std::optional<std::string> ActionAt(contracts::LogicalPoint point) const;
-    Dirty PendingDirty() const { return dirty_; }
+
+    Dirty PendingDirty() const
+    {
+        return dirty_;
+    }
+
     // Content invalidation is independent of display-list builds or surface
     // commits. A failed presentation can retry an already-built list.
-    std::uint64_t PixelsRevision() const { return pixels_revision_; }
+    std::uint64_t PixelsRevision() const
+    {
+        return pixels_revision_;
+    }
+
     void AcknowledgeComposite();
-    std::uint64_t Generation() const { return generation_; }
-    SceneRenderStats GetRenderStats() const { return {build_calls_, generation_, layout_count_}; }
+
+    std::uint64_t Generation() const
+    {
+        return generation_;
+    }
+
+    SceneRenderStats GetRenderStats() const
+    {
+        return {build_calls_, generation_, layout_count_};
+    }
+
     contracts::NodeId RootId() const;
     contracts::LogicalRect Bounds(contracts::NodeId id) const;
     bool IsVisible(contracts::NodeId id) const;
     std::vector<contracts::SurfaceEffectRegion> SurfaceEffects() const;
-    const std::vector<contracts::SurfaceInputRegion>& InputRegions() const;
+    const std::vector<contracts::SurfaceInputRegion> &InputRegions() const;
     bool SetPointer(contracts::LogicalPoint point);
     bool FocusNext();
     std::optional<std::string> FocusedAction() const;
@@ -110,28 +135,38 @@ public:
 private:
     struct Node;
     std::unique_ptr<Node> MakeNode(Blueprint blueprint);
-    Blueprint CurrentBlueprint(const Node&) const;
-    Node* Find(contracts::NodeId id) const;
-    bool IsVisible(const Node&) const;
-    void ApplyCachedProperty(Node& node, DslProperty property, const PropertyValue& value);
-    PropertyValue CurrentProperty(const Node& node, DslProperty property) const;
-    std::optional<std::string> Hit(const Node& node, contracts::LogicalPoint point) const;
+    Blueprint CurrentBlueprint(const Node &) const;
+    Node *Find(contracts::NodeId id) const;
+    bool IsVisible(const Node &) const;
+    void ApplyCachedProperty(Node &node, DslProperty property, const PropertyValue &value);
+    PropertyValue CurrentProperty(const Node &node, DslProperty property) const;
+    std::optional<std::string> Hit(const Node &node, contracts::LogicalPoint point) const;
+    void CollectSurfaceEffects(const Node &, std::vector<contracts::SurfaceInputRegion> &,
+                               std::vector<contracts::SurfaceEffectRegion> &) const;
+    void AddInputRegion(contracts::SurfaceInputRegion,
+                        const std::vector<contracts::SurfaceInputRegion> &) const;
+    void CollectInputRegions(const Node &, std::vector<contracts::SurfaceInputRegion> &) const;
     void Invalidate(Dirty affected);
 
     std::unique_ptr<Node> root_;
     ShapeText shaper_;
     contracts::ResourceId font_{};
     contracts::LogicalSize viewport_{};
-    std::vector<Node*> nodes_;
-    struct BindingTarget { Node* node; DslProperty property; };
+    std::vector<Node *> nodes_;
+
+    struct BindingTarget {
+        Node *node;
+        DslProperty property;
+    };
+
     std::unordered_map<std::string, std::vector<BindingTarget>> bindings_;
     Dirty dirty_{Dirty::Layout | Dirty::Paint};
     std::uint64_t generation_{0};
     std::uint64_t pixels_revision_{1};
     std::uint64_t build_calls_{0}, layout_count_{0};
     std::unique_ptr<RenderTree> render_tree_;
-    Node* hovered_{nullptr};
-    Node* focused_{nullptr};
+    Node *hovered_{nullptr};
+    Node *focused_{nullptr};
     mutable bool input_dirty_{true};
     mutable std::vector<contracts::SurfaceInputRegion> input_regions_;
     std::optional<contracts::ThemeSnapshot> theme_;

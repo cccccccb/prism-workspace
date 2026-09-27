@@ -6,15 +6,17 @@
 
 namespace prism::ipc {
 
-template <typename T, size_t Capacity>
-class ShmRingBuffer {
+template <typename T, size_t Capacity> class ShmRingBuffer {
     static_assert((Capacity & (Capacity - 1)) == 0, "Capacity must be a power of 2");
 
 public:
-    ShmRingBuffer() : head_(0), tail_(0) {}
+    ShmRingBuffer() : head_(0), tail_(0)
+    {
+    }
 
     // Writer (Producer): Lock-free wait-free push
-    bool Push(const T& item) {
+    bool Push(const T &item)
+    {
         const uint32_t current_tail = tail_.load(std::memory_order_relaxed);
         const uint32_t current_head = head_.load(std::memory_order_acquire);
 
@@ -28,7 +30,8 @@ public:
     }
 
     // Reader (Consumer): Lock-free wait-free pop
-    bool Pop(T& item) {
+    bool Pop(T &item)
+    {
         const uint32_t current_head = head_.load(std::memory_order_relaxed);
         const uint32_t current_tail = tail_.load(std::memory_order_acquire);
 
@@ -41,11 +44,13 @@ public:
         return true;
     }
 
-    bool IsEmpty() const {
+    bool IsEmpty() const
+    {
         return head_.load(std::memory_order_acquire) == tail_.load(std::memory_order_acquire);
     }
 
-    size_t Size() const {
+    size_t Size() const
+    {
         const uint32_t h = head_.load(std::memory_order_relaxed);
         const uint32_t t = tail_.load(std::memory_order_relaxed);
         return (t >= h) ? (t - h) : 0;
@@ -61,7 +66,7 @@ using StateRingBuffer = ShmRingBuffer<StateDiffPacket, RING_BUFFER_CAPACITY>;
 using EventRingBuffer = ShmRingBuffer<EventPacket, RING_BUFFER_CAPACITY>;
 
 struct ShmChannelLayout {
-    ShmHeader       header;
+    ShmHeader header;
     StateRingBuffer state_ring; // Backend -> WM
     EventRingBuffer event_ring; // WM -> Backend
 };

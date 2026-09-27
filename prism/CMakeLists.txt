@@ -20,7 +20,17 @@ add_library(prism_core
     src/wm/window.cpp
     src/wm/compositor.cpp
     src/wm/wlr_server.cpp
+    src/wm/wlr_server_events.cpp
+    src/wm/wlr_server_control.cpp
+    src/wm/wlr_server_frames.cpp
+    src/wm/wlr_server_input.cpp
+    src/wm/wlr_server_views.cpp
+    src/wm/wlr_server_ipc.cpp
+    src/wm/wlr_server_status.cpp
     src/wm/surface_effects.cpp
+    src/wm/surface_effects_content.cpp
+    src/wm/surface_effects_gpu.cpp
+    src/wm/surface_effects_update.cpp
     src/wm/effect_dependencies.cpp
     src/wm/layer_manager.cpp
     src/decoration/tiling_decoration_spec.cpp
@@ -83,7 +93,7 @@ target_link_libraries(prism_core PUBLIC
     ${XKBCOMMON_LIBRARIES}
 )
 pkg_check_modules(PRISM_WM_GLES REQUIRED IMPORTED_TARGET glesv2)
-target_link_libraries(prism_core PRIVATE PkgConfig::PRISM_WM_GLES)
+target_link_libraries(prism_core PRIVATE PkgConfig::PRISM_WM_GLES nlohmann_json::nlohmann_json)
 
 # A production compositor must never compile client UI parsers or renderers.
 get_target_property(PRISM_WM_SOURCES prism_core SOURCES)
@@ -109,7 +119,7 @@ add_library(prism_aot_tools STATIC
     src/compiler/binary_loader.cpp
     src/core/logging.cpp src/decoration/tiling_decoration_spec.cpp src/pack/package.cpp)
 target_include_directories(prism_aot_tools PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(prism_aot_tools PUBLIC Threads::Threads)
+target_link_libraries(prism_aot_tools PUBLIC Threads::Threads PRIVATE nlohmann_json::nlohmann_json)
 
 # 3. Tool: prism-compiler (DSL to .prismb AOT compiler)
 add_executable(prism-compiler
@@ -140,7 +150,7 @@ add_executable(prism-msg
     src/tools/prism_msg.cpp
 )
 target_include_directories(prism-msg PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(prism-msg PRIVATE prism_launch_client)
+target_link_libraries(prism-msg PRIVATE prism_launch_client nlohmann_json::nlohmann_json)
 
 target_link_libraries(prism_core PUBLIC prism_control)
 

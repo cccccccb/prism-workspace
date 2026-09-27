@@ -7,23 +7,30 @@ namespace prism::scene {
 
 class ContainerNode : public SceneNode {
 public:
-    explicit ContainerNode(std::string name = "Container")
-        : SceneNode(std::move(name)) {}
+    explicit ContainerNode(std::string name = "Container") : SceneNode(std::move(name))
+    {
+    }
 
-    bool IsContainer() const override { return true; }
+    bool IsContainer() const override
+    {
+        return true;
+    }
 
-    void AddChild(std::shared_ptr<SceneNode> child) {
+    void AddChild(std::shared_ptr<SceneNode> child)
+    {
         if (child) {
             child->SetParent(shared_from_this());
             children_.push_back(std::move(child));
         }
     }
 
-    const std::vector<std::shared_ptr<SceneNode>>& GetChildren() const {
+    const std::vector<std::shared_ptr<SceneNode>> &GetChildren() const
+    {
         return children_;
     }
 
-    void ClearChildren() {
+    void ClearChildren()
+    {
         children_.clear();
     }
 
@@ -34,13 +41,19 @@ protected:
 class VStackNode : public ContainerNode {
 public:
     explicit VStackNode(float spacing = 8.0f, std::string name = "VStack")
-        : ContainerNode(std::move(name)), spacing_(spacing) {}
+        : ContainerNode(std::move(name)), spacing_(spacing)
+    {
+    }
 
-    void Accept(SceneVisitor& visitor) override {
+    void Accept(SceneVisitor &visitor) override
+    {
         visitor.Visit(*this);
     }
 
-    float GetSpacing() const { return spacing_; }
+    float GetSpacing() const
+    {
+        return spacing_;
+    }
 
 private:
     float spacing_{8.0f};
@@ -49,13 +62,19 @@ private:
 class HStackNode : public ContainerNode {
 public:
     explicit HStackNode(float spacing = 8.0f, std::string name = "HStack")
-        : ContainerNode(std::move(name)), spacing_(spacing) {}
+        : ContainerNode(std::move(name)), spacing_(spacing)
+    {
+    }
 
-    void Accept(SceneVisitor& visitor) override {
+    void Accept(SceneVisitor &visitor) override
+    {
         visitor.Visit(*this);
     }
 
-    float GetSpacing() const { return spacing_; }
+    float GetSpacing() const
+    {
+        return spacing_;
+    }
 
 private:
     float spacing_{8.0f};
@@ -64,13 +83,19 @@ private:
 class CardNode : public ContainerNode {
 public:
     explicit CardNode(float spacing = 12.0f, std::string name = "Card")
-        : ContainerNode(std::move(name)), spacing_(spacing) {}
+        : ContainerNode(std::move(name)), spacing_(spacing)
+    {
+    }
 
-    void Accept(SceneVisitor& visitor) override {
+    void Accept(SceneVisitor &visitor) override
+    {
         visitor.Visit(*this);
     }
 
-    float GetSpacing() const { return spacing_; }
+    float GetSpacing() const
+    {
+        return spacing_;
+    }
 
 private:
     float spacing_{12.0f};
@@ -78,20 +103,24 @@ private:
 
 class ZStackNode : public ContainerNode {
 public:
-    explicit ZStackNode(std::string name = "ZStack")
-        : ContainerNode(std::move(name)) {}
+    explicit ZStackNode(std::string name = "ZStack") : ContainerNode(std::move(name))
+    {
+    }
 
-    void Accept(SceneVisitor& visitor) override {
+    void Accept(SceneVisitor &visitor) override
+    {
         visitor.Visit(*this);
     }
 };
 
 class DesktopNode : public ContainerNode {
 public:
-    explicit DesktopNode(std::string name = "Desktop")
-        : ContainerNode(std::move(name)) {}
+    explicit DesktopNode(std::string name = "Desktop") : ContainerNode(std::move(name))
+    {
+    }
 
-    void Accept(SceneVisitor& visitor) override {
+    void Accept(SceneVisitor &visitor) override
+    {
         visitor.Visit(*this);
     }
 };
@@ -99,13 +128,19 @@ public:
 class TopBarNode : public ContainerNode {
 public:
     explicit TopBarNode(float spacing = 8.0f, std::string name = "TopBar")
-        : ContainerNode(std::move(name)), spacing_(spacing) {}
+        : ContainerNode(std::move(name)), spacing_(spacing)
+    {
+    }
 
-    void Accept(SceneVisitor& visitor) override {
+    void Accept(SceneVisitor &visitor) override
+    {
         visitor.Visit(*this);
     }
 
-    float GetSpacing() const { return spacing_; }
+    float GetSpacing() const
+    {
+        return spacing_;
+    }
 
 private:
     float spacing_{8.0f};
@@ -114,13 +149,19 @@ private:
 class DockNode : public ContainerNode {
 public:
     explicit DockNode(float spacing = 10.0f, std::string name = "Dock")
-        : ContainerNode(std::move(name)), spacing_(spacing) {}
+        : ContainerNode(std::move(name)), spacing_(spacing)
+    {
+    }
 
-    void Accept(SceneVisitor& visitor) override {
+    void Accept(SceneVisitor &visitor) override
+    {
         visitor.Visit(*this);
     }
 
-    float GetSpacing() const { return spacing_; }
+    float GetSpacing() const
+    {
+        return spacing_;
+    }
 
 private:
     float spacing_{10.0f};
@@ -128,10 +169,12 @@ private:
 
 class AppGroupNode : public ContainerNode {
 public:
-    explicit AppGroupNode(std::string name = "AppGroup")
-        : ContainerNode(std::move(name)) {}
+    explicit AppGroupNode(std::string name = "AppGroup") : ContainerNode(std::move(name))
+    {
+    }
 
-    void Accept(SceneVisitor& visitor) override {
+    void Accept(SceneVisitor &visitor) override
+    {
         visitor.Visit(*this);
     }
 };

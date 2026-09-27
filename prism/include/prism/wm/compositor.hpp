@@ -1,15 +1,15 @@
 #pragma once
 
-#include "prism/wm/window.hpp"
-#include "prism/wm/layer_type.hpp"
-#include "prism/wm/layer_manager.hpp"
-#include "prism/layout/layout_strategy.hpp"
 #include "prism/core/types.hpp"
-#include "prism/tree/tree_engine.hpp"
 #include "prism/decoration/tiling_decoration_spec.hpp"
-#include <vector>
+#include "prism/layout/layout_strategy.hpp"
+#include "prism/tree/tree_engine.hpp"
+#include "prism/wm/layer_manager.hpp"
+#include "prism/wm/layer_type.hpp"
+#include "prism/wm/window.hpp"
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace prism::wm {
 
@@ -21,84 +21,166 @@ public:
     bool Initialize();
 
     // Factory method for creating and managing a new Prism window on a specified Layer
-    std::shared_ptr<Window> CreateWindow(
-        const std::string& app_id,
-        const std::string& title,
-        core::Rect bounds,
-        const std::string& channel_name,
-        LayerType layer = LayerType::App
-    );
+    std::shared_ptr<Window> CreateWindow(const std::string &app_id, const std::string &title,
+                                         core::Rect bounds, const std::string &channel_name,
+                                         LayerType layer = LayerType::App);
     // Real Wayland clients require a management record, never a SHM IPC host.
-    std::shared_ptr<Window> ManageNativeWindow(const std::string& app_id,
-        const std::string& title, int pid, std::uint64_t instance);
+    std::shared_ptr<Window> ManageNativeWindow(const std::string &app_id, const std::string &title,
+                                               int pid, std::uint64_t instance);
     void SynchronizeFocus();
 
     // Swap layout strategy dynamically (Strategy Pattern)
     void SetLayoutStrategy(std::unique_ptr<layout::LayoutStrategy> strategy);
-    layout::LayoutStrategy* GetLayoutStrategy() const { return layout_strategy_.get(); }
+
+    layout::LayoutStrategy *GetLayoutStrategy() const
+    {
+        return layout_strategy_.get();
+    }
 
     // Frame execution
     void Tick(float dt);
 
     // User input event injection & distribution
-    void DispatchAction(const std::string& app_id, const std::string& action);
+    void DispatchAction(const std::string &app_id, const std::string &action);
 
     // Pointer and input events (forwarded from wlroots wlr_cursor / wlr_seat or simulated)
     void OnPointerMotion(float x, float y, float dx = 0.0f, float dy = 0.0f);
     void OnPointerButton(uint32_t button, bool pressed);
     void OnGesture(core::GestureType gesture, float val = 0.0f);
 
-    float GetCursorX() const { return cursor_x_; }
-    float GetCursorY() const { return cursor_y_; }
+    float GetCursorX() const
+    {
+        return cursor_x_;
+    }
 
-    void InjectPointerMotion(float x, float y) { OnPointerMotion(x, y); }
-    void InjectPointerButton(uint32_t button, bool pressed) { OnPointerButton(button, pressed); }
-    void InjectGesture(core::GestureType gesture, float val = 0.0f) { OnGesture(gesture, val); }
+    float GetCursorY() const
+    {
+        return cursor_y_;
+    }
+
+    void InjectPointerMotion(float x, float y)
+    {
+        OnPointerMotion(x, y);
+    }
+
+    void InjectPointerButton(uint32_t button, bool pressed)
+    {
+        OnPointerButton(button, pressed);
+    }
+
+    void InjectGesture(core::GestureType gesture, float val = 0.0f)
+    {
+        OnGesture(gesture, val);
+    }
 
     // macOS Mission Control Overview
     void ToggleMissionControl();
     void SetMissionControl(bool enabled);
     bool IsInMissionControl() const;
 
-    int GetFocusedWindowIndex() const { return focused_window_index_; }
+    int GetFocusedWindowIndex() const
+    {
+        return focused_window_index_;
+    }
+
     void SetFocusedWindowIndex(int idx);
 
-    void DestroyWindow(const std::shared_ptr<Window>& win);
-    const std::vector<std::shared_ptr<Window>>& GetWindows() const { return windows_; }
+    void DestroyWindow(const std::shared_ptr<Window> &win);
+
+    const std::vector<std::shared_ptr<Window>> &GetWindows() const
+    {
+        return windows_;
+    }
 
     // Multi-Level Recursive BSP Tree Engine
-    tree::TreeEngine& GetTreeEngine() { return tree_engine_; }
-    const tree::TreeEngine& GetTreeEngine() const { return tree_engine_; }
+    tree::TreeEngine &GetTreeEngine()
+    {
+        return tree_engine_;
+    }
 
-    void SetDecorationSpec(std::shared_ptr<decoration::TilingDecorationSpec> spec) { decoration_spec_ = std::move(spec); }
-    std::shared_ptr<decoration::TilingDecorationSpec> GetDecorationSpec() const { return decoration_spec_; }
+    const tree::TreeEngine &GetTreeEngine() const
+    {
+        return tree_engine_;
+    }
+
+    void SetDecorationSpec(std::shared_ptr<decoration::TilingDecorationSpec> spec)
+    {
+        decoration_spec_ = std::move(spec);
+    }
+
+    std::shared_ptr<decoration::TilingDecorationSpec> GetDecorationSpec() const
+    {
+        return decoration_spec_;
+    }
 
     bool MoveFocus(tree::Direction dir);
-    bool SwitchWorkspace(const std::string& name);
+    bool SwitchWorkspace(const std::string &name);
     bool SetTreeLayout(tree::LayoutMode mode);
     bool SwapFocusDirection(tree::Direction dir);
 
-    void SetDrawSoftwareCursor(bool draw) { draw_software_cursor_ = draw; }
-    bool GetDrawSoftwareCursor() const { return draw_software_cursor_; }
+    void SetDrawSoftwareCursor(bool draw)
+    {
+        draw_software_cursor_ = draw;
+    }
 
-    void SetDebugHud(bool enable) { debug_hud_enabled_ = enable; }
-    bool IsDebugHudEnabled() const { return debug_hud_enabled_; }
+    bool GetDrawSoftwareCursor() const
+    {
+        return draw_software_cursor_;
+    }
 
-    void SetPerformanceStats(float fps, float dt, uint64_t frame_count) {
+    void SetDebugHud(bool enable)
+    {
+        debug_hud_enabled_ = enable;
+    }
+
+    bool IsDebugHudEnabled() const
+    {
+        return debug_hud_enabled_;
+    }
+
+    void SetPerformanceStats(float fps, float dt, uint64_t frame_count)
+    {
         last_fps_ = fps;
         last_dt_ = dt;
         frame_count_ = frame_count;
     }
-    float GetLastFps() const { return last_fps_; }
-    float GetLastDt() const { return last_dt_; }
+
+    float GetLastFps() const
+    {
+        return last_fps_;
+    }
+
+    float GetLastDt() const
+    {
+        return last_dt_;
+    }
 
     // Layer Manager for Shell Hierarchy (Desktop, TopBar, Dock, AppGroup)
-    LayerManager& GetLayerManager() { return layer_manager_; }
-    const LayerManager& GetLayerManager() const { return layer_manager_; }
+    LayerManager &GetLayerManager()
+    {
+        return layer_manager_;
+    }
 
-    void SetScreenSize(int w, int h) { screen_width_ = w; screen_height_ = h; }
-    int GetScreenWidth() const { return screen_width_; }
-    int GetScreenHeight() const { return screen_height_; }
+    const LayerManager &GetLayerManager() const
+    {
+        return layer_manager_;
+    }
+
+    void SetScreenSize(int w, int h)
+    {
+        screen_width_ = w;
+        screen_height_ = h;
+    }
+
+    int GetScreenWidth() const
+    {
+        return screen_width_;
+    }
+
+    int GetScreenHeight() const
+    {
+        return screen_height_;
+    }
 
 private:
     std::vector<std::shared_ptr<Window>> windows_;

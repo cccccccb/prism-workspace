@@ -11,12 +11,29 @@ public:
     using Sizer = std::function<std::size_t(std::span<const std::uint8_t>)>;
     explicit Stream(int fd, Sizer sizer);
     ~Stream();
-    Stream(const Stream&) = delete;
-    Stream& operator=(const Stream&) = delete;
-    int Fd() const { return fd_; }
-    bool Closed() const { return closed_; }
-    bool WantsWrite() const { return output_offset_ < output_.size(); }
-    bool HasPartialFrame() const { return !input_.empty(); }
+    Stream(const Stream &) = delete;
+    Stream &operator=(const Stream &) = delete;
+
+    int Fd() const
+    {
+        return fd_;
+    }
+
+    bool Closed() const
+    {
+        return closed_;
+    }
+
+    bool WantsWrite() const
+    {
+        return output_offset_ < output_.size();
+    }
+
+    bool HasPartialFrame() const
+    {
+        return !input_.empty();
+    }
+
     // Complete frames retained after the per-turn extraction budget are work
     // even when the kernel socket is empty. A partial fragment is not readiness.
     // Invalid cached headers also require an immediate drain. Parsing failures
@@ -26,6 +43,7 @@ public:
     void Flush();
     std::vector<std::vector<std::uint8_t>> Receive();
     void Close();
+
 private:
     int fd_;
     Sizer sizer_;

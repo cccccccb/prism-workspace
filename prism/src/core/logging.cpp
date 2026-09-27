@@ -6,14 +6,23 @@
 
 namespace prism::core {
 
-void Log(LogLevel level, const char* tag, const char* format, ...) {
+void Log(LogLevel level, const char *tag, const char *format, ...)
+{
     static std::mutex output_mutex;
-    const char* label = "INFO";
+    const char *label = "INFO";
     switch (level) {
-        case LogLevel::Debug: label = "DEBUG"; break;
-        case LogLevel::Info:  label = "INFO";  break;
-        case LogLevel::Warn:  label = "WARN";  break;
-        case LogLevel::Error: label = "ERROR"; break;
+    case LogLevel::Debug:
+        label = "DEBUG";
+        break;
+    case LogLevel::Info:
+        label = "INFO";
+        break;
+    case LogLevel::Warn:
+        label = "WARN";
+        break;
+    case LogLevel::Error:
+        label = "ERROR";
+        break;
     }
 
     std::lock_guard<std::mutex> lock(output_mutex);

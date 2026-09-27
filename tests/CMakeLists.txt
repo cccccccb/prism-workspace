@@ -243,3 +243,9 @@ add_executable(metrics_test metrics_test.cpp "${CMAKE_SOURCE_DIR}/demos/demo_set
 target_include_directories(metrics_test PRIVATE "${CMAKE_SOURCE_DIR}/demos/demo_settings")
 target_compile_definitions(metrics_test PRIVATE PRISM_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
 add_test(NAME metrics_test COMMAND metrics_test)
+
+add_executable(json_boundary_test json_boundary_test.cpp)
+target_link_libraries(json_boundary_test PRIVATE prism_core prism_aot_tools)
+target_compile_options(json_boundary_test PRIVATE -UNDEBUG)
+add_test(NAME json_boundary_test COMMAND json_boundary_test)
+set_tests_properties(json_boundary_test PROPERTIES TIMEOUT 10)

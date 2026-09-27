@@ -8,4 +8,4 @@ struct TreeLayoutConfig {
     bool smart_gaps{};
     float header_height{};
 };
-}
+} // namespace prism::tree

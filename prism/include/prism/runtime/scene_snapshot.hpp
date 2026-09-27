@@ -22,11 +22,12 @@ struct SnapshotNode {
     std::vector<contracts::NodeId> children;
     std::uint64_t revision{0};
 };
+
 struct SceneSnapshot {
     contracts::NodeId root{};
     std::vector<SnapshotNode> nodes;
-    contracts::ThemeControls controls{{0,0,0,0},{0,0,0,0},{0,0,0,0}};
-    const SnapshotNode& Get(contracts::NodeId id) const;
-    SnapshotNode& Get(contracts::NodeId id);
+    contracts::ThemeControls controls{{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
+    const SnapshotNode &Get(contracts::NodeId id) const;
+    SnapshotNode &Get(contracts::NodeId id);
 };
 } // namespace prism::runtime

@@ -1,6 +1,6 @@
 #include "prism/decoration/tiling_drag_manager.hpp"
-#include "prism/wm/window.hpp"
 #include "prism/core/logging.hpp"
+#include "prism/wm/window.hpp"
 #include <algorithm>
 
 extern "C" {
@@ -9,7 +9,8 @@ extern "C" {
 
 namespace prism::decoration {
 
-static inline void ColorToFloat4(const core::Color& c, float out[4]) {
+static inline void ColorToFloat4(const core::Color &c, float out[4])
+{
     out[0] = static_cast<float>(c.r) / 255.0f;
     out[1] = static_cast<float>(c.g) / 255.0f;
     out[2] = static_cast<float>(c.b) / 255.0f;
@@ -17,18 +18,23 @@ static inline void ColorToFloat4(const core::Color& c, float out[4]) {
 }
 
 TilingDragManager::TilingDragManager(std::shared_ptr<TilingDecorationSpec> spec)
-    : spec_(spec ? spec : TilingDecorationSpec::CreateDefault()) {
+    : spec_(spec ? spec : TilingDecorationSpec::CreateDefault())
+{
 }
 
-TilingDragManager::~TilingDragManager() {
+TilingDragManager::~TilingDragManager()
+{
     if (drop_zone_tree_) {
         wlr_scene_node_destroy(&drop_zone_tree_->node);
         drop_zone_tree_ = nullptr;
     }
 }
 
-void TilingDragManager::AttachToScene(struct wlr_scene_tree* overlay_tree) {
-    if (!overlay_tree) return;
+void TilingDragManager::AttachToScene(struct wlr_scene_tree *overlay_tree)
+{
+    if (!overlay_tree) {
+        return;
+    }
     overlay_tree_ = overlay_tree;
 
     drop_zone_tree_ = wlr_scene_tree_create(overlay_tree_);
@@ -40,16 +46,19 @@ void TilingDragManager::AttachToScene(struct wlr_scene_tree* overlay_tree) {
     float border_col[4];
     ColorToFloat4(spec_->drop_zone.border_color, border_col);
     int bw = static_cast<int>(spec_->drop_zone.border_width);
-    drop_border_top_    = wlr_scene_rect_create(drop_zone_tree_, 100, bw, border_col);
+    drop_border_top_ = wlr_scene_rect_create(drop_zone_tree_, 100, bw, border_col);
     drop_border_bottom_ = wlr_scene_rect_create(drop_zone_tree_, 100, bw, border_col);
-    drop_border_left_   = wlr_scene_rect_create(drop_zone_tree_, bw, 100, border_col);
-    drop_border_right_  = wlr_scene_rect_create(drop_zone_tree_, bw, 100, border_col);
+    drop_border_left_ = wlr_scene_rect_create(drop_zone_tree_, bw, 100, border_col);
+    drop_border_right_ = wlr_scene_rect_create(drop_zone_tree_, bw, 100, border_col);
 
     HideDropIndicator();
 }
 
-bool TilingDragManager::BeginDrag(std::shared_ptr<wm::Window> window, float start_x, float start_y) {
-    if (!window) return false;
+bool TilingDragManager::BeginDrag(std::shared_ptr<wm::Window> window, float start_x, float start_y)
+{
+    if (!window) {
+        return false;
+    }
 
     is_dragging_ = true;
     dragged_window_ = window;
@@ -66,8 +75,11 @@ bool TilingDragManager::BeginDrag(std::shared_ptr<wm::Window> window, float star
 }
 
 void TilingDragManager::UpdateDrag(float current_x, float current_y,
-                                   const std::vector<std::shared_ptr<wm::Window>>& all_windows) {
-    if (!is_dragging_ || !dragged_window_) return;
+                                   const std::vector<std::shared_ptr<wm::Window>> &all_windows)
+{
+    if (!is_dragging_ || !dragged_window_) {
+        return;
+    }
 
     current_x_ = current_x;
     current_y_ = current_y;
@@ -84,11 +96,13 @@ void TilingDragManager::UpdateDrag(float current_x, float current_y,
     current_quadrant_ = DropQuadrant::None;
 
     // Hit-test target tile
-    for (const auto& win : all_windows) {
-        if (!win) continue;
+    for (const auto &win : all_windows) {
+        if (!win) {
+            continue;
+        }
         auto b = win->GetBounds();
-        if (current_x >= b.x && current_x <= b.x + b.width &&
-            current_y >= b.y && current_y <= b.y + b.height) {
+        if (current_x >= b.x && current_x <= b.x + b.width && current_y >= b.y &&
+            current_y <= b.y + b.height) {
             target_window_ = win;
 
             float rx = current_x - b.x;
@@ -124,9 +138,12 @@ void TilingDragManager::UpdateDrag(float current_x, float current_y,
     }
 }
 
-DragDropResult TilingDragManager::EndDrag() {
+DragDropResult TilingDragManager::EndDrag()
+{
     DragDropResult result;
-    if (!is_dragging_) return result;
+    if (!is_dragging_) {
+        return result;
+    }
 
     if (target_window_ && current_quadrant_ != DropQuadrant::None) {
         result.executed = true;
@@ -134,18 +151,19 @@ DragDropResult TilingDragManager::EndDrag() {
         result.target_window = target_window_;
         result.quadrant = current_quadrant_;
 
-        const char* quad_names[] = {"None", "Swap", "LeftSplit", "RightSplit", "TopSplit", "BottomSplit"};
+        const char *quad_names[] = {"None",       "Swap",     "LeftSplit",
+                                    "RightSplit", "TopSplit", "BottomSplit"};
         PRISM_LOG_INFO("TILING-DRAG", "Committed Drag-to-Split action '%s' from [%s] to [%s]",
                        quad_names[static_cast<int>(current_quadrant_)],
-                       dragged_window_->GetTitle().c_str(),
-                       target_window_->GetTitle().c_str());
+                       dragged_window_->GetTitle().c_str(), target_window_->GetTitle().c_str());
     }
 
     CancelDrag();
     return result;
 }
 
-void TilingDragManager::CancelDrag() {
+void TilingDragManager::CancelDrag()
+{
     is_dragging_ = false;
     dragged_window_ = nullptr;
     target_window_ = nullptr;
@@ -153,8 +171,11 @@ void TilingDragManager::CancelDrag() {
     HideDropIndicator();
 }
 
-void TilingDragManager::UpdateDropIndicatorScene() {
-    if (!drop_zone_tree_) return;
+void TilingDragManager::UpdateDropIndicatorScene()
+{
+    if (!drop_zone_tree_) {
+        return;
+    }
 
     wlr_scene_node_set_enabled(&drop_zone_tree_->node, true);
 
@@ -180,7 +201,8 @@ void TilingDragManager::UpdateDropIndicatorScene() {
     wlr_scene_node_set_position(&drop_border_right_->node, std::max(0, pw - bw), 0);
 }
 
-void TilingDragManager::HideDropIndicator() {
+void TilingDragManager::HideDropIndicator()
+{
     if (drop_zone_tree_) {
         wlr_scene_node_set_enabled(&drop_zone_tree_->node, false);
     }

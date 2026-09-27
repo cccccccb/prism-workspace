@@ -1,6 +1,6 @@
 #include "prism/decoration/tiling_window_decorator.hpp"
-#include "prism/wm/window.hpp"
 #include "prism/core/logging.hpp"
+#include "prism/wm/window.hpp"
 
 extern "C" {
 #include <wlr/types/wlr_scene.h>
@@ -8,32 +8,42 @@ extern "C" {
 
 namespace prism::decoration {
 
-static inline void ColorToFloat4(const core::Color& c, float out[4]) {
+static inline void ColorToFloat4(const core::Color &c, float out[4])
+{
     out[0] = static_cast<float>(c.r) / 255.0f;
     out[1] = static_cast<float>(c.g) / 255.0f;
     out[2] = static_cast<float>(c.b) / 255.0f;
     out[3] = static_cast<float>(c.a) / 255.0f;
 }
 
-TilingWindowDecorator::TilingWindowDecorator(wm::Window* window, std::shared_ptr<TilingDecorationSpec> spec)
-    : window_(window), spec_(spec ? spec : TilingDecorationSpec::CreateDefault()) {
+TilingWindowDecorator::TilingWindowDecorator(wm::Window *window,
+                                             std::shared_ptr<TilingDecorationSpec> spec)
+    : window_(window), spec_(spec ? spec : TilingDecorationSpec::CreateDefault())
+{
 }
 
-TilingWindowDecorator::~TilingWindowDecorator() {
+TilingWindowDecorator::~TilingWindowDecorator()
+{
     if (root_tree_) {
         wlr_scene_node_destroy(&root_tree_->node);
         root_tree_ = nullptr;
     }
 }
 
-void TilingWindowDecorator::AttachToScene(struct wlr_scene_tree* parent_tree) {
-    if (!parent_tree) return;
+void TilingWindowDecorator::AttachToScene(struct wlr_scene_tree *parent_tree)
+{
+    if (!parent_tree) {
+        return;
+    }
     parent_tree_ = parent_tree;
     CreateSceneNodes();
 }
 
-void TilingWindowDecorator::CreateSceneNodes() {
-    if (!parent_tree_) return;
+void TilingWindowDecorator::CreateSceneNodes()
+{
+    if (!parent_tree_) {
+        return;
+    }
 
     // Root tree for this window's decorator and content
     root_tree_ = wlr_scene_tree_create(parent_tree_);
@@ -44,11 +54,16 @@ void TilingWindowDecorator::CreateSceneNodes() {
 
     // Border rectangles (4 edges for crisp tiling frame)
     float border_col[4];
-    ColorToFloat4(is_focused_ ? spec_->border.color_focused : spec_->border.color_unfocused, border_col);
-    border_top_ = wlr_scene_rect_create(root_tree_, 100, static_cast<int>(spec_->border.width), border_col);
-    border_bottom_ = wlr_scene_rect_create(root_tree_, 100, static_cast<int>(spec_->border.width), border_col);
-    border_left_ = wlr_scene_rect_create(root_tree_, static_cast<int>(spec_->border.width), 100, border_col);
-    border_right_ = wlr_scene_rect_create(root_tree_, static_cast<int>(spec_->border.width), 100, border_col);
+    ColorToFloat4(is_focused_ ? spec_->border.color_focused : spec_->border.color_unfocused,
+                  border_col);
+    border_top_ =
+        wlr_scene_rect_create(root_tree_, 100, static_cast<int>(spec_->border.width), border_col);
+    border_bottom_ =
+        wlr_scene_rect_create(root_tree_, 100, static_cast<int>(spec_->border.width), border_col);
+    border_left_ =
+        wlr_scene_rect_create(root_tree_, static_cast<int>(spec_->border.width), 100, border_col);
+    border_right_ =
+        wlr_scene_rect_create(root_tree_, static_cast<int>(spec_->border.width), 100, border_col);
 
     // Top rim specular highlight (1px subtle luxury glow)
     float rim_col[4];
@@ -58,17 +73,19 @@ void TilingWindowDecorator::CreateSceneNodes() {
     // Header tree
     header_tree_ = wlr_scene_tree_create(root_tree_);
     float header_bg_col[4];
-    ColorToFloat4(is_focused_ ? spec_->header.bg_focused : spec_->header.bg_unfocused, header_bg_col);
-    header_bg_ = wlr_scene_rect_create(header_tree_, 100, static_cast<int>(spec_->header.height), header_bg_col);
+    ColorToFloat4(is_focused_ ? spec_->header.bg_focused : spec_->header.bg_unfocused,
+                  header_bg_col);
+    header_bg_ = wlr_scene_rect_create(header_tree_, 100, static_cast<int>(spec_->header.height),
+                                       header_bg_col);
 
     // Tiling control buttons
-    const float col_close[4]   = {0.98f, 0.28f, 0.28f, 1.0f}; // Red: Close
-    const float col_split[4]   = {0.98f, 0.78f, 0.20f, 1.0f}; // Yellow: Toggle split H/V
-    const float col_fold[4]    = {0.98f, 0.55f, 0.15f, 1.0f}; // Amber: Fold / Roll-up
+    const float col_close[4] = {0.98f, 0.28f, 0.28f, 1.0f};   // Red: Close
+    const float col_split[4] = {0.98f, 0.78f, 0.20f, 1.0f};   // Yellow: Toggle split H/V
+    const float col_fold[4] = {0.98f, 0.55f, 0.15f, 1.0f};    // Amber: Fold / Roll-up
     const float col_monocle[4] = {0.20f, 0.80f, 0.35f, 1.0f}; // Green: Monocle / Maximize
-    btn_close_   = wlr_scene_rect_create(header_tree_, 12, 12, col_close);
-    btn_split_   = wlr_scene_rect_create(header_tree_, 12, 12, col_split);
-    btn_fold_    = wlr_scene_rect_create(header_tree_, 12, 12, col_fold);
+    btn_close_ = wlr_scene_rect_create(header_tree_, 12, 12, col_close);
+    btn_split_ = wlr_scene_rect_create(header_tree_, 12, 12, col_split);
+    btn_fold_ = wlr_scene_rect_create(header_tree_, 12, 12, col_fold);
     btn_monocle_ = wlr_scene_rect_create(header_tree_, 12, 12, col_monocle);
 
     wlr_scene_node_set_position(&btn_close_->node, 14, 10);
@@ -91,13 +108,15 @@ void TilingWindowDecorator::CreateSceneNodes() {
     }
 }
 
-void TilingWindowDecorator::ApplyGeometry(const core::Rect& bounds) {
+void TilingWindowDecorator::ApplyGeometry(const core::Rect &bounds)
+{
     current_bounds_ = bounds;
     motion_ctrl_.SnapToBounds(bounds);
     UpdateSceneGeometry(bounds);
 }
 
-void TilingWindowDecorator::AnimateToBounds(const core::Rect& bounds, MotionType type) {
+void TilingWindowDecorator::AnimateToBounds(const core::Rect &bounds, MotionType type)
+{
     current_bounds_ = bounds;
     if (type == MotionType::None || spec_->motion.split_move.engine == MotionEngine::None) {
         ApplyGeometry(bounds);
@@ -106,32 +125,41 @@ void TilingWindowDecorator::AnimateToBounds(const core::Rect& bounds, MotionType
     motion_ctrl_.AnimateToBounds(bounds, spec_->motion.split_move);
 }
 
-void TilingWindowDecorator::ToggleFold() {
+void TilingWindowDecorator::ToggleFold()
+{
     SetFolded(!IsFolded());
 }
 
-void TilingWindowDecorator::SetFolded(bool folded) {
+void TilingWindowDecorator::SetFolded(bool folded)
+{
     motion_ctrl_.SetFolded(folded, spec_->motion.fold);
 }
 
-bool TilingWindowDecorator::IsFolded() const {
+bool TilingWindowDecorator::IsFolded() const
+{
     return motion_ctrl_.IsFolded();
 }
 
-void TilingWindowDecorator::ToggleFullscreen(const core::Rect& screen_bounds) {
+void TilingWindowDecorator::ToggleFullscreen(const core::Rect &screen_bounds)
+{
     SetFullscreen(!IsFullscreen(), screen_bounds);
 }
 
-void TilingWindowDecorator::SetFullscreen(bool fullscreen, const core::Rect& screen_bounds) {
+void TilingWindowDecorator::SetFullscreen(bool fullscreen, const core::Rect &screen_bounds)
+{
     motion_ctrl_.SetFullscreen(fullscreen, screen_bounds, spec_->motion.fullscreen);
 }
 
-bool TilingWindowDecorator::IsFullscreen() const {
+bool TilingWindowDecorator::IsFullscreen() const
+{
     return motion_ctrl_.IsFullscreen();
 }
 
-bool TilingWindowDecorator::StepAnimation(float dt) {
-    if (!motion_ctrl_.IsAnimating()) return false;
+bool TilingWindowDecorator::StepAnimation(float dt)
+{
+    if (!motion_ctrl_.IsAnimating()) {
+        return false;
+    }
 
     bool still_animating = motion_ctrl_.Step(dt);
     core::Rect visual = motion_ctrl_.GetVisualBounds(spec_->header.height, spec_->border.width);
@@ -147,12 +175,16 @@ bool TilingWindowDecorator::StepAnimation(float dt) {
     return still_animating;
 }
 
-bool TilingWindowDecorator::IsAnimating() const {
+bool TilingWindowDecorator::IsAnimating() const
+{
     return motion_ctrl_.IsAnimating();
 }
 
-void TilingWindowDecorator::UpdateSceneGeometry(const core::Rect& bounds) {
-    if (!root_tree_) return;
+void TilingWindowDecorator::UpdateSceneGeometry(const core::Rect &bounds)
+{
+    if (!root_tree_) {
+        return;
+    }
 
     int bx = static_cast<int>(bounds.x);
     int by = static_cast<int>(bounds.y);
@@ -203,15 +235,21 @@ void TilingWindowDecorator::UpdateSceneGeometry(const core::Rect& bounds) {
     }
 }
 
-void TilingWindowDecorator::SetFocused(bool focused) {
-    if (is_focused_ == focused) return;
+void TilingWindowDecorator::SetFocused(bool focused)
+{
+    if (is_focused_ == focused) {
+        return;
+    }
     is_focused_ = focused;
     motion_ctrl_.SetFocused(focused, spec_->motion.focus);
     UpdateColors();
 }
 
-void TilingWindowDecorator::SetSpec(std::shared_ptr<TilingDecorationSpec> spec) {
-    if (!spec) return;
+void TilingWindowDecorator::SetSpec(std::shared_ptr<TilingDecorationSpec> spec)
+{
+    if (!spec) {
+        return;
+    }
     spec_ = spec;
     UpdateColors();
     if (current_bounds_.width > 0 && current_bounds_.height > 0) {
@@ -219,27 +257,44 @@ void TilingWindowDecorator::SetSpec(std::shared_ptr<TilingDecorationSpec> spec) 
     }
 }
 
-void TilingWindowDecorator::UpdateColors() {
-    if (!root_tree_) return;
+void TilingWindowDecorator::UpdateColors()
+{
+    if (!root_tree_) {
+        return;
+    }
 
     float bg_col[4];
     ColorToFloat4(is_focused_ ? spec_->backdrop.bg_focused : spec_->backdrop.bg_unfocused, bg_col);
-    if (bg_rect_) wlr_scene_rect_set_color(bg_rect_, bg_col);
+    if (bg_rect_) {
+        wlr_scene_rect_set_color(bg_rect_, bg_col);
+    }
 
     float border_col[4];
-    ColorToFloat4(is_focused_ ? spec_->border.color_focused : spec_->border.color_unfocused, border_col);
-    if (border_top_) wlr_scene_rect_set_color(border_top_, border_col);
-    if (border_bottom_) wlr_scene_rect_set_color(border_bottom_, border_col);
-    if (border_left_) wlr_scene_rect_set_color(border_left_, border_col);
-    if (border_right_) wlr_scene_rect_set_color(border_right_, border_col);
+    ColorToFloat4(is_focused_ ? spec_->border.color_focused : spec_->border.color_unfocused,
+                  border_col);
+    if (border_top_) {
+        wlr_scene_rect_set_color(border_top_, border_col);
+    }
+    if (border_bottom_) {
+        wlr_scene_rect_set_color(border_bottom_, border_col);
+    }
+    if (border_left_) {
+        wlr_scene_rect_set_color(border_left_, border_col);
+    }
+    if (border_right_) {
+        wlr_scene_rect_set_color(border_right_, border_col);
+    }
 
     float rim_col[4];
     ColorToFloat4(spec_->border.top_rim_specular, rim_col);
-    if (rim_specular_) wlr_scene_rect_set_color(rim_specular_, rim_col);
+    if (rim_specular_) {
+        wlr_scene_rect_set_color(rim_specular_, rim_col);
+    }
 
     if (header_bg_) {
         float header_bg_col[4];
-        ColorToFloat4(is_focused_ ? spec_->header.bg_focused : spec_->header.bg_unfocused, header_bg_col);
+        ColorToFloat4(is_focused_ ? spec_->header.bg_focused : spec_->header.bg_unfocused,
+                      header_bg_col);
         wlr_scene_rect_set_color(header_bg_, header_bg_col);
     }
 
@@ -251,15 +306,22 @@ void TilingWindowDecorator::UpdateColors() {
     }
 }
 
-HeaderAction TilingWindowDecorator::HitTestHeader(float local_x, float local_y) const {
-    if (!spec_->header.show_header) return HeaderAction::None;
+HeaderAction TilingWindowDecorator::HitTestHeader(float local_x, float local_y) const
+{
+    if (!spec_->header.show_header) {
+        return HeaderAction::None;
+    }
 
     float bw = spec_->border.width;
     float hh = spec_->header.height;
 
     // Check if within header bounds
-    if (local_y < bw || local_y > bw + hh) return HeaderAction::None;
-    if (local_x < bw || local_x > current_bounds_.width - bw) return HeaderAction::None;
+    if (local_y < bw || local_y > bw + hh) {
+        return HeaderAction::None;
+    }
+    if (local_x < bw || local_x > current_bounds_.width - bw) {
+        return HeaderAction::None;
+    }
 
     // Relative to header top-left
     float hx = local_x - bw;
@@ -289,29 +351,25 @@ HeaderAction TilingWindowDecorator::HitTestHeader(float local_x, float local_y) 
     return HeaderAction::TitlebarDrag;
 }
 
-core::Rect TilingWindowDecorator::GetHeaderBounds() const {
+core::Rect TilingWindowDecorator::GetHeaderBounds() const
+{
     float bw = spec_->border.width;
     float hh = spec_->header.height;
-    return core::Rect{
-        current_bounds_.x + bw,
-        current_bounds_.y + bw,
-        std::max(0.0f, current_bounds_.width - 2 * bw),
-        hh
-    };
+    return core::Rect{current_bounds_.x + bw, current_bounds_.y + bw,
+                      std::max(0.0f, current_bounds_.width - 2 * bw), hh};
 }
 
-core::Rect TilingWindowDecorator::GetContentBounds() const {
+core::Rect TilingWindowDecorator::GetContentBounds() const
+{
     float bw = spec_->border.width;
     float hh = spec_->header.show_header ? spec_->header.height : 0.0f;
-    return core::Rect{
-        current_bounds_.x + bw,
-        current_bounds_.y + bw + hh,
-        std::max(0.0f, current_bounds_.width - 2 * bw),
-        std::max(0.0f, current_bounds_.height - 2 * bw - hh)
-    };
+    return core::Rect{current_bounds_.x + bw, current_bounds_.y + bw + hh,
+                      std::max(0.0f, current_bounds_.width - 2 * bw),
+                      std::max(0.0f, current_bounds_.height - 2 * bw - hh)};
 }
 
-core::Rect TilingWindowDecorator::GetVisualBounds() const {
+core::Rect TilingWindowDecorator::GetVisualBounds() const
+{
     return motion_ctrl_.GetVisualBounds(spec_->header.height, spec_->border.width);
 }
 

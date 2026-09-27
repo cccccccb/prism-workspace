@@ -9,19 +9,25 @@
 using namespace prism::wm::effects;
 
 namespace {
-bool Near(double actual, double expected) {
+bool Near(double actual, double expected)
+{
     return std::abs(actual - expected) < 1e-9;
 }
-void ExpectRect(const Rect& actual, const Rect& expected) {
+
+void ExpectRect(const Rect &actual, const Rect &expected)
+{
     assert(Near(actual.x, expected.x) && Near(actual.y, expected.y));
     assert(Near(actual.width, expected.width) && Near(actual.height, expected.height));
 }
-void Record(DamageHistory& history, Rect damage, std::uint64_t epoch = 7) {
+
+void Record(DamageHistory &history, Rect damage, std::uint64_t epoch = 7)
+{
     const std::array rectangles{damage};
     assert(history.Record(rectangles, epoch));
 }
 
-void OutsideDamageAdvancesObservationWithoutChangingSamples() {
+void OutsideDamageAdvancesObservationWithoutChangingSamples()
+{
     DamageHistory history;
     const Rect sampled{0, 0, 40, 40};
     Record(history, {10, 10, 2, 2});
@@ -48,7 +54,8 @@ void OutsideDamageAdvancesObservationWithoutChangingSamples() {
     assert(unchanged.stamp == inside.stamp);
 }
 
-void BufferReplacementDoesNotInventPixelDamage() {
+void BufferReplacementDoesNotInventPixelDamage()
+{
     DamageHistory history;
     const Rect sampled{0, 0, 20, 20};
     Record(history, sampled);
@@ -66,7 +73,8 @@ void BufferReplacementDoesNotInventPixelDamage() {
     assert(Observe(history, cached, 18, sampled, 7).changed);
 }
 
-void IndependentConsumersAndUnpublishedCandidates() {
+void IndependentConsumersAndUnpublishedCandidates()
+{
     DamageHistory history;
     const Rect left{0, 0, 40, 40}, right{100, 0, 40, 40};
     assert(history.Record({}, 7, true));
@@ -92,15 +100,17 @@ void IndependentConsumersAndUnpublishedCandidates() {
     assert(!Observe(history, left_cached, 91, left, 7).changed);
 }
 
-void LostHistoryAndMappingChangesAreConservative() {
+void LostHistoryAndMappingChangesAreConservative()
+{
     DamageHistory history;
     const Rect sampled{0, 0, 20, 20};
     Record(history, sampled);
     const auto lagging = Observe(history, {}, 31, sampled, 7).stamp;
     Record(history, {100, 0, 1, 1});
     const auto retained_boundary = Observe(history, lagging, 31, sampled, 7).stamp;
-    for (std::size_t i = 0; i < DamageHistory::kHistoryLength; ++i)
+    for (std::size_t i = 0; i < DamageHistory::kHistoryLength; ++i) {
         Record(history, {100 + static_cast<double>(i), 0, 1, 1});
+    }
     const auto lost = Observe(history, lagging, 31, sampled, 7);
     assert(lost.changed && lost.fallback);
     // The entire interval after this newer watermark remains available.
@@ -118,7 +128,8 @@ void LostHistoryAndMappingChangesAreConservative() {
     assert(full.changed);
 }
 
-void DamageIsCopiedAndLargeRegionsCannotDropChanges() {
+void DamageIsCopiedAndLargeRegionsCannotDropChanges()
+{
     DamageHistory history;
     std::array damage{Rect{100, 0, 1, 1}};
     assert(history.Record(damage, 3));
@@ -126,19 +137,22 @@ void DamageIsCopiedAndLargeRegionsCannotDropChanges() {
     assert(!history.Since(0, {0, 0, 10, 10}, 3).changed);
 
     std::vector<Rect> many;
-    for (std::size_t i = 0; i < DamageHistory::kMaxRectangles + 1; ++i)
+    for (std::size_t i = 0; i < DamageHistory::kMaxRectangles + 1; ++i) {
         many.push_back({static_cast<double>(i) * 10, 50, 1, 1});
+    }
     const auto before = history.Revision();
     assert(history.Record(many, 3));
-    for (const auto& changed : many)
+    for (const auto &changed : many) {
         assert(history.Since(before, changed, 3).changed);
+    }
     const std::array invalid{Rect{0, 0, std::numeric_limits<double>::quiet_NaN(), 1}};
     const auto before_invalid = history.Revision();
     assert(history.Record(invalid, 3));
     assert(history.Since(before_invalid, {1000, 1000, 1, 1}, 3).changed);
 }
 
-void FractionalProjectionAndSamplingBoundaries() {
+void FractionalProjectionAndSamplingBoundaries()
+{
     const Rect source{10, 20, 40, 20}, destination{100, 200, 80, 60};
     const auto projected = MapRect({15, 30, 20, 10}, source, destination);
     assert(projected);
@@ -146,15 +160,14 @@ void FractionalProjectionAndSamplingBoundaries() {
     const auto clipped = MapRect({0, 10, 20, 20}, source, destination);
     assert(clipped);
     ExpectRect(*clipped, {100, 200, 20, 30});
-    const auto fractional = MapRect({0.5, 1, 0.25, 0.5},
-        {0.25, 0.75, 2.5, 3.25}, {5.125, -2.25, 10, 13});
+    const auto fractional =
+        MapRect({0.5, 1, 0.25, 0.5}, {0.25, 0.75, 2.5, 3.25}, {5.125, -2.25, 10, 13});
     assert(fractional);
     ExpectRect(*fractional, {6.125, -1.25, 1, 2});
     const auto touches = MapRect({50, 20, 4, 5}, source, destination);
     assert(touches && IsEmpty(*touches));
     assert(!MapRect({0, 0, 1, 1}, {0, 0, 0, 1}, destination));
-    assert(!MapRect({0, 0, 1, 1}, source,
-        {0, 0, std::numeric_limits<double>::infinity(), 1}));
+    assert(!MapRect({0, 0, 1, 1}, source, {0, 0, std::numeric_limits<double>::infinity(), 1}));
 
     const Rect sample{0, 0, 10, 10};
     assert(!Intersects(sample, {10, 0, 1, 1}));
@@ -181,12 +194,14 @@ void FractionalProjectionAndSamplingBoundaries() {
 }
 } // namespace
 
-int main() {
+int main()
+{
     OutsideDamageAdvancesObservationWithoutChangingSamples();
     BufferReplacementDoesNotInventPixelDamage();
     IndependentConsumersAndUnpublishedCandidates();
     LostHistoryAndMappingChangesAreConservative();
     DamageIsCopiedAndLargeRegionsCannotDropChanges();
     FractionalProjectionAndSamplingBoundaries();
-    std::cout << "Effect dependency history, independent publication and sampling boundaries passed\n";
+    std::cout
+        << "Effect dependency history, independent publication and sampling boundaries passed\n";
 }

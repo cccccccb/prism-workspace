@@ -6,28 +6,34 @@
 using namespace prism;
 
 namespace {
-std::optional<prism::contracts::DisplayList> BuildAndCommit(prism::runtime::Scene& scene) {
-    auto list=scene.Build(prism::contracts::WindowId{1});
+std::optional<prism::contracts::DisplayList> BuildAndCommit(prism::runtime::Scene &scene)
+{
+    auto list = scene.Build(prism::contracts::WindowId{1});
     scene.AcknowledgeComposite();
     return list;
 }
-}
-int main() {
+} // namespace
+
+int main()
+{
     int shape_calls = 0;
     auto shape = [&shape_calls](std::string_view text, double size) {
         ++shape_calls;
         runtime::ShapedText result;
         result.width = text.size() * size * 0.5;
         result.height = size * 1.4;
-        for (std::size_t i = 0; i < text.size(); ++i)
-            result.glyphs.push_back({static_cast<std::uint32_t>(static_cast<unsigned char>(text[i])),
-                {i * size * 0.5, size}});
+        for (std::size_t i = 0; i < text.size(); ++i) {
+            result.glyphs.push_back(
+                {static_cast<std::uint32_t>(static_cast<unsigned char>(text[i])),
+                 {i * size * 0.5, size}});
+        }
         return result;
     };
     auto blueprint = runtime::ParseBlueprint(
         "HStack(spacing: 8) { Button(\"Launch\", action: \"app:launch\", width: 100) "
         "VStack { Text($title, font: 20) Card(width: 40, height: 30).cornerRadius(6) } }");
-    blueprint.properties.push_back({runtime::DslProperty::Background, contracts::Color{12, 24, 36, 255}});
+    blueprint.properties.push_back(
+        {runtime::DslProperty::Background, contracts::Color{12, 24, 36, 255}});
     blueprint.properties.push_back({runtime::DslProperty::Clip, true});
     runtime::Scene scene(std::move(blueprint), shape, contracts::ResourceId{7});
     assert(scene.SetViewport({300, 120}));
@@ -43,9 +49,11 @@ int main() {
     auto second = BuildAndCommit(scene);
     assert(second && second->generation == 2);
     bool found = false;
-    for (const auto& command : second->commands) {
-        if (auto* run = std::get_if<contracts::DrawGlyphRun>(&command)) {
-            if (run->glyphs.size() == 5 && run->font.value == 7) found = true;
+    for (const auto &command : second->commands) {
+        if (auto *run = std::get_if<contracts::DrawGlyphRun>(&command)) {
+            if (run->glyphs.size() == 5 && run->font.value == 7) {
+                found = true;
+            }
         }
     }
     assert(found);
@@ -59,8 +67,9 @@ int main() {
     assert(!scene.SetViewport({0, 120}));
     assert(!BuildAndCommit(scene));
     assert(scene.Bounds({999, 1}).width == 0);
-    runtime::Scene bound(runtime::ParseBlueprint(
-        "Card(background: $surface) { Text($label, font: $size) }"), shape, contracts::ResourceId{7});
+    runtime::Scene bound(
+        runtime::ParseBlueprint("Card(background: $surface) { Text($label, font: $size) }"), shape,
+        contracts::ResourceId{7});
     assert(bound.SetViewport({120, 80}));
     assert(BuildAndCommit(bound));
     assert(!bound.SetBackground(bound.RootId(), contracts::Color{0, 0, 0, 0}));
@@ -80,58 +89,62 @@ int main() {
     assert(runtime::Has(bound.PendingDirty(), runtime::Dirty::Layout));
     assert(!bound.SetBinding("size", 0.0));
     assert(!bound.SetProperty(bound.RootId(), runtime::DslProperty::Font, 18.0));
-    runtime::Scene action_scene(runtime::ParseBlueprint(
-        "Button(\"Go\", action: \"one\")"), shape, contracts::ResourceId{7});
+    runtime::Scene action_scene(runtime::ParseBlueprint("Button(\"Go\", action: \"one\")"), shape,
+                                contracts::ResourceId{7});
     assert(action_scene.SetViewport({100, 50}));
     assert(BuildAndCommit(action_scene));
     assert(action_scene.SetProperty(action_scene.RootId(), runtime::DslProperty::Action,
-        std::string("two")));
+                                    std::string("two")));
     assert(action_scene.PendingDirty() == runtime::Dirty::None);
     assert(!BuildAndCommit(action_scene));
     assert(action_scene.ActionAt({10, 10}) == "two");
     bool rejected = false;
-    try { (void)runtime::ParseBlueprint("Slider($value)"); }
-    catch (const std::runtime_error&) { rejected = true; }
+    try {
+        (void)runtime::ParseBlueprint("Slider($value)");
+    } catch (const std::runtime_error &) {
+        rejected = true;
+    }
     assert(rejected);
 
     // Pixel demand survives Build until the presenter has drawn that revision.
     // Protocol-only changes have an independent acknowledgement: they never
     // create a DisplayList or silently clear a pending pixel change.
-    runtime::Scene submission(runtime::ParseBlueprint(
-        "Card(backdropBlur: $blur, inputShape: $shape, background: $tint) { Text($title) }"),
+    runtime::Scene submission(
+        runtime::ParseBlueprint(
+            "Card(backdropBlur: $blur, inputShape: $shape, background: $tint) { Text($title) }"),
         shape, contracts::ResourceId{7});
-    assert(submission.PixelsRevision()==1);
-    assert(submission.SetViewport({160,90}));
-    assert(submission.SetBinding("blur",12.0));
-    assert(submission.SetBinding("shape",std::string("bounds")));
-    assert(submission.SetBinding("tint",contracts::Color{10,20,30,120}));
-    assert(submission.SetBinding("title",std::string("Initial")));
-    const auto initial_pixels=submission.PixelsRevision();
+    assert(submission.PixelsRevision() == 1);
+    assert(submission.SetViewport({160, 90}));
+    assert(submission.SetBinding("blur", 12.0));
+    assert(submission.SetBinding("shape", std::string("bounds")));
+    assert(submission.SetBinding("tint", contracts::Color{10, 20, 30, 120}));
+    assert(submission.SetBinding("title", std::string("Initial")));
+    const auto initial_pixels = submission.PixelsRevision();
     assert(submission.Build({1}));
-    assert(submission.PixelsRevision()==initial_pixels);
+    assert(submission.PixelsRevision() == initial_pixels);
     submission.AcknowledgeComposite();
-    assert(submission.PendingDirty()==runtime::Dirty::None);
-    assert(submission.SetViewport({160,90}));
-    assert(!submission.SetBinding("title",std::string("Initial")));
-    assert(submission.PixelsRevision()==initial_pixels && !submission.Build({1}));
-    const auto built=submission.GetRenderStats();
-    assert(submission.SetBinding("blur",18.0));
-    assert(submission.PendingDirty()==runtime::Dirty::Composite);
-    assert(submission.PixelsRevision()==initial_pixels && !submission.Build({1}));
-    assert(submission.SurfaceEffects().front().blur_radius==18);
-    assert(submission.PendingDirty()==runtime::Dirty::Composite);
-    assert(submission.GetRenderStats().builds==built.builds);
-    assert(submission.GetRenderStats().layouts==built.layouts);
+    assert(submission.PendingDirty() == runtime::Dirty::None);
+    assert(submission.SetViewport({160, 90}));
+    assert(!submission.SetBinding("title", std::string("Initial")));
+    assert(submission.PixelsRevision() == initial_pixels && !submission.Build({1}));
+    const auto built = submission.GetRenderStats();
+    assert(submission.SetBinding("blur", 18.0));
+    assert(submission.PendingDirty() == runtime::Dirty::Composite);
+    assert(submission.PixelsRevision() == initial_pixels && !submission.Build({1}));
+    assert(submission.SurfaceEffects().front().blur_radius == 18);
+    assert(submission.PendingDirty() == runtime::Dirty::Composite);
+    assert(submission.GetRenderStats().builds == built.builds);
+    assert(submission.GetRenderStats().layouts == built.layouts);
     submission.AcknowledgeComposite();
-    assert(submission.PendingDirty()==runtime::Dirty::None);
-    assert(submission.SetBinding("shape",std::string("visible")));
-    assert(submission.PixelsRevision()==initial_pixels);
-    assert(submission.SetBinding("title",std::string("Latest")));
-    const auto latest_pixels=submission.PixelsRevision();
-    assert(latest_pixels>initial_pixels);
+    assert(submission.PendingDirty() == runtime::Dirty::None);
+    assert(submission.SetBinding("shape", std::string("visible")));
+    assert(submission.PixelsRevision() == initial_pixels);
+    assert(submission.SetBinding("title", std::string("Latest")));
+    const auto latest_pixels = submission.PixelsRevision();
+    assert(latest_pixels > initial_pixels);
     submission.AcknowledgeComposite(); // A state commit must not consume Paint/Layout.
-    assert(runtime::Has(submission.PendingDirty(),runtime::Dirty::Layout));
-    assert(submission.Build({1}) && submission.PixelsRevision()==latest_pixels);
+    assert(runtime::Has(submission.PendingDirty(), runtime::Dirty::Layout));
+    assert(submission.Build({1}) && submission.PixelsRevision() == latest_pixels);
     submission.AcknowledgeComposite();
-    assert(submission.PendingDirty()==runtime::Dirty::None);
+    assert(submission.PendingDirty() == runtime::Dirty::None);
 }
