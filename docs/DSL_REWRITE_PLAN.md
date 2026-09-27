@@ -47,3 +47,15 @@ Pi 上 CPU 配置 CTest 13/13，GLES 配置 CTest 14/14；GLES 专属离屏测�
 五个应用入口和 UI 模板已统一使用新客户端 SDK；ImGui 源码与链接、旧共享内存 UI SDK、WM 内 shell 专用绘制、控件 Scene 镜像和 slot 差分回放已删除。shell 由 WM 启动，按 Wayland 进程凭据授予固定层级，普通客户端不能通过 app_id 冒充。WM target 的源文件依赖检查已经启用。具体实现、功能差距和验证方式见 [APPLICATION_MIGRATION.md](APPLICATION_MIGRATION.md)。
 
 本段完成的是生产绘制路径切换；原 demo 的 Slider、blur、图标、壁纸轮换和完整窗口管理联动尚未迁入。后续先在新架构中补齐实际交互与真实 surface 的窗口管理，再考虑增量布局和分块缓存。
+
+## 2026-09-27 后续执行：Master 组件并行加载
+
+上文为迁移阶段记录；当前图标/材质主题、BSP、统一 Host/待命池以及渲染优化阶段已有
+后续实现记录。新的主线是 [Preview/Master 加载规范](MASTER_PARALLEL_LOADING.md)，
+按准备/安装契约 → 单单元异步 Master → 组件图/资源调度 → 分阶段安装 → 业务异步
+准备 → demo 与 Pi 测量推进。第一步准备/安装边界已接入代码；第二至六步尚未实现，
+本轮验证及当前限制见加载规范第 8 节。
+
+继续复用通用 syntax parser；加载声明由独立语义层编译为 LoadPlan，视觉组件仍编译
+为组件模板。工作任务只产出不可变值；Scene、布局、GPU 与 Wayland 保持所有者线程。
+旧单文件输入归一到同一管线，不恢复 ImGui、WM 应用树或旧 `.prismb` 渲染路径。

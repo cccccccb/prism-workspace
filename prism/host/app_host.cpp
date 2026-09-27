@@ -33,6 +33,21 @@ std::string ReadUi(const std::filesystem::path &file)
     }
     return source;
 }
+
+runtime::PreparedComponent PrepareUi(const std::filesystem::path &file, std::string component)
+{
+    return runtime::PrepareComponent(ReadUi(file), {std::move(component), file.string(), {}});
+}
+
+std::string UiFailureDetail(const runtime::LoadDiagnostic &diagnostic)
+{
+    auto location = diagnostic.source.source_path.empty() ? diagnostic.source.component_id
+                                                          : diagnostic.source.source_path;
+    if (diagnostic.line > 0) {
+        location += (location.empty() ? "DSL line " : ":") + std::to_string(diagnostic.line);
+    }
+    return location.empty() ? diagnostic.message : location + ": " + diagnostic.message;
+}
 } // namespace
 
 struct AppHost::Impl {
@@ -325,9 +340,16 @@ bool AppHost::Bind(const launch::AppPackage &package)
                             manifest.name,           self.config.font_path,
                             manifest.width,          manifest.height,
                             package.assets.string(), self.config.gpu_resource_cache_bytes};
-        if (!self.frontend->ConfigureWindow(std::move(config)) ||
-            !self.frontend->Open(ReadUi(package.preview ? *package.preview : package.ui))) {
-            return self.Fail(contracts::LaunchError::RuntimeFailed, "Frontend open failed");
+        if (!self.frontend->ConfigureWindow(std::move(config))) {
+            return self.Fail(contracts::LaunchError::RuntimeFailed,
+                             "Frontend window configuration failed");
+        }
+        const auto load = self.frontend->BeginUiLoad();
+        const auto prepared = PrepareUi(package.preview ? *package.preview : package.ui,
+                                        package.preview ? "preview" : "master");
+        runtime::LoadDiagnostic diagnostic;
+        if (!self.frontend->OpenPrepared(load, prepared, &diagnostic)) {
+            return self.Fail(contracts::LaunchError::RuntimeFailed, UiFailureDetail(diagnostic));
         }
         if (!self.frontend->HasPresentationFeedback()) {
             return self.Fail(contracts::LaunchError::PresentationFailed,
@@ -343,6 +365,9 @@ bool AppHost::Bind(const launch::AppPackage &package)
         }
         self.Observe();
         return true;
+    } catch (const runtime::LoadFailure &error) {
+        return self.Fail(contracts::LaunchError::RuntimeFailed,
+                         UiFailureDetail(error.Diagnostic()));
     } catch (const launch::LaunchFailure &error) {
         return self.Fail(error.Code(), error.what());
     } catch (const std::exception &error) {
@@ -398,9 +423,12 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
         self.Observe();
 
         if (!self.business && self.presented) {
-            if (!self.frontend->ReplaceUi(ReadUi(self.package->ui))) {
+            const auto load = self.frontend->BeginUiLoad();
+            const auto prepared = PrepareUi(self.package->ui, "master");
+            runtime::LoadDiagnostic diagnostic;
+            if (!self.frontend->ReplaceUiPrepared(load, prepared, &diagnostic)) {
                 return self.Fail(contracts::LaunchError::RuntimeFailed,
-                                 "Master UI replacement failed");
+                                 UiFailureDetail(diagnostic));
             }
             if (!self.StartBusiness()) {
                 return false;
@@ -418,6 +446,9 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
                              "Presentation/backend startup timeout");
         }
         return true;
+    } catch (const runtime::LoadFailure &error) {
+        return self.Fail(contracts::LaunchError::RuntimeFailed,
+                         UiFailureDetail(error.Diagnostic()));
     } catch (const launch::LaunchFailure &error) {
         return self.Fail(error.Code(), error.what());
     } catch (const std::exception &error) {

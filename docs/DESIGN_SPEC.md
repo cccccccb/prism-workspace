@@ -6,6 +6,7 @@
 
 > **2026-09-26 实现状态说明**：本文包含历史方案与目标规范，部分完成标记、旧启动链和示例 API 不代表当前 Skia 生产路径。参考图驱动的视觉/平铺差异、职责边界和执行顺序见 [VISUAL_TILING_REFINEMENT_PLAN.md](VISUAL_TILING_REFINEMENT_PLAN.md)；当前迁移范围见 [APPLICATION_MIGRATION.md](APPLICATION_MIGRATION.md)。
 > **启动架构修订**：恢复统一 invoker/launcher、包入口和预热实例管理的目标，实施规范见 [LAUNCH_RUNTIME_RESTORATION_PLAN.md](LAUNCH_RUNTIME_RESTORATION_PLAN.md)。本文旧 WM 镜像 AST 拓扑及“0ms/0.18ms 启动完成”等表述不作为实现或性能验收依据。
+> **2026-09-27 加载核对**：统一 Host/待命池与 Preview 先实际呈现已实现；业务模块在 Host 内，Master 解析和模块创建仍同步。原文的后台 Master 准备属于未实现目标；并行组件 DSL、线程归属、呈现状态与下一阶段顺序以 [MASTER_PARALLEL_LOADING.md](MASTER_PARALLEL_LOADING.md) 为准。
 
 ---
 
@@ -324,7 +325,7 @@ int main(int argc, char* argv[]) {
 - [x] **wlroots 0.17.1 集成**：成功参考 Sway 架构实现完整 `WlrServer`，多输出自动探测、EGL/GBM 上下文管理、输入座席创建。
 - [x] **代码大瘦身**：彻底删除了自定义 `DrmBackend` 与 `InputBackend`，移除了 400+ 行陈旧底层驱动代码。
 - [x] **Wayland 客户端原生化**：客户端应用直接使用 `prism_sdk` 解析 DSL 并自主创建 Wayland 表面绘制。
-- [ ] **统一预热启动与两段式加载**：新 Skia runtime 的待命 worker、客户端 Preview/Master 与业务 Ready 尚未恢复；按 LAUNCH_RUNTIME_RESTORATION_PLAN.md 实施并测量真实首帧，旧 fork 计时不作为完成依据。
+- [x] **统一预热启动与 Preview/Master**：待命 Host、同 surface 两段 UI 与业务 Ready 已恢复，见 APP_HOST_RUNTIME.md；尚未实现的 Master 异步/并行加载按 MASTER_PARALLEL_LOADING.md 推进。旧 fork 计时不作为首帧或并行收益依据。
 - [x] **macOS 旗舰视效实装**：流体分屏、动态拖拽分割线、Mission Control 全景网格卡片、磨砂顶栏、悬浮 Dock。
 - [x] **超高速 IPC 性能**：共享内存无锁环形队列实测吞吐量达 **1580 万条消息/秒**，双向往返延迟仅 **0.70 微秒**。
 - [x] **工业级打包体系**：`prism-pack` 支持 `.prismpkg` 应用包制作与 5.08μs 极速内存解析。
@@ -770,7 +771,6 @@ Prism 采用现代操作系统级的服务分层架构，实现了从底层合�
 - **`/usr/share/wayland-sessions/prism.desktop`**：注册为标准 Wayland 显示管理器入口，兼容 GDM、SDDM、LightDM 直接登入；
 - **`/usr/lib/systemd/user/prism-session.service`**：提供标准的 Systemd 用户会话单元，支持进程崩溃自愈与优雅退出；
 - **`/usr/share/prism/`**：标准分发 `.prism` DSL 模板与高清桌面壁纸资源。
-
 
 
 

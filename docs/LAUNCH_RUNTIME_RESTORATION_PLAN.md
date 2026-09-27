@@ -111,6 +111,16 @@ BackendReady 与 FirstPresented 是可独立发生的里程碑，上图不规定
 
 每一步明确区分已实现与目标设计。在 host 与授权关联没有可运行、可验证的替代之前，当前 Pi 演示继续使用已有工作路径；不能只重开旧 launcher 服务并将其标为架构恢复。
 
+### 2026-09-27 新功能执行顺序
+
+统一 Host、待命池、Preview 同 surface 切换与会话生产入口已经完成；应用 Master 后台
+并行准备尚未实现。当前工厂采用最终 Host 提前 spawn，自身准备后待命；第 3 节的
+CPU seed 图是策略候选，不是当前进程实现。GPU 预热和独立业务进程也没有实现。
+
+渲染优化之后，按 [MASTER_PARALLEL_LOADING.md](MASTER_PARALLEL_LOADING.md) 的六步
+推进：准备/安装契约、异步 Master、组件图与资源调度、分阶段安装、业务异步准备、
+demo 与实机测量。新阶段不得将 FirstPresented/BackendReady 合并解释为 Master 已显示。
+
 ## 9. 实施状态与下一门槛
 
 - 第一步：已建立独立 prism_launch 目标，实现目录包严格校验、纯 C 业务模块 ABI 与加载器、启动消息编码/解码、实例里程碑状态机、一次性 Shell 凭证消费检查。规范以 APP_LAUNCH_CONTRACT.md 为准。

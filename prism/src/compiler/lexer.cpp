@@ -1,4 +1,5 @@
 #include "prism/compiler/lexer.hpp"
+#include "prism/compiler/error.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
@@ -95,7 +96,7 @@ Token Lexer::ScanString()
         }
     }
     if (IsAtEnd() && strict_) {
-        throw std::runtime_error("DSL line " + std::to_string(line_) + ": unterminated string");
+        throw CompilerError(line_, "unterminated string");
     }
     if (!IsAtEnd()) {
         Advance(); // Consume closing '"'
@@ -119,7 +120,7 @@ Token Lexer::ScanNumber()
             Advance();
         }
         if (strict_ && cursor_ == numeric_start + 2) {
-            throw std::runtime_error("DSL line " + std::to_string(line_) + ": invalid hex number");
+            throw CompilerError(line_, "invalid hex number");
         }
         std::string text = source_.substr(start, cursor_ - start);
         double val =
@@ -132,7 +133,7 @@ Token Lexer::ScanNumber()
     }
     std::string text = source_.substr(start, cursor_ - start);
     if (strict_ && std::count(text.begin(), text.end(), '.') > 1) {
-        throw std::runtime_error("DSL line " + std::to_string(line_) + ": invalid number");
+        throw CompilerError(line_, "invalid number");
     }
     double val = std::strtod(text.c_str(), nullptr);
     return Token{TokenType::NumberLiteral, text, val, line_};
@@ -147,8 +148,7 @@ Token Lexer::ScanHexColor()
     }
     std::string hex_str = source_.substr(start, cursor_ - start);
     if (strict_ && hex_str.size() != 6 && hex_str.size() != 8) {
-        throw std::runtime_error("DSL line " + std::to_string(line_) +
-                                 ": color must have 6 or 8 hex digits");
+        throw CompilerError(line_, "color must have 6 or 8 hex digits");
     }
     uint32_t val = 0;
     if (hex_str.size() == 6) {
@@ -214,8 +214,7 @@ std::vector<Token> Lexer::Tokenize()
                 break;
             default:
                 if (strict_) {
-                    throw std::runtime_error("DSL line " + std::to_string(line_) +
-                                             ": unexpected character '" + c + "'");
+                    throw CompilerError(line_, std::string("unexpected character '") + c + "'");
                 }
                 break;
             }

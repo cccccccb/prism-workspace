@@ -1,4 +1,5 @@
 #include "prism/runtime/dsl_syntax.hpp"
+#include "prism/compiler/error.hpp"
 #include "prism/compiler/lexer.hpp"
 #include <stdexcept>
 #include <string>
@@ -49,7 +50,7 @@ private:
 
     [[noreturn]] void Error(const std::string &message) const
     {
-        throw std::runtime_error("DSL line " + std::to_string(Current().line) + ": " + message);
+        throw compiler::CompilerError(Current().line, message);
     }
 
     Token Require(TokenType type, const std::string &message)

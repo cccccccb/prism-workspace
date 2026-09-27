@@ -1,5 +1,6 @@
 #include "prism/render_skia/raster_renderer.hpp"
 #include "prism/runtime/dsl_frontend.hpp"
+#include "prism/runtime/scene.hpp"
 #include <cassert>
 #include <cstdint>
 #include <variant>

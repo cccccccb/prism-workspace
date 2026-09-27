@@ -62,3 +62,19 @@ Pixels 准备比较上一成功提交的完整 DisplayList/资源版本与当前
 公开局部 Render overload 不得扩大调用者已声明的修复域，面积/碎片导致的 Full 策略必须在 SetDamage 之前由 producer 决定。执行规范与验证结果见 [渲染调度与失效传播](RENDER_SCHEDULING_AND_INVALIDATION.md) 第 11 节及后续结果。
 
 `buffer_age_supported` 表示可安全使用的保留能力：EXT buffer age，或可实际调用 SetDamage 的 KHR partial update；只有扩展名称而无法声明修复区域不能启用局部绘制。生产 GLES 直接裁剪重放。CPU raster 的 partial Render 为保持软件 AA 的字节一致性，采用完整临时重放后仅复制修复区域的保守回退，不计为 CPU 局部绘制优化。
+
+## 2026-09-27：UI 准备与安装
+
+SDK 新增 `BeginUiLoad`、`CancelUiLoad`、`OpenPrepared` 与 `ReplaceUiPrepared`，均属于
+UI 所有者线程。`runtime::PrepareComponent(source, ComponentSource)` 是独立纯 CPU
+编译接口，调用者可在工作任务中使用，不需要 ClientApplication、Scene、图片资源表、
+字体或图形对象。结果拥有源数据并只提供 const 访问；图片保存符号 URI，主题保留引用。
+
+先在所有者线程发行 UiLoadId，准备完成后携带原令牌回到同一前端安装。过期、取消或
+跨前端结果在资源申请前拒绝；成功安装的整份 UI 令牌不重复消费。安装失败保留旧
+Scene，当前代可以重试；Open 的连接失败清理未打开的窗口，不取消同代准备结果。
+Close 为终态，撤销所有未安装结果。安装诊断是 LoadDiagnostic，不从日志文字提取行号。
+
+旧 Open/ReplaceUi 复用相同准备与安装管线。Host 已显式接入新接口，当前仍同步执行；
+新增接口本身不创建任务池或承诺 Master 已并行。图片任务回滚、分阶段挂载、绑定状态表
+和真正的 MasterPresented 仍按 [加载规范](MASTER_PARALLEL_LOADING.md) 后续步骤实施。

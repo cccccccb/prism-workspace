@@ -1,4 +1,5 @@
 #include "prism/runtime/dsl_frontend.hpp"
+#include "prism/runtime/scene.hpp"
 #include "prism/sdk/module_session.hpp"
 #include "prism/theme/compiler.hpp"
 #include <cassert>

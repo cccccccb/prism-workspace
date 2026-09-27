@@ -1,4 +1,5 @@
 #include "prism/runtime/dsl_frontend.hpp"
+#include "prism/runtime/scene.hpp"
 #include <cassert>
 #include <stdexcept>
 #include <variant>

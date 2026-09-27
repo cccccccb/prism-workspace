@@ -4,7 +4,7 @@
 
 ## 1. 生产代码归属
 
-- `prism_launcher_runtime` 只依赖 `prism_launch`，不依赖 WM、DSL、Skia；服务只解析包元数据，创建与管理统一 host。
+- `prism_launcher_runtime` 依赖 `prism_launch` 和主题编译器，不依赖 WM/Skia/应用 Scene；服务校验包元数据、编译主题快照并管理统一 host，不解析应用 UI DSL。待命 worker 不预解析 Master；下一阶段并行加载见 [MASTER_PARALLEL_LOADING.md](MASTER_PARALLEL_LOADING.md)。
 - `prism_launch_client` 为 CLI 与客户端提供同一启动/取消/事件接口；公共请求只有 app_id/模式，不接受命令、模块路径或 Shell 角色。
 - `prism-app-host --worker-fd ...` 是同一个平台前端的 worker 模式，准备字体与图片资源线程后报告 WorkerReady；收到绑定后继续在原进程中运行包。
 - 业务模块通过 `launch_app` 发起异步请求，通过 `on_launch_event` 接收包含 app_id/实例/PID/里程碑/错误的投影。返回非零仅表示已排队，绝不代表窗口已显示。绑定、Ready、动作与 tick 仍由 host 管理。

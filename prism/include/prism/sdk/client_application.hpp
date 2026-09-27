@@ -1,6 +1,8 @@
 #pragma once
 #include "prism/contracts/theme.hpp"
+#include "prism/runtime/prepared_component.hpp"
 #include "prism/runtime/property.hpp"
+#include "prism/runtime/ui_load.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -63,6 +65,15 @@ public:
     bool ConfigureWindow(ClientConfig config);   // Before Open only, common font unchanged.
     bool ReplaceUi(std::string_view dsl_source); // Keeps the same surface and EGL context.
     bool Open(std::string_view dsl_source);
+
+    // Issue on the owner thread before dispatching pure PrepareComponent work.
+    // A new load or cancellation invalidates earlier results without changing the live UI.
+    runtime::UiLoadId BeginUiLoad();
+    void CancelUiLoad();
+    bool OpenPrepared(runtime::UiLoadId load, const runtime::PreparedComponent &prepared,
+                      runtime::LoadDiagnostic *diagnostic = nullptr);
+    bool ReplaceUiPrepared(runtime::UiLoadId load, const runtime::PreparedComponent &prepared,
+                           runtime::LoadDiagnostic *diagnostic = nullptr);
     bool Pump(int timeout_ms, std::span<pollfd> wake_fds = {});
     bool SetSlot(std::string_view name, std::string value);
     bool SetBinding(std::string_view name, runtime::PropertyValue value);

@@ -1,5 +1,6 @@
 #include "prism/runtime/dsl_frontend.hpp"
 #include "prism/runtime/image_resources.hpp"
+#include "prism/runtime/scene.hpp"
 #include <atomic>
 #include <cassert>
 #include <cerrno>

@@ -34,7 +34,7 @@ bool ClientApplication::FrontendReady() const
 
 bool ClientApplication::ConfigureWindow(ClientConfig config)
 {
-    if (impl_->opened_once || config.font_path != impl_->config.font_path) {
+    if (impl_->closed || impl_->opened_once || config.font_path != impl_->config.font_path) {
         return false;
     }
     impl_->config = std::move(config);
@@ -43,21 +43,84 @@ bool ClientApplication::ConfigureWindow(ClientConfig config)
 
 bool ClientApplication::ReplaceUi(std::string_view source)
 {
-    if (!impl_->opened_once || !impl_->LoadScene(source)) {
+    if (!impl_->opened_once || !impl_->scene || impl_->closed || impl_->failed) {
         return false;
     }
-    impl_->window.RequestUpdate(true);
-    return true;
+
+    try {
+        const auto load = BeginUiLoad();
+        return ReplaceUiPrepared(load, runtime::PrepareComponent(source));
+    } catch (const std::exception &) {
+        return false;
+    }
 }
 
 bool ClientApplication::Open(std::string_view dsl_source)
 {
     auto &app = *impl_;
-    if (app.opened_once || !app.commands.Ready() || app.config.app_id.empty()) {
+    if (app.opened_once || app.closed || app.failed || !app.commands.Ready() ||
+        app.config.app_id.empty()) {
         return false;
     }
 
-    if (!app.LoadScene(dsl_source)) {
+    try {
+        const auto load = BeginUiLoad();
+        return OpenPrepared(load, runtime::PrepareComponent(dsl_source));
+    } catch (const std::exception &) {
+        return false;
+    }
+}
+
+runtime::UiLoadId ClientApplication::BeginUiLoad()
+{
+    if (impl_->closed || impl_->failed) {
+        return {};
+    }
+    return impl_->ui_load.Begin();
+}
+
+void ClientApplication::CancelUiLoad()
+{
+    impl_->ui_load.Cancel();
+}
+
+bool ClientApplication::ReplaceUiPrepared(runtime::UiLoadId load,
+                                          const runtime::PreparedComponent &prepared,
+                                          runtime::LoadDiagnostic *diagnostic)
+{
+    auto &app = *impl_;
+    if (!app.opened_once || !app.scene) {
+        if (diagnostic) {
+            *diagnostic = {runtime::LoadStage::Install,
+                           prepared ? prepared.Source() : runtime::ComponentSource{}, 0,
+                           "UI replacement requires an open frontend"};
+        }
+        return false;
+    }
+    if (!app.InstallScene(load, prepared, diagnostic)) {
+        return false;
+    }
+
+    app.window.RequestUpdate(true);
+    return true;
+}
+
+bool ClientApplication::OpenPrepared(runtime::UiLoadId load,
+                                     const runtime::PreparedComponent &prepared,
+                                     runtime::LoadDiagnostic *diagnostic)
+{
+    auto &app = *impl_;
+    if (app.opened_once || app.closed || app.failed || !app.commands.Ready() ||
+        app.config.app_id.empty()) {
+        if (diagnostic) {
+            *diagnostic = {runtime::LoadStage::Install,
+                           prepared ? prepared.Source() : runtime::ComponentSource{}, 0,
+                           "Frontend cannot open a new window"};
+        }
+        return false;
+    }
+    const auto previous_ui = app.installed_ui;
+    if (!app.InstallScene(load, prepared, diagnostic)) {
         return false;
     }
 
@@ -71,7 +134,14 @@ bool ClientApplication::Open(std::string_view dsl_source)
         if (app.scene) {
             AddSceneStats(app.render_stats, app.scene->GetRenderStats());
         }
+        app.window.Close();
         app.scene.reset();
+        app.scene_images.clear();
+        app.installed_ui = previous_ui;
+        if (diagnostic) {
+            *diagnostic = {runtime::LoadStage::Install, prepared.Source(), 0,
+                           "Wayland window open failed"};
+        }
         return false;
     }
     app.opened_once = true;
@@ -101,6 +171,7 @@ void ClientApplication::Impl::CloseGpu()
 void ClientApplication::Impl::FailFrontend()
 {
     failed = true;
+    ui_load.Cancel();
     CloseGpu();
 }
 
@@ -310,6 +381,9 @@ void ClientApplication::Close()
     if (!impl_) {
         return;
     }
+    impl_->closed = true;
+    impl_->ui_load.Cancel();
+
     impl_->CloseGpu();
     impl_->window.Close();
     if (impl_->scene) {

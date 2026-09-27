@@ -48,15 +48,34 @@ runtime::ShapedText ClientApplication::Impl::ShapeText(std::string_view text, do
     return commands.Shape(text, size);
 }
 
-bool ClientApplication::Impl::LoadScene(std::string_view dsl_source)
+bool ClientApplication::Impl::InstallScene(runtime::UiLoadId load,
+                                           const runtime::PreparedComponent &prepared,
+                                           runtime::LoadDiagnostic *diagnostic)
 {
     auto &app = *this;
+
+    if (!app.ui_load.Current(load) || app.closed || app.failed) {
+        if (diagnostic) {
+            *diagnostic = {runtime::LoadStage::Cancelled,
+                           prepared ? prepared.Source() : runtime::ComponentSource{}, 0,
+                           "UI load is cancelled, superseded or belongs to another frontend"};
+        }
+        return false;
+    }
+    if (app.installed_ui == load) {
+        if (diagnostic) {
+            *diagnostic = {runtime::LoadStage::Install,
+                           prepared ? prepared.Source() : runtime::ComponentSource{}, 0,
+                           "UI load has already been installed"};
+        }
+        return false;
+    }
 
     std::set<std::uint64_t> images;
     try {
         auto next = std::make_unique<runtime::Scene>(
-            runtime::ParseBlueprint(dsl_source,
-                                    std::bind_front(&Impl::RequestImage, this, std::ref(images))),
+            runtime::LinkComponent(prepared,
+                                   std::bind_front(&Impl::RequestImage, this, std::ref(images))),
             std::bind_front(&Impl::ShapeText, this), app.commands.FontId(), app.theme);
 
         if (app.window.IsConfigured()) {
@@ -82,6 +101,7 @@ bool ClientApplication::Impl::LoadScene(std::string_view dsl_source)
         }
         app.scene = std::move(next);
         app.scene_images = std::move(images);
+        app.installed_ui = load;
         app.last_list.reset();
         app.committed_list.reset();
         app.prepared_list.reset();
@@ -89,8 +109,22 @@ bool ClientApplication::Impl::LoadScene(std::string_view dsl_source)
         app.damage_history.Invalidate();
         app.committed_pixels_revision = app.prepared_pixels_revision = 0;
         app.state_prepared = false;
-    } catch (const std::exception &) {
+    } catch (const runtime::LoadFailure &error) {
+        if (diagnostic) {
+            *diagnostic = error.Diagnostic();
+        }
         return false;
+    } catch (const std::exception &error) {
+        if (diagnostic) {
+            *diagnostic = {runtime::LoadStage::Install,
+                           prepared ? prepared.Source() : runtime::ComponentSource{}, 0,
+                           error.what()};
+        }
+        return false;
+    }
+
+    if (diagnostic) {
+        *diagnostic = {};
     }
     return true;
 }

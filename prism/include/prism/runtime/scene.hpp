@@ -3,7 +3,7 @@
 #include "prism/contracts/display_list.hpp"
 #include "prism/contracts/surface_effect.hpp"
 #include "prism/contracts/theme.hpp"
-#include "prism/runtime/property.hpp"
+#include "prism/runtime/blueprint.hpp"
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -16,8 +16,6 @@
 
 namespace prism::runtime {
 struct RenderTree;
-
-enum class Kind { Row, Column, Box, Text, Image, Icon, IconButton, Progress, Toggle, Separator };
 
 struct Style {
     bool visible{true};
@@ -48,15 +46,6 @@ struct Style {
     contracts::ImageFit image_fit{contracts::ImageFit::Fill};
     std::string material;
     std::string input_shape{"visible"};
-};
-
-struct Blueprint {
-    Kind kind{Kind::Box};
-    std::vector<PropertyAssignment> properties;
-    std::vector<PropertyBinding> bindings;
-    std::vector<ThemeRef> theme_refs;
-    std::uint64_t allowed_properties{UINT64_MAX};
-    std::vector<Blueprint> children;
 };
 
 // Text shaping belongs to the client. The renderer only receives glyph IDs.

@@ -1,6 +1,5 @@
 #pragma once
-#include "prism/runtime/property.hpp"
-#include "prism/runtime/scene.hpp"
+#include "prism/runtime/blueprint.hpp"
 #include <string_view>
 
 namespace prism::runtime {
@@ -37,4 +36,5 @@ constexpr std::uint64_t PropertyBit(DslProperty id)
 const PropertySpec *FindProperty(std::string_view name);
 const PropertySpec *FindProperty(DslProperty id);
 const ComponentSpec *FindComponent(std::string_view name);
+bool ValidPropertyValue(DslProperty id, const PropertyValue &value);
 } // namespace prism::runtime

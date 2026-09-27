@@ -5,6 +5,7 @@
 #include "prism/render_skia/raster_renderer.hpp"
 #include "prism/runtime/buffer_damage.hpp"
 #include "prism/runtime/dsl_frontend.hpp"
+#include "prism/runtime/scene.hpp"
 #include "prism/sdk/client_application.hpp"
 #include <cstdio>
 #include <filesystem>
@@ -26,7 +27,8 @@ struct ClientApplication::Impl {
     {
     }
 
-    bool LoadScene(std::string_view source);
+    bool InstallScene(runtime::UiLoadId load, const runtime::PreparedComponent &prepared,
+                      runtime::LoadDiagnostic *diagnostic);
     contracts::ResourceId RequestImage(std::set<std::uint64_t> &images, std::string_view uri);
     runtime::ShapedText ShapeText(std::string_view text, double size);
     void HandleWindowEvent(const contracts::WindowEvent &event);
@@ -37,6 +39,8 @@ struct ClientApplication::Impl {
     void CloseGpu();
     void FailFrontend();
     std::set<std::uint64_t> scene_images;
+    runtime::UiLoadState ui_load;
+    runtime::UiLoadId installed_ui{};
     ClientConfig config;
     render_skia::RasterRenderer commands;
     runtime::ImageResources resources;
@@ -62,6 +66,7 @@ struct ClientApplication::Impl {
     bool state_prepared{false};
     bool failed{false};
     bool opened_once{false};
+    bool closed{false};
 };
 
 inline void AddSceneStats(ClientRenderStats &total, const runtime::SceneRenderStats &scene)
