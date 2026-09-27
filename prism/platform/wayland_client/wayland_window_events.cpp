@@ -423,6 +423,7 @@ void WaylandWindow::FrameDone(void *data, wl_callback *callback, std::uint32_t)
     wl_callback_destroy(callback);
     if (self.frame_callback_ == callback) {
         self.frame_callback_ = nullptr;
+        self.frame_callback_submission_ = {};
     }
     ++self.frame_done_count_;
     self.TrySubmit();
@@ -442,10 +443,55 @@ void WaylandWindow::PresentationOutput(void *, struct wp_presentation_feedback *
 {
 }
 
-void WaylandWindow::FinishPresentation(struct wp_presentation_feedback *feedback)
+void WaylandWindow::DeliverPresentation(PixelPresentation event)
 {
-    std::erase(feedbacks_, feedback);
-    wp_presentation_feedback_destroy(feedback);
+    if (event.outcome == PresentationOutcome::Discarded) {
+        if (frame_callback_ && frame_callback_submission_ == event.submission) {
+            // The request has already been committed. Only this discarded
+            // submission's callback may be retired, never a newer frame's.
+            wl_callback_destroy(frame_callback_);
+            frame_callback_ = nullptr;
+            frame_callback_submission_ = {};
+        }
+        if (!presentation_count_ && event.submission == last_pixel_submission_) {
+            update_requested_ = true;
+            force_pixels_ = true;
+        }
+    }
+    if (presentation_handler_) {
+        presentation_handler_(event);
+    }
+}
+
+void WaylandWindow::FinishPresentation(struct wp_presentation_feedback *feedback,
+                                       PresentationOutcome outcome)
+{
+    for (auto &pending : feedbacks_) {
+        if (pending.handle != feedback) {
+            continue;
+        }
+        wp_presentation_feedback_destroy(feedback);
+        pending.handle = nullptr;
+        pending.completed = outcome;
+        if (pending.committed) {
+            const PixelPresentation event{pending.submission, outcome};
+            pending = {};
+            DeliverPresentation(event);
+        }
+        return;
+    }
+}
+
+void WaylandWindow::DispatchCompletedPresentations()
+{
+    for (auto &pending : feedbacks_) {
+        if (!pending.committed || !pending.completed) {
+            continue;
+        }
+        const PixelPresentation event{pending.submission, *pending.completed};
+        pending = {};
+        DeliverPresentation(event);
+    }
 }
 
 void WaylandWindow::PresentationDone(void *data, struct wp_presentation_feedback *feedback,
@@ -454,25 +500,14 @@ void WaylandWindow::PresentationDone(void *data, struct wp_presentation_feedback
 {
     auto &self = *static_cast<WaylandWindow *>(data);
     ++self.presentation_count_;
-    self.FinishPresentation(feedback);
+    self.FinishPresentation(feedback, PresentationOutcome::Presented);
 }
 
 void WaylandWindow::PresentationDiscarded(void *data, struct wp_presentation_feedback *feedback)
 {
     auto &self = *static_cast<WaylandWindow *>(data);
     ++self.discarded_count_;
-    self.FinishPresentation(feedback);
-    // A discarded startup frame must not leave a static UI without another attempt.
-    if (!self.presentation_count_) {
-        self.update_requested_ = true;
-        self.force_pixels_ = true;
-        // This callback belongs to an already committed, discarded frame.
-        // Its client proxy may be retired so startup can submit a replacement.
-        if (self.frame_callback_) {
-            wl_callback_destroy(self.frame_callback_);
-        }
-        self.frame_callback_ = nullptr;
-    }
+    self.FinishPresentation(feedback, PresentationOutcome::Discarded);
 }
 
 } // namespace prism::platform

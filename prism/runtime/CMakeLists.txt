@@ -27,6 +27,10 @@ add_library(prism_client_dsl STATIC
 target_link_libraries(prism_client_dsl PUBLIC prism_dsl_schema prism_dsl_syntax)
 target_include_directories(prism_client_dsl PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
 
+add_library(prism_ui_loader STATIC load_session.cpp)
+target_link_libraries(prism_ui_loader PUBLIC prism_client_dsl Threads::Threads)
+target_include_directories(prism_ui_loader PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
+
 if(PRISM_ENABLE_GLES AND PRISM_SKIA_ROOT)
     add_library(prism_client_app STATIC
         client_application.cpp

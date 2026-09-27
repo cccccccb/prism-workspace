@@ -113,8 +113,9 @@ BackendReady 与 FirstPresented 是可独立发生的里程碑，上图不规定
 
 ### 2026-09-27 新功能执行顺序
 
-统一 Host、待命池、Preview 同 surface 切换与会话生产入口已经完成；应用 Master 后台
-并行准备尚未实现。当前工厂采用最终 Host 提前 spawn，自身准备后待命；第 3 节的
+统一 Host、待命池、Preview 同 surface 切换与会话生产入口已经完成；单单元 Master 后台
+纯准备在新阶段第二步实现并验证，多组件并行仍未实现。当前工厂采用最终 Host
+提前 spawn，自身准备后待命；第 3 节的
 CPU seed 图是策略候选，不是当前进程实现。GPU 预热和独立业务进程也没有实现。
 
 渲染优化之后，按 [MASTER_PARALLEL_LOADING.md](MASTER_PARALLEL_LOADING.md) 的六步

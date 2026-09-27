@@ -1,7 +1,7 @@
 # Preview、Master 与 DSL 组件并行加载
 
-日期：2026-09-27。状态：**第一步准备/安装边界已实现并通过验证；异步调度与
-多组件加载图尚未实现。**
+日期：2026-09-27。状态：**第一步已提交为 `99101cf`；第二步单单元异步 Master
+已实现并通过验证。多组件加载图、会话总配额与分阶段挂载尚未实现。**
 本轮先提交代码规范化（`0aaca73`），再设计下一阶段。现有生产启动链继续以
 [统一 Host](APP_HOST_RUNTIME.md)、[待命池](LAUNCHER_WORKER_POOL.md)和
 [会话规范](SESSION_LAUNCH_RUNTIME.md)为实现依据。
@@ -12,31 +12,33 @@
 | --- | --- | --- |
 | Preview 优先 | Music 有 Preview；另外四包没有。Host 等实际 presented 后加载 Music 业务 | 轻量 Preview 先显示，并在 Master 准备期间保持事件响应 |
 | Preview/Master 分开 | 分开的 DSL 文件、同一个 surface/EGL，替换 Scene | 保持同一窗口，候选 Master 就绪后提交；延后区域逐步安装 |
-| Master 准备 | 读取、解析、Blueprint/Scene 构造在 Host 线程同步执行 | 独立组件在有界工作池准备，所有者线程安装结果 |
+| Master 准备 | 单文件读取、纯解析/校验在 LoadSession 工作线程；链接/Scene 构造仍在所有者线程 | 多组件依赖调度、分段安装与会话总配额 |
 | 资源加载 | 图片在一个线程解码，完成队列最多一份；申请/注册在 Host 线程 | 资源按依赖与优先级准备，执行前预留内存预算 |
 | 前端/业务解耦 | Host 管理前端，业务 `.so` 仅使用窄 C ABI；二者在同一 PID | 保留接口边界；耗时业务初始化必须异步，不能阻塞前端 |
 | 独立后台进程 | 没有单独的业务进程；应用实例之间才是独立进程 | 若需要进程隔离，另行实现业务消息端点与进程生命周期 |
 | 预热 | 提前 spawn/exec Host，准备字体、资源线程和主题；分配时不再 exec | 优化应用准备关键路径；是否预热 GPU 由分段测量决定 |
-| Master 已显示 | 没有专属呈现里程碑；FirstPresented 在 Music 中指 Preview | 标识具体 UI 代数的 Master 提交与实际呈现 |
+| Master 已显示 | 本地 HostUiState 区分具体加载代数的提交与真实 presented；FirstPresented 在 Music 中仍指 Preview | 多组件 critical 首屏与资源/业务的聚合就绪 |
 
 当前 Music 顺序为：
 
 ```text
-PrepareFrontend → Bind → 同步读取/解析 Preview → Wayland configure
-→ EGL/Ganesh 初始化 → Preview 提交 → Preview 实际 presented
-→ 同步读取/解析 Master → ReplaceUi → 同步 dlopen/create → BackendReady
-→ 后续 Pump 提交、呈现 Master
+PrepareFrontend → Bind → 同步读取/解析轻量 Preview → Wayland configure
+→ EGL/Ganesh 初始化 → Preview 成功像素提交 → 派发 Master 纯 CPU 准备
+→ 事件循环继续处理 Preview / 主题 / 控制 / 实际 presented
+→ Master Prepared 且 Preview 实际 presented → 所有者线程安装 Master
+→ 同步 dlopen/create → BackendReady → 后续 Pump 提交、实际呈现 Master
 ```
 
 入口为 `prism/host/app_host.cpp` 的 Bind/Pump/StartBusiness，UI 安装为
 `prism/runtime/client_application_scene.cpp` 的 InstallScene，业务入口为
 `prism/host/module_session.cpp` 的 Start。第一步将原来的完整树转换拆为纯
 PrepareComponent 和所有者线程 LinkComponent/InstallScene；图片资源只在链接时申请。
-Host 当前仍在事件线程同步完成这些阶段，尚未派发后台准备任务。
+第二步由 LoadSession 派发读取和纯准备，链接、Scene 安装及平台对象仍归所有者线程。
 
-因此，屏幕上保留 Preview 不等于前端继续响应；同步解析或 create 期间事件循环会停顿。
-现有 BackendReady 仅表示业务通知，不证明 Master 已提交或呈现。无 Preview 的包在
-Bind 内加载业务，BackendReady 可以早于首次 configure。
+后台纯准备期间 Preview 继续响应；所有者线程的链接、Scene 安装、dlopen/create 仍可能
+产生停顿，不能将第二步解释为任意业务加载均不阻塞。BackendReady 仅表示业务通知，
+不证明 Master 已提交或呈现。无 Preview 的包同样异步准备，完成后在 Pump 中打开窗口
+并加载业务，BackendReady 仍可早于首次 configure。
 
 Preview 的“轻量”指不依赖应用业务模块、数据库、网络、媒体解码器和 Master 资源。
 它仍使用统一 SDK、字体、主题、Skia 和 Wayland 呈现链；不是一套无第三方依赖的绘制器。
@@ -145,8 +147,8 @@ Preview 仍采用受限的单文件视觉 DSL。v2 有明确版本，不把旧 `
 - `LoadCompletion`：实例、UI 加载 generation、源内容版本、组件 ID、结果或类型化错误。
 - `LoadSession`：依赖状态、任务队列、取消、预算、完成通知与安装进度。
 
-现有 Blueprint 含真实 ResourceId，且 ParseBlueprint 调用资源申请；它不能直接在线程池
-中通过绑定现有 Impl/Scene 来编译。先拆出纯编译接口，产出符号 URI/局部资源键，
+Blueprint 含真实 ResourceId，ParseBlueprint 的兼容入口在链接阶段调用资源申请；它不能
+直接在线程池中通过绑定现有 Impl/Scene 来编译。纯编译接口产出符号 URI/局部资源键，
 由所有者线程链接为真实资源句柄。工作结果不携带 live NodeId、Scene 指针、renderer、
 FT_Face、模块实例或借用的源字符串。
 
@@ -193,7 +195,8 @@ BackendReady 保持现有业务含义；新增外部状态需同时设计 worker
 MasterPresented 必须由包含该 UI generation/提交标识的 presentation feedback 证明；
 discarded、Swap、frame callback、旧 Preview feedback 均不能替代。应用可交互就绪
 由 critical Master 的实际呈现与所需业务状态共同判定；延后内容不纳入首屏完成条件。
-目前尚无此内部聚合就绪接口，现有 Dock ready 不应解释为严格的 MasterReady。
+本地 HostUiState 的 master_presented 只证明指定加载代数确已呈现，不聚合图片必需性
+与业务状态；现有 Dock ready 不应解释为严格的 MasterReady。
 
 没有 Preview 的应用也走同一异步管线；首屏等待时继续处理控制与退出，不在 Bind 内
 串行加载全部 Master。平台不为每个组件创建独立 Wayland surface 或业务进程。
@@ -241,8 +244,8 @@ ModuleSession::Start 丢给工作线程会违反现有 Host API 的线程约束�
 
 ## 7. 实施顺序与验收
 
-第零步已完成现状核对与规范。第一步已实现并验证，结果记录在第 8 节；第二至六步
-仍为待实现，不能据此将当前 Master 描述为异步或并行加载。
+第零步已完成现状核对与规范。第一步已提交 `99101cf`，结果记录在第 8 节；第二步
+已实现并验证，记录在第 9 节；第三至六步尚未实现。
 
 | 步骤 | 实现内容 | 必须证明的结果 |
 | --- | --- | --- |
@@ -277,7 +280,7 @@ feedback、多实例、资源复用及旧单文件行为。真实呈现延迟保
 线程入口与完成处理，typed DTO/错误，阶段间明确空行。已有渲染按需调度、损伤历史和
 GPU 呈现门槛继续回归；本阶段不扩展动画、节点增量布局或分块缓存。
 
-## 8. 第一步：实际接口与安装边界
+## 8. 第一步检查点：实际接口与安装边界（99101cf）
 
 当前接口位于 `runtime/prepared_component.hpp`、`runtime/ui_load.hpp` 和
 `sdk/client_application.hpp`：
@@ -322,7 +325,7 @@ ImageResources 持有，不支持候选失败后的任务取消或资源逐出�
 在后续资源调度阶段实现。不能将当前“保留旧 Scene”解释为资源队列也已回滚。
 
 旧 Open/ReplaceUi/ParseBlueprint 仅为同一 Prepare→Link→Install 管线的便捷入口，
-不再维护另一套语义转换。当前 Host 已显式使用 BeginUiLoad→PrepareComponent→
+不再维护另一套语义转换。该检查点的 Host 显式使用 BeginUiLoad→PrepareComponent→
 OpenPrepared/ReplaceUiPrepared，并携带 Preview/Master 来源路径；仍在同一事件线程
 同步调用。第一步没有改变 Preview/业务顺序、待命池、C ABI、公开启动消息或生产 deb。
 
@@ -363,3 +366,116 @@ python3 tools/check-code-style.py
 下一步实现 LoadSession、可轮询完成通知和 Host 异步 Master 状态机，并将提交/实际呈现
 绑定到具体加载代数。该步先使用一个 Master 单元，证明慢准备期间 Preview 仍响应输入、
 主题切换与关闭；组件依赖图和多区域并行在第三步接入。
+
+## 9. 第二步：单单元异步 Master
+
+### 加载接口与工作量边界
+
+`runtime::LoadSession` 接受 `LoadRequest {load, path, source}`，工作线程持有字符串、
+来源和取消状态，仅读取文件、调用纯编译器。结果是 `LoadCompletion`：令牌、来源、
+optional PreparedComponent/LoadDiagnostic、read_us/prepare_us。结果不借用源码；
+安装前由 Host 比较加载令牌。当前 version 仍为来源标签，没有文件内容 hash 或磁盘缓存。
+
+工作线程在首次 Submit 惰性创建；每实例一个活动准备任务，最多两个已接受但未消费的
+请求，包含排队、已发布和工作线程等待发布的结果。第三个请求返回 Busy；没有无限队列。
+eventfd 使用 NONBLOCK/CLOEXEC，生产与消费在互斥保护下发布/取走结果，通知本身不作为
+完成内容。Host 在既有 Pump 中合并该 FD，没有定时探查未来结果。
+
+源码必须是普通文件，打开与读取在工作线程完成；使用非阻塞打开并检查文件类型，拒绝
+FIFO/目录、空文件、缺失文件和超过 1 MiB 的源。逐块读取及编译前后检查 stop_token。
+当前 parser 内部不被抢占；Cancel 拒绝其迟到结果，Stop 取消、停止交付并 join，析构
+最后关闭 FD。
+不强杀线程，不承诺慢文件系统 read 或任意自定义编译器能立即中断。
+
+PrepareFunction 是可选的纯 CPU 编译器适配接口；默认唯一实现仍是 PrepareComponent。
+HostConfig 的 prepare_component 只转交同一 LoadSession，适配器不得引用 live 前端/
+平台对象或借用源文本，并须配合取消。测试使用具名适配器与可控屏障，生产没有 sleep、
+延迟环境变量、测试分支或另一条启动链。
+
+当前图片线程仍按已有实现运行；资源取消、执行前内存预留、跨 Host 总并发/预算、
+组件依赖调度均属第三步。这一阶段的两请求上限不等于全会话配额或完整内存预算。
+
+### Host 状态与失败生命周期
+
+有 Preview：Bind 同步准备受限的轻量 Preview 并打开窗口；首次成功像素提交的具名
+观察者只派发 Master 任务。完成 FD 在派发前已加入等待源，准备可与 Preview 呈现等待
+重叠。候选 Prepared 且该 preview_load 实际 presented 后，所有者线程才安装 Master
+并调用业务 dlopen/create；主题和 viewport 在安装时读取当前值。
+
+无 Preview：Bind 只排队同一 Master 任务；窗口尚未打开时 Pump 直接 poll 完成 FD 与
+调用者控制/退出 FD。完成后用 OpenPrepared 安装，报告 RuntimeReady、启动业务。
+BackendReady 仍可早于 configure/FirstPresented，公开启动消息与协议版本保持原含义。
+
+HostUiState/GetUiState 是本地 C++ 观察接口，记录 preview/master 令牌、准备/安装/提交/
+呈现状态、读取与准备耗时、Master 提交身份及 typed master_diagnostic。MasterPresented
+不是公开 wire 里程碑；没有扩大 InstanceState 或把 Dock ready 改为 strict MasterReady。
+启动 10 秒 deadline 覆盖该代 Master 实际 presented 与业务 Ready。
+
+调用者控制/主题/信号 FD 的可读、挂断与错误优先返回外层处理，再安装已完成的 Master；
+不由 Host 消费借用 FD。已经持有候选时安装前再次检查调用者事件；纯 POLLOUT 不阻止
+安装，避免持续可写通道导致饥饿。内部 LaunchClient 的主题事件由 Host 在安装前消费。
+
+首次 Master 准备/安装失败为启动终态：报告 Failed，Pump 返回 false，旧 Preview 的
+Scene 与窗口保留到 Close，worker/launcher 按既有失败生命周期退出。没有新增失败实例
+继续运行的协议；deferred 局部错误将在第四步设计。Close 先取消 UI、解除提交观察者，
+再停止并 join 加载任务，最后销毁业务与前端；重复 Close 安全。
+
+### 像素提交与实际反馈
+
+平台 PixelSubmissionId 只标识成功像素提交；State、None、失败不推进。presentation-time
+feedback 在 Swap 前关联候选提交，成功提交及 SDK 映射确认后才交付反馈。Swap 失败
+清理候选；discarded 或 frame callback 不冒充 presented。待反馈表固定 8 项，满时先
+让出像素提交、等待反馈，避免静默失去新代首屏证据。
+
+SDK 保存当前与前一安装代的 UiPresentationState，以及固定容量的 submission→load
+映射。收到旧 Preview feedback 只更新旧代；已淘汰代无法标记当前 Master。当前代首屏
+被 discarded 时通过同一按需提交路径重试，不让旧反馈撤销新提交的 frame callback。
+Close/终态失败清理追踪。旧 PresentedCount/PresentationCount 含义保持。
+
+这一步证明 Master **纯准备**期间的响应；链接、Scene 构造、字体 shaping、GPU 注册和
+dlopen/create 仍可占用事件线程。图片必需性、业务与 critical 的聚合就绪尚未实现。
+
+### 本轮验证
+
+2026-09-27，在 Pi 4B ARM64 完成统一 GLES 构建、最终测试增量确认及以下门槛：
+
+| 门槛 | 结果与范围 |
+| --- | --- |
+| CTest | 43/43 通过；新增 LoadSession 屏障/生命周期和 UiPresentationTracker 代数/反馈纯状态测试 |
+| 真实 Wayland 协议 | withheld/乱序反馈按 ID 归属；旧 discard 不退休新 frame callback；8 槽背压及释放后自动继续；None/State/prepare 或 Swap 失败不发布新的成功 ID |
+| 真实 V3D 异步 Host | 9 场景通过：有/无 Preview 的可控准备、默认编译器 1,000 个静态 Text、同时就绪控制优先、Semantic/Syntax/Read 失败、两种 Close 取消 |
+| V3D SDK 准备/提交 | 两实例共享准备结果并分别链接图片；新安装代不使用旧全局计数证明呈现；提交观察者只在映射确认后触发；状态变更不产生 UI 像素 ID；连接失败回滚、同代重试和关闭清理 |
+| 既有 SDK 渲染 | --verify-submission 通过，保留按需提交、局部修复、资源和多实例行为 |
+| 生产 Host/待命池 | app_host_probe/launcher_pool_probe 通过；Preview 与业务顺序、无 Preview 的 Ready 顺序、ABI/崩溃/超时、取消和会话回收维持原协议 |
+| 依赖与规范 | load_session_test 符号检查无 Scene、ClientApplication、Wayland、ImageResources 或 Skia/Ganesh；205 个生产文件、55 个测试文件规范通过，最大生产文件 715 行 |
+
+Host 屏障测试将工作任务确定保持在纯准备阶段，证明 Preview 的实际反馈、主题安装、
+借用控制 FD 和退出回收继续工作。控制优先场景使候选与调用者 FD 同时就绪，并在外层
+处理主题后才加入 Master 必需 token，成功安装证明读取最新快照。成功安装后使用真实
+注册的业务请求/订阅与主题广播，逐项等待新提交的真实反馈；未放宽生产消息过滤。
+
+本轮证据目录为 `dist/validation/prism-master-async/`：`build-verified.log`、`ctest.log`、
+`style.log`、`pure-boundary.json`、`native-gates.json`、`async-master.log`、
+`prepared-ui/native-gates.json`、`runtime-gates.json` 和对应日志。初轮业务消息测试未先
+注册请求/订阅，被 SDK 正确忽略；仅修正测试后通过，初始证据保留在 `initial-native/`。
+
+复现命令（逐项运行，构建并行度 2）：
+
+```sh
+cmake --build build-gles --parallel 2
+ctest --test-dir build-gles --output-on-failure
+python3 tests/probes/async_master_probe.py build-gles --evidence dist/validation/prism-master-async
+python3 tests/probes/prepared_ui_probe.py build-gles --evidence dist/validation/prism-master-async/prepared-ui
+python3 tests/probes/app_host_probe.py build-gles
+python3 tests/probes/launcher_pool_probe.py build-gles
+python3 tools/check-code-style.py
+```
+
+测试均在隔离的 headless WM 使用真实 V3D，没有重新打 deb、替换显示器会话或重启
+生产服务。屏障是正确性验证，read_us/prepare_us 包含测试适配器的等待，不能用来报告
+启动提速或输入延迟。实际鼠标/键盘延迟、安装/shaping 的最大停顿、总 CPU/峰值内存
+及串行/多组件调度对照仍在后续实机测量阶段；不以这轮功能门槛替代性能结论。
+
+下一步是 Interface/Component/Slot/Binding 的有类型加载图与有界资源调度：先定义
+组合单位、依赖及总限制，再接入每实例和会话预算；图片准备迁入统一调度。分阶段
+critical/deferred 安装和业务异步准备按第四、五步继续。

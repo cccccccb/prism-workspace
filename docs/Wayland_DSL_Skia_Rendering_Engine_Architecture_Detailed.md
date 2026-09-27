@@ -30,14 +30,15 @@
 
 ### 2026-09-27：Preview/Master 加载实施补充
 
-当前统一 Host 使用 Preview/Master 分开的 DSL、同一个 surface/EGL；Preview 呈现后
-同步加载 Master 和业务模块。应用业务 `.so` 与本实例前端同进程，实例之间独立。
+当前统一 Host 使用 Preview/Master 分开的 DSL、同一个 surface/EGL；Preview 像素提交后
+派发 Master 纯准备，候选完成且 Preview 呈现后安装，再同步加载业务模块。
+应用业务 `.so` 与本实例前端同进程，实例之间独立。
 Master 多组件并行准备仍为新增目标，规范及顺序见
 [MASTER_PARALLEL_LOADING.md](MASTER_PARALLEL_LOADING.md)。复用通用 parser，声明式加载
 图产出不可变准备结果，Scene/GPU/Wayland 由所有者线程安装和提交；不并发读写 live
 Scene，不把 DSL 树交回 WM。下文第 26 节的独立渲染线程是长期方案，当前加载阶段
-不改变现有 GLES 所有权。第一步纯准备/安装接口已接入，异步调度与多组件加载图仍未
-实现；当前限制及本轮验证见加载规范第 8 节。
+不改变现有 GLES 所有权。第一步已提交 `99101cf`，第二步单单元异步准备与代数呈现
+追踪已实现并验证；多组件图、会话总配额和分阶段挂载仍未实现，见加载规范实施记录。
 
 ### 1.1 目标
 

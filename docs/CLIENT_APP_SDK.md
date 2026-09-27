@@ -75,6 +75,14 @@ UI 所有者线程。`runtime::PrepareComponent(source, ComponentSource)` 是独
 Scene，当前代可以重试；Open 的连接失败清理未打开的窗口，不取消同代准备结果。
 Close 为终态，撤销所有未安装结果。安装诊断是 LoadDiagnostic，不从日志文字提取行号。
 
-旧 Open/ReplaceUi 复用相同准备与安装管线。Host 已显式接入新接口，当前仍同步执行；
-新增接口本身不创建任务池或承诺 Master 已并行。图片任务回滚、分阶段挂载、绑定状态表
-和真正的 MasterPresented 仍按 [加载规范](MASTER_PARALLEL_LOADING.md) 后续步骤实施。
+旧 Open/ReplaceUi 复用相同准备与安装管线。这些方法本身不创建准备线程；Host 的
+异步 Master 使用独立 LoadSession，完成后回到所有者线程调用同一安装接口。
+
+`GetUiPresentation(UiLoadId)` 返回该代的 installed/submitted/presented、提交 ID 和反馈
+计数；当前与前一代的状态有界保存。仅成功像素提交触发具名 `OnUiSubmitted` 观察者，
+实际 presented/discarded 与该提交对应；State、None、Swap 失败、frame callback 或旧代
+反馈不能证明新代已经呈现。未知/已淘汰代数返回 false，Close 清理追踪与观察者。
+提交观察者只能做短时通知/派发，不在 Wayland 提交回调中替换 live Scene。
+
+图片任务回滚、分阶段挂载、绑定状态表和多组件 critical 聚合就绪仍按
+[加载规范](MASTER_PARALLEL_LOADING.md) 后续步骤实施。

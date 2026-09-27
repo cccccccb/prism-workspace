@@ -158,6 +158,7 @@ ClientApplication::Impl::PrepareSubmit(const platform::SubmitRequest &request)
         }
         app.render_stats.pixel_repair_pixels += area;
         app.prepared_pixels_revision = app.scene->PixelsRevision();
+        app.prepared_ui = app.installed_ui;
         return platform::SubmitResult::Pixels;
     } catch (const std::exception &error) {
         std::fprintf(stderr, "[prism-sdk] submission failed: %s\n", error.what());
@@ -200,6 +201,12 @@ void ClientApplication::Impl::Submitted(platform::SubmitResult result)
         app.committed_pixels_revision = app.prepared_pixels_revision;
         app.committed_list = std::move(app.prepared_list);
         app.committed_resource_epoch = app.prepared_resource_epoch;
+        const auto submission = app.window.LastPixelSubmission();
+        if (!app.ui_presentation.Submit(app.prepared_ui, submission,
+                                        app.window.PresentationPending(submission))) {
+            app.FailFrontend();
+            return;
+        }
     }
 
     // None can acknowledge a checked, identical metadata request, e.g.
@@ -208,6 +215,21 @@ void ClientApplication::Impl::Submitted(platform::SubmitResult result)
         app.scene->AcknowledgeComposite();
     }
     app.state_prepared = false;
+    if (result == platform::SubmitResult::Pixels && app.on_ui_submitted) {
+        app.on_ui_submitted(app.prepared_ui);
+    }
+}
+
+void ClientApplication::Impl::HandlePresentation(const platform::PixelPresentation &event)
+{
+    const auto load = ui_presentation.Present(event);
+    if (load != installed_ui || event.outcome != platform::PresentationOutcome::Discarded) {
+        return;
+    }
+    const auto state = ui_presentation.Get(load);
+    if (state.installed && !state.presented && event.submission.value == state.last_submission) {
+        window.RequestRedraw(true);
+    }
 }
 
 } // namespace prism::sdk

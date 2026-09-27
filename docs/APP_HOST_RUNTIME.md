@@ -110,20 +110,22 @@ ABI v1 的原有字段和布局前缀保留：HostApi 尾部增加 `select_theme
 
 Host 的 `Pump(timeout_ms, wake_fds)` 合并前端 Wayland/资源、内部 launcher、调用者控制与退出通知；负 timeout 允许无限等待。业务 ABI v1 已有 `schedule_tick`，本轮不扩展模块结构。等待上限取业务下一次 tick、启动 10 秒 deadline 与调用者上限的最早值；没有 tick 时不设置固定轮询。业务回调仍在 Host 主线程执行。
 
-生产 worker、launcher 与 session supervisor 使用可轮询信号通知，SIGCHLD 驱动回收，watchdog/主题/片段/升级清理按真实截止时间处理。控制事件和完整用户态缓存消息均能唤醒；仅片段不选零 timeout。Music 暂停停止重排定时器，播放恢复 500ms 更新。Preview 实际呈现后再加载业务/Master、同 surface 替换、Ready 和取消协议沿用既有链路。实现规范与本轮结果见 [渲染调度与失效传播](RENDER_SCHEDULING_AND_INVALIDATION.md)。
+生产 worker、launcher 与 session supervisor 使用可轮询信号通知，SIGCHLD 驱动回收，watchdog/主题/片段/升级清理按真实截止时间处理。控制事件和完整用户态缓存消息均能唤醒；仅片段不选零 timeout。Music 暂停停止重排定时器，播放恢复 500ms 更新。Master 纯准备在 Preview 像素提交后派发，安装和业务加载等待其实际呈现；同 surface 替换、Ready 和取消协议沿用既有链路。渲染规范见 [渲染调度与失效传播](RENDER_SCHEDULING_AND_INVALIDATION.md)，异步加载进度见本文第 11 节。
 
 worker 自报合法 Failed 后，launcher 保留失败事件并给予 250ms 自行退出窗口，仍未退出则 TERM→1s KILL；正常退出和信号退出都由 waitpid 如实报告。取消、watchdog、会话停止立即 TERM，未增加等待宽限。该规则覆盖快速错误退出与失败后阻塞清理，详见 [待命池生命周期](LAUNCHER_WORKER_POOL.md#5-生命周期超时与取消)。
 
 ## 11. 2026-09-27 加载现状核对与下一阶段
 
-目前有 Preview 的包实际呈现 Preview 后，在同一 Host Pump 中同步读取/解析 Master、
-替换 Scene、dlopen/create 业务；Master 在后续 Pump 才提交。BackendReady 可能早于
-Master 提交/呈现，没有独立的 MasterPresented 状态。图片解码已有一个后台线程，
-DSL/Scene 构造和模块回调仍在 Host 事件线程，复杂加载会阻塞输入与控制处理。
+有 Preview 的包在成功像素提交后派发单单元 Master 的读取/纯准备，并继续处理事件；
+候选完成且该 Preview 实际呈现后，才在所有者线程替换 Scene、dlopen/create 业务。
+无 Preview 的包在 Bind 中排队准备，Pump 在窗口尚未打开时合并完成 FD 与调用者控制 FD。
+HostUiState 本地记录 MasterPrepared/Installed/Submitted/Presented，呈现绑定具体加载代数
+与像素提交身份；不扩展 worker/public wire 或 Dock 状态。
 
 统一 Host 与业务模块通过窄接口解耦，业务 `.so` 在本实例的 Host 进程内，并非另一个
 后台进程。下一阶段的准备/安装边界、DSL 组件依赖图、critical/deferred、资源预算、
 呈现代数、业务异步约束及六步顺序见 [MASTER_PARALLEL_LOADING.md](MASTER_PARALLEL_LOADING.md)。
-第一步已接入纯 PrepareComponent 与所有者线程安装接口；Host 显式发行加载令牌、
-准备带来源路径的组件并安装，当前仍为同步调用，没有接入异步调度或组件图。
+第一步已提交 `99101cf`。第二步接入 LoadSession 的有界单线程准备与 eventfd 唤醒，
+并通过验证。链接、Scene 构造、字体/GPU/Wayland 及业务回调仍在事件线程；复杂安装
+或任意慢业务初始化仍可阻塞。多组件图、全会话配额及业务异步准备属于后续步骤。
 后续进度与验证以加载规范的实施记录为准。

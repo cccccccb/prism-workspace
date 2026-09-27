@@ -102,6 +102,7 @@ bool ClientApplication::Impl::InstallScene(runtime::UiLoadId load,
         app.scene = std::move(next);
         app.scene_images = std::move(images);
         app.installed_ui = load;
+        app.ui_presentation.Install(load);
         app.last_list.reset();
         app.committed_list.reset();
         app.prepared_list.reset();

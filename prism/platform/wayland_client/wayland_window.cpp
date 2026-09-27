@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <linux/input-event-codes.h>
 #include <poll.h>
 #include <sys/mman.h>
@@ -88,18 +89,67 @@ void WaylandWindow::ReapBuffers()
     });
 }
 
-struct wp_presentation_feedback *WaylandWindow::TrackPresentation()
+bool WaylandWindow::PresentationCapacityAvailable() const noexcept
 {
-    if (!presentation_ || feedbacks_.size() >= 8) {
+    if (!presentation_) {
+        return true;
+    }
+    for (const auto &pending : feedbacks_) {
+        if (!pending.submission) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool WaylandWindow::PresentationPending(PixelSubmissionId submission) const noexcept
+{
+    if (!submission) {
+        return false;
+    }
+    for (const auto &pending : feedbacks_) {
+        if (pending.submission == submission && pending.committed) {
+            return true;
+        }
+    }
+    return false;
+}
+
+struct wp_presentation_feedback *WaylandWindow::TrackPresentation(PixelSubmissionId submission)
+{
+    if (!presentation_) {
         return nullptr;
     }
-    auto *feedback = wp_presentation_feedback(presentation_, surface_);
-    static const wp_presentation_feedback_listener listener{.sync_output = PresentationOutput,
-                                                            .presented = PresentationDone,
-                                                            .discarded = PresentationDiscarded};
-    wp_presentation_feedback_add_listener(feedback, &listener, this);
-    feedbacks_.push_back(feedback);
-    return feedback;
+    for (auto &pending : feedbacks_) {
+        if (pending.submission) {
+            continue;
+        }
+        auto *feedback = wp_presentation_feedback(presentation_, surface_);
+        if (!feedback) {
+            return nullptr;
+        }
+        static const wp_presentation_feedback_listener listener{.sync_output = PresentationOutput,
+                                                                .presented = PresentationDone,
+                                                                .discarded = PresentationDiscarded};
+        if (wp_presentation_feedback_add_listener(feedback, &listener, this) < 0) {
+            wp_presentation_feedback_destroy(feedback);
+            return nullptr;
+        }
+        pending = {feedback, submission, false, {}};
+        return feedback;
+    }
+    return nullptr;
+}
+
+void WaylandWindow::ConfirmPixelSubmission(PixelSubmissionId submission) noexcept
+{
+    last_pixel_submission_ = submission;
+    for (auto &pending : feedbacks_) {
+        if (pending.submission == submission) {
+            pending.committed = true;
+            return;
+        }
+    }
 }
 
 SubmitResult WaylandWindow::CompleteSubmit(SubmitResult result)
@@ -122,6 +172,9 @@ SubmitResult WaylandWindow::CompleteSubmit(SubmitResult result)
     if (on_submitted_) {
         on_submitted_(result);
     }
+    if (result == SubmitResult::Pixels) {
+        DispatchCompletedPresentations();
+    }
     // Destroying a client callback proxy cannot undo its pending server-side
     // frame request. Terminal failure destroys the surface, never commits it.
     if (result == SubmitResult::Failed && !dispatching_) {
@@ -138,7 +191,7 @@ SubmitResult WaylandWindow::TrySubmit()
     if (!configured_ || !update_requested_ || !surface_) {
         return SubmitResult::None;
     }
-    const bool allow_pixels = frame_callback_ == nullptr;
+    const bool allow_pixels = frame_callback_ == nullptr && PresentationCapacityAvailable();
     if (prepare_submit_) {
         const SubmitRequest request{display_,
                                     surface_,
@@ -157,13 +210,24 @@ SubmitResult WaylandWindow::TrySubmit()
             if (!allow_pixels || !commit_pixels_) {
                 return CompleteSubmit(SubmitResult::Failed);
             }
+            if (last_pixel_submission_.value == std::numeric_limits<std::uint64_t>::max()) {
+                return CompleteSubmit(SubmitResult::Failed);
+            }
+            const PixelSubmissionId submission{last_pixel_submission_.value + 1};
             frame_callback_ = wl_surface_frame(surface_);
+            if (!frame_callback_) {
+                return CompleteSubmit(SubmitResult::Failed);
+            }
+            frame_callback_submission_ = submission;
             static const wl_callback_listener listener{.done = FrameDone};
             wl_callback_add_listener(frame_callback_, &listener, this);
-            TrackPresentation();
+            if (!TrackPresentation(submission) && presentation_) {
+                return CompleteSubmit(SubmitResult::Failed);
+            }
             if (!commit_pixels_()) {
                 return CompleteSubmit(SubmitResult::Failed);
             }
+            ConfirmPixelSubmission(submission);
             mapped_ = true;
             force_pixels_ = state_pending_ = update_requested_ = false;
             return CompleteSubmit(SubmitResult::Pixels);
@@ -199,15 +263,26 @@ SubmitResult WaylandWindow::TrySubmit()
     if (!buffer) {
         return SubmitResult::None;
     }
+    if (last_pixel_submission_.value == std::numeric_limits<std::uint64_t>::max()) {
+        return CompleteSubmit(SubmitResult::Failed);
+    }
+    const PixelSubmissionId submission{last_pixel_submission_.value + 1};
     paint_handler_(buffer->pixels, buffer->width, buffer->height, buffer->width * 4);
     buffer->busy = true;
     wl_surface_attach(surface_, buffer->handle, 0, 0);
     wl_surface_damage_buffer(surface_, 0, 0, buffer->width, buffer->height);
     frame_callback_ = wl_surface_frame(surface_);
+    if (!frame_callback_) {
+        return CompleteSubmit(SubmitResult::Failed);
+    }
+    frame_callback_submission_ = submission;
     static const wl_callback_listener listener{.done = FrameDone};
     wl_callback_add_listener(frame_callback_, &listener, this);
-    TrackPresentation();
+    if (!TrackPresentation(submission) && presentation_) {
+        return CompleteSubmit(SubmitResult::Failed);
+    }
     wl_surface_commit(surface_);
+    ConfirmPixelSubmission(submission);
     mapped_ = true;
     force_pixels_ = state_pending_ = update_requested_ = false;
     return CompleteSubmit(SubmitResult::Pixels);
@@ -438,10 +513,13 @@ void WaylandWindow::SetInputRegions(std::span<const contracts::SurfaceInputRegio
 
 void WaylandWindow::Close()
 {
-    for (auto *feedback : feedbacks_) {
-        wp_presentation_feedback_destroy(feedback);
+    for (auto &pending : feedbacks_) {
+        if (pending.handle) {
+            wp_presentation_feedback_destroy(pending.handle);
+        }
+        pending = {};
     }
-    feedbacks_.clear();
+    frame_callback_submission_ = {};
     if (presentation_) {
         wp_presentation_destroy(presentation_);
     }

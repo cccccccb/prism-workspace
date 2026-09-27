@@ -3,6 +3,7 @@
 #include "prism/runtime/prepared_component.hpp"
 #include "prism/runtime/property.hpp"
 #include "prism/runtime/ui_load.hpp"
+#include "prism/sdk/ui_presentation.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -70,6 +71,10 @@ public:
     // A new load or cancellation invalidates earlier results without changing the live UI.
     runtime::UiLoadId BeginUiLoad();
     void CancelUiLoad();
+    UiPresentationState GetUiPresentation(runtime::UiLoadId load) const noexcept;
+    // Every successful pixel submission, after its UI identity is recorded.
+    // Observers must return promptly and leave installation to the owner pump.
+    void OnUiSubmitted(std::function<void(runtime::UiLoadId)> callback);
     bool OpenPrepared(runtime::UiLoadId load, const runtime::PreparedComponent &prepared,
                       runtime::LoadDiagnostic *diagnostic = nullptr);
     bool ReplaceUiPrepared(runtime::UiLoadId load, const runtime::PreparedComponent &prepared,

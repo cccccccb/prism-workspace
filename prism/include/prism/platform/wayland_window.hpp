@@ -2,9 +2,12 @@
 
 #include "prism/contracts/events.hpp"
 #include "prism/contracts/surface_effect.hpp"
+#include "prism/platform/presentation.hpp"
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <poll.h>
 #include <span>
 #include <string>
@@ -64,6 +67,11 @@ public:
     void SetPaintHandler(std::function<void(void *, int, int, int)> handler)
     {
         paint_handler_ = std::move(handler);
+    }
+
+    void SetPresentationHandler(std::function<void(const PixelPresentation &)> handler)
+    {
+        presentation_handler_ = std::move(handler);
     }
 
     // Prepare Pixels renders an uncommitted WSI buffer; only commit_pixels
@@ -145,6 +153,13 @@ public:
         return submit_stats_;
     }
 
+    PixelSubmissionId LastPixelSubmission() const noexcept
+    {
+        return last_pixel_submission_;
+    }
+
+    bool PresentationPending(PixelSubmissionId submission) const noexcept;
+
     int PointerEnterCount() const
     {
         return pointer_enter_count_;
@@ -208,8 +223,12 @@ private:
                                  std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t,
                                  std::uint32_t, std::uint32_t);
     static void PresentationDiscarded(void *, struct wp_presentation_feedback *);
-    struct wp_presentation_feedback *TrackPresentation();
-    void FinishPresentation(struct wp_presentation_feedback *);
+    struct wp_presentation_feedback *TrackPresentation(PixelSubmissionId);
+    bool PresentationCapacityAvailable() const noexcept;
+    void FinishPresentation(struct wp_presentation_feedback *, PresentationOutcome);
+    void DispatchCompletedPresentations();
+    void DeliverPresentation(PixelPresentation);
+    void ConfirmPixelSubmission(PixelSubmissionId) noexcept;
     ShmBuffer *AcquireBuffer();
     void Emit(contracts::WindowEvent event);
     SubmitResult TrySubmit();
@@ -218,7 +237,17 @@ private:
     void ReapBuffers();
 
     wp_presentation *presentation_{nullptr};
-    std::vector<struct wp_presentation_feedback *> feedbacks_;
+
+    struct PendingPresentation {
+        struct wp_presentation_feedback *handle{};
+        PixelSubmissionId submission{};
+        bool committed{};
+        std::optional<PresentationOutcome> completed;
+    };
+
+    std::array<PendingPresentation, 8> feedbacks_{};
+    PixelSubmissionId last_pixel_submission_{};
+    PixelSubmissionId frame_callback_submission_{};
     int presentation_count_{0};
     int discarded_count_{0};
     wl_display *display_{nullptr};
@@ -246,6 +275,7 @@ private:
     std::function<SubmitResult(const SubmitRequest &)> prepare_submit_;
     std::function<bool()> commit_pixels_;
     std::function<void(SubmitResult)> on_submitted_;
+    std::function<void(const PixelPresentation &)> presentation_handler_;
     SubmitStats submit_stats_{};
     contracts::WindowMetrics metrics_{};
     contracts::LogicalPoint pointer_position_{};

@@ -84,6 +84,16 @@ void ClientApplication::CancelUiLoad()
     impl_->ui_load.Cancel();
 }
 
+UiPresentationState ClientApplication::GetUiPresentation(runtime::UiLoadId load) const noexcept
+{
+    return impl_->ui_presentation.Get(load);
+}
+
+void ClientApplication::OnUiSubmitted(std::function<void(runtime::UiLoadId)> callback)
+{
+    impl_->on_ui_submitted = std::move(callback);
+}
+
 bool ClientApplication::ReplaceUiPrepared(runtime::UiLoadId load,
                                           const runtime::PreparedComponent &prepared,
                                           runtime::LoadDiagnostic *diagnostic)
@@ -128,6 +138,7 @@ bool ClientApplication::OpenPrepared(runtime::UiLoadId load,
     app.window.SetSubmitHandlers(std::bind_front(&Impl::PrepareSubmit, &app),
                                  std::bind_front(&Impl::CommitPixels, &app),
                                  std::bind_front(&Impl::Submitted, &app));
+    app.window.SetPresentationHandler(std::bind_front(&Impl::HandlePresentation, &app));
 
     if (!app.window.Open(app.config.socket, app.config.app_id, app.config.title, app.config.width,
                          app.config.height)) {
@@ -138,6 +149,8 @@ bool ClientApplication::OpenPrepared(runtime::UiLoadId load,
         app.scene.reset();
         app.scene_images.clear();
         app.installed_ui = previous_ui;
+        app.ui_presentation.Clear();
+        app.prepared_ui = {};
         if (diagnostic) {
             *diagnostic = {runtime::LoadStage::Install, prepared.Source(), 0,
                            "Wayland window open failed"};
@@ -172,6 +185,9 @@ void ClientApplication::Impl::FailFrontend()
 {
     failed = true;
     ui_load.Cancel();
+    ui_presentation.Clear();
+    prepared_ui = {};
+    on_ui_submitted = {};
     CloseGpu();
 }
 
@@ -383,6 +399,10 @@ void ClientApplication::Close()
     }
     impl_->closed = true;
     impl_->ui_load.Cancel();
+    impl_->ui_presentation.Clear();
+    impl_->prepared_ui = {};
+    impl_->on_ui_submitted = {};
+    impl_->window.SetPresentationHandler({});
 
     impl_->CloseGpu();
     impl_->window.Close();

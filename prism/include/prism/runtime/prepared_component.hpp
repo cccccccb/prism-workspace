@@ -19,7 +19,7 @@ struct ComponentSource {
     std::string source_version;
 };
 
-enum class LoadStage { Syntax, Semantic, ResourceLink, Install, Cancelled };
+enum class LoadStage { Read, Syntax, Semantic, ResourceLink, Install, Cancelled };
 
 struct LoadDiagnostic {
     LoadStage stage{LoadStage::Semantic};

@@ -57,6 +57,37 @@ class Server {
     Snapshot totals_;
     Surface *current_{};
 
+    void ReleaseFramesOnThread()
+    {
+        assert(current_);
+        const auto records = current_->records;
+        for (auto *record : records) {
+            if (!record->pending && !record->feedback) {
+                wl_callback_send_done(record->resource, 1);
+                wl_resource_destroy(record->resource);
+            }
+        }
+    }
+
+    void ReleaseFeedbackOnThread(unsigned index, bool discarded)
+    {
+        assert(current_);
+        unsigned current = 0;
+        for (auto *record : current_->records) {
+            if (record->pending || !record->feedback || current++ != index) {
+                continue;
+            }
+            if (discarded) {
+                wl_resource_post_event(record->resource, 2);
+            } else {
+                wl_resource_post_event(record->resource, 1, 0u, 1u, 0u, 16666667u, 0u, 1u, 0u);
+            }
+            wl_resource_destroy(record->resource);
+            return;
+        }
+        assert(false);
+    }
+
     static void Destroy(wl_client *, wl_resource *resource)
     {
         wl_resource_destroy(resource);
@@ -370,6 +401,16 @@ public:
             Configure(*current_, width, height);
         });
     }
+
+    void ReleaseFrames()
+    {
+        Sync(std::bind_front(&Server::ReleaseFramesOnThread, this));
+    }
+
+    void ReleaseFeedback(unsigned index, bool discarded = false)
+    {
+        Sync(std::bind_front(&Server::ReleaseFeedbackOnThread, this, index, discarded));
+    }
 };
 
 void Until(prism::platform::WaylandWindow &window, std::function<bool()> condition)
@@ -387,6 +428,143 @@ void UntilServer(Server &server, std::function<bool(const Snapshot &)> condition
     while (!condition(server.Inspect())) {
         assert(std::chrono::steady_clock::now() < deadline);
     }
+}
+
+struct IdentityFixture {
+    prism::platform::WaylandWindow window;
+    SubmitRequest request;
+    bool pixels{true};
+    std::vector<prism::platform::PixelPresentation> feedback;
+
+    SubmitResult Prepare(const SubmitRequest &next)
+    {
+        request = next;
+        return pixels && next.allow_pixels ? SubmitResult::Pixels : SubmitResult::None;
+    }
+
+    bool Commit()
+    {
+        wl_surface_commit(request.surface);
+        pixels = false;
+        return wl_display_flush(request.display) >= 0;
+    }
+
+    void Presented(const prism::platform::PixelPresentation &event)
+    {
+        feedback.push_back(event);
+    }
+
+    void Open()
+    {
+        window.SetSubmitHandlers(std::bind_front(&IdentityFixture::Prepare, this),
+                                 std::bind_front(&IdentityFixture::Commit, this));
+        window.SetPresentationHandler(std::bind_front(&IdentityFixture::Presented, this));
+        assert(window.Open("wayland-submit-test", "identity.fixture", "Identity fixture", 160, 90));
+        assert(!window.LastPixelSubmission());
+    }
+
+    void RequestPixels()
+    {
+        pixels = true;
+        window.RequestUpdate(true);
+    }
+
+    bool PixelsAt(std::uint64_t count) const
+    {
+        return window.GetSubmitStats().pixel_commits == count;
+    }
+
+    bool FramesAt(int count) const
+    {
+        return window.FrameDoneCount() == count;
+    }
+
+    bool FeedbackAt(std::size_t count) const
+    {
+        return feedback.size() == count;
+    }
+};
+
+void VerifyOutOfOrderFeedback(Server &server)
+{
+    IdentityFixture fixture;
+    fixture.Open();
+    Until(fixture.window, std::bind_front(&IdentityFixture::PixelsAt, &fixture, 1));
+    UntilServer(server, [](const Snapshot &snapshot) {
+        return snapshot.live_frames == 1 && snapshot.live_feedbacks == 1 &&
+               snapshot.pending_frames == 0;
+    });
+    assert(fixture.window.LastPixelSubmission().value == 1);
+    server.ReleaseFrames();
+    Until(fixture.window, std::bind_front(&IdentityFixture::FramesAt, &fixture, 1));
+    fixture.RequestPixels();
+    Until(fixture.window, std::bind_front(&IdentityFixture::PixelsAt, &fixture, 2));
+    UntilServer(server, [](const Snapshot &snapshot) {
+        return snapshot.live_frames == 1 && snapshot.live_feedbacks == 2 &&
+               snapshot.pending_frames == 0;
+    });
+
+    // Present the newer pixels first, while both feedback objects exist. A
+    // later old-frame discard must neither acquire the new ID nor retire its
+    // still outstanding frame callback.
+    server.ReleaseFeedback(1);
+    Until(fixture.window, std::bind_front(&IdentityFixture::FeedbackAt, &fixture, 1));
+    assert(fixture.feedback[0].submission.value == 2);
+    assert(fixture.feedback[0].outcome == prism::platform::PresentationOutcome::Presented);
+    server.ReleaseFeedback(0, true);
+    Until(fixture.window, std::bind_front(&IdentityFixture::FeedbackAt, &fixture, 2));
+    assert(fixture.feedback[1].submission.value == 1);
+    assert(fixture.feedback[1].outcome == prism::platform::PresentationOutcome::Discarded);
+    assert(fixture.window.FrameCallbackPending());
+    assert(fixture.window.LastPixelSubmission().value == 2);
+    assert(fixture.window.GetSubmitStats().pixel_commits == 2);
+    assert(fixture.window.PresentationCount() == 1 && fixture.window.DiscardedCount() == 1);
+    server.ReleaseFrames();
+    Until(fixture.window, std::bind_front(&IdentityFixture::FramesAt, &fixture, 2));
+    fixture.window.Close();
+    UntilServer(server, [](const Snapshot &snapshot) { return snapshot.surfaces == 0; });
+}
+
+void VerifyFeedbackBackpressure(Server &server)
+{
+    IdentityFixture fixture;
+    fixture.Open();
+    for (std::uint64_t submission = 1; submission <= 8; ++submission) {
+        Until(fixture.window, std::bind_front(&IdentityFixture::PixelsAt, &fixture, submission));
+        UntilServer(server, [submission](const Snapshot &snapshot) {
+            return snapshot.live_frames == 1 && snapshot.live_feedbacks == submission &&
+                   snapshot.pending_frames == 0;
+        });
+        server.ReleaseFrames();
+        Until(fixture.window,
+              std::bind_front(&IdentityFixture::FramesAt, &fixture, static_cast<int>(submission)));
+        if (submission < 8) {
+            fixture.RequestPixels();
+        }
+    }
+
+    fixture.RequestPixels();
+    assert(fixture.window.Pump(0));
+    assert(!fixture.request.allow_pixels && !fixture.window.FrameCallbackPending());
+    assert(fixture.window.GetSubmitStats().pixel_commits == 8);
+    assert(fixture.window.LastPixelSubmission().value == 8);
+    assert(server.Inspect().live_feedbacks == 8);
+
+    // Freeing one presentation slot alone wakes deferred pixels; no new
+    // RequestPixels is required, and the submission ID is never skipped.
+    server.ReleaseFeedback(0);
+    Until(fixture.window, std::bind_front(&IdentityFixture::PixelsAt, &fixture, 9));
+    UntilServer(server, [](const Snapshot &snapshot) {
+        return snapshot.live_frames == 1 && snapshot.live_feedbacks == 8 &&
+               snapshot.pending_frames == 0;
+    });
+    assert(fixture.window.LastPixelSubmission().value == 9);
+    assert(fixture.feedback.size() == 1 && fixture.feedback[0].submission.value == 1);
+    server.Release();
+    Until(fixture.window, std::bind_front(&IdentityFixture::FeedbackAt, &fixture, 9));
+    Until(fixture.window, std::bind_front(&IdentityFixture::FramesAt, &fixture, 9));
+    fixture.window.Close();
+    UntilServer(server, [](const Snapshot &snapshot) { return snapshot.surfaces == 0; });
 }
 } // namespace
 
@@ -432,6 +610,7 @@ int main()
             return s.frames == 1 && s.feedbacks == 1 && s.commits == 2;
         });
         assert(window.FrameCallbackPending());
+        assert(window.LastPixelSubmission().value == 1);
         auto before = server.Inspect();
         demand = SubmitResult::None;
         window.RequestUpdate(true);
@@ -440,6 +619,7 @@ int main()
         assert(after.commits == before.commits && after.frames == before.frames &&
                after.feedbacks == before.feedbacks);
         assert(window.GetSubmitStats().none >= 1);
+        assert(window.LastPixelSubmission().value == 1);
         demand = SubmitResult::State;
         window.RequestUpdate(true);
         Until(window, [&] { return window.GetSubmitStats().state_commits == 1; });
@@ -450,6 +630,7 @@ int main()
                after.feedbacks == before.feedbacks);
         assert(window.FrameCallbackPending() && after.pending_frames == 0 &&
                after.live_frames == 1);
+        assert(window.LastPixelSubmission().value == 1);
         demand = SubmitResult::Pixels;
         dirty_pixels = true;
         window.RequestUpdate(true);
@@ -510,6 +691,7 @@ int main()
             failed_prepare.Pump(5);
         }
         assert(failed_prepare.GetSubmitStats().failures == 1);
+        assert(!failed_prepare.LastPixelSubmission());
         UntilServer(server, [](const Snapshot &s) { return s.surfaces == 0; });
         after = server.Inspect();
         assert(after.frames == before.frames && after.feedbacks == before.feedbacks);
@@ -539,6 +721,8 @@ int main()
         }
         assert(failed_swap.GetSubmitStats().failures == 1 && pending.pending_frames == 1 &&
                pending.pending_feedbacks == 1);
+        assert(!failed_swap.LastPixelSubmission());
+        assert(!failed_swap.PresentationPending({1}));
         UntilServer(server, [](const Snapshot &s) { return s.surfaces == 0; });
         after = server.Inspect();
         assert(after.commits == before.commits + 1 && after.live_frames == 0 &&
@@ -551,6 +735,8 @@ int main()
         assert(stable.commits == after.commits && stable.frames == after.frames &&
                stable.feedbacks == after.feedbacks);
         assert(failed_swap.GetSubmitStats().failures == 1);
+        VerifyOutOfOrderFeedback(server);
+        VerifyFeedbackBackpressure(server);
     }
     std::filesystem::remove_all(path);
 }

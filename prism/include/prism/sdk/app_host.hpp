@@ -2,11 +2,16 @@
 #include "prism/contracts/launch.hpp"
 #include "prism/contracts/theme.hpp"
 #include "prism/launch/package.hpp"
+#include "prism/runtime/load_session.hpp"
+#include "prism/runtime/ui_load.hpp"
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <poll.h>
 #include <span>
+#include <string>
 
 namespace prism::sdk {
 struct HostConfig {
@@ -21,10 +26,25 @@ struct HostConfig {
     std::function<std::uint64_t(std::string_view)> select_color_scheme;
     std::optional<std::size_t> gpu_resource_cache_bytes;
     std::optional<contracts::ThemeSnapshot> initial_theme;
+    // Optional pure CPU compiler adapter; ownership/thread rules match LoadSession.
+    runtime::PrepareFunction prepare_component;
+};
+
+// Local observations only; these are not worker/public launch milestones.
+struct HostUiState {
+    runtime::UiLoadId preview_load;
+    runtime::UiLoadId master_load;
+    bool preview_submitted{}, preview_presented{};
+    bool master_prepared{}, master_installed{}, master_submitted{}, master_presented{};
+    bool failed{}, cancelled{};
+    std::uint64_t read_us{}, prepare_us{};
+    std::uint64_t master_first_submission{}, master_presented_submission{};
+    std::optional<runtime::LoadDiagnostic> master_diagnostic;
 };
 
 // Constructible in a single-thread seed. PrepareFrontend must run in the final
-// worker: it creates resource threads. Bind creates the application surface/GPU.
+// worker: it creates resource threads. Bind opens a Preview or queues the Master;
+// all surface/GPU work remains on the caller's owner thread.
 class AppHost {
 public:
     explicit AppHost(HostConfig config);
@@ -42,6 +62,7 @@ public:
     // Negative timeout waits for events/deadlines. Descriptors are borrowed;
     // readiness is returned to the caller after Wayland's read lock is released.
     bool Pump(int timeout_ms, std::span<pollfd> wake_fds = {});
+    HostUiState GetUiState() const;
     bool IsCloseRequested() const;
     void Close();
 

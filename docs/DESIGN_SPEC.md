@@ -6,7 +6,7 @@
 
 > **2026-09-26 实现状态说明**：本文包含历史方案与目标规范，部分完成标记、旧启动链和示例 API 不代表当前 Skia 生产路径。参考图驱动的视觉/平铺差异、职责边界和执行顺序见 [VISUAL_TILING_REFINEMENT_PLAN.md](VISUAL_TILING_REFINEMENT_PLAN.md)；当前迁移范围见 [APPLICATION_MIGRATION.md](APPLICATION_MIGRATION.md)。
 > **启动架构修订**：恢复统一 invoker/launcher、包入口和预热实例管理的目标，实施规范见 [LAUNCH_RUNTIME_RESTORATION_PLAN.md](LAUNCH_RUNTIME_RESTORATION_PLAN.md)。本文旧 WM 镜像 AST 拓扑及“0ms/0.18ms 启动完成”等表述不作为实现或性能验收依据。
-> **2026-09-27 加载核对**：统一 Host/待命池与 Preview 先实际呈现已实现；业务模块在 Host 内，Master 解析和模块创建仍同步。原文的后台 Master 准备属于未实现目标；并行组件 DSL、线程归属、呈现状态与下一阶段顺序以 [MASTER_PARALLEL_LOADING.md](MASTER_PARALLEL_LOADING.md) 为准。
+> **2026-09-27 加载实施**：统一 Host/待命池已实现；第一步准备/安装契约已提交 `99101cf`。第二步单单元 Master 后台读取/纯准备已实现并验证，Preview 呈现后安装；Scene/GPU 和模块创建仍在所有者线程。多组件图与全会话调度仍未实现；规范与进度见 [MASTER_PARALLEL_LOADING.md](MASTER_PARALLEL_LOADING.md)。
 
 ---
 
@@ -771,8 +771,6 @@ Prism 采用现代操作系统级的服务分层架构，实现了从底层合�
 - **`/usr/share/wayland-sessions/prism.desktop`**：注册为标准 Wayland 显示管理器入口，兼容 GDM、SDDM、LightDM 直接登入；
 - **`/usr/lib/systemd/user/prism-session.service`**：提供标准的 Systemd 用户会话单元，支持进程崩溃自愈与优雅退出；
 - **`/usr/share/prism/`**：标准分发 `.prism` DSL 模板与高清桌面壁纸资源。
-
-
 
 
 

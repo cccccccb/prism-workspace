@@ -35,12 +35,15 @@ struct ClientApplication::Impl {
     platform::SubmitResult PrepareSubmit(const platform::SubmitRequest &request);
     bool CommitPixels();
     void Submitted(platform::SubmitResult result);
+    void HandlePresentation(const platform::PixelPresentation &event);
     bool PollResources();
     void CloseGpu();
     void FailFrontend();
     std::set<std::uint64_t> scene_images;
     runtime::UiLoadState ui_load;
     runtime::UiLoadId installed_ui{};
+    runtime::UiLoadId prepared_ui{};
+    UiPresentationTracker ui_presentation;
     ClientConfig config;
     render_skia::RasterRenderer commands;
     runtime::ImageResources resources;
@@ -56,6 +59,7 @@ struct ClientApplication::Impl {
     platform::WaylandEglSurface egl;
     std::unique_ptr<render_skia::GlesRenderer> renderer;
     std::function<void(std::string_view)> on_action;
+    std::function<void(runtime::UiLoadId)> on_ui_submitted;
     std::string gl_renderer;
     int requested_images{0};
     int loaded_images{0};
