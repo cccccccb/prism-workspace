@@ -1,5 +1,6 @@
 #include "prism/render_skia/gles_renderer.hpp"
 #include "prism/render_skia/raster_renderer.hpp"
+#include "prism/runtime/buffer_damage.hpp"
 #include "include/core/SkSurface.h"
 #include "include/core/SkColorSpace.h"
 #include "include/gpu/GrDirectContext.h"
@@ -22,6 +23,7 @@ struct GlesRenderer::Impl {
     int width = 0;
     int height = 0;
     GLint framebuffer = -1;
+    GlesRenderStats stats{};
 };
 
 GlesRenderer::GlesRenderer(const RasterRenderer& commands, GlesRendererOptions options)
@@ -51,9 +53,17 @@ void GlesRenderer::Abandon() {
     impl_->context.reset();
 }
 bool GlesRenderer::Render(const contracts::DisplayList& list, int width, int height) {
+    return Render(list, width, height, contracts::DamageRegion::Full());
+}
+GlesRenderStats GlesRenderer::GetRenderStats() const { return impl_->stats; }
+bool GlesRenderer::Render(const contracts::DisplayList& list, int width, int height,
+                          const contracts::DamageRegion& repair) {
     if (!Ready() || eglGetCurrentDisplay() != impl_->egl_display ||
         eglGetCurrentContext() != impl_->egl_context ||
         width <= 0 || height <= 0 || width > 4096 || height > 4096) return false;
+    const contracts::BufferSize size{static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height)};
+    const auto normalized = RasterRenderer::ClipRepair(repair, width, height);
+    if (!normalized) return false;
     GLint framebuffer = 0, samples = 0, stencil = 0;
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebuffer);
     glGetIntegerv(GL_SAMPLES, &samples);
@@ -71,8 +81,16 @@ bool GlesRenderer::Render(const contracts::DisplayList& list, int width, int hei
         impl_->height = height;
         impl_->framebuffer = framebuffer;
     }
-    if (!impl_->commands.Replay(list, impl_->surface->getCanvas())) return false;
+    if (!impl_->commands.Replay(list, impl_->surface->getCanvas(), width, height, *normalized)) return false;
+    if (!normalized->full && normalized->rects.empty()) {
+        ++impl_->stats.empty_renders;
+        return true;
+    }
     impl_->context->flushAndSubmit(impl_->surface.get());
-    return glGetError() == GL_NO_ERROR;
+    if (glGetError() != GL_NO_ERROR) return false;
+    if (normalized->full) ++impl_->stats.full_renders;
+    else ++impl_->stats.partial_renders;
+    impl_->stats.repair_pixels += runtime::DamageArea(*normalized, size);
+    return true;
 }
 } // namespace prism::render_skia

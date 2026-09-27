@@ -7,7 +7,8 @@
 1. 按需 WM 输出调度、显式效果失效、绘制/提交/缓存工作计数。已完成并现场验收。
 2. 毛玻璃依赖收窄到实际采样范围，维护视觉内容版本，避免不相交的下层变化传染所有上层效果。已完成，结果见第 8 节。
 3. 区分 SDK 像素更新和 surface 状态提交；Host 统一等待 Wayland、控制通道、资源及 timer，减少固定轮询。已完成并现场验收，结果见第 10 节。
-4. 补齐 buffer-age/damage 历史后实现局部像素绘制，再设计动画帧时间和布局/绘制/合成路径。
+4. 补齐 buffer-age/damage 历史，实现安全局部像素绘制。已完成实现与自动实机门槛，结果见第 12 节。
+5. 设计活动动画、单调帧时间和停止条件接口，再划分布局/绘制/合成更新路径。后续执行。
 
 节点增量布局、分块缓存和视觉动画尚未进入本阶段。WM 不接收客户端 DSL、应用名绘制规则或 Skia 绘制列表。
 
@@ -248,4 +249,75 @@ SDK 累计 `surface_noops/surface_state_commits/surface_pixel_commits/surface_su
 
 ### 下一阶段
 
-按第 1 节第四步先定义 EGL buffer age、损伤历史、坐标/裁剪和完整重绘回退，验证轮转 buffer、resize、透明/圆角/阴影及资源完成的像素正确性，再安全缩小客户端像素绘制范围。当前每次 Pixels 仍完整绘制该 surface；节点增量布局、分块缓存、动画时间接口与零拷贝验证继续后续设计。
+按第 1 节第四步先定义 EGL buffer age、损伤历史、坐标/裁剪和完整重绘回退，验证轮转 buffer、resize、透明/圆角/阴影及资源完成的像素正确性，再安全缩小客户端像素绘制范围。0.1.0-11 每次 Pixels 仍完整绘制该 surface；第四阶段结果见第 12 节。节点增量布局、分块缓存、动画时间接口与零拷贝验证继续后续设计。
+
+## 11. 第四阶段规范与执行顺序
+
+1. 建立通用整数 buffer 损伤契约、有界成功提交历史和 EGL 能力查询。内容损伤表示与上一成功提交相比的变化；修复区域合并当前变化和轮转 buffer 缺少的历史。State/None 不推进历史，失败不记录成功；尺寸/WSI epoch 变化拒绝旧计划。首帧、age 0/未知/超历史范围、无法证明的边界回退全量。
+2. 当前完整 DisplayList 与上一成功列表比较，覆盖改变的旧/新实际绘制范围。使用字形真实 ink、同一图标绘制路径和 Skia paint 的阴影扩展；裁剪后向外取整为 buffer 像素。结构/clip/非单位 transform 改变以及资源版本变化保守全量。继续生成完整列表，不在本轮引入节点增量布局或分块缓存。
+3. renderer 在整数修复区域的联合 clip 内以 Src 清为透明，再按原序列重放完整列表；区域外保留旧像素。透明、遮挡、移动和删除必须对照同后端全量绘制的整张目标，并满足下述覆盖、保留及数值门槛。不能只重放改变的命令或仅清新位置。
+4. 严格按 MakeCurrent/Resize → QueryBufferAge → Plan → SetDamage(repair) → Render → Swap(content) 排序。平台负责 EGL 底左坐标转换；内容与修复不得混用。Swap 成功后通过预分配 ring 和 move 更新历史/列表，不在不可撤回的提交之后分配；失败清理 WSI 并终止。没有能力时使用同一 renderer 的完整修复/普通 Swap 回退。
+5. 独立测试先覆盖 1/2/3 buffer 轮转、历史不足、resize、失败、透明/阴影/字形/图标/图片与资源替换；真实 Wayland/V3D 再验证实际能力、age、内容损伤和尺寸恢复。报告修复面积、full/partial/empty、Build/Render/Swap 各自计数。最后打包并执行物理启动、主题/配色、交互及同条件短测，验收后记录结果。
+
+`DamageRegion` 使用左上原点的整数 buffer 像素；`full=true` 权威表示整张目标，rects 为空。`full=false` 且没有 rect 表示内容未变，不能解释成未知 buffer。EGL 的 n_rects=0 则表示全表面；平台用一个零面积矩形表达空内容变化，避免与 full 混淆。
+
+历史默认八次成功像素提交；区域默认最多十六个矩形，覆盖过大或碎片过多升级全量。age N 的修复为当前内容变化加最近 N−1 次成功内容变化；历史中记录 content，不记录已扩大的 repair。完整修复不冒充新的内容变化。所有区域都需保守包含已绘制像素；真实绘制面积计数是修复区域面积，不是 GPU fragment 或实际耗时。
+
+生产当前 scale 为 1，逻辑与 buffer 像素一一对应；其他 scale 暂用完整回退，后续完善坐标映射。窗口重新创建、resize、UI 替换与资源重新注册均不能复用不可靠的像素历史。通用 `partial_rendering` 策略开关保留同一 renderer/损伤契约，可用于完整修复对照与回退，不建立第二套前端。
+
+GLES 生产后端在 repair 联合区域内真正裁剪重放。CPU raster 对照后端有单独的保守策略：Skia 软件 AA 曲线在完整与裁剪路径中可能出现固定点舍入差异，因此 partial Render 在临时全尺寸目标中完整重放，再仅复制 repair 区域；区域外逐字节保留。此回退不用于 GLES Replay，不声称降低 CPU raster 绘制工作，也不属于节点/分块缓存。
+
+像素验证采用三个独立门槛：连续的完整参考图在 **content damage 外逐字节相同**，确认没有漏掉真实内容变化；同一个实际 buffer 在 **repair 外绘制前后逐字节相同**，确认没有越界清除/绘制；整个 GPU 目标与独立完整参考逐像素比较，只有双方 alpha 都非零时允许每个 RGBA 通道最多 1/255 的数值差异，任何零/非零 alpha 转换及透明参考像素必须完全一致。CPU 和无纹理的 80% repair sentinel 始终逐字节比较。每帧记录有差异的像素数、最大 RGBA/alpha 差值，不能用全图平均误差放过漏绘。
+
+该有限 GPU 数值边界源于固定 Skia 的双线性纹理优化：`SurfaceDrawContext::attemptQuadOptimization` 将裁剪域折入 quad，`GrQuadUtils::crop_simple_rect` 重算局部纹理坐标，浮点乘加顺序随修复区域变化。验证已实际遇到 RGB 和 alpha 各一阶差异；这种差异可以随已修复 buffer 保留，故 repair 外的严格检查比较实际旧 buffer，而不要求其与重新采样的参考图字节相同。真实漏绘（例如 alpha 119 变 0）仍会失败。此口径不将数值变化宣称为绘制次数、GPU 时间或零拷贝收益。
+
+本阶段明确普通非 AA `PushClipRect` 的像素语义：canvas 总矩阵为单位矩阵时，逻辑矩形向外取整为整数 buffer 覆盖，再执行硬裁剪；完整/局部 Replay 与损伤比较使用相同规则。它会保守包含原分数边界外最多一像素，避免与细窄 repair 相交时触发 Ganesh 不同取整分支。非单位矩阵继续使用既有变换裁剪且损伤全量回退。AA 圆角裁剪保持浮点几何，损伤以保守 AA 包络求交；图元的 AA/字形 guard 必须在 clip 求交前加入，不能先把处在边缘覆盖中的图元误判为空。
+
+规范依据：[EGL EXT buffer age](https://registry.khronos.org/EGL/extensions/EXT/EGL_EXT_buffer_age.txt)、[KHR partial update](https://registry.khronos.org/EGL/extensions/KHR/EGL_KHR_partial_update.txt)、[KHR swap buffers with damage](https://registry.khronos.org/EGL/extensions/KHR/EGL_KHR_swap_buffers_with_damage.txt)。SetDamage 必须在 age 查询后、绘制前且每帧一次；已声明的修复域之外绘制会使 framebuffer 内容未定义。Swap 损伤是优化提示，成功不等于 GPU/显示完成，也不证明零拷贝。
+
+## 12. 第四阶段结果（0.1.0-12）
+
+2026-09-27，前三阶段已提交为 `13768ec`。本轮实现成功像素快照比较、通用 content/repair 契约、有界成功损伤历史、真实 EGL buffer age 与 damage 提交；0.1.0-12 arm64 已打包安装在同一 Pi 4B。统一 session → launcher → host、业务 ABI v1 和 WM/前端边界保持。默认 GLES 路径启用局部修复；缺乏可靠历史时完整回退。规范、坐标语义、CPU 对照策略与 GPU 数值边界见第 11 节。
+
+### 正确性与部署
+
+- 完整 CTest **38/38**；新增整数区域/历史、无分配成功发布和 Skia 像素门槛。模拟 1/2/3 buffer 轮转各 75 帧，分别 partial/full/empty 为 49/14/12、49/17/9、48/19/8。覆盖透明擦除、移动/删除、重叠、27 种图标、真实字形 ink、内外阴影、图片采样/替换、clip/transform/结构变化、历史不足和 resize。
+- **V3D 4.2.14.0** 真实 Wayland EGL 目标验证 74 个场景、75 次整目标读回，partial/full/empty 为 49/16/10；实际未知 age 三次，诊断覆盖另三次，分开计数。连续完整参考的 content 外覆盖检查和实际 buffer 的 repair 外保留检查都逐字节通过。整个 GPU 目标遵守第 11 节透明像素精确、双方非透明 RGBA 每通道最多 1/255 的规则；不能称整图字节完全相同。最终模拟/真实日志的最大 RGBA 与 alpha 差值均为 1。
+- Pi 实际能力为 buffer age **1**、swap damage **1**、partial update **0**，SDK 更新时实际 age 为 2。本次验证的是 EXT buffer age 与 swap damage 路径；KHR SetDamage 的排序/能力守卫已实现，不能宣称在该驱动执行了 KHR partial update。
+- SDK 无操作/纯状态/等待回归通过，重复值与静置零 Render/Swap；State 不推进像素历史。真实多客户端关闭、BSP resize 和恢复继续提交。图片门槛 `images=1/1`。Host、预热池、失败清理、继承 helper 的四种 session 生命周期及 WM 的 **50 功能场景 + 4 诊断记录**通过。
+- 最终包审计为九个平台入口、五业务模块包，无测试/探针/fixtures/ImGui。包内 WM 与已审计 Release 构建的 strip 产物相同，无客户端 DSL、Scene、主题编译前端或 Skia 符号。`dpkg -V` 无差异；重启回收旧进程身份。已安装 DRM 首帧/Ready、激活/新实例/取消、Shell 身份拒绝及实例流通过；八种材质/明暗组合、错误事务和 selector replay 通过，恢复 Glass dark。
+- 截图检查确认双窗、图标、文字、玻璃与阴影正常；采样和截图分开进行。最终会话 journal 未见 `[ERROR]`、`commit=FAILED`、SDK 提交失败或输入积压。人工现场点击验收待用户答复；自动检查不代替鼠标端到端延迟测量。
+
+### 真实 SDK 修复范围对照
+
+同一后端、同一完整列表序列，Auto 与强制完整修复各提交 24 次更新。剔除启动两帧，统计如下；完整策略仍比较内容损伤，只有 repair 强制全量。
+
+| 策略 | 成功 Swap / 历史提交 | partial / full | 内容损伤像素 | 修复像素面积累计 |
+| --- | ---: | ---: | ---: | ---: |
+| Auto | 24 / 24 | 23 / 1 | 130,965 | 1,052,815 |
+| 完整修复 | 24 / 24 | 0 / 24 | 130,965 | 22,118,400 |
+
+修复覆盖面积约减少 **95.24%**，包括一次 buffer 不可靠时的完整回退。两组 Build/Render/Swap 次数仍相同；该结果是整数区域面积，不是 GPU fragment 数、GPU 耗时或减少帧数的结论。后续动画能从较小的像素变化区域受益，但当前仍遍历/比较完整列表，并在 repair clip 内按顺序重放。
+
+### 同条件生产会话短测
+
+重新启动安装的 v11 建立基线，再升级 v12 并以干净会话测量。HDMI-A-2 1024×600 / 59.821 Hz；Glass dark、Preferences 外观页、监控开启 1s、Music 暂停或模拟进度更新。每条件一次约 12 秒、13 次采样，完整 session.scope；测量期间无构建、截图、其他探针或鼠标注入。
+
+| 条件 | 版本 | 会话 CPU（单核 100%） | WM CPU（单核 100%） | PSS 峰值 MiB | 输出提交 / 实际 presented | capture / blur / material |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| 空闲 | 0.1.0-11 | 0.69% | 0.17% | 218.40 | 12 / 12 | 0 / 0 / 0 |
+| 空闲 | 0.1.0-12 | 1.02% | 0.42% | 218.74 | 12 / 12 | 0 / 0 / 0 |
+| Music 更新 | 0.1.0-11 | 3.07% | 0.50% | 218.94 | 36 / 36 | 0 / 0 / 0 |
+| Music 更新 | 0.1.0-12 | 1.91% | 0.50% | 220.10 | 36 / 36 | 0 / 0 / 0 |
+
+Music 场景会话 CPU 观察值约下降 **38%**，WM 持平；空闲会话 CPU 观察值上升，不能宣称本轮改善空闲性能。PSS 没有下降，Music 峰值增加约 1.16 MiB。两版客户端 buffer/输出提交保持 12/36 次，效果检查/缓存命中保持 48/144 区域；没有新增玻璃 pass、分配、失败或 discarded。本轮单次短测不建立统计显著性，也不能把 CPU 差值全部归因 GPU 修复面积。
+
+四组温度起止约 41.4–42.8°C，ondemand governor；v12 空闲起止频率从 1.8GHz 到 700MHz，其他起止均为 1.8GHz，不能声称全程固定频率。throttled mask 0x50000 历史位不变，没有新增或起止当前降频位。Music 为模拟进度，不包含媒体解码；PSS 不包含完整 GPU 物理分配，输出提交、Swap 和实际 presentation 的计数各自独立。GPU 时间、真实动画预算和鼠标端到端延迟尚未测得。
+
+证据位于 `dist/validation/prism-v12-buffer-damage/`：`ctest-release-gate.log`、模拟/真实像素日志、`sdk-native-gates.json`、`runtime-gates.json`、`wm-gles.json`、最终包审计、部署/现场/配色记录、`physical-glass-dark.png`、journal、`performance-summary.json`、逐秒报告与 `gate-summary.json`。`run-notes.json` 保留 CPU AA 舍入、GPU 硬裁剪漏绘及纹理量化、测试模板和启动等待问题及修复依据。第一次部署脚本在 launcher socket 就绪后过早断言主题；初始失败记录保留，最终脚本等待实际主题 generation 后重启采样。失败证据不计入最终通过门槛。
+
+### 下一步接口顺序
+
+先定义通用活动动画请求、单调帧时间、截止时间和完成/取消接口。Host 只在存在活动动画、有效像素需求或真实事件时等待/请求下一帧；动画结束必须返回静置等待。明确 frame callback 用于节流，presentation 用于呈现反馈，不能合并为同一个时间点；空闲恢复不把休眠间隔作为一次巨大模拟步长。
+
+然后区分 paint、layout 与 compositor 属性的动画失效，并复用本轮损伤/回退契约和工作计数。首轮验证启动、暂停、恢复、结束、取消、窗口关闭及 resize；先建立接口和预算证据，再实现 Dock/横线等视觉动画。节点增量布局、分块缓存及零拷贝专项继续后续安排。

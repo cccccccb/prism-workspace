@@ -1,6 +1,6 @@
 # Pi Debian 安装包与物理显示会话
 
-日期：2026-09-27。当前安装版本为 **0.1.0-11 arm64**，在 v9/v10 按需调度与空间依赖上，分离 SDK 状态/像素提交并取消生产 Host、launcher、supervisor 的固定轮询。36 项测试、真实 V3D 与完整启动/回收回归、安装后的 DRM/八种配色门槛通过；用户现场确认“画面和操作都正常”。统一 session/launcher/host 保持生产入口；结果见第 8 节。
+日期：2026-09-27。当前发布包为 **0.1.0-12 arm64**，在 v9–v11 的按需调度、空间依赖与事件等待上，加入 SDK buffer age 历史和安全局部像素修复。38 项测试、真实 V3D SDK/WM/启动链回归及包审计通过；已安装运行，DRM/实例/八种配色自动现场门槛和匹配短测通过；本轮人工点击验收待用户答复。统一 session/launcher/host 保持生产入口；v12 证据见第 9 节，v11 已完成的现场确认保留为第 8 节历史记录。
 
 ## 1. 发布规范
 
@@ -12,7 +12,7 @@
 
 ```sh
 tools/package-deb.sh
-sudo apt install ./dist/deb/prism-wm_0.1.0-11_arm64.deb
+sudo apt install ./dist/deb/prism-wm_0.1.0-12_arm64.deb
 sudo systemctl daemon-reload
 systemctl --user daemon-reload
 ```
@@ -158,3 +158,31 @@ sudo chvt 1
 匹配新会话短测：空闲会话 CPU 2.10% → 0.76%，Music 模拟进度 CPU 4.56% → 2.98%（单核 100%）；输出提交保留 12/36 次，额外玻璃 pass 仍为零，PSS 基本持平。单独 12 秒观察中，supervisor/launcher、暂停 Music、Desktop、Dock 与预热 host 的主线程自愿上下文切换均为零。温度、频率、present 端点差、计数定义与一次短测限制见 [渲染调度与失效传播](RENDER_SCHEDULING_AND_INVALIDATION.md) 第 10 节。
 
 证据位于 `dist/validation/prism-v11-sdk-event-wait/`；未将诊断或性能采样工具安装进生产环境。下一步按 buffer age/damage 历史与安全局部像素绘制主线推进，当前 Pixels 仍完整绘制 surface。
+
+## 9. 0.1.0-12 Buffer age 与局部像素修复发布
+
+生产包 `dist/deb/prism-wm_0.1.0-12_arm64.deb`，7648896 字节，SHA256 `37baa795b4ca424f68aabaf7596f36d48d531a863bb483026cb524f1d95ad754`。
+
+### 实现与能力边界
+
+- SDK 分别保存当前内容变化与当前 back buffer 所需的修复区域。有限历史只在 Swap 成功后推进；age 为零、未知、历史不足、目标 resize/epoch 变化时完整修复，不以 buffer 指针或主题 generation 冒充像素版本。业务模块与 WM 不解析客户端绘制命令。
+- EGL 扩展使用完整 token 与可用入口检测，修复区域声明和交换内容损伤分别提交。空变化与全表面明确区分；交换失败不进行第二次 Swap。KHR-only 的 age 只有在 partial update 入口与 swap behavior 可用时才允许局部保存；否则完整回退。
+- 真实 Pi 的 SDK 能力为 `buffer_age_supported=1`、`swap_damage_supported=1`、`partial_update_supported=0`，使用 EXT buffer age 的内容保存和损伤交换路径。本轮没有实际调用 KHR `eglSetDamageRegionKHR`，不能把通用接口实现作为该扩展的实机验收。
+- GLES 仅清除与完整重放修复区域内的内容，区域外保留当前缓冲像素；不在 WSI 已声明修复区域后应用面积阈值而扩大绘制。identity 矩阵下普通非 AA 矩形裁剪统一向外取整到整数像素，圆角 AA 裁剪保持其覆盖规则；不确定结构/变换保守完整回退。
+- 诊断 CPU 后端对非空局部修复采用完整临时重放再复制精确修复跨度，避免裁剪曲线造成的栅格化舍入差异。这是正确性回退，不宣称 CPU 已减少绘制工作；生产 GLES 没有采用该临时全帧路径。此阶段未实现节点增量布局、分块缓存、动画或零拷贝验收。
+
+### 回归与包证据
+
+- 最终 CTest **38/38** 通过。真实 V3D WM 调度门槛为 **50 个功能场景 + 4 个诊断记录**；真实 SDK 状态/像素、启动链与失败回收回归通过。
+- CPU/GLES 使用共同的完整命令序列，对照各后端的完整重绘；1/2/3 缓冲轮转模拟每组 **75 帧**。模拟 age 由目标上次成功使用的序列计算，不冒充真实 WSI 查询。native Wayland 门槛包含 **74 个场景、75 次完整目标 readback**，实际 WSI 查询与显示路径结果和模拟轮转结果分别记录。
+- 像素门槛要求内容覆盖一致、修复区域外逐字节一致。RGBA 各通道差值最多 1 仅允许在双方均非透明时作为量化差异；透明内容错位不能用该容差掩盖。包含同命令数量的移动、alpha/透明清除、重叠 source-over、描边、外/内阴影、字形 ink、全部图标、image fit/同 ID 资源 epoch、嵌套裁剪与回退；直接声明 80% 修复区域的独立用例检查区域外哨兵不被扩大清除。
+- 相同的 24 次 SDK 像素提交中，Auto 为 **23 次局部 + 1 次完整**，Full 对照为 **24 次完整**。修复面积为 **1052815 / 22118400 像素**，约减少 **95.24%**。这是客户端修复工作量计数，不是 GPU 耗时、帧率或端到端延迟收益。
+- 最终包审计仍为九个平台入口、五个业务模块及对应 DSL/资源；无 tests/probes/fixtures/ImGui。WM 没有 SDK Scene、DSL/主题编译器或 Skia 前端符号。上述回归覆盖最终源代码；Release 包另经符号/清单审计及已安装生产会话验证。
+
+证据目录为 `dist/validation/prism-v12-buffer-damage/`，包括 `ctest-release-gate.log`、`pixels-rgba-policy.log`、`sdk-native-native-pixels.log`、`sdk-native-gates-final.log`、`wm-gles-release.log`、`runtime-gates.json` 与 `package-audit.json`。此前失败的严格像素日志原样保留；后续修正与最终门槛分别记录，不将失败日志改成成功。
+
+**部署状态：** 已安装为 `0.1.0-12 arm64`，`dpkg -V prism-wm` 无差异；`prism-demo@ss.service` active，使用原 tty8/seat0 链，未启用自启动或改变默认 target。原 v11 十个进程身份与首次 v12 八个进程身份均回收，最终 supervisor PID 17350 / WM PID 17360。已安装 DRM 首帧/Ready、已有实例激活/新实例/取消、Shell 身份拒绝、实例流、八种材质/配色及错误事务通过；恢复 Glass dark、暂停 Music、焦点回到 Preferences。物理截图确认文字、图标、双窗、玻璃与阴影正常，当前会话 journal 未见 ERROR、失败提交或输入积压。已发起本轮人工现场确认，等待用户答复。
+
+同条件一次 12 秒短测中，Music 更新会话 CPU 从 3.07% 降至 1.91%，WM 保持 0.50%；空闲会话 CPU 0.69% → 1.02%，没有改善。输出提交/实际呈现保留 12/36 次，玻璃额外 pass 均零；PSS 未下降。v12 空闲结束时 ondemand 频率为 700MHz，其他起止 1.8GHz；结果与限制见 [渲染调度与失效传播](RENDER_SCHEDULING_AND_INVALIDATION.md) 第 12 节。
+
+第一次自动部署脚本过早在 launcher socket 就绪后检查 theme，实际主题提交尚未完成；初始 JSON/日志保留为 `.initial`，修正为等待非零主题 generation 后重新启动干净会话测量。最终记录为 `deployment.json`、`v12-physical.json`、`appearance/results.json`、`physical-glass-dark.png`、`journal-installed.log` 与四组逐秒性能报告。

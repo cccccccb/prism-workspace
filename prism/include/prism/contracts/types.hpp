@@ -33,11 +33,13 @@ struct NodeId {
 struct LogicalPoint {
     double x{0.0};
     double y{0.0};
+    constexpr bool operator==(const LogicalPoint&) const noexcept = default;
 };
 
 struct LogicalSize {
     double width{0.0};
     double height{0.0};
+    constexpr bool operator==(const LogicalSize&) const noexcept = default;
 };
 
 struct LogicalRect {
@@ -45,6 +47,7 @@ struct LogicalRect {
     double y{0.0};
     double width{0.0};
     double height{0.0};
+    constexpr bool operator==(const LogicalRect&) const noexcept = default;
 };
 
 struct BufferSize {

@@ -53,6 +53,8 @@ RenderTree 的 hover/focus 颜色和焦点线宽、Toggle 轨道/滑块圆角、
 
 `AcknowledgeComposite()` 只清除 Composite，不清除待处理 Paint/Layout。对应 metadata 随 State/Pixels 成功提交后才能确认；若准备阶段已检查 metadata，协议请求与上次相同，或可选效果扩展不可用而没有请求可发送，checked-identical `None` 也可确认该状态。因像素回调节流而推迟准备的 `None` 不属于这个例外，仍保留待处理状态和像素需求。四种提交结果及等待契约见 [RENDER_SCHEDULING_AND_INVALIDATION.md](RENDER_SCHEDULING_AND_INVALIDATION.md) 第 9 节。
 
+第四阶段继续由 Scene 生成完整快照、布局/Render Tree 和 DisplayList；SDK 在 renderer 的通用接口上比较成功列表，按实际绘制范围产生内容损伤，平台 buffer age 历史决定修复区域。局部像素绘制不等于节点增量布局或显示列表分块缓存；WM 只接收原生 surface 与损伤，不接收 Scene/DSL。契约、全量回退和像素验收见上述规范第 11 节。
+
 
 ## 通用可见性与图标（0.1.0-7）
 

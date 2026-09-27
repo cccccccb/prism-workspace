@@ -22,7 +22,13 @@ void Print(std::string_view scenario,const Stats& stats) {
         <<" gpu_successes="<<stats.gpu_render_successes<<" swap_attempts="<<stats.swap_attempts
         <<" swap_successes="<<stats.swap_successes<<" frame_done="<<stats.frame_callbacks_done
         <<" state="<<stats.surface_state_commits<<" pixels="<<stats.surface_pixel_commits
-        <<" noops="<<stats.surface_noops<<" failures="<<stats.surface_submission_failures<<'\n'<<std::flush;
+        <<" noops="<<stats.surface_noops<<" failures="<<stats.surface_submission_failures
+        <<" full_repairs="<<stats.full_pixel_repairs<<" partial_repairs="<<stats.partial_pixel_repairs
+        <<" empty_repairs="<<stats.empty_pixel_repairs<<" repair_pixels="<<stats.pixel_repair_pixels
+        <<" content_pixels="<<stats.content_damage_pixels<<" history_commits="<<stats.damage_history_commits
+        <<" age="<<stats.last_buffer_age<<" age_supported="<<stats.buffer_age_supported
+        <<" swap_damage_supported="<<stats.swap_damage_supported
+        <<" partial_update_supported="<<stats.partial_update_supported<<'\n'<<std::flush;
 }
 void Until(Application& app,std::function<bool()> condition,const char* detail) {
     const auto deadline=std::chrono::steady_clock::now()+5s;
@@ -150,12 +156,61 @@ int Verify(const std::string& socket,const std::string& app_id) {
     close(wake);Print("interruptible-wait",app.GetRenderStats());app.Close();
     return 0;
 }
+int VerifyDamage(const std::string& socket,const std::string& app_id) {
+    // Actual Wayland/EGL ages here; rotating-memory age simulation and full
+    // target pixel equality live in the independent skia_damage_test.
+    constexpr std::string_view ui=R"(
+        VStack(background:#192A3BB0,padding:24,spacing:12,clip:true,cornerRadius:14) {
+            Text("Pixel repair",font:22,foreground:#F0F4FFFF)
+            Text($tick,height:28,font:18,foreground:#EE7799FF)
+            Progress(value:$progress,height:8,cornerRadius:4,foreground:#EE7799FF,background:#64748B70)
+            VStack(flex:1) {}
+            Icon("music",width:48,height:48,foreground:#EE7799FF)
+        }
+    )";
+    for(bool partial : {true,false}) {
+        prism::sdk::ClientConfig config{socket,app_id+(partial?".auto":".full"),
+            "Buffer damage verification","/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",640,400};
+        config.partial_rendering=partial;
+        Application app(config);Require(app.Open(ui),"damage UI failed to open");
+        Require(app.SetBinding("tick",std::string("0000")) && app.SetBinding("progress",0.2),"initial damage bindings failed");
+        Until(app,[&]{return app.IsMapped();},"damage client did not map");Drain(app);
+        Require(app.GlRenderer().find("V3D")!=std::string::npos,"damage verification requires V3D");
+        const auto before=app.GetRenderStats();
+        Print(partial?"damage-auto-start":"damage-full-start",before);
+        for(int i=1;i<=24;++i) {
+            const auto frame=app.GetRenderStats();
+            const auto digits=std::string("000")+std::to_string(i%10);
+            Require(app.SetBinding("tick",digits),"tick binding failed");
+            Require(app.SetBinding("progress",0.2+(i%8)*0.025),"progress binding failed");
+            Until(app,[&]{return app.GetRenderStats().swap_successes>frame.swap_successes;},"damage pixels did not swap");
+            Drain(app);
+        }
+        const auto after=app.GetRenderStats();Print(partial?"damage-auto":"damage-full",after);
+        Require(after.damage_history_commits==after.swap_successes && after.surface_submission_failures==0,
+            "successful content history or submission failed");
+        Require(after.swap_successes-before.swap_successes==24,"pixel updates were coalesced/lost");
+        if(partial && after.buffer_age_supported)
+            Require(after.partial_pixel_repairs>before.partial_pixel_repairs,"actual buffer ages never enabled partial repair");
+        if(!partial)
+            Require(after.partial_pixel_repairs==0 && after.full_pixel_repairs==after.gpu_render_successes,
+                "full repair policy unexpectedly drew partial pixels");
+        const auto no_op=app.GetRenderStats();
+        Require(app.SetBinding("tick",std::string("0004")) && app.Pump(0),"same-value damage binding failed");
+        NoPixels(no_op,app.GetRenderStats(),"repeated binding rendered damage pixels");
+        Quiet(app,partial?"damage-auto-idle":"damage-full-idle");
+        app.Close();
+    }
+    return 0;
+}
 }
 int main(int argc,char** argv) {
-    if(argc<3){std::cerr<<"usage: prism_skia_gles_wayland_probe <socket> <dsl-file|--verify-submission> [app-id]\n";return 2;}
+    if(argc<3){std::cerr<<"usage: prism_skia_gles_wayland_probe <socket> <dsl-file|--verify-submission|--verify-damage> [app-id]\n";return 2;}
     try {
         if(std::string_view(argv[2])=="--verify-submission")
             return Verify(argv[1],argc>3?argv[3]:"prism.skia.submission.probe");
+        if(std::string_view(argv[2])=="--verify-damage")
+            return VerifyDamage(argv[1],argc>3?argv[3]:"prism.skia.damage.probe");
         std::ifstream input(argv[2]);if(!input)return 2;
         std::string source(std::istreambuf_iterator<char>{input},{});
         Application app({argv[1],argc>3?argv[3]:"prism.skia.gles.probe","Prism Skia GLES DSL",

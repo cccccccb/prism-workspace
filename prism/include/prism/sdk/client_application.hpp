@@ -26,6 +26,9 @@ struct ClientConfig {
     std::string assets_root{}; // If set, image URIs resolve strictly beneath this root.
     // Optional backend resource policy. No override uses the renderer default.
     std::optional<std::size_t> gpu_resource_cache_bytes;
+    // Auto uses buffer age to repair only changed pixels. Disabling it keeps
+    // the same renderer and content damage contract, with full pixel repair.
+    bool partial_rendering{true};
 };
 
 // Cumulative observations for this ClientApplication, including UI replacement.
@@ -39,6 +42,11 @@ struct ClientRenderStats {
     std::uint64_t frame_callbacks_done{};
     std::uint64_t surface_state_commits{}, surface_pixel_commits{};
     std::uint64_t surface_submission_failures{}, surface_noops{};
+    std::uint64_t full_pixel_repairs{}, partial_pixel_repairs{}, empty_pixel_repairs{};
+    std::uint64_t pixel_repair_pixels{}, content_damage_pixels{};
+    std::uint64_t damage_history_commits{}, buffer_age_queries{}, unknown_buffer_ages{};
+    int last_buffer_age{-1}; // -1 unavailable, 0 contents undefined.
+    bool buffer_age_supported{}, swap_damage_supported{}, partial_update_supported{};
 };
 
 // Client-owned DSL scene, resources, Skia GLES renderer and Wayland window.

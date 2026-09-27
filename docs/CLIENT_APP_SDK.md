@@ -50,3 +50,15 @@ Controls 的变化目前统一保守标记 Paint，即使变化的控件样式�
 对应 metadata 随 State/Pixels 成功提交后调用 `AcknowledgeComposite()`。准备阶段已检查 metadata、请求与上次相同，或可选效果扩展不可用而没有请求可发送时，checked-identical `None` 也可确认 Composite，不额外制造 surface commit。因旧像素 callback 尚未完成而推迟准备的 `None` 不确认状态；待处理像素版本和 Composite 继续保留。ACK 只清 Composite，未提交的 Paint/Layout 不受影响；Failed 不确认内容。
 
 新增计数为 `surface_noops`、`surface_state_commits`、`surface_pixel_commits`、`surface_submission_failures`；它们和 GPU/Swap/实际呈现独立。`FrameCallbackPending()` 提供只读节流状态，不使调用者拥有回调对象。提交失败终止当前连接，不能用销毁客户端 callback 代理来宣称撤回服务端 pending 请求。精确生命周期与验证规范见 [渲染调度与失效传播](RENDER_SCHEDULING_AND_INVALIDATION.md) 第 9 节。
+
+### 像素损伤与 buffer 修复
+
+Pixels 准备比较上一成功提交的完整 DisplayList/资源版本与当前列表，产生内容损伤；使用平台实际 buffer age 合并有界成功历史，得到当前 buffer 的修复区域。age 0/未知、首次/尺寸/WSI 变化、历史不足和无法证明的绘制范围全量回退。文字、图标、阴影按实际 Skia ink 计算；结构、clip、非单位 transform 和资源版本变化保守全量。没有增加节点增量布局或显示列表分块缓存。
+
+平台顺序为 QueryBufferAge → SetDamage(repair) → Render → Swap(content)。renderer 清理并按原序列绘制精确修复并集，保留区域外内容；提交时声明内容损伤，不能把扩大后的历史修复误传给 compositor。Swap 成功后 move 更新预分配历史和列表，State/None 不推进，失败使历史失效并清理。EGL 能力不可用时继续同一后端的完整修复/普通 Swap。当前逻辑与 buffer 坐标为 1:1，非 1 scale 暂全量回退。
+
+`ClientConfig::partial_rendering` 默认 true；false 保持同一 renderer、时钟/业务和内容损伤，只强制完整像素修复，可用于策略回退与对照。该 C++ 配置不改变业务模块 ABI v1。`ClientRenderStats` 新增 `full_pixel_repairs/partial_pixel_repairs/empty_pixel_repairs/pixel_repair_pixels`，它们在成功 Render 后计数；`content_damage_pixels/damage_history_commits` 在成功 Swap 后计数。面积为 clip/union 后的 buffer 像素范围，不是实际 fragment 数或 GPU 耗时。`buffer_age_queries/unknown_buffer_ages/last_buffer_age` 是平台方法请求，-1 表示不可用，0 表示内容未知；能力字段为 `buffer_age_supported/swap_damage_supported/partial_update_supported`。与已有 Render/Swap/实际 presentation 计数分开解读。
+
+公开局部 Render overload 不得扩大调用者已声明的修复域，面积/碎片导致的 Full 策略必须在 SetDamage 之前由 producer 决定。执行规范与验证结果见 [渲染调度与失效传播](RENDER_SCHEDULING_AND_INVALIDATION.md) 第 11 节及后续结果。
+
+`buffer_age_supported` 表示可安全使用的保留能力：EXT buffer age，或可实际调用 SetDamage 的 KHR partial update；只有扩展名称而无法声明修复区域不能启用局部绘制。生产 GLES 直接裁剪重放。CPU raster 的 partial Render 为保持软件 AA 的字节一致性，采用完整临时重放后仅复制修复区域的保守回退，不计为 CPU 局部绘制优化。

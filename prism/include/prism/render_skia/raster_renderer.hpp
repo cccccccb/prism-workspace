@@ -1,5 +1,6 @@
 #pragma once
 #include "prism/contracts/display_list.hpp"
+#include "prism/contracts/damage.hpp"
 #include "prism/runtime/scene.hpp"
 #include "prism/runtime/image_resources.hpp"
 #include <memory>
@@ -27,11 +28,25 @@ public:
     bool RegisterImage(contracts::ResourceId id, const runtime::DecodedImage& image);
     bool Render(const contracts::DisplayList& list, void* pixels,
                 int width, int height, int stride) const;
+    // Compare against the last successfully submitted list/resource epoch.
+    // Unknown structure or paint bounds conservatively require full damage.
+    contracts::DamageRegion CompareDamage(const contracts::DisplayList* previous,
+        const contracts::DisplayList& next, int width, int height,
+        std::uint64_t previous_resource_epoch) const;
+    std::uint64_t ResourceEpoch() const;
+    bool Render(const contracts::DisplayList& list, void* pixels,
+                int width, int height, int stride, const contracts::DamageRegion& repair) const;
     contracts::ResourceId FontId() const { return default_font_; }
 
 private:
     friend class GlesRenderer;
+    // Preserve the exact declared union; repair consumers may never widen it
+    // via producer fragmentation/area policies after WSI SetDamage.
+    static std::optional<contracts::DamageRegion> ClipRepair(
+        const contracts::DamageRegion&, int width, int height);
     bool Replay(const contracts::DisplayList& list, SkCanvas* canvas) const;
+    bool Replay(const contracts::DisplayList& list, SkCanvas* canvas,
+                int width, int height, const contracts::DamageRegion& repair) const;
     struct Impl;
     std::unique_ptr<Impl> impl_;
     contracts::ResourceId default_font_{1};
