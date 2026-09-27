@@ -35,6 +35,8 @@ public:
     explicit Lexer(std::string source, bool strict = false);
 
     std::vector<Token> Tokenize();
+    // Reads only the first identifier after whitespace and line comments.
+    Token ReadRootIdentifier();
 
 private:
     char Peek() const;

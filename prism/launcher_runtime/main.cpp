@@ -20,7 +20,9 @@ int main(int argc, char **argv)
                 << "Usage: prism-launcher [--apps-root DIRECTORY] [--host EXECUTABLE]\n"
                    " [--pool-size 0..32] [--max-workers 1..32] [--startup-timeout-ms 100..60000]\n"
                    " [--socket BASENAME] [--wayland SOCKET] [--themes-root DIRECTORY] [--theme ID] "
-                   "[--color-scheme dark|light]\n";
+                   "[--color-scheme dark|light]\n"
+                   " [--load-active-limit 1..128] [--load-memory-mib MiB] "
+                   "[--load-working-headroom-mib MiB]\n";
             return 0;
         }
         if (arg == "--start-shell") {
@@ -62,6 +64,13 @@ int main(int argc, char **argv)
                 config.max_workers = number;
             } else if (arg == "--startup-timeout-ms" && number >= 100 && number <= 60000) {
                 config.startup_timeout_ms = number;
+            } else if (arg == "--load-active-limit" && number >= 1 && number <= 128) {
+                config.load_budget.active_limit = number;
+            } else if (arg == "--load-memory-mib" && number > 0) {
+                config.load_budget.memory_limit = static_cast<std::uint64_t>(number) * 1024 * 1024;
+            } else if (arg == "--load-working-headroom-mib") {
+                config.load_budget.working_headroom =
+                    static_cast<std::uint64_t>(number) * 1024 * 1024;
             } else {
                 return 2;
             }

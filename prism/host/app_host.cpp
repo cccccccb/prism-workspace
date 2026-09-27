@@ -1,15 +1,20 @@
 #include "prism/sdk/app_host.hpp"
 #include "prism/host/event_wait.hpp"
 #include "prism/launch/error.hpp"
-#include "prism/runtime/load_session.hpp"
+#include "prism/runtime/dsl_schema.hpp"
+#include "prism/runtime/image_resources.hpp"
+#include "prism/runtime/master_load_session.hpp"
 #include "prism/sdk/client_application.hpp"
 #include "prism/sdk/launch_client.hpp"
 #include "prism/sdk/module_session.hpp"
 #include "prism/theme/compiler.hpp"
 #include <cerrno>
+#include <cmath>
 #include <fstream>
 #include <functional>
 #include <iterator>
+#include <map>
+#include <set>
 #include <unistd.h>
 #include <vector>
 
@@ -60,6 +65,31 @@ bool CallerInputReady(std::span<const pollfd> descriptors)
     }
     return false;
 }
+
+void CollectBindings(const runtime::PreparedNode &node, std::set<std::string, std::less<>> &names)
+{
+    for (const auto &binding : node.bindings) {
+        names.insert(binding.name);
+    }
+    for (const auto &child : node.children) {
+        CollectBindings(child, names);
+    }
+}
+
+bool MatchesBinding(runtime::LoadBindingType type, const runtime::PropertyValue &value)
+{
+    switch (type) {
+    case runtime::LoadBindingType::String:
+        return std::holds_alternative<std::string>(value);
+    case runtime::LoadBindingType::Number:
+        return std::holds_alternative<double>(value) && std::isfinite(std::get<double>(value));
+    case runtime::LoadBindingType::Boolean:
+        return std::holds_alternative<bool>(value);
+    case runtime::LoadBindingType::Color:
+        return runtime::ValidPropertyValue(runtime::DslProperty::Foreground, value);
+    }
+    return false;
+}
 } // namespace
 
 struct AppHost::Impl {
@@ -72,8 +102,13 @@ struct AppHost::Impl {
     std::unique_ptr<ModuleSession> business;
     std::unique_ptr<LaunchClient> launches;
     std::optional<launch::AppPackage> package;
-    std::unique_ptr<runtime::LoadSession> master_loader;
-    std::optional<runtime::LoadCompletion> master_completion;
+    std::shared_ptr<runtime::TaskScheduler> scheduler;
+    std::unique_ptr<runtime::MasterLoadSession> master_loader;
+    std::optional<runtime::MasterLoadCompletion> master_completion;
+    bool master_resources_requested{};
+    std::shared_ptr<const runtime::LoadPlan> installed_plan;
+    std::map<std::string, runtime::PropertyValue, std::less<>> bindings;
+    std::set<std::string, std::less<>> mounted_bindings;
     HostUiState ui;
     std::uint64_t startup_deadline{};
     bool configured{}, presented{}, ready{}, failed{}, bound_once{}, launch_disconnected{};
@@ -107,6 +142,14 @@ struct AppHost::Impl {
 
     void Observe()
     {
+        if (master_loader) {
+            const auto stats = master_loader->Stats();
+            ui.component_count = stats.component_count;
+            ui.critical_prepared = stats.critical_prepared;
+            ui.deferred_prepared = stats.deferred_prepared;
+            ui.deferred_started = stats.deferred_started;
+            ui.deferred_diagnostics = master_loader->DeferredDiagnostics().size();
+        }
         if (ui.preview_load.owner) {
             const auto preview = frontend->GetUiPresentation(ui.preview_load);
             ui.preview_submitted |= preview.submitted;
@@ -116,6 +159,9 @@ struct AppHost::Impl {
             const auto master = frontend->GetUiPresentation(ui.master_load);
             ui.master_submitted |= master.submitted;
             ui.master_presented |= master.presented;
+            if (ui.master_presented && master_loader) {
+                master_loader->MasterPresented(ui.master_load);
+            }
             ui.master_first_submission = master.first_submission;
             ui.master_presented_submission = master.last_presented_submission;
         }
@@ -137,6 +183,20 @@ struct AppHost::Impl {
 
     bool SetBinding(std::string_view key, runtime::PropertyValue value)
     {
+        if (installed_plan && !installed_plan->legacy) {
+            const auto declaration = std::find_if(
+                installed_plan->bindings.begin(), installed_plan->bindings.end(),
+                [&](const runtime::LoadBinding &binding) { return binding.name == key; });
+            if (declaration == installed_plan->bindings.end() ||
+                !MatchesBinding(declaration->type, value)) {
+                return false;
+            }
+            if (mounted_bindings.contains(key) && !frontend->SetBinding(key, value)) {
+                return false;
+            }
+            bindings.insert_or_assign(std::string(key), std::move(value));
+            return true;
+        }
         return frontend->SetBinding(key, std::move(value));
     }
 
@@ -225,8 +285,7 @@ struct AppHost::Impl {
         }
 
         ui.master_load = frontend->BeginUiLoad();
-        const auto result = master_loader->Submit(
-            {ui.master_load, package->ui.string(), {"master", package->ui.string(), {}}});
+        const auto result = master_loader->Submit({ui.master_load, package->ui, package->root});
         if (result != runtime::LoadSubmitResult::Accepted) {
             return Fail(contracts::LaunchError::RuntimeFailed, "Cannot queue Master preparation");
         }
@@ -267,6 +326,30 @@ struct AppHost::Impl {
         if (!master_completion || (package->preview && !ui.preview_presented)) {
             return true;
         }
+        if (master_completion->prepared && !master_resources_requested) {
+            runtime::LoadDiagnostic diagnostic;
+            if (!frontend->PreloadImages(ui.master_load, *master_completion->prepared,
+                                         &diagnostic)) {
+                ui.master_diagnostic = diagnostic;
+                return Fail(contracts::LaunchError::RuntimeFailed, UiFailureDetail(diagnostic));
+            }
+            master_resources_requested = true;
+            ui.master_image_count = master_completion->prepared->Images().size();
+        }
+        if (master_resources_requested) {
+            const auto state = frontend->PreloadedImageState(ui.master_load);
+            if (state == runtime::ImageState::Loading) {
+                return true;
+            }
+            if (state == runtime::ImageState::Failed) {
+                runtime::LoadDiagnostic diagnostic{runtime::LoadStage::ResourceLink,
+                                                   master_completion->prepared->Source(), 0,
+                                                   "Required Master image failed to load"};
+                ui.master_diagnostic = diagnostic;
+                return Fail(contracts::LaunchError::RuntimeFailed, UiFailureDetail(diagnostic));
+            }
+            ui.master_images_ready = true;
+        }
         auto completion = std::move(*master_completion);
         master_completion.reset();
         if (completion.diagnostic) {
@@ -291,6 +374,16 @@ struct AppHost::Impl {
             return Fail(contracts::LaunchError::RuntimeFailed, UiFailureDetail(diagnostic));
         }
         ui.master_installed = true;
+        installed_plan = completion.plan;
+        CollectBindings(completion.prepared->Root(), mounted_bindings);
+        if (completion.plan) {
+            for (const auto &binding : completion.plan->bindings) {
+                if (!SetBinding(binding.name, binding.initial)) {
+                    return Fail(contracts::LaunchError::RuntimeFailed,
+                                "Cannot initialize declared binding: " + binding.name);
+                }
+            }
+        }
 
         if (!window_open) {
             window_open = true;
@@ -364,6 +457,8 @@ bool AppHost::PrepareFrontend()
     try {
         ClientConfig config;
         config.font_path = self.config.font_path;
+        self.scheduler = std::make_shared<runtime::TaskScheduler>(self.config.task_budget);
+        config.task_scheduler = self.scheduler;
         self.frontend = std::make_unique<ClientApplication>(std::move(config));
         if (!self.frontend->FrontendReady()) {
             return self.Fail(contracts::LaunchError::RuntimeFailed, "Font initialization failed");
@@ -465,11 +560,13 @@ bool AppHost::Bind(const launch::AppPackage &package)
                             manifest.name,           self.config.font_path,
                             manifest.width,          manifest.height,
                             package.assets.string(), self.config.gpu_resource_cache_bytes};
+        config.task_scheduler = self.scheduler;
         if (!self.frontend->ConfigureWindow(std::move(config))) {
             return self.Fail(contracts::LaunchError::RuntimeFailed,
                              "Frontend window configuration failed");
         }
-        self.master_loader = std::make_unique<runtime::LoadSession>(self.config.prepare_component);
+        self.master_loader = std::make_unique<runtime::MasterLoadSession>(
+            self.scheduler, self.config.prepare_component);
         self.frontend->OnUiSubmitted(std::bind_front(&Impl::UiSubmitted, &self));
 
         // Master-only packages use the same completion/installation pipeline.
@@ -518,6 +615,7 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
     }
     try {
 
+        self.frontend->PollImageResources();
         self.TakeMasterCompletion();
         self.Observe();
         if (self.master_completion && !wake_fds.empty()) {
@@ -550,6 +648,9 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
             fd.revents = 0;
         }
         descriptors.push_back({self.master_loader->Fd(), POLLIN, 0});
+        if (!self.window_open) {
+            descriptors.push_back({self.frontend->ResourceCompletionFd(), POLLIN, 0});
+        }
         if (self.launches && self.launches->Connected()) {
             descriptors.push_back(
                 {self.launches->Fd(),
@@ -578,6 +679,7 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
         if (self.failed) {
             return false;
         }
+        self.frontend->PollImageResources();
         self.TakeMasterCompletion();
         self.Observe();
         // The caller owns these descriptors and consumes control/theme/stop
@@ -643,6 +745,10 @@ void AppHost::Close()
     self.business.reset();
     self.launches.reset();
     self.frontend.reset();
+    self.installed_plan.reset();
+    self.bindings.clear();
+    self.mounted_bindings.clear();
+    self.scheduler.reset();
     self.package.reset();
 }
 } // namespace prism::sdk

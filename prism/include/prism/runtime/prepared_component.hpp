@@ -80,14 +80,18 @@ public:
     std::span<const PreparedImage> Images() const;
     std::size_t SourceBytes() const;
     std::size_t NodeCount() const;
+    std::uint64_t RetainedBytes() const noexcept;
+    PreparedComponent WithRetention(std::shared_ptr<const void> retention) const;
 
 private:
     struct Data;
     explicit PreparedComponent(std::shared_ptr<const Data> data);
     const Data &GetData() const;
     std::shared_ptr<const Data> data_;
+    std::shared_ptr<const void> retention_;
 
     friend PreparedComponent PrepareComponent(std::string_view, ComponentSource);
+    friend struct PreparedComponentAccess;
 };
 
 // CPU-only, owning and immutable. Theme names remain references until installation.

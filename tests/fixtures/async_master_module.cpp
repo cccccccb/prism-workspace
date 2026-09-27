@@ -25,6 +25,23 @@ void SetStatus(State &state, std::string_view text)
             "Host rejected declared status binding");
 }
 
+void CheckDeferredBindings(State &state)
+{
+    const std::string_view text = "Deferred business value retained before mount";
+    PrismValueV1 value{};
+    value.kind = PRISM_VALUE_STRING_V1;
+    value.as.string = {text.data(), text.size()};
+    Require(state.host->set_binding(state.host->context, {"future", 6}, value) == 0,
+            "Host rejected declared deferred binding with no mounted target");
+    Require(state.host->set_binding(state.host->context, {"unknown", 7}, value) != 0,
+            "Host accepted an undeclared graph binding");
+
+    value.kind = PRISM_VALUE_NUMBER_V1;
+    value.as.number = 42;
+    Require(state.host->set_binding(state.host->context, {"future", 6}, value) != 0,
+            "Host accepted the wrong type for a declared deferred binding");
+}
+
 void *Create(const PrismAppInitV1 *init)
 {
     if (!init || !init->host) {
@@ -32,6 +49,10 @@ void *Create(const PrismAppInitV1 *init)
     }
     auto *state = new State{init->host};
     SetStatus(*state, "Master business ready");
+    const std::string_view app_id(init->app_id.data, init->app_id.size);
+    if (app_id.find("graph") != std::string_view::npos) {
+        CheckDeferredBindings(*state);
+    }
     Require(state->host->launch_app(state->host->context, {"async-probe-other", 17}) == 9,
             "Host did not register deterministic launch request");
     Require(state->host->subscribe_instances(state->host->context) == 9,

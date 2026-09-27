@@ -6,6 +6,7 @@
 #include "prism/runtime/buffer_damage.hpp"
 #include "prism/runtime/dsl_frontend.hpp"
 #include "prism/runtime/scene.hpp"
+#include "prism/runtime/task_scheduler.hpp"
 #include "prism/sdk/client_application.hpp"
 #include <cstdio>
 #include <filesystem>
@@ -23,12 +24,15 @@ namespace prism::sdk {
 struct ClientApplication::Impl {
     explicit Impl(ClientConfig value)
         : config(std::move(value)), commands(config.font_path),
-          resources(render_skia::RasterRenderer::DecodePng)
+          resources(render_skia::RasterRenderer::InspectPng,
+                    render_skia::RasterRenderer::DecodePngBounded, config.task_scheduler)
     {
     }
 
     bool InstallScene(runtime::UiLoadId load, const runtime::PreparedComponent &prepared,
                       runtime::LoadDiagnostic *diagnostic);
+    void ReleaseUnusedImages(const std::set<std::uint64_t> &keep);
+    void ClearPreloadedImages();
     contracts::ResourceId RequestImage(std::set<std::uint64_t> &images, std::string_view uri);
     runtime::ShapedText ShapeText(std::string_view text, double size);
     void HandleWindowEvent(const contracts::WindowEvent &event);
@@ -40,6 +44,8 @@ struct ClientApplication::Impl {
     void CloseGpu();
     void FailFrontend();
     std::set<std::uint64_t> scene_images;
+    std::set<std::uint64_t> preloaded_images;
+    runtime::UiLoadId preloaded_ui{};
     runtime::UiLoadState ui_load;
     runtime::UiLoadId installed_ui{};
     runtime::UiLoadId prepared_ui{};

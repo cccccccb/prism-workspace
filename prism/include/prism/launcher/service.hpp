@@ -1,4 +1,5 @@
 #pragma once
+#include "prism/runtime/session_task_budget.hpp"
 #include <csignal>
 #include <filesystem>
 #include <memory>
@@ -12,6 +13,7 @@ struct ServiceConfig {
     int wm_fd{-1}, parent_pid{};
     bool start_shell{};
     unsigned pool_size{1}, max_workers{8}, startup_timeout_ms{15000};
+    runtime::TaskBudgetConfig load_budget;
 };
 
 class Service {

@@ -321,6 +321,9 @@ void Service::Impl::Shutdown()
         kill(pid, SIGKILL);
         while (waitpid(pid, nullptr, 0) < 0 && errno == EINTR) {
         }
+        if (load_budget) {
+            load_budget->DropProcess(pid);
+        }
     }
     workers.clear();
     Flush();

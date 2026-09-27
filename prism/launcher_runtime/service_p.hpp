@@ -87,6 +87,7 @@ struct Service::Impl {
     std::uint64_t session{}, opened_at{};
     ThemeSnapshot theme, committed_theme;
     bool theme_ready{};
+    std::shared_ptr<runtime::SessionTaskBudget> load_budget;
 
     struct ThemeTransaction {
         Owner owner;

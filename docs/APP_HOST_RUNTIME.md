@@ -129,3 +129,14 @@ HostUiState 本地记录 MasterPrepared/Installed/Submitted/Presented，呈现�
 并通过验证。链接、Scene 构造、字体/GPU/Wayland 及业务回调仍在事件线程；复杂安装
 或任意慢业务初始化仍可阻塞。多组件图、全会话配额及业务异步准备属于后续步骤。
 后续进度与验证以加载规范的实施记录为准。
+
+
+## 12. 组件加载调度（2026-09-27）
+
+第二步提交 `f82ef5d` 后，Host 统一使用 MasterLoadSession 编排旧单文件和 Interface v2。
+纯读取/校验/组件组合和图片检查/解码共享同一 TaskScheduler；PrepareFrontend 准备
+字体、调度句柄和主题，工作线程仅在有任务时创建，不再提前启动独立图片线程。
+launcher 的共享 SessionTaskBudget 通过 FD4 传入并经认证，私有控制 FD3 和启动消息
+保持原契约。Master 的必需图片就绪后安装，真实呈现后才准备 deferred；稳定区域挂载
+将在下一步接入。完整边界、内存计账和验证见
+[加载规范第 10 节](MASTER_PARALLEL_LOADING.md#10-第三步组件图共享工作池与会话预算)。

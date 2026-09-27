@@ -1,4 +1,5 @@
 #include "prism/runtime/dsl_frontend.hpp"
+#include "load_plan_p.hpp"
 #include "prepared_component_p.hpp"
 #include "prism/compiler/error.hpp"
 #include "prism/runtime/dsl_schema.hpp"
@@ -292,6 +293,15 @@ private:
 };
 } // namespace
 
+PreparedComponent PrepareVisualSyntax(const SyntaxNode &syntax, ComponentSource source_info,
+                                      std::size_t source_bytes)
+{
+    ComponentCompiler compiler(source_info);
+    auto root = compiler.Convert(syntax);
+    return PreparedComponentAccess::Make(std::move(source_info), std::move(root),
+                                         compiler.TakeImages(), source_bytes, compiler.NodeCount());
+}
+
 PreparedComponent PrepareComponent(std::string_view source, ComponentSource source_info)
 {
     if (source.size() > max_source_bytes) {
@@ -304,15 +314,7 @@ PreparedComponent PrepareComponent(std::string_view source, ComponentSource sour
         throw LoadFailure({LoadStage::Syntax, source_info, error.Line(), error.Message()});
     }
 
-    ComponentCompiler compiler(source_info);
-    auto root = compiler.Convert(syntax);
-    auto data = std::make_shared<PreparedComponent::Data>();
-    data->source = std::move(source_info);
-    data->root = std::move(root);
-    data->images = compiler.TakeImages();
-    data->source_bytes = source.size();
-    data->node_count = compiler.NodeCount();
-    return PreparedComponent(std::move(data));
+    return PrepareVisualSyntax(syntax, std::move(source_info), source.size());
 }
 
 Blueprint ParseBlueprint(std::string_view source, ResolveImage resolve_image)

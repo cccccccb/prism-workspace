@@ -39,6 +39,9 @@ contracts::ResourceId ClientApplication::Impl::RequestImage(std::set<std::uint64
     }
 
     auto id = app.resources.Request(std::move(path));
+    if (!id) {
+        throw std::runtime_error("Image resource queue is full");
+    }
     images.insert(id.value);
     return id;
 }
@@ -88,7 +91,7 @@ bool ClientApplication::Impl::InstallScene(runtime::UiLoadId load,
                 throw std::runtime_error("Package image unavailable");
             }
             if (const auto *image = app.resources.Get(id)) {
-                if (!app.commands.RegisterImage(id, *image) ||
+                if (!app.commands.RegisterImage(id, *image, app.resources.Retain(id)) ||
                     !next->ImageReady(id, {static_cast<double>(image->width),
                                            static_cast<double>(image->height)})) {
                     throw std::runtime_error("Cached image registration failed");
@@ -99,6 +102,9 @@ bool ClientApplication::Impl::InstallScene(runtime::UiLoadId load,
         if (app.scene) {
             AddSceneStats(app.render_stats, app.scene->GetRenderStats());
         }
+        app.ReleaseUnusedImages(images);
+        app.preloaded_images.clear();
+        app.preloaded_ui = {};
         app.scene = std::move(next);
         app.scene_images = std::move(images);
         app.installed_ui = load;
@@ -111,11 +117,23 @@ bool ClientApplication::Impl::InstallScene(runtime::UiLoadId load,
         app.committed_pixels_revision = app.prepared_pixels_revision = 0;
         app.state_prepared = false;
     } catch (const runtime::LoadFailure &error) {
+        for (auto value : images) {
+            if (!app.scene_images.contains(value) && !app.preloaded_images.contains(value)) {
+                app.commands.UnregisterImage({value});
+                app.resources.Release({value});
+            }
+        }
         if (diagnostic) {
             *diagnostic = error.Diagnostic();
         }
         return false;
     } catch (const std::exception &error) {
+        for (auto value : images) {
+            if (!app.scene_images.contains(value) && !app.preloaded_images.contains(value)) {
+                app.commands.UnregisterImage({value});
+                app.resources.Release({value});
+            }
+        }
         if (diagnostic) {
             *diagnostic = {runtime::LoadStage::Install,
                            prepared ? prepared.Source() : runtime::ComponentSource{}, 0,

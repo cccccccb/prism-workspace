@@ -2,6 +2,7 @@
 #include "service_p.hpp"
 #include <cerrno>
 #include <cstring>
+#include <fcntl.h>
 #include <iostream>
 #include <spawn.h>
 #include <stdexcept>
@@ -16,6 +17,64 @@ extern char **environ;
 namespace prism::launcher {
 using detail::Now;
 using detail::Require;
+
+namespace {
+class WorkerDescriptors {
+public:
+    explicit WorkerDescriptors(int budget)
+    {
+        int pair[2];
+        if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0, pair)) {
+            return;
+        }
+        parent_ = pair[0];
+        control_ = fcntl(pair[1], F_DUPFD_CLOEXEC, 10);
+        close(pair[1]);
+        budget_ = fcntl(budget, F_DUPFD_CLOEXEC, 10);
+    }
+
+    ~WorkerDescriptors()
+    {
+        if (parent_ >= 0) {
+            close(parent_);
+        }
+        if (control_ >= 0) {
+            close(control_);
+        }
+        if (budget_ >= 0) {
+            close(budget_);
+        }
+    }
+
+    bool Valid() const
+    {
+        return parent_ >= 0 && control_ >= 0 && budget_ >= 0;
+    }
+
+    int Configure(posix_spawn_file_actions_t &actions) const
+    {
+        int result = posix_spawn_file_actions_adddup2(&actions, control_, 3);
+        if (!result) {
+            result = posix_spawn_file_actions_adddup2(&actions, budget_, 4);
+        }
+        if (!result) {
+            result = posix_spawn_file_actions_addclose(&actions, control_);
+        }
+        if (!result) {
+            result = posix_spawn_file_actions_addclose(&actions, budget_);
+        }
+        return result;
+    }
+
+    int TakeParent()
+    {
+        return std::exchange(parent_, -1);
+    }
+
+private:
+    int parent_{-1}, control_{-1}, budget_{-1};
+};
+} // namespace
 
 void Service::Impl::StopWorker(Worker &worker)
 {
@@ -119,34 +178,32 @@ void Service::Impl::ReadWorker(Worker &worker)
 
 bool Service::Impl::Spawn()
 {
-    int pair[2];
-    if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0, pair)) {
+    WorkerDescriptors descriptors(load_budget->Fd());
+    if (!descriptors.Valid()) {
         return false;
     }
 
     posix_spawn_file_actions_t actions;
-    posix_spawn_file_actions_init(&actions);
-    posix_spawn_file_actions_adddup2(&actions, pair[1], 3);
-    if (pair[0] != 3) {
-        posix_spawn_file_actions_addclose(&actions, pair[0]);
+    int result = posix_spawn_file_actions_init(&actions);
+    if (result) {
+        return false;
     }
-    if (pair[1] != 3) {
-        posix_spawn_file_actions_addclose(&actions, pair[1]);
-    }
-
-    // All service descriptors are CLOEXEC; only the private control endpoint survives.
+    result = descriptors.Configure(actions);
+    // Both sources were duplicated above FD4 before any child dup2. All other
+    // service descriptors are CLOEXEC, including the parent socket endpoint.
     const auto path = config.host.string(), root = config.apps_root.string(),
                parent = std::to_string(getpid());
-    const char *words[]{
-        path.c_str(),   "--worker-fd",  "3",         "--apps-root",          root.c_str(),
-        "--parent-pid", parent.c_str(), "--wayland", config.wayland.c_str(), nullptr};
+    const char *words[]{path.c_str(),       "--worker-fd", "3",
+                        "--apps-root",      root.c_str(),  "--parent-pid",
+                        parent.c_str(),     "--wayland",   config.wayland.c_str(),
+                        "--load-budget-fd", "4",           nullptr};
     pid_t pid = 0;
-    const int result = posix_spawn(&pid, path.c_str(), &actions, nullptr,
-                                   const_cast<char *const *>(words), environ);
+    if (!result) {
+        result = posix_spawn(&pid, path.c_str(), &actions, nullptr,
+                             const_cast<char *const *>(words), environ);
+    }
     posix_spawn_file_actions_destroy(&actions);
-    close(pair[1]);
     if (result) {
-        close(pair[0]);
         std::cerr << "worker spawn failed: " << std::strerror(result) << '\n';
         return false;
     }
@@ -154,7 +211,8 @@ bool Service::Impl::Spawn()
     Worker worker;
     worker.pid = pid;
     worker.created = Now();
-    worker.stream = std::make_unique<launch::Stream>(pair[0], launch::WorkerFrameSize);
+    worker.stream =
+        std::make_unique<launch::Stream>(descriptors.TakeParent(), launch::WorkerFrameSize);
     workers.emplace(pid, std::move(worker));
     std::cout << "worker spawned pid=" << pid << std::endl;
     return true;
@@ -179,6 +237,8 @@ void Service::Impl::Reap()
             ++it;
             continue;
         }
+
+        load_budget->DropProcess(worker.pid);
 
         if (worker.job) {
             auto &job = *jobs.at(worker.job);

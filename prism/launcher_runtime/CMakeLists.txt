@@ -5,7 +5,7 @@ add_library(prism_launcher_runtime STATIC
     service_control.cpp
     service_workers.cpp
     service_loop.cpp)
-target_link_libraries(prism_launcher_runtime PUBLIC prism_launch prism_theme_compiler)
+target_link_libraries(prism_launcher_runtime PUBLIC prism_launch prism_theme_compiler prism_task_budget)
 add_executable(prism-launcher main.cpp)
 target_link_libraries(prism-launcher PRIVATE prism_launcher_runtime)
 add_executable(prism-invoker invoker.cpp)

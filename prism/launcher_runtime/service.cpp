@@ -73,6 +73,7 @@ void Service::Impl::Open()
     Require(config.pool_size <= config.max_workers && config.max_workers >= 1 &&
                 config.max_workers <= 32,
             "Pool/max worker counts are invalid");
+    load_budget = runtime::SessionTaskBudget::Create(config.load_budget);
     struct sigaction child_action{};
     Require(!sigaction(SIGCHLD, nullptr, &child_action) && child_action.sa_handler != SIG_IGN &&
                 !(child_action.sa_flags & SA_NOCLDWAIT),

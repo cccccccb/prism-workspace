@@ -1,16 +1,14 @@
 #include "prism/runtime/load_session.hpp"
 #include <cerrno>
 #include <chrono>
-#include <condition_variable>
 #include <cstring>
 #include <fcntl.h>
-#include <mutex>
+#include <limits>
 #include <stdexcept>
-#include <sys/eventfd.h>
 #include <sys/stat.h>
 #include <system_error>
-#include <thread>
 #include <unistd.h>
+#include <unordered_map>
 #include <utility>
 
 namespace prism::runtime {
@@ -131,78 +129,64 @@ LoadDiagnostic CancelledDiagnostic(const ComponentSource &source)
 }
 } // namespace
 
-struct LoadSession::Impl {
-    struct Job {
-        LoadRequest request;
-        std::stop_source cancellation;
-    };
-
-    explicit Impl(PrepareFunction value) : prepare(value ? std::move(value) : PrepareDefault)
+namespace {
+struct LoadOutput : TaskOutput {
+    explicit LoadOutput(LoadCompletion value) : completion(std::move(value))
     {
-        completion_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-        if (completion_fd < 0) {
-            throw std::system_error(errno, std::generic_category(), "UI completion eventfd");
+    }
+
+    std::uint64_t RetainedBytes() const noexcept override
+    {
+        auto bytes = sizeof(LoadOutput) + 256 + completion.source.component_id.capacity() +
+                     completion.source.source_path.capacity() +
+                     completion.source.source_version.capacity();
+        if (completion.prepared) {
+            bytes += completion.prepared->RetainedBytes();
         }
-    }
-
-    ~Impl()
-    {
-        close(completion_fd);
-    }
-
-    bool HasJob() const
-    {
-        return stopped || pending.has_value();
-    }
-
-    bool CanPublish() const
-    {
-        return stopped || !completed.has_value();
-    }
-
-    void Signal()
-    {
-        const std::uint64_t one = 1;
-        while (write(completion_fd, &one, sizeof(one)) < 0 && errno == EINTR) {
+        if (completion.diagnostic) {
+            const auto &diagnostic = *completion.diagnostic;
+            bytes += diagnostic.message.capacity() + diagnostic.source.component_id.capacity() +
+                     diagnostic.source.source_path.capacity() +
+                     diagnostic.source.source_version.capacity();
         }
+        return bytes;
     }
 
-    void Drain()
-    {
-        std::uint64_t value;
-        while (read(completion_fd, &value, sizeof(value)) < 0 && errno == EINTR) {
-        }
-    }
+    LoadCompletion completion;
+};
 
-    LoadCompletion Execute(const Job &job)
+struct LoadWork {
+    LoadRequest request;
+    PrepareFunction prepare;
+
+    std::shared_ptr<const TaskOutput> operator()(std::stop_token token) const
     {
-        LoadCompletion result{job.request.load, job.request.source, {}, {}, {}};
-        const auto token = job.cancellation.get_token();
+        LoadCompletion result{request.load, request.source, {}, {}, {}};
         auto phase_start = Clock::now();
         bool preparing = false;
         try {
-            auto text = ReadSource(job.request, token);
+            auto text = ReadSource(request, token);
             result.timings.read_us = ElapsedUs(phase_start);
-            CheckCancelled(job.request.source, token);
+            CheckCancelled(request.source, token);
 
             phase_start = Clock::now();
             preparing = true;
-            result.prepared = prepare(text, job.request.source, token);
+            result.prepared = prepare(text, request.source, token);
             result.timings.prepare_us = ElapsedUs(phase_start);
-            CheckCancelled(job.request.source, token);
+            CheckCancelled(request.source, token);
             if (!*result.prepared) {
-                throw LoadFailure({LoadStage::Semantic, job.request.source, 0,
+                throw LoadFailure({LoadStage::Semantic, request.source, 0,
                                    "Compiler returned an invalid prepared component"});
             }
         } catch (const LoadFailure &error) {
             result.diagnostic = error.Diagnostic();
         } catch (const std::exception &error) {
             result.diagnostic = LoadDiagnostic{preparing ? LoadStage::Semantic : LoadStage::Read,
-                                               job.request.source, 0, error.what()};
+                                               request.source, 0, error.what()};
         } catch (...) {
             result.diagnostic =
-                LoadDiagnostic{preparing ? LoadStage::Semantic : LoadStage::Read,
-                               job.request.source, 0, "Unknown UI preparation exception"};
+                LoadDiagnostic{preparing ? LoadStage::Semantic : LoadStage::Read, request.source, 0,
+                               "Unknown UI preparation exception"};
         }
 
         if (preparing) {
@@ -211,66 +195,35 @@ struct LoadSession::Impl {
             result.timings.read_us = ElapsedUs(phase_start);
         }
         if (token.stop_requested()) {
-            result.diagnostic = CancelledDiagnostic(job.request.source);
+            result.diagnostic = CancelledDiagnostic(request.source);
         }
         if (result.diagnostic) {
             result.prepared.reset();
         }
-        return result;
+        return std::make_shared<const LoadOutput>(std::move(result));
     }
+};
+} // namespace
 
-    void Run()
+struct LoadSession::Impl {
+    Impl(PrepareFunction value, std::shared_ptr<TaskScheduler> shared_scheduler)
+        : prepare(value ? std::move(value) : PrepareDefault),
+          scheduler(shared_scheduler ? std::move(shared_scheduler)
+                                     : std::make_shared<TaskScheduler>()),
+          channel(scheduler->OpenChannel(2, 1, false))
     {
-        for (;;) {
-            std::optional<Job> job;
-            {
-                std::unique_lock lock(mutex);
-                wake.wait(lock, std::bind_front(&Impl::HasJob, this));
-                if (stopped) {
-                    return;
-                }
-                job = std::move(pending);
-                pending.reset();
-                active_load = job->request.load;
-                active_cancellation = job->cancellation;
-            }
-
-            auto result = Execute(*job);
-            {
-                std::unique_lock lock(mutex);
-                wake.wait(lock, std::bind_front(&Impl::CanPublish, this));
-                if (stopped) {
-                    return;
-                }
-                // Cancel can race compilation or a result waiting for the
-                // single completion slot. Check again at publication.
-                if (job->cancellation.stop_requested()) {
-                    result.prepared.reset();
-                    result.diagnostic = CancelledDiagnostic(job->request.source);
-                }
-                completed = std::move(result);
-                active_load = {};
-                active_cancellation.reset();
-                Signal();
-            }
-        }
     }
 
     PrepareFunction prepare;
-    int completion_fd{-1};
-    std::mutex mutex;
-    std::condition_variable wake;
-    std::thread worker;
-    std::optional<Job> pending;
-    std::optional<LoadCompletion> completed;
-    std::optional<std::stop_source> active_cancellation;
-    UiLoadId active_load{};
-    std::size_t outstanding{};
-    bool stopped{false};
+    std::shared_ptr<TaskScheduler> scheduler;
+    std::shared_ptr<TaskChannel> channel;
+    std::unordered_map<std::uint64_t, LoadRequest> requests;
+    std::uint64_t next_id{1};
+    bool stopped{};
 };
 
-LoadSession::LoadSession(PrepareFunction prepare)
-    : impl_(std::make_unique<Impl>(std::move(prepare)))
+LoadSession::LoadSession(PrepareFunction prepare, std::shared_ptr<TaskScheduler> scheduler)
+    : impl_(std::make_unique<Impl>(std::move(prepare), std::move(scheduler)))
 {
 }
 
@@ -281,110 +234,93 @@ LoadSession::~LoadSession()
 
 LoadSubmitResult LoadSession::Submit(LoadRequest request)
 {
-    std::lock_guard lock(impl_->mutex);
     if (impl_->stopped) {
         return LoadSubmitResult::Closed;
     }
-    if (request.load.owner == 0 || request.load.generation == 0 || request.path.empty() ||
-        request.path.find('\0') != std::string::npos) {
+    if (!request.load.owner || !request.load.generation || request.path.empty() ||
+        request.path.find('\0') != std::string::npos ||
+        impl_->next_id == std::numeric_limits<std::uint64_t>::max()) {
         return LoadSubmitResult::Invalid;
-    }
-    if (impl_->outstanding >= 2 || impl_->pending) {
-        return LoadSubmitResult::Busy;
     }
     if (request.source.source_path.empty()) {
         request.source.source_path = request.path;
     }
 
-    impl_->pending = Impl::Job{std::move(request), {}};
-    ++impl_->outstanding;
+    const auto id = impl_->next_id;
+    impl_->requests.emplace(id, request);
+    TaskSubmitResult result;
     try {
-        if (!impl_->worker.joinable()) {
-            impl_->worker = std::thread(&Impl::Run, impl_.get());
-        }
+        result = impl_->channel->Submit({id, TaskPriority::Critical, 32ULL * 1024 * 1024,
+                                         LoadWork{std::move(request), impl_->prepare}});
     } catch (...) {
-        impl_->pending.reset();
-        --impl_->outstanding;
+        impl_->requests.erase(id);
         throw;
     }
-    impl_->wake.notify_one();
+    if (result != TaskSubmitResult::Accepted) {
+        impl_->requests.erase(id);
+        switch (result) {
+        case TaskSubmitResult::Busy:
+            return LoadSubmitResult::Busy;
+        case TaskSubmitResult::Closed:
+            return LoadSubmitResult::Closed;
+        default:
+            return LoadSubmitResult::Invalid;
+        }
+    }
+    ++impl_->next_id;
     return LoadSubmitResult::Accepted;
 }
 
 void LoadSession::Cancel(UiLoadId load)
 {
-    std::optional<std::stop_source> active;
-    std::optional<std::stop_source> pending;
-    {
-        std::lock_guard lock(impl_->mutex);
-        if (impl_->active_load == load) {
-            active = impl_->active_cancellation;
-        }
-        if (impl_->pending && impl_->pending->request.load == load) {
-            pending = impl_->pending->cancellation;
-        }
-        if (impl_->completed && impl_->completed->load == load) {
-            impl_->completed->prepared.reset();
-            impl_->completed->diagnostic = CancelledDiagnostic(impl_->completed->source);
+    for (const auto &[id, request] : impl_->requests) {
+        if (request.load == load) {
+            impl_->channel->Cancel(id);
         }
     }
-    if (active) {
-        active->request_stop();
-    }
-    if (pending) {
-        pending->request_stop();
-    }
-    {
-        std::lock_guard lock(impl_->mutex);
-        // The worker may have published between copying its stop source and
-        // requesting cancellation. Owner consumption cannot race this call.
-        if (impl_->completed && impl_->completed->load == load) {
-            impl_->completed->prepared.reset();
-            impl_->completed->diagnostic = CancelledDiagnostic(impl_->completed->source);
-        }
-    }
-    impl_->wake.notify_one();
 }
 
 void LoadSession::Stop()
 {
-    std::optional<std::stop_source> active;
-    {
-        std::lock_guard lock(impl_->mutex);
-        impl_->stopped = true;
-        active = impl_->active_cancellation;
-        impl_->pending.reset();
-        impl_->completed.reset();
-        impl_->outstanding = 0;
-        impl_->Drain();
-    }
-    if (active) {
-        active->request_stop();
-    }
-    impl_->wake.notify_one();
-    if (impl_->worker.joinable()) {
-        impl_->worker.join();
-    }
+    impl_->stopped = true;
+    impl_->channel->Stop();
+    impl_->requests.clear();
 }
 
 int LoadSession::Fd() const noexcept
 {
-    return impl_->completion_fd;
+    return impl_->channel->Fd();
 }
 
 std::optional<LoadCompletion> LoadSession::TakeCompletion()
 {
-    std::optional<LoadCompletion> result;
-    {
-        std::lock_guard lock(impl_->mutex);
-        impl_->Drain();
-        if (impl_->completed) {
-            result = std::move(impl_->completed);
-            impl_->completed.reset();
-            --impl_->outstanding;
-        }
+    const auto task = impl_->channel->TakeCompletion();
+    if (!task) {
+        return {};
     }
-    impl_->wake.notify_one();
+    const auto request = impl_->requests.find(task->id);
+    if (request == impl_->requests.end()) {
+        throw std::logic_error("Unknown load task completion");
+    }
+    LoadCompletion result{request->second.load, request->second.source, {}, {}, {}};
+    impl_->requests.erase(request);
+    if (task->error) {
+        result.diagnostic =
+            LoadDiagnostic{task->error->code == TaskErrorCode::Cancelled ? LoadStage::Cancelled
+                                                                         : LoadStage::Semantic,
+                           result.source, 0, task->error->message};
+        return result;
+    }
+    const auto output = std::dynamic_pointer_cast<const LoadOutput>(task->output);
+    if (!output) {
+        result.diagnostic =
+            LoadDiagnostic{LoadStage::Semantic, result.source, 0, "Unexpected load task output"};
+        return result;
+    }
+    result = output->completion;
+    if (result.prepared) {
+        result.prepared = result.prepared->WithRetention(output);
+    }
     return result;
 }
 

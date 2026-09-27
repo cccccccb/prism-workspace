@@ -25,7 +25,15 @@ public:
     runtime::ShapedText Shape(contracts::ResourceId font, std::string_view text, double size) const;
     bool RegisterFont(contracts::ResourceId id, const std::string &path);
     static std::optional<runtime::DecodedImage> DecodePng(const std::string &path);
+    static std::optional<runtime::ImageDescription> InspectPng(const std::string &path);
+    static std::optional<runtime::DecodedImage> DecodePngBounded(const std::string &path,
+                                                                 std::size_t max_bytes);
     bool RegisterImage(contracts::ResourceId id, const runtime::DecodedImage &image);
+    // The owner must keep image.rgba immutable and alive until Skia releases
+    // its raster data. Production resources retain their task output/lease.
+    bool RegisterImage(contracts::ResourceId id, const runtime::DecodedImage &image,
+                       std::shared_ptr<const void> owner);
+    void UnregisterImage(contracts::ResourceId id);
     bool Render(const contracts::DisplayList &list, void *pixels, int width, int height,
                 int stride) const;
     // Compare against the last successfully submitted list/resource epoch.

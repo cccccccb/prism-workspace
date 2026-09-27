@@ -64,6 +64,15 @@ Token Lexer::ScanIdentifierOrKeyword()
     return Token{TokenType::Identifier, text, 0.0, line_};
 }
 
+Token Lexer::ReadRootIdentifier()
+{
+    SkipWhitespaceAndComments();
+    if (IsAtEnd() || (!std::isalpha(static_cast<unsigned char>(Peek())) && Peek() != '_')) {
+        throw CompilerError(line_, "expected root component identifier");
+    }
+    return ScanIdentifierOrKeyword();
+}
+
 Token Lexer::ScanDollarIdentifier()
 {
     Advance(); // Consume '$'
@@ -168,6 +177,9 @@ std::vector<Token> Lexer::Tokenize()
         SkipWhitespaceAndComments();
         if (IsAtEnd()) {
             break;
+        }
+        if (strict_ && tokens.size() >= 65535) {
+            throw CompilerError(line_, "DSL token count exceeds limit of 65536");
         }
 
         char c = Peek();

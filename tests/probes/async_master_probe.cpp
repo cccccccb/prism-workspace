@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <functional>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <span>
@@ -529,6 +530,245 @@ void CheckCancellation(const std::string &socket, const std::filesystem::path &p
     std::cout << "scenario=cancel-" << (preview ? "preview" : "master-only") << " passed\n";
 }
 
+class GraphBarrier {
+public:
+    PreparedComponent Prepare(std::string_view text, ComponentSource source, std::stop_token stop)
+    {
+        const bool deferred = source.component_id == "late";
+        {
+            std::unique_lock lock(mutex_);
+            Require(source.component_id == "first" || source.component_id == "second" ||
+                        source.component_id == "third" || deferred,
+                    "Graph compiler adapter received an unexpected component");
+            Require(!workers_.contains(source.component_id), "Graph component prepared twice");
+            workers_.emplace(source.component_id, std::this_thread::get_id());
+            wake_.Signal();
+            if (!released_.wait(lock, stop,
+                                std::bind_front(&GraphBarrier::MayProceed, this, deferred))) {
+                throw LoadFailure(
+                    {LoadStage::Cancelled, source, 0, "Graph probe preparation cancelled"});
+            }
+        }
+        return prism::runtime::PrepareComponent(text, std::move(source));
+    }
+
+    bool Entered(std::string_view component) const
+    {
+        std::lock_guard lock(mutex_);
+        return workers_.contains(std::string(component));
+    }
+
+    void CheckParallel() const
+    {
+        std::lock_guard lock(mutex_);
+        Require(workers_.contains("first") && workers_.contains("second") &&
+                    workers_.at("first") != workers_.at("second") &&
+                    workers_.at("first") != std::this_thread::get_id() &&
+                    workers_.at("second") != std::this_thread::get_id(),
+                "Independent critical graph units did not overlap on distinct CPU workers");
+    }
+
+    void Release(bool deferred = false)
+    {
+        {
+            std::lock_guard lock(mutex_);
+            if (deferred) {
+                deferred_released_ = true;
+            } else {
+                critical_released_ = true;
+            }
+        }
+        released_.notify_all();
+    }
+
+    WakeFd &Wake()
+    {
+        return wake_;
+    }
+
+private:
+    bool MayProceed(bool deferred) const
+    {
+        return deferred ? deferred_released_ : critical_released_;
+    }
+
+    mutable std::mutex mutex_;
+    std::condition_variable_any released_;
+    std::map<std::string, std::thread::id> workers_;
+    WakeFd wake_;
+    bool critical_released_{}, deferred_released_{};
+};
+
+void CheckGraphPresentationGate(Host &host, GraphBarrier &barrier)
+{
+    const auto ui = host.GetUiState();
+    CheckPresentation(ui);
+    if (!ui.master_presented) {
+        Require(!ui.deferred_started && ui.deferred_prepared == 0 && !barrier.Entered("late"),
+                "Deferred graph task started before actual Master presentation");
+    }
+    if (ui.master_submitted) {
+        Require(ui.preview_presented && ui.critical_prepared == 3 && ui.master_images_ready &&
+                    ui.master_image_count == 1,
+                "Master pixels submitted before Preview/critical units/required image readiness");
+    }
+}
+
+void WaitParallelGraph(Host &host, GraphBarrier &barrier)
+{
+    while (!barrier.Entered("first") || !barrier.Entered("second")) {
+        WaitWake(host, barrier.Wake());
+        CheckGraphPresentationGate(host, barrier);
+    }
+    barrier.CheckParallel();
+    const auto ui = host.GetUiState();
+    Require(ui.component_count == 4 && ui.critical_prepared == 0 && !ui.master_installed &&
+                !ui.master_submitted && !barrier.Entered("third"),
+            "Blocked critical graph changed installation or bypassed after dependency");
+}
+
+void PumpGraphControl(Host &host, WakeFd &control)
+{
+    pollfd fd{control.Fd(), POLLIN, 0};
+    Require(host.Pump(20, std::span(&fd, 1)) && (fd.revents & POLLIN),
+            "Graph Host lost caller-owned ready control");
+    Require(!host.GetUiState().master_installed && !host.GetUiState().master_submitted,
+            "Graph Master installed before caller consumed its control source");
+}
+
+void SetGraphTheme(Host &host)
+{
+    auto latest = Theme(3);
+    latest.colors.push_back({"after_control", {130, 210, 240, 255}});
+    Require(host.ApplyTheme(latest) && host.ThemeGeneration() == 3,
+            "Graph owner could not install the theme selected by its ready control");
+}
+
+void CheckGraphSuccess(Host &host, Recorder &events, GraphBarrier &barrier, WakeFd &control)
+{
+    const auto deadline = Clock::now() + 8s;
+    while (!host.GetUiState().master_prepared) {
+        Require(Clock::now() < deadline, "Critical graph composition did not complete");
+        PumpGraphControl(host, control);
+        CheckGraphPresentationGate(host, barrier);
+    }
+    const auto candidate = host.GetUiState();
+    Require(candidate.critical_prepared == 3 && !candidate.master_installed &&
+                !candidate.deferred_started && events.Count(LaunchMilestone::BackendReady) == 0,
+            "Held graph candidate bypassed critical, caller-control or business ordering");
+    SetGraphTheme(host);
+    control.Drain();
+
+    while (!host.GetUiState().master_presented || !events.Count(LaunchMilestone::BackendReady)) {
+        Require(Clock::now() < deadline, "Graph Master pixels/presentation timed out");
+        Require(host.Pump(20), "Graph Host stopped before successful Master presentation");
+        CheckGraphPresentationGate(host, barrier);
+    }
+    WaitMaster(host, events, true);
+    const auto &ready = events.Find(LaunchMilestone::BackendReady);
+    Require(ready.ui.master_images_ready && ready.ui.master_image_count == 1 &&
+                ready.ui.critical_prepared == 3,
+            "Business started before required critical image decode completion");
+
+    while (!barrier.Entered("late")) {
+        WaitWake(host, barrier.Wake());
+        CheckGraphPresentationGate(host, barrier);
+    }
+    auto ui = host.GetUiState();
+    Require(ui.master_presented && ui.deferred_started && ui.deferred_prepared == 0,
+            "Deferred entry did not follow actual Master presentation");
+    const auto first_submission = ui.master_first_submission;
+    barrier.Release(true);
+    while (host.GetUiState().deferred_prepared != 1) {
+        Require(Clock::now() < deadline, "Deferred graph CPU preparation did not complete");
+        Require(host.Pump(20), "Deferred graph preparation failed the running Master");
+    }
+    ui = host.GetUiState();
+    Require(!ui.failed && ui.deferred_diagnostics == 0 && ui.master_installed &&
+                ui.master_first_submission == first_submission,
+            "Deferred CPU completion replaced or failed the critical Master identity");
+    CheckBusinessControls(host, events);
+    std::cout << "graph_components=" << ui.component_count
+              << " critical_prepared=" << ui.critical_prepared
+              << " deferred_prepared=" << ui.deferred_prepared
+              << " required_images=" << ui.master_image_count
+              << " deferred_mount=not_implemented passed\n";
+}
+
+void CheckGraphFailure(Host &host, Recorder &events, WakeFd &control,
+                       const std::filesystem::path &path, bool image_failure)
+{
+    PumpGraphControl(host, control);
+    SetGraphTheme(host);
+    control.Drain();
+    const auto deadline = Clock::now() + 8s;
+    while (host.Pump(20)) {
+        Require(Clock::now() < deadline, "Invalid graph did not finish with a typed failure");
+    }
+    const auto ui = host.GetUiState();
+    Require(ui.failed && ui.preview_presented && !ui.master_installed && !ui.master_submitted &&
+                !ui.master_presented && !ui.deferred_started && ui.master_diagnostic &&
+                events.Count(LaunchMilestone::FirstPresented) == 1 &&
+                events.Count(LaunchMilestone::Failed) == 1 &&
+                events.Count(LaunchMilestone::BackendReady) == 0,
+            "Graph failure replaced Preview, started business or lost typed diagnostics");
+    const auto &diagnostic = *ui.master_diagnostic;
+    Require(diagnostic.stage == (image_failure ? LoadStage::ResourceLink : LoadStage::Read) &&
+                !diagnostic.message.empty(),
+            "Graph failure lost its resource/read stage");
+    if (!image_failure) {
+        Require(diagnostic.source.component_id == "third" &&
+                    diagnostic.source.source_path == (path / "components/third.prism").string(),
+                "Component read failure lost its source identity");
+    } else {
+        Require(ui.master_prepared && ui.master_image_count == 1 && !ui.master_images_ready,
+                "Invalid required image did not gate graph pixel publication");
+    }
+    Require(host.ApplyTheme(Theme(4)), "Failed graph destroyed its preserved Preview frontend");
+    std::cout << "graph_diagnostic_stage=" << static_cast<unsigned>(diagnostic.stage)
+              << " component=" << diagnostic.source.component_id << " passed\n";
+}
+
+void CheckGraph(const std::string &socket, const std::filesystem::path &path)
+{
+    auto barrier = std::make_shared<GraphBarrier>();
+    Recorder events;
+    auto config = Config(socket, events);
+    config.prepare_component = std::bind_front(&GraphBarrier::Prepare, barrier);
+    Host host(std::move(config));
+    events.host = &host;
+    Require(host.Bind(prism::launch::LoadPackage(path)), "Valid v2 graph Bind failed");
+    WaitParallelGraph(host, *barrier);
+    WaitPreview(host);
+    Require(events.Count(LaunchMilestone::FirstPresented) == 1 &&
+                events.Count(LaunchMilestone::BackendReady) == 0,
+            "Blocked graph did not preserve presented Preview without business");
+    const bool missing_source = path.filename() == "graph-bad-source";
+    const bool broken_image = path.filename() == "graph-bad-image";
+    if (missing_source) {
+        Require(std::filesystem::remove(path / "components/third.prism"),
+                "Could not remove dependent component after graph read preflight");
+    }
+    WakeFd control;
+    control.Signal();
+    PumpGraphControl(host, control);
+    barrier->Release();
+    if (missing_source || broken_image) {
+        CheckGraphFailure(host, events, control, path, broken_image);
+    } else {
+        CheckGraphSuccess(host, events, *barrier, control);
+    }
+    host.Close();
+    std::cout << "scenario=" << path.filename().string() << " passed\n";
+}
+
+void VerifyGraphs(const std::string &socket, const std::filesystem::path &packages)
+{
+    CheckGraph(socket, packages / "graph-critical");
+    CheckGraph(socket, packages / "graph-bad-source");
+    CheckGraph(socket, packages / "graph-bad-image");
+}
+
 void Verify(const std::string &socket, const std::filesystem::path &packages)
 {
     CheckSuccess(socket, packages / "preview", true, true);
@@ -546,8 +786,18 @@ void Verify(const std::string &socket, const std::filesystem::path &packages)
 int main(int argc, char **argv)
 {
     try {
-        Require(argc == 3, "Usage: async_master_probe <wayland-socket> <test-packages-root>");
-        Verify(argv[1], argv[2]);
+        Require(argc == 3 || argc == 5,
+                "Usage: async_master_probe <wayland-socket> <test-packages-root> "
+                "[--mode all|legacy|graph]");
+        const std::string_view mode = argc == 3 ? "legacy" : argv[4];
+        Require(argc == 3 || std::string_view(argv[3]) == "--mode", "Unknown probe option");
+        Require(mode == "all" || mode == "legacy" || mode == "graph", "Unknown probe mode");
+        if (mode != "graph") {
+            Verify(argv[1], argv[2]);
+        }
+        if (mode != "legacy") {
+            VerifyGraphs(argv[1], argv[2]);
+        }
         std::cout << "Async Master owner-thread integration gates passed.\n";
         return 0;
     } catch (const std::exception &error) {

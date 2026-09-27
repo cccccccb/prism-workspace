@@ -43,7 +43,7 @@ int main(int argc, char **argv)
 {
     prism::sdk::HostConfig config;
     std::filesystem::path package, apps;
-    int worker_fd = -1, parent_pid = -1;
+    int worker_fd = -1, parent_pid = -1, load_budget_fd = -1;
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg(argv[i]);
         if (arg == "--help") {
@@ -60,7 +60,7 @@ int main(int argc, char **argv)
             package = value;
         } else if (arg == "--apps-root") {
             apps = value;
-        } else if (arg == "--worker-fd" || arg == "--parent-pid") {
+        } else if (arg == "--worker-fd" || arg == "--parent-pid" || arg == "--load-budget-fd") {
             int number{};
             const auto [end, error] =
                 std::from_chars(value.data(), value.data() + value.size(), number);
@@ -69,6 +69,8 @@ int main(int argc, char **argv)
             }
             if (arg == "--worker-fd") {
                 worker_fd = number;
+            } else if (arg == "--load-budget-fd") {
+                load_budget_fd = number;
             } else {
                 parent_pid = number;
             }
@@ -100,17 +102,18 @@ int main(int argc, char **argv)
     }
     const auto &stopping = signals->Stopping();
     if (worker_fd >= 0) {
-        if (apps.empty() || !package.empty()) {
+        if (apps.empty() || !package.empty() || load_budget_fd < 0 || load_budget_fd == worker_fd) {
             return 2;
         }
         try {
-            return RunWorker(worker_fd, apps, config.socket, parent_pid, stopping, signals->Fd());
+            return RunWorker(worker_fd, apps, config.socket, parent_pid, stopping, signals->Fd(),
+                             load_budget_fd);
         } catch (const std::exception &error) {
             std::cerr << error.what() << '\n';
             return 1;
         }
     }
-    if (package.empty()) {
+    if (package.empty() || load_budget_fd >= 0) {
         std::cerr << "--package is required\n";
         return 2;
     }

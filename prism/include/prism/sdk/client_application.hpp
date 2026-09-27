@@ -14,6 +14,11 @@
 #include <string>
 #include <string_view>
 
+namespace prism::runtime {
+class TaskScheduler;
+enum class ImageState;
+} // namespace prism::runtime
+
 namespace prism::sdk {
 
 std::optional<std::string> LoadUiSource(std::string_view installed_name,
@@ -32,6 +37,7 @@ struct ClientConfig {
     // Auto uses buffer age to repair only changed pixels. Disabling it keeps
     // the same renderer and content damage contract, with full pixel repair.
     bool partial_rendering{true};
+    std::shared_ptr<runtime::TaskScheduler> task_scheduler{};
 };
 
 // Cumulative observations for this ClientApplication, including UI replacement.
@@ -61,7 +67,7 @@ public:
     ClientApplication(const ClientApplication &) = delete;
     ClientApplication &operator=(const ClientApplication &) = delete;
 
-    // Worker-only construction initializes font and image threads; no Wayland/GPU yet.
+    // Worker-only construction initializes font and resource handles; no Wayland/GPU yet.
     bool FrontendReady() const;
     bool ConfigureWindow(ClientConfig config);   // Before Open only, common font unchanged.
     bool ReplaceUi(std::string_view dsl_source); // Keeps the same surface and EGL context.
@@ -79,6 +85,13 @@ public:
                       runtime::LoadDiagnostic *diagnostic = nullptr);
     bool ReplaceUiPrepared(runtime::UiLoadId load, const runtime::PreparedComponent &prepared,
                            runtime::LoadDiagnostic *diagnostic = nullptr);
+    // Stage required images while keeping the current Scene. Resource parsing
+    // and decode share the Host scheduler; registration stays on this owner.
+    bool PreloadImages(runtime::UiLoadId, const runtime::PreparedComponent &,
+                       runtime::LoadDiagnostic *diagnostic = nullptr);
+    runtime::ImageState PreloadedImageState(runtime::UiLoadId) const;
+    int ResourceCompletionFd() const noexcept;
+    bool PollImageResources();
     bool Pump(int timeout_ms, std::span<pollfd> wake_fds = {});
     bool SetSlot(std::string_view name, std::string value);
     bool SetBinding(std::string_view name, runtime::PropertyValue value);

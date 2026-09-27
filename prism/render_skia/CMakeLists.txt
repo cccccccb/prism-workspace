@@ -17,7 +17,7 @@ pkg_check_modules(PRISM_HARFBUZZ REQUIRED IMPORTED_TARGET harfbuzz)
 pkg_check_modules(PRISM_FREETYPE REQUIRED IMPORTED_TARGET freetype2)
 pkg_check_modules(PRISM_FONTCONFIG REQUIRED IMPORTED_TARGET fontconfig)
 pkg_check_modules(PRISM_PNG REQUIRED IMPORTED_TARGET libpng)
-add_library(prism_skia_raster STATIC raster_renderer.cpp)
+add_library(prism_skia_raster STATIC raster_renderer.cpp image_codec.cpp)
 target_include_directories(prism_skia_raster PRIVATE "${PRISM_SKIA_ROOT}")
 target_include_directories(prism_skia_raster PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
 target_link_libraries(prism_skia_raster PUBLIC prism_client_scene

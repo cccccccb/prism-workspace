@@ -53,6 +53,40 @@ Blueprint LinkNode(const PreparedNode &node, const std::vector<contracts::Resour
     }
     return result;
 }
+
+std::uint64_t MetadataBytes(const ComponentSource &source) noexcept
+{
+    return source.component_id.capacity() + source.source_path.capacity() +
+           source.source_version.capacity();
+}
+
+std::uint64_t NodeBytes(const PreparedNode &node) noexcept
+{
+    std::uint64_t bytes = node.properties.capacity() * sizeof(PreparedPropertyAssignment) +
+                          node.bindings.capacity() * sizeof(PropertyBinding) +
+                          node.theme_refs.capacity() * sizeof(ThemeRef) +
+                          node.children.capacity() * sizeof(PreparedNode);
+    for (const auto &property : node.properties) {
+        if (const auto *text = std::get_if<std::string>(&property.value)) {
+            bytes += text->capacity();
+        }
+    }
+    for (const auto &binding : node.bindings) {
+        bytes += binding.name.capacity();
+    }
+    for (const auto &ref : node.theme_refs) {
+        bytes += ref.name.capacity();
+    }
+    for (const auto &child : node.children) {
+        bytes += NodeBytes(child);
+    }
+    return bytes;
+}
+
+struct RetentionPair {
+    std::shared_ptr<const void> previous;
+    std::shared_ptr<const void> current;
+};
 } // namespace
 
 LoadFailure::LoadFailure(LoadDiagnostic diagnostic)
@@ -105,6 +139,32 @@ std::size_t PreparedComponent::SourceBytes() const
 std::size_t PreparedComponent::NodeCount() const
 {
     return GetData().node_count;
+}
+
+std::uint64_t PreparedComponent::RetainedBytes() const noexcept
+{
+    if (!data_) {
+        return 0;
+    }
+    std::uint64_t bytes = sizeof(Data) + 256 + MetadataBytes(data_->source) +
+                          NodeBytes(data_->root) + data_->images.capacity() * sizeof(PreparedImage);
+    for (const auto &image : data_->images) {
+        bytes += image.uri.capacity();
+    }
+    return bytes;
+}
+
+PreparedComponent PreparedComponent::WithRetention(std::shared_ptr<const void> retention) const
+{
+    GetData();
+    PreparedComponent result(*this);
+    if (retention && retention_) {
+        result.retention_ =
+            std::make_shared<const RetentionPair>(RetentionPair{retention_, std::move(retention)});
+    } else if (retention) {
+        result.retention_ = std::move(retention);
+    }
+    return result;
 }
 
 Blueprint LinkComponent(const PreparedComponent &prepared, ResolveImage resolve_image)

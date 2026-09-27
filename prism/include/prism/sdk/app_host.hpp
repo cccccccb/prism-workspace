@@ -3,6 +3,7 @@
 #include "prism/contracts/theme.hpp"
 #include "prism/launch/package.hpp"
 #include "prism/runtime/load_session.hpp"
+#include "prism/runtime/session_task_budget.hpp"
 #include "prism/runtime/ui_load.hpp"
 #include <cstddef>
 #include <cstdint>
@@ -28,6 +29,7 @@ struct HostConfig {
     std::optional<contracts::ThemeSnapshot> initial_theme;
     // Optional pure CPU compiler adapter; ownership/thread rules match LoadSession.
     runtime::PrepareFunction prepare_component;
+    std::shared_ptr<runtime::SessionTaskBudget> task_budget;
 };
 
 // Local observations only; these are not worker/public launch milestones.
@@ -37,13 +39,18 @@ struct HostUiState {
     bool preview_submitted{}, preview_presented{};
     bool master_prepared{}, master_installed{}, master_submitted{}, master_presented{};
     bool failed{}, cancelled{};
+    std::size_t component_count{}, critical_prepared{}, deferred_prepared{};
+    std::size_t deferred_diagnostics{};
+    bool deferred_started{};
+    bool master_images_ready{};
+    std::size_t master_image_count{};
     std::uint64_t read_us{}, prepare_us{};
     std::uint64_t master_first_submission{}, master_presented_submission{};
     std::optional<runtime::LoadDiagnostic> master_diagnostic;
 };
 
 // Constructible in a single-thread seed. PrepareFrontend must run in the final
-// worker: it creates resource threads. Bind opens a Preview or queues the Master;
+// worker: it prepares resources and the lazy scheduler. Bind opens a Preview or queues the Master;
 // all surface/GPU work remains on the caller's owner thread.
 class AppHost {
 public:

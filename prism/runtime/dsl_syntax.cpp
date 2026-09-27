@@ -63,6 +63,9 @@ private:
 
     SyntaxValue ParseValue(unsigned depth = 0)
     {
+        if (++value_count_ > 65536) {
+            Error("AST value count exceeds limit of 65536");
+        }
         if (depth > 64) {
             Error("value nesting exceeds limit");
         }
@@ -125,6 +128,9 @@ private:
             if (Is(TokenType::EndOfFile)) {
                 Error("expected ')' after arguments");
             }
+            if (++argument_count_ > 65536) {
+                Error("AST argument count exceeds limit of 65536");
+            }
             SyntaxArgument arg;
             arg.line = Current().line;
             if (Is(TokenType::Identifier) && Next().type == TokenType::Colon) {
@@ -170,6 +176,8 @@ private:
     std::vector<Token> tokens_;
     std::size_t index_{0};
     std::size_t node_count_{0};
+    std::size_t argument_count_{0};
+    std::size_t value_count_{0};
 };
 } // namespace
 

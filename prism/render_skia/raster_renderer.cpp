@@ -1,6 +1,7 @@
 #include "prism/render_skia/raster_renderer.hpp"
 #include "include/core/SkBlurTypes.h"
 #include "include/core/SkCanvas.h"
+#include "include/core/SkData.h"
 #include "include/core/SkFont.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkImageInfo.h"
@@ -23,7 +24,6 @@
 #include <cstring>
 #include <hb-ft.h>
 #include <limits>
-#include <png.h>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -301,31 +301,6 @@ bool RasterRenderer::RegisterFont(contracts::ResourceId id, const std::string &p
     return true;
 }
 
-std::optional<runtime::DecodedImage> RasterRenderer::DecodePng(const std::string &path)
-{
-    png_image png{};
-    png.version = PNG_IMAGE_VERSION;
-    if (!png_image_begin_read_from_file(&png, path.c_str())) {
-        return std::nullopt;
-    }
-    if (png.width == 0 || png.height == 0 || png.width > 4096 || png.height > 4096 ||
-        static_cast<std::size_t>(png.width) * png.height * 4 > 64 * 1024 * 1024) {
-        png_image_free(&png);
-        return std::nullopt;
-    }
-    png.format = PNG_FORMAT_RGBA;
-    runtime::DecodedImage decoded;
-    decoded.width = png.width;
-    decoded.height = png.height;
-    decoded.rgba.resize(static_cast<std::size_t>(png.width) * png.height * 4);
-    if (!png_image_finish_read(&png, nullptr, decoded.rgba.data(), 0, nullptr)) {
-        png_image_free(&png);
-        return std::nullopt;
-    }
-    png_image_free(&png);
-    return decoded;
-}
-
 bool RasterRenderer::RegisterImage(contracts::ResourceId id, const runtime::DecodedImage &image)
 {
     if (!id || image.width == 0 || image.height == 0 || image.width > 4096 || image.height > 4096 ||
@@ -343,6 +318,47 @@ bool RasterRenderer::RegisterImage(contracts::ResourceId id, const runtime::Deco
     impl_->images[id.value] = std::move(sk_image);
     ++impl_->resource_epoch;
     return true;
+}
+
+namespace {
+void ReleaseImageOwner(const void *, void *context)
+{
+    delete static_cast<std::shared_ptr<const void> *>(context);
+}
+} // namespace
+
+bool RasterRenderer::RegisterImage(contracts::ResourceId id, const runtime::DecodedImage &image,
+                                   std::shared_ptr<const void> owner)
+{
+    if (!owner || !id || image.width == 0 || image.height == 0 || image.width > 4096 ||
+        image.height > 4096 ||
+        image.rgba.size() != static_cast<std::size_t>(image.width) * image.height * 4 ||
+        impl_->resource_epoch == UINT64_MAX) {
+        return false;
+    }
+    auto info = SkImageInfo::Make(static_cast<int>(image.width), static_cast<int>(image.height),
+                                  kRGBA_8888_SkColorType, kUnpremul_SkAlphaType);
+    auto keeper = std::make_unique<std::shared_ptr<const void>>(std::move(owner));
+    auto data =
+        SkData::MakeWithProc(image.rgba.data(), image.rgba.size(), ReleaseImageOwner, keeper.get());
+    if (!data) {
+        return false;
+    }
+    keeper.release();
+    auto sk_image = SkImages::RasterFromData(info, std::move(data), image.width * 4);
+    if (!sk_image) {
+        return false;
+    }
+    impl_->images[id.value] = std::move(sk_image);
+    ++impl_->resource_epoch;
+    return true;
+}
+
+void RasterRenderer::UnregisterImage(contracts::ResourceId id)
+{
+    if (impl_->images.erase(id.value) && impl_->resource_epoch != UINT64_MAX) {
+        ++impl_->resource_epoch;
+    }
 }
 
 std::uint64_t RasterRenderer::ResourceEpoch() const

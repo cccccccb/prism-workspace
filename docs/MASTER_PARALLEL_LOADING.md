@@ -1,7 +1,8 @@
 # Preview、Master 与 DSL 组件并行加载
 
-日期：2026-09-27。状态：**第一步已提交为 `99101cf`；第二步单单元异步 Master
-已实现并通过验证。多组件加载图、会话总配额与分阶段挂载尚未实现。**
+日期：2026-09-27。状态：**第一步已提交 `99101cf`，第二步已提交 `f82ef5d`；
+第三步组件图、统一调度与会话预算已实现，验证记录见第 10 节。
+分阶段挂载、业务异步准备和真实 demo 的性能对照仍待第四至六步。**
 本轮先提交代码规范化（`0aaca73`），再设计下一阶段。现有生产启动链继续以
 [统一 Host](APP_HOST_RUNTIME.md)、[待命池](LAUNCHER_WORKER_POOL.md)和
 [会话规范](SESSION_LAUNCH_RUNTIME.md)为实现依据。
@@ -12,11 +13,11 @@
 | --- | --- | --- |
 | Preview 优先 | Music 有 Preview；另外四包没有。Host 等实际 presented 后加载 Music 业务 | 轻量 Preview 先显示，并在 Master 准备期间保持事件响应 |
 | Preview/Master 分开 | 分开的 DSL 文件、同一个 surface/EGL，替换 Scene | 保持同一窗口，候选 Master 就绪后提交；延后区域逐步安装 |
-| Master 准备 | 单文件读取、纯解析/校验在 LoadSession 工作线程；链接/Scene 构造仍在所有者线程 | 多组件依赖调度、分段安装与会话总配额 |
-| 资源加载 | 图片在一个线程解码，完成队列最多一份；申请/注册在 Host 线程 | 资源按依赖与优先级准备，执行前预留内存预算 |
+| Master 准备 | MasterLoadSession 编译加载图，依赖就绪后在共享 TaskScheduler 准备/组合；旧单文件使用同一入口 | 分阶段 Scene 安装与稳定区域挂载 |
+| 资源加载 | 尺寸检查与解码迁入共享调度器，执行前预留配额；首屏必需图就绪后安装 | 分阶段 GPU 上传与安装时间预算 |
 | 前端/业务解耦 | Host 管理前端，业务 `.so` 仅使用窄 C ABI；二者在同一 PID | 保留接口边界；耗时业务初始化必须异步，不能阻塞前端 |
 | 独立后台进程 | 没有单独的业务进程；应用实例之间才是独立进程 | 若需要进程隔离，另行实现业务消息端点与进程生命周期 |
-| 预热 | 提前 spawn/exec Host，准备字体、资源线程和主题；分配时不再 exec | 优化应用准备关键路径；是否预热 GPU 由分段测量决定 |
+| 预热 | 提前 spawn/exec Host，准备字体、调度器句柄和主题；有任务才创建线程，分配时不再 exec | 优化应用准备关键路径；是否预热 GPU 由分段测量决定 |
 | Master 已显示 | 本地 HostUiState 区分具体加载代数的提交与真实 presented；FirstPresented 在 Music 中仍指 Preview | 多组件 critical 首屏与资源/业务的聚合就绪 |
 
 当前 Music 顺序为：
@@ -25,15 +26,19 @@
 PrepareFrontend → Bind → 同步读取/解析轻量 Preview → Wayland configure
 → EGL/Ganesh 初始化 → Preview 成功像素提交 → 派发 Master 纯 CPU 准备
 → 事件循环继续处理 Preview / 主题 / 控制 / 实际 presented
-→ Master Prepared 且 Preview 实际 presented → 所有者线程安装 Master
+→ critical Master Prepared 且 Preview 实际 presented → 必需图片就绪
+→ 所有者线程安装 critical Master
 → 同步 dlopen/create → BackendReady → 后续 Pump 提交、实际呈现 Master
+→ 启用 deferred 纯准备（第四步接入区域挂载）
 ```
 
 入口为 `prism/host/app_host.cpp` 的 Bind/Pump/StartBusiness，UI 安装为
 `prism/runtime/client_application_scene.cpp` 的 InstallScene，业务入口为
 `prism/host/module_session.cpp` 的 Start。第一步将原来的完整树转换拆为纯
 PrepareComponent 和所有者线程 LinkComponent/InstallScene；图片资源只在链接时申请。
-第二步由 LoadSession 派发读取和纯准备，链接、Scene 安装及平台对象仍归所有者线程。
+第二步由 LoadSession 派发读取和纯准备；第三步 Host 统一改用 MasterLoadSession +
+TaskScheduler。LoadSession 作为单单元适配器也使用同一调度器，已删除其私有线程；
+链接、Scene 安装及平台对象仍归所有者线程。
 
 后台纯准备期间 Preview 继续响应；所有者线程的链接、Scene 安装、dlopen/create 仍可能
 产生停顿，不能将第二步解释为任意业务加载均不阻塞。BackendReady 仅表示业务通知，
@@ -80,7 +85,8 @@ GPU/Wayland 归属，也不要求并发修改 Scene 或递归并行布局。
 
 ## 3. DSL 加载声明
 
-下列是**待实现的 DSL v2 加载语义**，当前 parser/frontend 尚不能执行该接口。
+下列是**第三步已实现的 DSL v2 加载语义**：支持加载图编译、组件准备与 critical
+组合；deferred 的稳定区域挂载按第四步实现，当前只保存准备结果。
 沿用通用调用、参数、列表和子节点语法，在独立语义编译器中识别加载声明，
 不新增第二套文本 parser，不把加载属性塞进 Skia 或每个控件的绘制属性。
 
@@ -219,19 +225,20 @@ ModuleSession::Start 丢给工作线程会违反现有 Host API 的线程约束�
 ## 6. 调度、内存、取消与失败
 
 - 使用有界工作池和可轮询完成通知，接入既有 Pump；没有工作时睡眠，不增加固定轮询。
-  当前单图片线程在资源阶段迁入这一调度器，不长期保留两套互不受控的加载队列。
+  第三步已迁入图片准备和旧 LoadSession，已删除两者的私有加载线程。
 - Pi 首轮从每实例最多 2 个活动准备任务开始，并设置会话级总并发预算。launcher 管理
   实例配额，Host 管理组件依赖；取得配额不得阻塞事件线程。多个应用同时启动时也必须
   验证总 CPU/内存，不能用“每个 Host 只有两线程”代替全系统上限。
-  会话总活动任务可先从 2 开始测量，配额租约在实例取消/退出时回收；此调度协议与
-  参数都是待实现设计，未绑定待命 worker 不运行应用加载任务。
+  第三步会话默认总活动任务 2、工作与保留结果合计 256 MiB、保留结果上限 192 MiB。
+  launcher 持有共享预算句柄，worker 认证后使用；未绑定待命 worker 不运行加载任务。
 - critical 优先；在首屏已呈现后调度 deferred，按实例公平分配。任务不能在池内同步
   等待同池的依赖任务；依赖完成由调度器重新判定可派发节点。
 - 执行前预留源/AST/结果/解码内存，完成队列有背压。解码预算包括正在执行、等待安装
   和已缓存像素，不能只检查最终缓存；上传预算与已有 GPU cache 单独计量。
 - 建议初始图限制为 128 个组件、每文件 1 MiB、合计源码 8 MiB。现有深度 64、节点
   8,192、surface 效果区域 8 等限制需在整个链接结果上累计检查，不能每文件重新获得
-  一份额度。数值是首版候选上限，实施时写入契约与测试，不是当前新增行为或性能实测。
+  一份额度。第三步已实施这些上限；材质展开后的效果约束仍由当前主题下的 Scene
+  校验，第四步补完整候选预检和事务，数值不代表性能实测。
 - 所有者线程每轮按任务数量、上传字节及耗时预算取结果；初始建议 CPU 安装预算 2ms。
   必须在单位之间让出事件处理；候选 Scene 构造也要可分段。单个 layout、shaping 或
   GPU 调用仍不能被时间预算抢占，需独立测量；超预算时先拆组件/限制批量，不声称已
@@ -245,7 +252,7 @@ ModuleSession::Start 丢给工作线程会违反现有 Host API 的线程约束�
 ## 7. 实施顺序与验收
 
 第零步已完成现状核对与规范。第一步已提交 `99101cf`，结果记录在第 8 节；第二步
-已实现并验证，记录在第 9 节；第三至六步尚未实现。
+已提交 `f82ef5d`，记录在第 9 节；第三步记录在第 10 节，第四至六步尚未实现。
 
 | 步骤 | 实现内容 | 必须证明的结果 |
 | --- | --- | --- |
@@ -479,3 +486,123 @@ python3 tools/check-code-style.py
 下一步是 Interface/Component/Slot/Binding 的有类型加载图与有界资源调度：先定义
 组合单位、依赖及总限制，再接入每实例和会话预算；图片准备迁入统一调度。分阶段
 critical/deferred 安装和业务异步准备按第四、五步继续。
+
+
+## 10. 第三步：组件图、共享工作池与会话预算
+
+第二步在本轮开始提交为 `f82ef5d`。本轮沿用同一启动入口接入以下契约，旧单文件
+不需要改 DSL；Interface v2 采用第 3 节语法。所有测试/fixture/probe 留在 tests。
+
+### 已实现边界
+
+- `CompileLoadPlan` 复用 syntax parser，把 Interface/Binding/Component 编译成 typed
+  LoadPlan。拒绝重复/未知字段、未知组件、重复依赖、自引用、循环、critical 依赖 deferred、
+  声明/初值/目标类型错误。路径先做词法校验；工作任务 canonical + regular-file 校验。
+- `PrepareLayout` 独立接受 Slot；每个声明必须恰好一个 Slot。Slot 保留 Box 几何，
+  占位不能包含动作或交互控件。`ComposeCritical` 按布局位置组合，完成顺序不改变绘制
+  顺序。普通视觉 PrepareComponent 仍不接受加载声明。
+- `MasterLoadSession` 在事件线程协调依赖；入口只读共享 lexer 的根标识符，legacy
+  经纯准备适配器后直接由 IR 构造 plan，避免重复解析，也保持原有准备/诊断时序。
+  文件读取、纯准备、critical 组合都是工作
+  任务。没有任务在池内等待依赖。缺少 Preview 的包使用同一入口。
+- Preview 成功像素提交后派发；其真实 presented 后才安装候选。critical 图片和占位
+  中可见图片统一预载，Ready 后才进入 Master 安装；读取/纯编译错误保留源文件、行、组件和阶段，资源失败归属当前 Master 的资源阶段；
+  候选安装前的失败保留 Preview 到退出。完整安装预检/事务仍在第四步。BackendReady 与 MasterPresented 仍独立。
+- Master 实际反馈后才启用 deferred 准备。准备结果和局部诊断保存在加载会话，失败
+  后继明确得到依赖错误；本轮不挂载 deferred，不把整棵 Scene 替换称作增量安装。
+- critical 完成已交付后取消加载，仍会终止 deferred 派发；迟到结果丢弃，不重复交付
+  critical 完成，也不因后来的 presentation feedback 重新启动已取消任务。
+- Host 保存声明的当前 Binding 值，按类型验证；已挂载目标投影到 Scene，尚未挂载
+  目标保存最新值。第四步在实际挂载时使用该值表，并补稳定身份与安装事务。
+
+### 调度与预算实现
+
+每个 Host 的图准备和 ImageResources 注入同一个 TaskScheduler：最多 2 工作线程，
+首次提交才创建；全部排队、运行、未消费完成合计最多 128。消费者有独立 TaskChannel，
+每个 channel 默认最多 2 活动任务；旧 LoadSession 适配器仍保留 2 未消费/1 活动的接口，
+其 FD 只通知实际完成，关闭容量进度通知以保留原有契约。
+完成 FD 表示结果或容量进度，TakeCompletion 可以为空。队列 Busy 保留有界描述重试，
+容量释放唤醒消费者，不使用固定轮询；Closed/Invalid/预算失败明确返回错误。
+
+launcher 创建共享 memfd 预算，通过 `posix_spawn` 的 FD4 交给最终 Host（私有控制 FD3
+不变，原描述符先复制到 >=10 防碰撞）。worker 在父进程凭据认证后校验句柄的版本、
+大小、seal、creator 后 Attach。独立 Host 使用同一预算类的本地 Create。公开与私有
+启动消息编码不增加配额消息，也不让 WM 接触 DSL、线程池或组件树。
+
+预算区使用 process-shared robust mutex 和 Linux futex sequence 等待。停止信号推进
+序列并唤醒，回收只在 waitpid 确认退出后执行 DropProcess。崩溃持锁时从固定租约表
+重建计数；不用不能完整保证任意 SIGKILL 恢复的共享 condition_variable。最多 128
+等待租约、2,048 全部租约，以 PID/slot/serial 识别，防 ABA 和 fork 子进程误释放父租约。
+同优先级按 owner 最近授权次序公平，owner 内 FIFO；关键组件 > 图片资源 > deferred。
+这是非抢占调度，已进入预算等待/执行的任务仍可能使后到关键任务短暂等待。
+
+工作线程在读取/编译/解码前 Acquire，事件线程不等待任务配额。Finish 释放活动槽并
+缩减为实际结果的容量估计；PreparedComponent/PreparedLayout、完成结果和缓存通过
+共享引用保留租约，最后使用者释放才归还。保留结果不能侵占 64 MiB 工作余量；没有
+活动任务且保留结果已使请求无法执行时直接报预算压力，避免无期限等待。参数入口为
+`--load-active-limit`、`--load-memory-mib`、`--load-working-headroom-mib`。
+
+纯 DSL 任务预留 32 MiB，单文件 1 MiB，全图源码预检及实际累计均限制 8 MiB；严格
+词法 token、语法 value/argument 各最多 65,536，最终组合最多 8,192 节点/深度 64/
+8 显式潜在模糊区域。材质是否生成区域仍由当前主题安装时判断。声明初值也按每个
+已准备目标的 PropertySpec 验证，不在编译阶段读取主题或字体/GPU。
+
+PNG 先用 8 KiB 任务检查固定头和常规文件：编码文件最多 16 MiB，尺寸最多 4096×4096，
+RGBA 最多 64 MiB。解码先预留 RGBA + 16 MiB 解码暂存估计，再进入 libpng；后端再次
+核对尺寸和预留额度。实例已缓存/已排程像素合计最多 128 MiB，等待派发图片描述最多
+128，缓存表最多 4,096。相同 URI 同实例合并；Skia 的生产 RegisterImage 持有不可变
+像素与其租约，使用 SkData keeper，不再复制一整份 RGBA。候选取消、替换和退出注销
+未使用的图像，迟到完成只释放；ResourceId/GPU 对象仍在所有者线程。
+
+预算覆盖上述工作与 CPU 准备/图像数据，以自有容器容量及解码暂存估计计账，**不是
+进程 RSS 的硬上限**。分配器开销、Scene 安装副本、字体 shaping、GPU/cache、业务内存
+单独计量；当前工作池不自动计量第三方适配器任意闭包/任意额外分配。旧无尺寸检查的
+Decoder 仅作为通用适配接口，执行前按其最大额度保守预留，生产 PNG 始终使用检查。
+包文件仍遵守实例运行期不可变契约，修改资源需要新包/新加载；读取边界还检查打开后
+的 FD 实际路径和读取前后 size/mtime/ctime。Host 的 read_us/prepare_us 是任务阶段
+时长的累加，含屏障等待，不等于并行首屏的实际历时或 CPU 时间。
+
+### 下一步
+
+第四步将接入 critical 完整候选预检与事务、deferred 稳定区域挂载、当前值重新投影，
+以及每轮安装/上传预算。尚未实现节点增量布局、分块缓存、业务异步 create 或独立业务
+进程；本轮也不重新打包、替换显示器会话或用可控屏障报告启动提速。
+
+### 本轮验证记录
+
+2026-09-27，在 Pi 4B ARM64 上完成以下验证：
+
+- 全量构建及最终取消边界的增量构建通过；完整 CTest **48/48**，最终运行 14.09 秒。
+  新增组件图、图加载会话、共享调度、进程共享预算和图片调度五个测试。可控屏障证明
+  独立组件重叠、依赖顺序、真实反馈后启用 deferred；覆盖已交付 critical 后取消、
+  容量释放唤醒、跨进程活动总量、保留租约、持锁进程崩溃恢复及最后使用者释放。
+- 真实 Host/V3D 启动验证 **12/12**：原有九个 Preview/Master/失败/取消场景，加上
+  多组件 critical、依赖文件消失及必需图片失败。组件完成期间的控制优先级、Preview
+  保留、声明绑定验证、真实 Master 呈现、deferred 仅准备和迟到结果边界通过。
+- prepared-ui 与 SDK submission 两个真实 V3D 门槛通过；Host 的单 surface/就绪时序、
+  ABI 失败与正常退出回归通过；预热池、FD4 预算继承、取消、崩溃回收、会话退出及
+  launcher 异常死亡后的重新启动回归通过。
+- 纯加载/组件图/语义编译符号检查通过；WM、launcher 未引用客户端前端、组件图或
+  调度器，动态依赖未见 Qt。格式、goto 和行数门槛通过：222 个生产文件、60 个测试
+  文件，最大生产文件 `prism/host/app_host.cpp` 为 754 行；`git diff --check` 通过。
+
+```sh
+cmake --build build-gles --parallel 2
+ctest --test-dir build-gles --output-on-failure
+python3 tests/probes/async_master_probe.py build-gles --evidence dist/validation/prism-master-graph --mode all
+python3 tests/probes/prepared_ui_probe.py build-gles --evidence dist/validation/prism-master-graph/prepared-ui
+python3 tests/probes/app_host_probe.py build-gles
+python3 tests/probes/launcher_pool_probe.py build-gles
+python3 tools/check-code-style.py
+git diff --check
+```
+
+证据位于 `dist/validation/prism-master-graph/`：最终记录为
+`build-final-cancel.log`、`ctest-final.log`、`native-gates.json`、`runtime-gates.json`、
+`prepared-ui/native-gates.json`、`pure-boundary.json` 和 `style.log`。首次 native 验证发现
+legacy 入口提前解析改变适配器时序，已修复并重跑；初始失败保留在 `initial-native/`。
+旧 LoadSession 的容量通知兼容差异也已修复并由最终完整测试验证。
+
+以上是隔离 headless 会话的正确性回归，测试结束回收 WM 和子进程；未重新打包、替换
+已安装桌面或重启生产服务。并行屏障不构成启动性能结论，实际首屏、最大停顿和内存
+对照仍按第六步进行。

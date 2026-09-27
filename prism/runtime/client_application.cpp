@@ -37,6 +37,9 @@ bool ClientApplication::ConfigureWindow(ClientConfig config)
     if (impl_->closed || impl_->opened_once || config.font_path != impl_->config.font_path) {
         return false;
     }
+    if (config.task_scheduler != impl_->config.task_scheduler) {
+        return false;
+    }
     impl_->config = std::move(config);
     return true;
 }
@@ -76,12 +79,14 @@ runtime::UiLoadId ClientApplication::BeginUiLoad()
     if (impl_->closed || impl_->failed) {
         return {};
     }
+    impl_->ClearPreloadedImages();
     return impl_->ui_load.Begin();
 }
 
 void ClientApplication::CancelUiLoad()
 {
     impl_->ui_load.Cancel();
+    impl_->ClearPreloadedImages();
 }
 
 UiPresentationState ClientApplication::GetUiPresentation(runtime::UiLoadId load) const noexcept
@@ -200,7 +205,7 @@ bool ClientApplication::Impl::PollResources()
         }
         const auto *image = resources.Get(update.id);
         if (update.state != runtime::ImageState::Ready || !image ||
-            !commands.RegisterImage(update.id, *image) ||
+            !commands.RegisterImage(update.id, *image, resources.Retain(update.id)) ||
             !scene->ImageReady(update.id, update.intrinsic_size)) {
             FailFrontend();
             continue;

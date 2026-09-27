@@ -3,6 +3,7 @@
 #include "prism/launch/error.hpp"
 #include "prism/launch/stream.hpp"
 #include "prism/launch/worker_protocol.hpp"
+#include "prism/runtime/session_task_budget.hpp"
 #include "prism/sdk/app_host.hpp"
 #include "prism/sdk/module_session.hpp"
 #include <array>
@@ -77,7 +78,7 @@ struct WorkerRequests {
 } // namespace
 
 int RunWorker(int fd, const std::filesystem::path &apps, const std::string &socket, int parent,
-              const volatile std::sig_atomic_t &stopping, int signal_fd)
+              const volatile std::sig_atomic_t &stopping, int signal_fd, int load_budget_fd)
 {
     using namespace prism;
     ucred credential{};
@@ -94,6 +95,8 @@ int RunWorker(int fd, const std::filesystem::path &apps, const std::string &sock
     contracts::InstanceId instance{};
     sdk::HostConfig config;
     config.socket = socket;
+    config.task_budget = runtime::SessionTaskBudget::Attach(load_budget_fd, parent);
+    close(load_budget_fd);
     WorkerRequests requests{channel, request, next_launch};
     config.on_event = std::bind_front(&WorkerRequests::HandleEvent, &requests);
     config.launch_app = std::bind_front(&WorkerRequests::LaunchApplication, &requests);

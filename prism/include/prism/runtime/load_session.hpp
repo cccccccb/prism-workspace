@@ -1,6 +1,7 @@
 #pragma once
 
 #include "prism/runtime/prepared_component.hpp"
+#include "prism/runtime/task_scheduler.hpp"
 #include "prism/runtime/ui_load.hpp"
 #include <cstdint>
 #include <functional>
@@ -41,7 +42,8 @@ using PrepareFunction =
 class LoadSession {
 public:
     // The default adapter calls PrepareComponent. No thread starts until Submit.
-    explicit LoadSession(PrepareFunction prepare = {});
+    explicit LoadSession(PrepareFunction prepare = {},
+                         std::shared_ptr<TaskScheduler> scheduler = {});
     ~LoadSession();
     LoadSession(const LoadSession &) = delete;
     LoadSession &operator=(const LoadSession &) = delete;
@@ -52,7 +54,7 @@ public:
     // Calls and completion consumption belong to one owner thread.
     LoadSubmitResult Submit(LoadRequest request);
     void Cancel(UiLoadId load);
-    // Cancels all work, drops outstanding results and joins. Safe to repeat.
+    // Cancels all work, drops results and waits for this channel's active work.
     void Stop();
     int Fd() const noexcept;
     // Drains only this session's notification; no caller-owned FD is consumed.
