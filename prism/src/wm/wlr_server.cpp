@@ -4,6 +4,8 @@ namespace prism::wm {
 WlrServer::WlrServer(std::shared_ptr<Compositor> compositor) : compositor_(std::move(compositor))
 {
     wl_list_init(&signals_.new_surface.link);
+    wl_list_init(&signals_.new_virtual_keyboard.link);
+    wl_list_init(&signals_.new_virtual_pointer.link);
 }
 
 WlrServer::~WlrServer()
@@ -100,6 +102,20 @@ bool WlrServer::Initialize(const std::string &socket_name)
 
     seat_ = wlr_seat_create(wl_display_, "seat0");
     wlr_seat_set_capabilities(seat_, WL_SEAT_CAPABILITY_POINTER | WL_SEAT_CAPABILITY_KEYBOARD);
+
+    virtual_keyboard_manager_ = wlr_virtual_keyboard_manager_v1_create(wl_display_);
+    virtual_pointer_manager_ = wlr_virtual_pointer_manager_v1_create(wl_display_);
+    if (!virtual_keyboard_manager_ || !virtual_pointer_manager_) {
+        PRISM_LOG_ERROR("WLR-SERVER", "Failed to create virtual input managers");
+        return false;
+    }
+    signals_.new_virtual_keyboard.notify = handle_server_new_virtual_keyboard;
+    wl_signal_add(&virtual_keyboard_manager_->events.new_virtual_keyboard,
+                  &signals_.new_virtual_keyboard);
+    signals_.new_virtual_pointer.notify = handle_server_new_virtual_pointer;
+    wl_signal_add(&virtual_pointer_manager_->events.new_virtual_pointer,
+                  &signals_.new_virtual_pointer);
+    wl_display_set_global_filter(wl_display_, FilterGlobal, this);
 
     // 9. Wire wlroots signals
     signals_.server = this;
@@ -228,6 +244,10 @@ void WlrServer::Stop()
     if (wl_display_) {
         wl_display_destroy_clients(wl_display_);
     }
+    wl_list_remove(&signals_.new_virtual_keyboard.link);
+    wl_list_init(&signals_.new_virtual_keyboard.link);
+    wl_list_remove(&signals_.new_virtual_pointer.link);
+    wl_list_init(&signals_.new_virtual_pointer.link);
     surface_watches_.clear();
     wl_list_remove(&signals_.new_surface.link);
     wl_list_init(&signals_.new_surface.link);
@@ -274,6 +294,8 @@ void WlrServer::Stop()
         wl_display_destroy(wl_display_);
         wl_display_ = nullptr;
         wl_event_loop_ = nullptr;
+        virtual_keyboard_manager_ = nullptr;
+        virtual_pointer_manager_ = nullptr;
     }
 
     if (ipc_server_) {
@@ -282,6 +304,19 @@ void WlrServer::Stop()
     }
 
     PRISM_LOG_INFO("WLR-SERVER", "wlroots server stopped cleanly");
+}
+
+bool WlrServer::FilterGlobal(const wl_client *client, const wl_global *global, void *data)
+{
+    const auto *server = static_cast<const WlrServer *>(data);
+    if (global != server->virtual_keyboard_manager_->global &&
+        global != server->virtual_pointer_manager_->global) {
+        return true;
+    }
+
+    uid_t uid = static_cast<uid_t>(-1);
+    wl_client_get_credentials(client, nullptr, &uid, nullptr);
+    return uid == geteuid();
 }
 
 void WlrServer::RunEventLoopIteration(int timeout_ms)

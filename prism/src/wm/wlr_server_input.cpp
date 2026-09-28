@@ -3,39 +3,83 @@
 namespace prism::wm {
 void WlrServer::HandleNewInput(struct wlr_input_device *device)
 {
+    if (!device) {
+        return;
+    }
+
     if (device->type == WLR_INPUT_DEVICE_KEYBOARD) {
         auto *wlr_kbd = wlr_keyboard_from_input_device(device);
-        struct xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-        struct xkb_keymap *keymap =
-            xkb_keymap_new_from_names(context, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
-        wlr_keyboard_set_keymap(wlr_kbd, keymap);
-        xkb_keymap_unref(keymap);
-        xkb_context_unref(context);
+        const bool virtual_keyboard = wlr_input_device_get_virtual_keyboard(device) != nullptr;
+        if (!virtual_keyboard) {
+            struct xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+            struct xkb_keymap *keymap =
+                context ? xkb_keymap_new_from_names(context, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS)
+                        : nullptr;
+            if (!keymap || !wlr_keyboard_set_keymap(wlr_kbd, keymap)) {
+                PRISM_LOG_ERROR("WLR-INPUT", "Failed to configure keyboard keymap");
+            }
+            if (keymap) {
+                xkb_keymap_unref(keymap);
+            }
+            if (context) {
+                xkb_context_unref(context);
+            }
+        }
 
         wlr_keyboard_set_repeat_info(wlr_kbd, 25, 600);
-        wlr_seat_set_keyboard(seat_, wlr_kbd);
         auto binding = std::make_unique<WlrKeyboardBinding>();
         binding->server = this;
         binding->keyboard = wlr_kbd;
         binding->key.notify = handle_keyboard_key;
         binding->modifiers.notify = handle_keyboard_modifiers;
+        binding->keymap.notify = handle_keyboard_keymap;
         binding->destroy.notify = handle_keyboard_destroy;
         wl_signal_add(&wlr_kbd->events.key, &binding->key);
         wl_signal_add(&wlr_kbd->events.modifiers, &binding->modifiers);
+        wl_signal_add(&wlr_kbd->events.keymap, &binding->keymap);
         wl_signal_add(&device->events.destroy, &binding->destroy);
         keyboards_.push_back(std::move(binding));
-        if (focused_xdg_view_) {
-            FocusXdgView(focused_xdg_view_);
+        if (wlr_kbd->keymap) {
+            HandleKeyboardKeymap(keyboards_.back().get());
         }
-        PRISM_LOG_INFO("WLR-INPUT", "Keyboard attached: %s", device->name);
+        PRISM_LOG_INFO("WLR-INPUT", "Keyboard attached: %s",
+                       device->name ? device->name : "unknown");
     } else if (device->type == WLR_INPUT_DEVICE_POINTER || device->type == WLR_INPUT_DEVICE_TOUCH) {
         wlr_cursor_attach_input_device(cursor_, device);
-        PRISM_LOG_INFO("WLR-INPUT", "Pointer/Touchpad attached: %s", device->name);
+        PRISM_LOG_INFO("WLR-INPUT", "Pointer/Touchpad attached: %s",
+                       device->name ? device->name : "unknown");
+    }
+}
+
+void WlrServer::HandleNewVirtualKeyboard(wlr_virtual_keyboard_v1 *keyboard)
+{
+    if (!keyboard || (keyboard->seat && keyboard->seat != seat_)) {
+        return;
+    }
+
+    HandleNewInput(&keyboard->keyboard.base);
+}
+
+void WlrServer::HandleNewVirtualPointer(wlr_virtual_pointer_v1_new_pointer_event *event)
+{
+    if (!event || !event->new_pointer ||
+        (event->suggested_seat && event->suggested_seat != seat_)) {
+        return;
+    }
+
+    auto *device = &event->new_pointer->pointer.base;
+    HandleNewInput(device);
+    if (event->suggested_output && wlr_output_layout_get(output_layout_, event->suggested_output)) {
+        wlr_cursor_map_input_to_output(cursor_, device, event->suggested_output);
     }
 }
 
 void WlrServer::HandleKeyboardKey(WlrKeyboardBinding *binding, void *data)
 {
+    if (!binding->keyboard->keymap || !binding->keyboard->xkb_state) {
+        return;
+    }
+
     auto *event = static_cast<wlr_keyboard_key_event *>(data);
     wlr_seat_set_keyboard(seat_, binding->keyboard);
     bool handled = false;
@@ -123,19 +167,46 @@ void WlrServer::HandleKeyboardKey(WlrKeyboardBinding *binding, void *data)
 
 void WlrServer::HandleKeyboardModifiers(WlrKeyboardBinding *binding)
 {
+    if (!binding->keyboard->keymap) {
+        return;
+    }
+
     wlr_seat_set_keyboard(seat_, binding->keyboard);
     wlr_seat_keyboard_notify_modifiers(seat_, &binding->keyboard->modifiers);
 }
 
+void WlrServer::HandleKeyboardKeymap(WlrKeyboardBinding *binding)
+{
+    if (!binding->keyboard->keymap) {
+        return;
+    }
+
+    wlr_seat_set_keyboard(seat_, binding->keyboard);
+    if (focused_xdg_view_) {
+        FocusXdgView(focused_xdg_view_);
+    }
+}
+
 void WlrServer::HandleKeyboardDestroy(WlrKeyboardBinding *binding)
 {
-    if (wlr_seat_get_keyboard(seat_) == binding->keyboard) {
-        wlr_seat_set_keyboard(seat_, nullptr);
-    }
+    const bool active = wlr_seat_get_keyboard(seat_) == binding->keyboard;
     auto it = std::find_if(keyboards_.begin(), keyboards_.end(),
                            [binding](const auto &item) { return item.get() == binding; });
     if (it != keyboards_.end()) {
         keyboards_.erase(it);
+    }
+    if (active) {
+        auto *replacement = static_cast<wlr_keyboard *>(nullptr);
+        for (auto candidate = keyboards_.rbegin(); candidate != keyboards_.rend(); ++candidate) {
+            if ((*candidate)->keyboard->keymap) {
+                replacement = (*candidate)->keyboard;
+                break;
+            }
+        }
+        wlr_seat_set_keyboard(seat_, replacement);
+        if (replacement && focused_xdg_view_) {
+            FocusXdgView(focused_xdg_view_);
+        }
     }
 }
 
@@ -146,14 +217,15 @@ void WlrServer::CloseFocusedXdgView()
     }
 }
 
-void WlrServer::HandleCursorMotion(uint32_t time_msec, double dx, double dy)
+void WlrServer::HandleCursorMotion(uint32_t time_msec, double dx, double dy,
+                                   wlr_input_device *device)
 {
     ++pointer_events_;
     const auto age = static_cast<std::uint32_t>(core::CurrentTimeNs() / 1000000ULL) - time_msec;
     if (age < 60000) {
         pointer_event_age_.Record(age);
     }
-    wlr_cursor_move(cursor_, nullptr, dx, dy);
+    wlr_cursor_move(cursor_, device, dx, dy);
     UpdateXdgPointerFocus(time_msec);
     if (compositor_) {
         compositor_->OnPointerMotion(static_cast<float>(cursor_->x), static_cast<float>(cursor_->y),
@@ -168,14 +240,15 @@ void WlrServer::HandleCursorMotion(uint32_t time_msec, double dx, double dy)
     // force every output to redraw or reset an unchanged cursor image.
 }
 
-void WlrServer::HandleCursorMotionAbsolute(uint32_t time_msec, double x, double y)
+void WlrServer::HandleCursorMotionAbsolute(uint32_t time_msec, double x, double y,
+                                           wlr_input_device *device)
 {
     ++pointer_events_;
     const auto age = static_cast<std::uint32_t>(core::CurrentTimeNs() / 1000000ULL) - time_msec;
     if (age < 60000) {
         pointer_event_age_.Record(age);
     }
-    wlr_cursor_warp_absolute(cursor_, nullptr, x, y);
+    wlr_cursor_warp_absolute(cursor_, device, x, y);
     UpdateXdgPointerFocus(time_msec);
     if (compositor_) {
         compositor_->OnPointerMotion(static_cast<float>(cursor_->x),
@@ -342,11 +415,13 @@ void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t
     // Focus/topology changes and client reactions carry their own frame demand.
 }
 
-void WlrServer::HandleCursorAxis(uint32_t time_msec, int axis, double value)
+void WlrServer::HandleCursorAxis(uint32_t time_msec, int axis, double value, int32_t discrete,
+                                 int source, int relative_direction)
 {
-    wlr_seat_pointer_notify_axis(seat_, time_msec, static_cast<wl_pointer_axis>(axis), value, 0,
-                                 WL_POINTER_AXIS_SOURCE_FINGER,
-                                 WL_POINTER_AXIS_RELATIVE_DIRECTION_IDENTICAL);
+    wlr_seat_pointer_notify_axis(
+        seat_, time_msec, static_cast<wl_pointer_axis>(axis), value, discrete,
+        static_cast<wl_pointer_axis_source>(source),
+        static_cast<wl_pointer_axis_relative_direction>(relative_direction));
     wlr_seat_pointer_notify_frame(seat_);
 }
 

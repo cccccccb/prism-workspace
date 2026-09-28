@@ -1127,6 +1127,14 @@ int RunScenarios(const std::string &executable, bool gles, const std::filesystem
                 "typed fixture theme rejected");
         const auto outputs = server.GetOutputsInfo();
         Require(outputs.size() == 1, "probe requires one isolated output");
+        Require(server.SetOutputMode(outputs.front().name, 640, 420, 90000),
+                "headless explicit refresh change failed");
+        Require(server.GetOutputsInfo().front().refresh_mhz == 90000,
+                "headless explicit refresh was not applied");
+        Require(server.SetOutputMode(outputs.front().name, 640, 420),
+                "headless default refresh change failed");
+        Require(server.GetOutputsInfo().front().refresh_mhz == 0,
+                "headless unspecified refresh should use the backend default");
         Require(server.SetOutputMode(outputs.front().name, 640, 420, 60000),
                 "headless mode change failed");
         OutputPixels output_pixels(server);

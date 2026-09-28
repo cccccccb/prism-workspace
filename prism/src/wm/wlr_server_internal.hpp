@@ -38,6 +38,8 @@ extern "C" {
 #include <wlr/types/wlr_screencopy_v1.h>
 #include <wlr/types/wlr_seat.h>
 #include <wlr/types/wlr_subcompositor.h>
+#include <wlr/types/wlr_virtual_keyboard_v1.h>
+#include <wlr/types/wlr_virtual_pointer_v1.h>
 #include <wlr/types/wlr_xcursor_manager.h>
 #include <wlr/types/wlr_xdg_output_v1.h>
 #include <wlr/types/wlr_xdg_shell.h>
@@ -73,6 +75,7 @@ struct WlrKeyboardBinding {
     struct wlr_keyboard *keyboard{nullptr};
     struct wl_listener key{};
     struct wl_listener modifiers{};
+    struct wl_listener keymap{};
     struct wl_listener destroy{};
     std::array<bool, 768> consumed_keys{};
 
@@ -80,6 +83,7 @@ struct WlrKeyboardBinding {
     {
         wl_list_remove(&key.link);
         wl_list_remove(&modifiers.link);
+        wl_list_remove(&keymap.link);
         wl_list_remove(&destroy.link);
     }
 };
@@ -232,9 +236,12 @@ void handle_xdg_maximize(struct wl_listener *listener, void *);
 void handle_xdg_fullscreen(struct wl_listener *listener, void *);
 void handle_keyboard_key(struct wl_listener *listener, void *data);
 void handle_keyboard_modifiers(struct wl_listener *listener, void *);
+void handle_keyboard_keymap(struct wl_listener *listener, void *);
 void handle_keyboard_destroy(struct wl_listener *listener, void *);
 void handle_server_new_output(struct wl_listener *listener, void *data);
 void handle_server_new_input(struct wl_listener *listener, void *data);
+void handle_server_new_virtual_keyboard(struct wl_listener *listener, void *data);
+void handle_server_new_virtual_pointer(struct wl_listener *listener, void *data);
 void handle_cursor_motion(struct wl_listener *listener, void *data);
 void handle_cursor_motion_absolute(struct wl_listener *listener, void *data);
 void handle_cursor_button(struct wl_listener *listener, void *data);

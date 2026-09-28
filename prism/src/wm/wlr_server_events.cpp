@@ -126,6 +126,13 @@ void handle_keyboard_modifiers(struct wl_listener *listener, void *)
     binding->server->HandleKeyboardModifiers(binding);
 }
 
+void handle_keyboard_keymap(struct wl_listener *listener, void *)
+{
+    auto *binding =
+        WlContainerOf<WlrKeyboardBinding>(listener, offsetof(WlrKeyboardBinding, keymap));
+    binding->server->HandleKeyboardKeymap(binding);
+}
+
 void handle_keyboard_destroy(struct wl_listener *listener, void *)
 {
     auto *binding =
@@ -177,12 +184,28 @@ void handle_server_new_input(struct wl_listener *listener, void *data)
     sig->server->HandleNewInput(static_cast<struct wlr_input_device *>(data));
 }
 
+void handle_server_new_virtual_keyboard(struct wl_listener *listener, void *data)
+{
+    auto *sig =
+        WlContainerOf<WlrServerSignals>(listener, offsetof(WlrServerSignals, new_virtual_keyboard));
+    sig->server->HandleNewVirtualKeyboard(static_cast<wlr_virtual_keyboard_v1 *>(data));
+}
+
+void handle_server_new_virtual_pointer(struct wl_listener *listener, void *data)
+{
+    auto *sig =
+        WlContainerOf<WlrServerSignals>(listener, offsetof(WlrServerSignals, new_virtual_pointer));
+    sig->server->HandleNewVirtualPointer(
+        static_cast<wlr_virtual_pointer_v1_new_pointer_event *>(data));
+}
+
 void handle_cursor_motion(struct wl_listener *listener, void *data)
 {
     auto *sig =
         WlContainerOf<WlrServerSignals>(listener, offsetof(WlrServerSignals, cursor_motion));
     auto *event = static_cast<struct wlr_pointer_motion_event *>(data);
-    sig->server->HandleCursorMotion(event->time_msec, event->delta_x, event->delta_y);
+    sig->server->HandleCursorMotion(event->time_msec, event->delta_x, event->delta_y,
+                                    &event->pointer->base);
 }
 
 void handle_cursor_motion_absolute(struct wl_listener *listener, void *data)
@@ -190,7 +213,8 @@ void handle_cursor_motion_absolute(struct wl_listener *listener, void *data)
     auto *sig = WlContainerOf<WlrServerSignals>(listener,
                                                 offsetof(WlrServerSignals, cursor_motion_absolute));
     auto *event = static_cast<struct wlr_pointer_motion_absolute_event *>(data);
-    sig->server->HandleCursorMotionAbsolute(event->time_msec, event->x, event->y);
+    sig->server->HandleCursorMotionAbsolute(event->time_msec, event->x, event->y,
+                                            &event->pointer->base);
 }
 
 void handle_cursor_button(struct wl_listener *listener, void *data)
@@ -205,7 +229,8 @@ void handle_cursor_axis(struct wl_listener *listener, void *data)
 {
     auto *sig = WlContainerOf<WlrServerSignals>(listener, offsetof(WlrServerSignals, cursor_axis));
     auto *event = static_cast<struct wlr_pointer_axis_event *>(data);
-    sig->server->HandleCursorAxis(event->time_msec, event->orientation, event->delta);
+    sig->server->HandleCursorAxis(event->time_msec, event->orientation, event->delta,
+                                  event->delta_discrete, event->source, event->relative_direction);
 }
 
 } // namespace prism::wm

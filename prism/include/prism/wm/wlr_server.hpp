@@ -41,6 +41,10 @@ struct wlr_xcursor_manager;
 struct wlr_output;
 struct wlr_input_device;
 struct wlr_keyboard;
+struct wlr_virtual_keyboard_manager_v1;
+struct wlr_virtual_keyboard_v1;
+struct wlr_virtual_pointer_manager_v1;
+struct wlr_virtual_pointer_v1_new_pointer_event;
 struct wlr_surface;
 
 namespace prism::ipc {
@@ -106,6 +110,8 @@ struct WlrOutput {
 struct WlrServerSignals {
     struct wl_listener new_output;
     struct wl_listener new_input;
+    struct wl_listener new_virtual_keyboard;
+    struct wl_listener new_virtual_pointer;
     struct wl_listener new_xdg_toplevel;
     struct wl_listener new_surface;
     struct wl_listener cursor_motion;
@@ -200,6 +206,8 @@ public:
 
     void HandleNewOutput(struct wlr_output *output);
     void HandleNewInput(struct wlr_input_device *device);
+    void HandleNewVirtualKeyboard(struct wlr_virtual_keyboard_v1 *keyboard);
+    void HandleNewVirtualPointer(struct wlr_virtual_pointer_v1_new_pointer_event *event);
     void HandleNewXdgToplevel(struct wlr_xdg_toplevel *toplevel);
     void HandleXdgMap(WlrXdgView *view);
     void HandleXdgUnmap(WlrXdgView *view);
@@ -207,12 +215,16 @@ public:
     void HandleXdgMaximize(WlrXdgView *view);
     void HandleKeyboardKey(WlrKeyboardBinding *binding, void *event);
     void HandleKeyboardModifiers(WlrKeyboardBinding *binding);
+    void HandleKeyboardKeymap(WlrKeyboardBinding *binding);
     void HandleKeyboardDestroy(WlrKeyboardBinding *binding);
     void CloseFocusedXdgView();
-    void HandleCursorMotion(uint32_t time_msec, double dx, double dy);
-    void HandleCursorMotionAbsolute(uint32_t time_msec, double x, double y);
+    void HandleCursorMotion(uint32_t time_msec, double dx, double dy,
+                            struct wlr_input_device *device = nullptr);
+    void HandleCursorMotionAbsolute(uint32_t time_msec, double x, double y,
+                                    struct wlr_input_device *device = nullptr);
     void HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t state);
-    void HandleCursorAxis(uint32_t time_msec, int axis, double value);
+    void HandleCursorAxis(uint32_t time_msec, int axis, double value, int32_t discrete, int source,
+                          int relative_direction);
     void HandleOutputFrame(WlrOutput *output);
     void HandleOutputCommit(const void *event);
 
@@ -258,6 +270,8 @@ public:
     }
 
 private:
+    static bool FilterGlobal(const struct wl_client *client, const struct wl_global *global,
+                             void *data);
     void InitializeIpc();
     std::string IpcOutputs(const std::string &, const std::vector<std::string> &);
     std::string IpcMode(const std::string &, const std::vector<std::string> &);
@@ -307,6 +321,8 @@ private:
     struct wlr_cursor *cursor_{nullptr};
     struct wlr_xcursor_manager *cursor_mgr_{nullptr};
     struct wlr_seat *seat_{nullptr};
+    struct wlr_virtual_keyboard_manager_v1 *virtual_keyboard_manager_{nullptr};
+    struct wlr_virtual_pointer_manager_v1 *virtual_pointer_manager_{nullptr};
     struct wlr_xdg_shell *xdg_shell_{nullptr};
 
     // Hardware GPU wlr_scene graph trees

@@ -121,13 +121,19 @@ install(FILES resources/systemd/prism-demo@.service
     DESTINATION lib/systemd/system
 )
 
+install(FILES
+    resources/systemd/prism-remote@.service
+    resources/systemd/prism-remote-vnc@.service
+    DESTINATION lib/systemd/system
+)
+
 # CPack Debian Package Configuration
 set(CPACK_GENERATOR "DEB")
 set(CPACK_PACKAGE_NAME "prism-wm")
 set(CPACK_PACKAGE_VENDOR "Project Prism Team")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Project Prism: Wayland Compositor and Skia GLES Desktop Clients")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-set(CPACK_DEBIAN_PACKAGE_RELEASE "13")
+set(CPACK_DEBIAN_PACKAGE_RELEASE "18")
 set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
 set(CPACK_STRIP_FILES ON)
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)

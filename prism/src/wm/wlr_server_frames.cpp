@@ -398,10 +398,9 @@ bool WlrServer::SetOutputMode(const std::string &name, int width, int height, in
                            best_mode->refresh / 1000.0f);
         } else {
             bool has_modes = !wl_list_empty(&w_out->modes);
-            int ref = has_modes
-                          ? ((refresh_mhz > 0) ? refresh_mhz
-                                               : (w_out->refresh > 0 ? w_out->refresh : 60000))
-                          : 0;
+            int ref = refresh_mhz > 0
+                          ? refresh_mhz
+                          : (has_modes ? (w_out->refresh > 0 ? w_out->refresh : 60000) : 0);
             wlr_output_state_set_custom_mode(&state, width, height, ref);
             PRISM_LOG_INFO("WLR-MODE", "Output '%s' mode set to custom mode %dx%d (refresh=%d)",
                            w_out->name, width, height, ref);

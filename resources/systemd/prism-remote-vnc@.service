@@ -1,0 +1,28 @@
+[Unit]
+Description=Loopback WayVNC for Prism headless desktop of %i
+BindsTo=prism-remote@%i.service
+PartOf=prism-remote@%i.service
+After=prism-remote@%i.service
+StartLimitIntervalSec=30
+StartLimitBurst=6
+
+[Service]
+Type=simple
+User=%i
+PAMName=login
+WorkingDirectory=~
+Environment=WAYLAND_DISPLAY=wayland-prism-0
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=prism-remote-vnc-%i
+ExecStartPre=/usr/bin/timeout 30 /usr/bin/bash -c 'until test -S "$$XDG_RUNTIME_DIR/$$WAYLAND_DISPLAY"; do sleep 0.2; done'
+ExecStartPre=/usr/bin/timeout 30 /usr/bin/bash -c 'until /usr/bin/prism-msg set_mode HEADLESS-1 1280 720 90 >/dev/null 2>&1; do sleep 0.2; done'
+ExecStart=/usr/bin/wayvnc --config=/dev/null --disable-resizing --output HEADLESS-1 --max-fps=120 127.0.0.1 5900
+Restart=on-failure
+RestartSec=2s
+KillMode=control-group
+TimeoutStopSec=10s
+
+# Enabling this instance makes it follow its matching Prism remote session.
+[Install]
+WantedBy=prism-remote@%i.service

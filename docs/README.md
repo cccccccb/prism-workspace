@@ -42,6 +42,7 @@ Skill 与参考资料只有一份正文，统一在仓库维护。人和 AI 使�
 | [PI_BUILD](PI_BUILD.md) | Pi 编译与依赖 |
 | [SKIA_BACKEND_PI](SKIA_BACKEND_PI.md)、[SKIA_GLES_PI](SKIA_GLES_PI.md) | Skia 后端与图形环境 |
 | [PI_DEB_DEPLOYMENT](PI_DEB_DEPLOYMENT.md) | deb、服务、实机版本与验证记录 |
+| [PI_REMOTE_DESKTOP](PI_REMOTE_DESKTOP.md) | Headless Prism、WayVNC、Windows SSH 隧道与远程输入验收 |
 | [BASELINE_ACCEPTANCE](BASELINE_ACCEPTANCE.md)、[基线校验文件](baseline.sha256) | 基线验收 |
 
 ## 设计来源与阶段计划

@@ -27,6 +27,29 @@ add_executable(wayland_lifecycle_test wayland_lifecycle_test.cpp)
 target_link_libraries(wayland_lifecycle_test PRIVATE prism_core prism_wayland_client)
 add_test(NAME contracts_smoke COMMAND contracts_smoke)
 add_test(NAME wayland_lifecycle_test COMMAND wayland_lifecycle_test)
+
+set(VIRTUAL_INPUT_PROTOCOL_DIR "${CMAKE_CURRENT_BINARY_DIR}/virtual-input")
+set(VIRTUAL_INPUT_PROTOCOL_SOURCES)
+foreach(PROTOCOL IN ITEMS wlr-virtual-pointer-unstable-v1 virtual-keyboard-unstable-v1)
+    set(PROTOCOL_XML "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/virtual-input/${PROTOCOL}.xml")
+    set(PROTOCOL_HEADER "${VIRTUAL_INPUT_PROTOCOL_DIR}/${PROTOCOL}-client-protocol.h")
+    set(PROTOCOL_CODE "${VIRTUAL_INPUT_PROTOCOL_DIR}/${PROTOCOL}-protocol.c")
+    add_custom_command(
+        OUTPUT "${PROTOCOL_HEADER}" "${PROTOCOL_CODE}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${VIRTUAL_INPUT_PROTOCOL_DIR}"
+        COMMAND "${WAYLAND_SCANNER}" client-header "${PROTOCOL_XML}" "${PROTOCOL_HEADER}"
+        COMMAND "${WAYLAND_SCANNER}" private-code "${PROTOCOL_XML}" "${PROTOCOL_CODE}"
+        DEPENDS "${PROTOCOL_XML}"
+        VERBATIM)
+    list(APPEND VIRTUAL_INPUT_PROTOCOL_SOURCES "${PROTOCOL_HEADER}" "${PROTOCOL_CODE}")
+endforeach()
+add_executable(virtual_input_test virtual_input_test.cpp ${VIRTUAL_INPUT_PROTOCOL_SOURCES})
+target_include_directories(virtual_input_test PRIVATE "${VIRTUAL_INPUT_PROTOCOL_DIR}")
+target_link_libraries(virtual_input_test PRIVATE prism_core prism_wayland_client
+    ${WAYLAND_CLIENT_LIBRARIES} ${XKBCOMMON_LIBRARIES})
+add_test(NAME virtual_input_test COMMAND virtual_input_test)
+set_tests_properties(virtual_input_test PROPERTIES TIMEOUT 20 RUN_SERIAL TRUE)
+
 add_test(NAME tree_engine_test COMMAND tree_engine_test)
 add_test(NAME tiling_decoration_test COMMAND tiling_decoration_test)
 add_test(NAME ipc_benchmark COMMAND ipc_benchmark)

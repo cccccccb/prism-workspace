@@ -1,0 +1,28 @@
+[Unit]
+Description=Prism headless remote desktop for %i
+After=systemd-user-sessions.service systemd-logind.service
+Conflicts=prism-demo@%i.service
+StartLimitIntervalSec=30
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=%i
+PAMName=login
+WorkingDirectory=~
+Environment=WLR_BACKENDS=headless
+Environment=WLR_RENDERER=gles2
+Environment=XDG_SESSION_TYPE=wayland
+Environment=XDG_SESSION_DESKTOP=prism
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=prism-remote-%i
+ExecStart=/usr/bin/prism-session
+Restart=on-failure
+RestartSec=2s
+KillMode=control-group
+TimeoutStopSec=10s
+
+# Installed inert. Enable this instance explicitly only for a chosen user.
+[Install]
+WantedBy=multi-user.target
