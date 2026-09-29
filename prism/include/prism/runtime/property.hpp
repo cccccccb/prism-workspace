@@ -52,7 +52,15 @@ enum class DslProperty {
     Material,
     InputShape,
     InnerShadowY,
-    Visible
+    Visible,
+    TranslateX,
+    TranslateY,
+    ScaleX,
+    ScaleY,
+    OriginX,
+    OriginY,
+    Opacity,
+    Last = Opacity
 };
 using PropertyValue =
     std::variant<double, bool, std::string, contracts::Color, contracts::ResourceId>;
@@ -60,6 +68,8 @@ using PropertyValue =
 struct PropertyAssignment {
     DslProperty id;
     PropertyValue value;
+
+    bool operator==(const PropertyAssignment &) const = default;
 };
 
 struct PropertyBinding {
@@ -70,5 +80,7 @@ struct PropertyBinding {
 struct ThemeRef {
     std::string name;
     DslProperty target;
+
+    bool operator==(const ThemeRef &) const = default;
 };
 } // namespace prism::runtime

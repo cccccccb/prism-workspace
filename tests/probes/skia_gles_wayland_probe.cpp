@@ -325,9 +325,20 @@ int VerifyDamage(const std::string &socket, const std::string &app_id)
             const auto digits = std::string("000") + std::to_string(i % 10);
             Require(app.SetBinding("tick", digits), "tick binding failed");
             Require(app.SetBinding("progress", 0.2 + (i % 8) * 0.025), "progress binding failed");
-            Until(
-                app, [&] { return app.GetRenderStats().swap_successes > frame.swap_successes; },
-                "damage pixels did not swap");
+            try {
+                Until(
+                    app, [&] { return app.GetRenderStats().swap_successes > frame.swap_successes; },
+                    "damage pixels did not swap");
+            } catch (...) {
+                Print(partial ? "damage-auto-timeout" : "damage-full-timeout",
+                      app.GetRenderStats());
+                std::cerr << "damage_iteration=" << i << " previous_swaps=" << frame.swap_successes
+                          << " configure=" << app.ConfigureCount()
+                          << " frame_pending=" << app.FrameCallbackPending()
+                          << " presentations=" << app.PresentationCount()
+                          << " mapped=" << app.IsMapped() << '\n';
+                throw;
+            }
             Drain(app);
         }
         const auto after = app.GetRenderStats();

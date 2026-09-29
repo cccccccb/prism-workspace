@@ -17,6 +17,15 @@
 #include <vector>
 
 namespace {
+struct TemplateClock final : prism::animation::AnimationClock {
+    std::uint64_t now{1'000'000'000};
+
+    std::uint64_t NowNs() const noexcept override
+    {
+        return now;
+    }
+};
+
 std::string ReadSource(const std::filesystem::path &path)
 {
     std::ifstream file(path);
@@ -153,17 +162,78 @@ struct ActionNode {
 };
 
 void CollectActions(const prism::runtime::Blueprint &blueprint, std::uint64_t &id,
-                    std::vector<ActionNode> &actions)
+                    std::vector<ActionNode> &actions, std::vector<ActionNode> &controls)
 {
     const auto own = id++;
+    std::string action;
     for (const auto &property : blueprint.properties) {
         if (property.id == prism::runtime::DslProperty::Action) {
-            actions.push_back({prism::contracts::NodeId{static_cast<std::uint32_t>(own), 1},
-                               std::get<std::string>(property.value)});
+            action = std::get<std::string>(property.value);
+            actions.push_back(
+                {prism::contracts::NodeId{static_cast<std::uint32_t>(own), 1}, action});
         }
     }
+    if (blueprint.kind == prism::runtime::Kind::InteractionTarget) {
+        controls.push_back({prism::contracts::NodeId{static_cast<std::uint32_t>(own), 1}, action});
+    }
     for (const auto &child : blueprint.children) {
-        CollectActions(child, id, actions);
+        CollectActions(child, id, actions, controls);
+    }
+}
+
+void SettleShellMotion(prism::runtime::Scene &scene, TemplateClock &clock)
+{
+    scene.Build(prism::contracts::WindowId{1});
+    assert(scene.HasActiveAnimations());
+    clock.now += 200'000'000;
+    assert(scene.AdvanceAnimations(clock.now));
+    assert(scene.Build(prism::contracts::WindowId{1}));
+    assert(!scene.HasActiveAnimations());
+}
+
+void CheckShellControls(prism::runtime::Scene &scene, const std::vector<ActionNode> &controls,
+                        TemplateClock &clock)
+{
+    using namespace prism::contracts;
+    constexpr WindowId window{1};
+    constexpr InputSource pointer{1, 17, 1};
+    for (const auto &target : controls) {
+        if (!scene.IsVisible(target.node)) {
+            continue;
+        }
+        const auto bounds = scene.Bounds(target.node);
+        const auto regions = scene.InputRegions();
+        const auto layouts = scene.GetRenderStats().layouts;
+        const LogicalPoint position{bounds.x + bounds.width / 2, bounds.y + bounds.height - 1};
+        const auto hit = scene.HitTest(position);
+        assert(hit && hit->node == target.node);
+
+        assert(scene.HandleInput(PointerMotionEvent{window, position, clock.now, pointer}).changed);
+        assert(scene.State(target.node).hovered);
+        SettleShellMotion(scene, clock);
+        const auto down = scene.HandleInput(PointerButtonEvent{
+            window, position, PointerButton::Primary, ButtonState::Pressed, 0, clock.now, pointer});
+        assert(down.changed && !down.activation);
+        SettleShellMotion(scene, clock);
+
+        const auto up =
+            scene.HandleInput(PointerButtonEvent{window, position, PointerButton::Primary,
+                                                 ButtonState::Released, 0, clock.now, pointer});
+        assert(up.changed);
+        if (target.action.empty()) {
+            assert(!up.activation);
+        } else {
+            assert(up.activation && up.activation->node == target.node &&
+                   up.activation->action == target.action);
+        }
+        SettleShellMotion(scene, clock);
+        assert(scene.HandleInput(PointerLeaveEvent{window, clock.now, pointer}).changed);
+        SettleShellMotion(scene, clock);
+
+        assert(scene.Bounds(target.node) == bounds);
+        assert(scene.InputRegions() == regions);
+        assert(scene.GetRenderStats().layouts == layouts);
+        assert(!scene.Build(window));
     }
 }
 
@@ -215,10 +285,16 @@ int main(int argc, char **argv)
         auto content = ReadTemplate(std::filesystem::path(PRISM_SOURCE_ROOT) / item.path);
         std::uint64_t id{};
         std::vector<ActionNode> actions;
-        CollectActions(content.blueprint, id, actions);
+        std::vector<ActionNode> controls;
+        CollectActions(content.blueprint, id, actions, controls);
+        assert(controls.size() == (n == 1 ? 1 : n == 2 ? 2 : 0));
+        TemplateClock clock;
         prism::runtime::Scene scene(
             std::move(content.blueprint), Shape, prism::contracts::ResourceId{1},
             prism::theme::LoadTheme(prism::theme::DefaultThemeRoot(), "glass"));
+        if (!controls.empty()) {
+            scene.EnableAnimations(&clock);
+        }
         TemplateBindings bindings(scene, content.declarations);
         assert(scene.SetViewport({item.width, item.height}));
         if (argc == 7 && n < 5) {
@@ -284,6 +360,7 @@ int main(int argc, char **argv)
                 const auto check = [&] {
                     assert(scene.Build(prism::contracts::WindowId{1}));
                     CheckActions(scene, actions, item.width, item.height);
+                    CheckShellControls(scene, controls, clock);
                 };
                 // Zero, one and two running app groups must all have clickable
                 // visible entries; hiding a group must not leave stale geometry.
@@ -306,12 +383,14 @@ int main(int argc, char **argv)
         }
         assert(scene.Build(prism::contracts::WindowId{1}));
         CheckActions(scene, actions, item.width, item.height);
+        CheckShellControls(scene, controls, clock);
         std::uint64_t generation = 1;
         for (const auto *theme : {"translucent", "transparent", "square", "glass"}) {
             assert(scene.ApplyTheme(
                 prism::theme::LoadTheme(prism::theme::DefaultThemeRoot(), theme, generation++)));
             SubmitTheme(scene);
             CheckActions(scene, actions, item.width, item.height);
+            CheckShellControls(scene, controls, clock);
             assert(!scene.InputRegions().empty());
         }
         if (n == 3 || n == 4) {

@@ -35,7 +35,8 @@ bool SameStructure(const Blueprint &a, const Blueprint &b)
 {
     if (a.kind != b.kind || a.region != b.region || a.region_mounted != b.region_mounted ||
         a.allowed_properties != b.allowed_properties || a.transitions != b.transitions ||
-        a.bindings.size() != b.bindings.size() || a.children.size() != b.children.size()) {
+        a.state_rules != b.state_rules || a.bindings.size() != b.bindings.size() ||
+        a.children.size() != b.children.size()) {
         return false;
     }
     for (std::size_t i = 0; i < a.bindings.size(); ++i) {
@@ -223,7 +224,7 @@ void Scene::ValidateRetainedValues(const std::vector<std::pair<Node *, Node *>> 
                 position->second = {binding.name, &value->second};
             }
         }
-        for (unsigned id = 0; id <= static_cast<unsigned>(DslProperty::Visible); ++id) {
+        for (unsigned id = 0; id <= static_cast<unsigned>(DslProperty::Last); ++id) {
             const auto property = static_cast<DslProperty>(id);
             const auto projection = projected.find(property);
             const auto expected = projection == projected.end() ? CurrentProperty(*live, property)
@@ -238,6 +239,9 @@ void Scene::ValidateRetainedValues(const std::vector<std::pair<Node *, Node *>> 
         }
         if (live->transitions != candidate->transitions) {
             throw std::invalid_argument("Candidate changes retained transition descriptors");
+        }
+        if (live->state_rules != candidate->state_rules) {
+            throw std::invalid_argument("Candidate changes retained state descriptors");
         }
         auto expected_refs = live->theme_refs;
         for (const auto &[property, projection] : projected) {
@@ -262,6 +266,8 @@ void Scene::CommitValues(const std::vector<std::pair<Node *, Node *>> &pairs) no
 {
     for (const auto &[live, candidate] : pairs) {
         std::swap(live->style, candidate->style);
+        std::swap(live->presentation, candidate->presentation);
+        live->resolved_state_rules.swap(candidate->resolved_state_rules);
         live->properties.swap(candidate->properties);
         live->explicit_properties.swap(candidate->explicit_properties);
         live->theme_refs.swap(candidate->theme_refs);
@@ -315,6 +321,8 @@ bool Scene::Preflight(const BindingValues &values, std::string *diagnostic)
         input_dirty_ = true;
         Invalidate(Dirty::Layout | Dirty::Paint | Dirty::Composite);
         ReconcileInput();
+        state_styles_dirty_ = true;
+        ResolveInteractionStyles();
         Success(diagnostic);
         return true;
     } catch (const std::exception &error) {
@@ -416,12 +424,20 @@ bool Scene::MountRegions(std::span<const RegionUpdate> updates, const BindingVal
         for (std::size_t i = nodes_.size(); i < next_nodes.size(); ++i) {
             next_nodes[i]->id = {static_cast<std::uint32_t>(i), 1};
         }
+        const auto retained_count = nodes_.size();
         nodes_.swap(next_nodes);
+        BindInteractionTree(*root_, nullptr, false);
         DropAnimationsForNodes(removed);
         CancelHiddenAnimations();
         bindings_.swap(next_bindings);
         regions_.swap(next_regions);
         ReconcileInput();
+        const auto now = AnimationNowNs();
+        for (std::size_t i = retained_count; i < nodes_.size(); ++i) {
+            ResolveNodeStateTargets(*nodes_[i], now, false);
+        }
+        state_styles_dirty_ = true;
+        ResolveStateTargets(now, true);
         candidate.nodes_.clear();
         candidate.bindings_.clear();
         candidate.regions_.clear();

@@ -3,6 +3,8 @@
 #include <string_view>
 
 namespace prism::runtime {
+static_assert(static_cast<unsigned>(DslProperty::Last) < 64);
+
 enum class DslValueType { Number, Color, Boolean, String, Text };
 enum class StoredValueType { Number, Color, Boolean, String, Resource };
 
@@ -44,4 +46,5 @@ const PropertySpec *FindProperty(DslProperty id);
 const ComponentSpec *FindComponent(std::string_view name);
 bool ValidPropertyValue(DslProperty id, const PropertyValue &value);
 bool SupportsTransition(Kind kind, DslProperty property);
+bool SupportsState(Kind kind, DslProperty property);
 } // namespace prism::runtime

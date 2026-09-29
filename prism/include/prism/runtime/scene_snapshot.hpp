@@ -1,4 +1,5 @@
 #pragma once
+#include "prism/runtime/presentation.hpp"
 #include "prism/runtime/scene.hpp"
 
 namespace prism::runtime {
@@ -9,6 +10,7 @@ struct SnapshotNode {
     contracts::NodeId id{};
     Kind kind{Kind::Box};
     Style style{};
+    VisualPresentation presentation{};
     std::string text;
     std::string icon;
     double value{0};

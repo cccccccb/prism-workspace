@@ -1,11 +1,18 @@
 Card(height: "@shell_top_height", paddingX: "@topbar_inset", paddingY: "@topbar_stack_inset") {
     VStack(spacing: "@topbar_handle_gap") {
         Card(height: "@topbar_handle_plate_height") {
-            Card(width: "@topbar_handle_plate_width", height: "@topbar_handle_plate_height", anchor: "center",
-                 cornerRadius: "@topbar_handle_plate_radius", background: "@handleTrack", justify: "center",
-                 shadowBlur: "@control_shadow_blur", shadowY: "@local_shadow_y", shadowColor: "@shadow") {
-                Card(width: "@topbar_handle_width", height: "@topbar_handle_height", anchor: "center",
-                     cornerRadius: "@topbar_handle_radius", background: "@indicator")
+            InteractionTarget(width: 96, height: "@topbar_handle_plate_height", anchor: "center") {
+                Card(width: "@topbar_handle_plate_width", height: "@topbar_handle_plate_height", anchor: "center",
+                     cornerRadius: "@topbar_handle_plate_radius", background: "@handleTrack", justify: "center",
+                     shadowBlur: "@control_shadow_blur", shadowY: "@local_shadow_y", shadowColor: "@shadow") {
+                    Visual(width: "@topbar_handle_width", height: "@topbar_handle_height", anchor: "center",
+                           cornerRadius: "@topbar_handle_radius", background: "@indicator")
+                        .state(when: "hovered", scope: "target", scaleX: 1.12)
+                        .state(when: "pressed", scope: "target", scaleX: 0.96)
+                        .state(when: "focusVisible", scope: "target", background: "@accent")
+                        .transition(property: "scaleX", durationMs: 140, easing: "easeOutCubic")
+                        .transition(property: "background", durationMs: 120, easing: "easeOutCubic")
+                }
             }
         }
         Card(height: "@topbar_height", material: "panel", shadowBlur: "@topbar_shadow_blur") {

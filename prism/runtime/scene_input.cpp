@@ -28,7 +28,8 @@ bool Scene::IsEnabled(const Node &node) const
 bool Scene::IsInteractive(contracts::NodeId id) const
 {
     const auto *node = Find(id);
-    return node && IsVisible(*node) && IsEnabled(*node) && !node->action.empty();
+    return node && IsVisible(*node) && IsEnabled(*node) &&
+           (!node->action.empty() || node->kind == Kind::InteractionTarget);
 }
 
 InteractionState Scene::State(contracts::NodeId id) const
@@ -52,6 +53,7 @@ bool Scene::SetEnabled(contracts::NodeId id, bool enabled)
     }
     PrepareInputGeometry();
     node->enabled = enabled;
+    state_styles_dirty_ = true;
     ++transaction_revision_;
 
     for (auto *current : nodes_) {
@@ -62,13 +64,14 @@ bool Scene::SetEnabled(contracts::NodeId id, bool enabled)
         ++current->revision;
     }
     RefreshInputGeometry();
+    ResolveInteractionStyles();
     Invalidate(Dirty::Paint);
     return true;
 }
 
 std::optional<HitResult> Scene::Hit(const Node &node, contracts::LogicalPoint point) const
 {
-    if (!node.style.visible || !node.enabled) {
+    if (!node.style.visible || !node.enabled || node.kind == Kind::Visual) {
         return std::nullopt;
     }
     const bool inside = scene_detail::Inside(node.bounds, point);
@@ -97,7 +100,7 @@ std::optional<HitResult> Scene::Hit(const Node &node, contracts::LogicalPoint po
             return hit;
         }
     }
-    if (rounded_inside && !node.action.empty()) {
+    if (rounded_inside && (!node.action.empty() || node.kind == Kind::InteractionTarget)) {
         return HitResult{node.id, {point.x - node.bounds.x, point.y - node.bounds.y}};
     }
     return std::nullopt;
@@ -115,7 +118,7 @@ std::optional<std::string> Scene::ActionAt(contracts::LogicalPoint point) const
 {
     const auto hit = HitTest(point);
     const auto *node = hit ? Find(hit->node) : nullptr;
-    return node ? std::optional<std::string>(node->action) : std::nullopt;
+    return node && !node->action.empty() ? std::optional<std::string>(node->action) : std::nullopt;
 }
 
 void Scene::TrackInputTarget(contracts::NodeId id)
@@ -159,6 +162,7 @@ bool Scene::RefreshInputStates() noexcept
         return !node || !HasState(node->interaction);
     });
     if (changed) {
+        state_styles_dirty_ = true;
         Invalidate(Dirty::Paint);
     }
     return changed;
@@ -255,7 +259,9 @@ bool Scene::MoveInputFocus(std::uint64_t seat, bool reverse)
     if (root_) {
         CollectNodes(*root_, order);
     }
-    std::erase_if(order, [this](const Node *node) { return !IsInteractive(node->id); });
+    std::erase_if(order, [this](const Node *node) {
+        return !IsInteractive(node->id) || node->action.empty();
+    });
     if (order.empty()) {
         return false;
     }

@@ -1,11 +1,11 @@
 # Prism 动画运行时与 DSL 契约
 
-日期：2026-09-29。状态：**v1 Paint Transition 已进入源码实现与验证，完整动画系统仍按本规范分阶段建设**。当前可用接口以 [DSL schema](../prism/runtime/dsl_schema.cpp)、[客户端 SDK](CLIENT_APP_SDK.md) 和源码为准；旧版已安装包不会因源码变化自动获得动画能力。[动画与渲染优化假设](ANIMATION_RENDERING_HYPOTHESES.md)记录实验与验收，[客户端渲染线程迁移](CLIENT_RENDER_THREAD_MIGRATION.md)记录已经完成的线程所有权切换。
+日期：2026-09-29。状态：**v1 Paint Transition 已验证；交互第二阶段状态规则与装饰子树呈现已通过 Pi 源码和隔离验证，完整动画系统仍按本规范分阶段建设**。当前可用接口以 [DSL schema](../prism/runtime/dsl_schema.cpp)、[客户端 SDK](CLIENT_APP_SDK.md) 和源码为准；旧版已安装包不会因源码变化自动获得动画能力。[动画与渲染优化假设](ANIMATION_RENDERING_HYPOTHESES.md)记录实验与验收，[客户端渲染线程迁移](CLIENT_RENDER_THREAD_MIGRATION.md)记录已经完成的线程所有权切换。
 
 | 范围 | 当前源码状态 | 后续工作 |
 | --- | --- | --- |
 | 时间核心 | 可注入单调时钟、绝对时间时长曲线与标量弹簧求值、重定向/暂停/取消 | 弹簧接入 Scene 和 DSL；WM、装饰复用同一核心 |
-| DSL 与 Scene | `.transition` 编译为带类型描述符；`Progress.value` 和指定节点的 `foreground` 在 Scene 呈现覆盖层按时长过渡 | 扩展属性前补齐相应效果、输入与成本契约；显式 Clip/关键帧另行设计 |
+| DSL 与 Scene | `.transition`、`.state` 编译为 typed 描述符；Progress.value、指定 foreground 与 Visual 的局部呈现属性在 Scene 覆盖层求值 | 交互节点整体移动、效果/输入同代协议；显式 Clip/关键帧另行设计 |
 | SDK 提交 | UI 线程采样，独立动画期限收窄 `Pump` 等待；worker 发帧机会，UI 应答后才放行像素候选；Pi V3D headless 功能门槛已通过 | 物理输出/VNC 对照、精确呈现测量、通用保留层与渲染线程合成采样 |
 | WM/BSP | 未接入新时间核心 | 通用窗口视觉几何适配及 configure/输入一致性 |
 
@@ -16,7 +16,7 @@
 - UI/Host 线程拥有绑定、主题、目标属性、Scene、命中和动画生命周期。渲染/协议线程独占 Wayland、EGL、Ganesh、GPU 资源与最后成功提交基线。没有可见动画时，两线程回到事件等待。
 - 初次安装 Preview/Master 默认直接取目标值。进入动画必须由声明的状态变化或显式触发启动，不延迟已有启动里程碑。
 
-当前 `Scene` 有 RenderTree 复用和 `Layout/Paint/Composite` 失效类别，但没有节点 `opacity/transform` 属性或 GPU 保留子树。首批 Paint 动画会重新构造必要的 DisplayList；只有引入并验收真正的保留层之后，稳定内容的位移、缩放和透明度才能称为渲染线程采样的合成动画。旧 `MotionController::Step(dt)` 服务旧装饰路径，不作为新时间语义或 native Wayland 动画驱动。
+当前 `Scene` 有 RenderTree 复用和 `Layout/Paint/Composite` 失效类别，Visual 装饰子树已提供平移、缩放、原点与整体 opacity；尚无 GPU 保留子树。当前动画仍按 Paint 构造 DisplayList 并回放；只有引入并验收真正的保留层之后，稳定内容的运动才能称为渲染线程采样的合成动画。旧 `MotionController::Step(dt)` 服务旧装饰路径，不作为新时间语义或 native Wayland 动画驱动。
 
 ## 2. 时间与运动的定义
 
@@ -47,14 +47,15 @@ value(t) = Interpolate(from, to, Easing(u(t)))
 
 现有 `PropertySpec` 是属性类型、范围、失效类别和允许动画组件的同一 schema 来源；首版只开放下表的安全 Paint 属性。后续扩展要在此基础上明确实际更新成本、是否影响命中/效果、可见量化精度和保留层资格，避免另建一套按控件名称查询的动画属性表。数值只接受有限值；颜色先在线性 sRGB、预乘 alpha 空间插值，再按渲染契约量化。布尔、字符串、资源 ID、`action`、`source`、`material` 和 `visible` 是离散值，不用数值插值冒充动画。
 
-| 属性范围 | 第一阶段处理 | 后续能力和条件 |
+| 属性范围 | 当前源码处理 | 后续能力和条件 |
 | --- | --- | --- |
 | `Progress.value` | 已接入 `0..1` 数值 Paint 轨迹与 DSL。 | 同一机制扩展到经 schema 允许的边框与阴影等 Paint 属性。 |
 | 直接绘制节点的 `foreground` | `Text`、`Icon`、`IconButton`、`Progress`、`Toggle` 已接入颜色 Paint 轨迹与 DSL。 | `Button.foreground` 会转给生成的文字子节点，描述符未随子节点传递前拒绝。 |
-| `background` | 暂不开放。 | 当前 alpha 参与输入区域；待同代效果与输入契约完成后再考虑。 |
+| `background` | 仅 Visual 开放 Paint 过渡；装饰子树明确不参与输入区域。 | 普通节点的 alpha 仍参与输入区域，未开放其过渡。 |
 | `width/height/spacing` | 保留 Layout 成本标记，不纳入首批效果。 | 每个样本在 UI 线程重排并同步命中；可证明安全时再使用旧/新几何的保留层视觉过渡。 |
 | `backdropBlur`、圆角与输入轮廓 | 保留当前效果和输入约束。 | 只有像素、surface 效果和输入区域可在同一呈现代数中提交时才开放动画；玻璃域须单独计成本。 |
-| `opacity/translate/scale` | 当前 schema、Scene 与保留层均未实现，不能写成已可用 DSL。 | 先增加带类型属性与正确绘制/命中，再建立 GPU 保留层，最后开放渲染线程逐次采样。 |
+| `Visual.opacity/translateX/translateY/scaleX/scaleY` | 第二阶段新增安全装饰子树的 Paint 过渡；目标命中范围固定，opacity 是整组合成。 | 交互节点移动必须先完成同代命中；GPU 保留层与渲染线程采样后续接入。 |
+| `Visual.originX/originY` | 归一化原点，静态和状态覆盖可用；不允许 Transition。 | 更丰富的变换组合和动画需单独扩展 schema 与损伤校验。 |
 
 呈现覆盖层变化会推进节点绘制 revision，以免 RenderTree 复用旧视觉记录。当前只开放不改变输入轮廓或 surface 效果的属性；`SurfaceEffects()` 与 `InputRegions()` 仍读取 live Node。将来扩展会影响它们的动画属性时，必须让像素、效果与输入读取同一份呈现状态，不能只改变 DisplayList。
 
@@ -67,11 +68,27 @@ Progress(value: $progress)
     .transition(property: "value", durationMs: 180, easing: "easeOutCubic")
 ```
 
-`transition` 只接受恰好三个命名参数 `property`、`durationMs`、`easing`。`property` 是该组件在 schema 中明确允许的属性名；第一版限定上表中的 `Progress.value` 与直接绘制节点的 `foreground`。`durationMs` 为 `0..10000` 的有限整数毫秒，`0` 立即取终值；第一版仅接受字面量，不从业务绑定或主题令牌读取时长。`easing` 只接受 `linear`、`easeInCubic`、`easeOutCubic`、`easeInOutCubic`，分别为 `u`、`u³`、`1-(1-u)³`、`u<0.5 ? 4u³ : 1-4(1-u)³`。未知/重复参数、重复目标、非法属性/类型/范围或未知曲线，均在纯准备阶段给出行号诊断。描述符受现有 Scene 节点上限与准备期内存预算约束；准备结果必须把描述符计入 retained bytes。并发活跃轨迹的容量和降级策略在 Pi 的 100/500/1000 节点对照后确定，不能暗中减少对象数量或阻塞 UI。
+`transition` 只接受恰好三个命名参数 `property`、`durationMs`、`easing`。`property` 是该组件在 schema 中明确允许的属性名；v1 提供 Progress.value/指定 foreground，交互第二阶段增加上表中的 Visual 属性。`durationMs` 为 `0..10000` 的有限整数毫秒，`0` 立即取终值；第一版仅接受字面量，不从业务绑定或主题令牌读取时长。`easing` 只接受 `linear`、`easeInCubic`、`easeOutCubic`、`easeInOutCubic`，分别为 `u`、`u³`、`1-(1-u)³`、`u<0.5 ? 4u³ : 1-4(1-u)³`。未知/重复参数、重复目标、非法属性/类型/范围或未知曲线，均在纯准备阶段给出行号诊断。描述符受现有 Scene 节点上限与准备期内存预算约束；准备结果必须把描述符计入 retained bytes。并发活跃轨迹的容量和降级策略在 Pi 的 100/500/1000 节点对照后确定，不能暗中减少对象数量或阻塞 UI。
 
 `.transition(...)` 已有独立语义分支，校验后的 `TransitionSpec` 沿 `PreparedNode → Blueprint → Scene Node` 传递，并计入准备结果的 retained bytes；区域安装、结构比较和事务复制保留描述符，detached candidate 不得覆盖 retained 轨迹元数据。renderer 不通过字符串查找 `"value"` 或重读 DSL。业务模块继续只调用带类型的 `SetBinding("progress", value)`；一次成功的目标变化触发过渡，重复值不启动。动画由 SDK 驱动；业务无须为了过渡安排周期 tick。
 
-第一版主题切换先完成候选验证和原子安装，然后取消旧轨迹并直接取新目标；失败则保持原主题、目标和呈现状态。下一版才定义主题运动令牌、主题切换过渡和冲突优先级。显式关键帧片段将由带类型的 `AnimationClip { tracks, duration, repeat, fill }` 表示，每条 track 引用同一属性 schema 和时间域；显式触发、关键帧 DSL、轨迹优先级与取消策略需单独版本化。当前不把示意关键帧语法加入第三方应用指南或声称可用。
+第一版主题切换先完成候选验证和原子安装，然后取消旧轨迹并直接取新目标；失败则保持原主题、目标和呈现状态。主题运动令牌与主题切换过渡仍待后续；局部状态规则的当前优先级见下节。显式关键帧片段将由带类型的 `AnimationClip { tracks, duration, repeat, fill }` 表示，每条 track 引用同一属性 schema 和时间域；显式触发、关键帧 DSL、轨迹优先级与取消策略需单独版本化。当前不把示意关键帧语法加入第三方应用指南或声称可用。
+
+### 4.1 交互第二阶段的 StateRule
+
+`.state(when: "hovered", scope: "target", scaleX: 1.15)` 将局部状态映射为目标值；
+`.transition` 继续决定目标变化时如何运动，两者独立。状态退出回到当前基础来源，业务
+binding 与主题引用不会被临时样本覆盖；一次输入轮次先解析状态目标，再按单调时间采样。
+无 Transition 的合法状态属性立即生效，originX/Y 当前只能立即变化。
+
+声明节点必须位于 InteractionTarget 的 Visual 子树内，scope 只能为 `"target"`。普通状态
+优先级为 disabled > pressed > captured > hovered；focused/focusVisible 使用独立属性，
+与不同状态写同一属性时编译拒绝。合法条件、值范围、主题预检和结构限制详见
+[交互与呈现规范第 13 节](INTERACTION_AND_PRESENTATION_SPEC.md)。
+
+Visual 子树整体 opacity、变换与阴影进入普通 Paint 回放，仍会消耗 Build/Render/Swap；
+它们不改变父目标命中范围，不涉及 WM 全屏或 BSP 操作。Topbar/Dock 当前接入使用已有
+主题颜色/尺寸和字面量运动参数，没有 MotionSpec/MotionPolicy 或关键帧 DSL。
 
 ## 5. Timer Driver、帧机会与背压
 
@@ -87,7 +104,7 @@ SDK 独立管理客户端 Scene 的动画期限，不占用 `ModuleSession::sche
 
 本节同时列出已接入的 v1 行为与后续必须保持的契约。当前 Scene 只提供 Paint
 Transition，不提供应用动画回调、显式暂停控制、减弱动效设置、交互位移或 WM 动画。
-局部状态、输入捕获、状态规则和桌面控制区的下一阶段契约见
+局部状态、输入捕获、状态规则和桌面控制区的当前范围与后续契约见
 [通用交互状态与呈现规范](INTERACTION_AND_PRESENTATION_SPEC.md)。Topbar 横线面向组控制，
 未来分隔线横线面向边界/窗口控制；首批运动只改变固定感应区中的视觉子树。
 
@@ -95,7 +112,7 @@ Transition，不提供应用动画回调、显式暂停控制、减弱动效设�
 - 时间核心有 `Running / Finished / Cancelled / Superseded` 状态及终态事件；Scene v1 不向应用公开每条轨迹的终态。`Finished` 表示最终目标样本已应用并发布为 UI/提交候选，若像素本就相同则无需提交；它不等于显示器已呈现。需要视觉里程碑时另用精确 submission 与 presentation feedback 关联。首版取消将仍有效的节点归位到逻辑目标，卸载/关闭则清理呈现覆盖层；重定向以取消前的当前样本为新起点，不先归位。
 - DSL 节点显式 `visible: false` 时取消并归位，重新显示不重播。窗口遮挡或工作区隐藏目前没有可靠的 SDK 可见性通知，不能从 keyboard focus 或 mapped 推断；callback 停滞时不空转，恢复后按绝对时间直接跳到当前或终值。时间核心已经支持显式暂停；Scene 的公开暂停接口与可见性驱动暂停待建立正式通知契约后再实现。
 - 后续减弱动效策略由平台/主题上层决定，可使过渡立即达到目标；业务目标与动作不变。策略切换、取消和快速重复操作均不得留下定时器或未释放的资源。
-- 将来引入移动横线时，首批仍保持静态命中范围。可点击节点运动需要在同一呈现代数中包含视觉变换、逆变换命中、裁剪、surface 输入区域和按下到释放的目标捕获；未满足前不能开放交互位移属性。
+- 当前 Visual 横线运动保持 InteractionTarget 的静态命中范围。可点击节点运动需要在同一呈现代数中包含视觉变换、逆变换命中、裁剪、surface 输入区域和按下到释放的目标捕获；未满足前不能开放交互位移属性。
 - WM BSP 动画适配器接入后，拓扑立即产生目标槽位，适配器只运动通用窗口的视觉几何；平移可复用客户端 buffer，真实尺寸变化仍要按 Wayland configure 与客户端新 buffer 处理。WM 与客户端分别调度和取消自己的轨迹。
 
 ## 7. 验收与实施顺序
@@ -103,7 +120,7 @@ Transition，不提供应用动画回调、显式暂停控制、减弱动效设�
 1. **时间核心，源码已实现**：注入时钟、时长曲线与弹簧求值、重定向、取消、完成和绝对期限；保持确定性测试比较 0/16/33/200 ms 等不等间隔采样、长暂停、连续改目标和精确终值。同一时刻的结果必须与采样次数无关。
 2. **属性与 DSL，v1 源码已接入**：单一 schema、准备结果和 Scene 呈现覆盖层已贯通 `Progress.value` 与指定节点的 `foreground`。持续验证主题/绑定源值未被覆盖、重复值不建轨迹、主题原子安装并归位、非法 DSL 在准备期拒绝、初次 Preview/Master 不自动动画。
 3. **生产调度，Pi V3D headless 功能门槛已通过**：SDK 独立单次期限、专门 frame opportunity 与应答、一个 UI 轮次合并封包。继续验收慢帧直接跳到时间对应位置且不撑满双向队列、扣留 callback、填满 feedback 槽、只提交 State、resize/安装后旧机会到达、discarded/乱序 feedback；再做 VNC 与物理输出对照。测试与探针保留在 `tests/`，不进入生产包。
-4. **交互与视觉扩展，分阶段实施**：[交互与呈现规范](INTERACTION_AND_PRESENTATION_SPEC.md)的节点命中身份、输入生命周期与局部状态已进入源码；下一步接状态规则、视觉子树 transform/opacity。首批控制横线保持固定感应区，在 Pi V3D 下对照完整修复与局部损伤；后续贯通 touch、交互变换的同代命中、权威布局控制，再加入保留层与 WM BSP 视觉运动。每一项保留原始帧记录和资源成本，按 [A01–A12](ANIMATION_RENDERING_HYPOTHESES.md)核对。
+4. **交互与视觉扩展，分阶段实施**：[交互与呈现规范](INTERACTION_AND_PRESENTATION_SPEC.md)的节点命中身份、输入生命周期与局部状态已进入源码；第二阶段已加入状态规则、固定 InteractionTarget 与 Visual 子树 transform/opacity，完整验证结果见该规范第 13 节。首批控制横线保持固定感应区，在 Pi V3D 下对照完整修复与局部损伤；后续贯通 touch、交互变换的同代命中、权威布局控制，再加入保留层与 WM BSP 视觉运动。每一项保留原始帧记录和资源成本，按 [A01–A12](ANIMATION_RENDERING_HYPOTHESES.md)核对。
 
 `AnimationSampleStamp` 已记录 Scene 最近一次可见样本的修订号与单调采样时间，并进入 `FramePacket`。后续测量还需把目标/呈现代数、FramePacket 序号、成功提交 ID、feedback 及 UI/Render/Swap/WM 阶段耗时关联起来。客户端目前只保存 presentation 的结果；需先保存并确认 `wp_presentation` 时钟 ID、实际时间戳、refresh、sequence 和 flags，才能报告真实呈现间隔或输入到呈现延迟。Swap 成功计数、feedback 到达时间和 VNC 更新数均不能替代该测量。
 

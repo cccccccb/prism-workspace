@@ -39,6 +39,7 @@ Scene::Scene(Blueprint root, ShapeText shaper, contracts::ResourceId font,
     : Scene(EmptyConstruction{}, std::move(shaper), font, std::move(theme))
 {
     root_ = MakeNode(std::move(root));
+    PrepareInteractionTree();
 }
 
 Scene::Scene(EmptyConstruction, ShapeText shaper, contracts::ResourceId font,
@@ -139,6 +140,10 @@ bool Scene::SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyVa
     Node *node = Find(id);
     if (!node || property == DslProperty::Material ||
         !(node->allowed_properties & PropertyBit(property)) ||
+        (node->decorative &&
+         (property == DslProperty::Action || property == DslProperty::BackdropBlur ||
+          property == DslProperty::InputShape)) ||
+        (property >= DslProperty::TranslateX && node->kind != Kind::Visual) ||
         !scene_detail::ValidPropertyValue(property, value)) {
         return false;
     }
@@ -150,12 +155,17 @@ bool Scene::SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyVa
         PrepareInputGeometry();
     }
     const bool was_visible = IsVisible(*node);
-    const bool animated = RetargetPresentation(*node, property, previous, value, now);
+    const bool state_property = IsStateProperty(*node, property);
+    const bool animated =
+        !state_property && RetargetPresentation(*node, property, previous, value, now);
     node->properties[property] = value;
     node->explicit_properties.insert(property);
     std::erase_if(node->theme_refs,
                   [property](const ThemeRef &ref) { return ref.target == property; });
     ApplyCachedProperty(*node, property, value);
+    if (state_property) {
+        ResolveNodeStateTargets(*node, now, true);
+    }
     if (property == DslProperty::Source) {
         node->image_ready = false;
         node->intrinsic_size = {};
@@ -249,6 +259,7 @@ bool Scene::ImageReady(contracts::ResourceId image, contracts::LogicalSize intri
 
 std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
 {
+    ResolveInteractionStyles();
     ++build_calls_;
     if (!root_ || !window || !scene_detail::ValidSize(viewport_) ||
         (!Has(dirty_, Dirty::Layout) && !Has(dirty_, Dirty::Paint))) {
@@ -281,6 +292,7 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
         item.value = node->value;
         item.checked = node->checked;
         item.interaction = State(node->id);
+        item.presentation = node->presentation;
         item.image = node->image;
         item.intrinsic_size = node->intrinsic_size;
         item.image_ready = node->image_ready;
@@ -309,11 +321,13 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
 
     if (hit_geometry_dirty_) {
         RefreshInputGeometry();
+        ResolveInteractionStyles();
         hit_geometry_dirty_ = false;
         for (auto &item : snapshot.nodes) {
             if (const auto *node = Find(item.id)) {
                 item.interaction = State(item.id);
                 item.revision = node->revision;
+                ApplyPresentation(*node, item);
             }
         }
     }

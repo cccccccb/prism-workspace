@@ -4,6 +4,7 @@
 #include "prism/compiler/error.hpp"
 #include "prism/runtime/dsl_schema.hpp"
 #include "prism/runtime/dsl_syntax.hpp"
+#include <algorithm>
 #include <cmath>
 #include <optional>
 #include <string>
@@ -58,13 +59,59 @@ std::optional<animation::Easing> ParseEasing(std::string_view name)
     return std::nullopt;
 }
 
+std::optional<StateCondition> ParseStateCondition(std::string_view name)
+{
+    if (name == "hovered") {
+        return StateCondition::Hovered;
+    }
+    if (name == "pressed") {
+        return StateCondition::Pressed;
+    }
+    if (name == "captured") {
+        return StateCondition::Captured;
+    }
+    if (name == "disabled") {
+        return StateCondition::Disabled;
+    }
+    if (name == "focused") {
+        return StateCondition::Focused;
+    }
+    if (name == "focusVisible") {
+        return StateCondition::FocusVisible;
+    }
+    return std::nullopt;
+}
+
+bool HasStateProperty(const StateRule &rule, DslProperty property)
+{
+    return std::any_of(
+               rule.properties.begin(), rule.properties.end(),
+               [property](const PropertyAssignment &item) { return item.id == property; }) ||
+           std::any_of(rule.theme_refs.begin(), rule.theme_refs.end(),
+                       [property](const ThemeRef &ref) { return ref.target == property; });
+}
+
+bool HasPreparedProperty(const PreparedNode &node, DslProperty property)
+{
+    return std::any_of(node.properties.begin(), node.properties.end(),
+                       [property](const PreparedPropertyAssignment &item) {
+                           return item.id == property;
+                       }) ||
+           std::any_of(
+               node.bindings.begin(), node.bindings.end(),
+               [property](const PropertyBinding &binding) { return binding.target == property; }) ||
+           std::any_of(node.theme_refs.begin(), node.theme_refs.end(),
+                       [property](const ThemeRef &ref) { return ref.target == property; });
+}
+
 class ComponentCompiler {
 public:
     explicit ComponentCompiler(const ComponentSource &source) : source_(source)
     {
     }
 
-    PreparedNode Convert(const SyntaxNode &node)
+    PreparedNode Convert(const SyntaxNode &node, bool root = true, bool visual = false,
+                         bool target = false)
     {
         AddNode(node.line);
         const auto *component = FindComponent(node.name);
@@ -74,6 +121,16 @@ public:
         if (!component->allows_children && !node.children.empty()) {
             Error(node.line, node.name + " cannot have children");
         }
+        if (component->kind == Kind::Visual && root) {
+            Error(node.line, "Visual cannot be a component root");
+        }
+        if (component->kind == Kind::InteractionTarget) {
+            if (visual) {
+                Error(node.line, "Visual subtree cannot contain InteractionTarget");
+            }
+            target = true;
+        }
+        visual = visual || component->kind == Kind::Visual;
 
         PreparedNode out;
         out.kind = component->kind;
@@ -85,6 +142,7 @@ public:
         std::unordered_set<DslProperty> seen;
         AssignArguments(out, seen, *component, node);
         AssignModifiers(out, seen, *component, node);
+        ValidatePresentation(out, visual, target);
         if (component->positional == DslProperty::Source && component->has_positional &&
             !seen.contains(DslProperty::Source)) {
             Error(node.line, "Image requires source");
@@ -92,7 +150,7 @@ public:
         CountEffects(out);
 
         for (const auto &child : node.children) {
-            out.children.push_back(Convert(child));
+            out.children.push_back(Convert(child, false, visual, target));
         }
         if (component->creates_label) {
             CreateLabel(out);
@@ -229,6 +287,10 @@ private:
                          const ComponentSpec &component, const SyntaxNode &node)
     {
         for (const auto &modifier : node.modifiers) {
+            if (modifier.name == "state") {
+                AssignState(out, component, node, modifier);
+                continue;
+            }
             if (modifier.name == "transition") {
                 AssignTransition(out, component, node, modifier);
                 continue;
@@ -246,6 +308,116 @@ private:
             }
             AssignProperty(out, seen, component, node, modifier.name,
                            modifier.arguments.front().value, modifier.line);
+        }
+    }
+
+    void AssignState(PreparedNode &out, const ComponentSpec &component, const SyntaxNode &node,
+                     const SyntaxModifier &modifier)
+    {
+        const SyntaxArgument *when_arg = nullptr;
+        const SyntaxArgument *scope_arg = nullptr;
+        for (const auto &argument : modifier.arguments) {
+            const SyntaxArgument **slot = nullptr;
+            if (argument.name == "when") {
+                slot = &when_arg;
+            } else if (argument.name == "scope") {
+                slot = &scope_arg;
+            }
+            if (slot) {
+                if (*slot) {
+                    Error(argument.line, "duplicate state argument: " + argument.name);
+                }
+                *slot = &argument;
+            }
+        }
+        if (!when_arg || !scope_arg) {
+            Error(modifier.line, "state requires when, scope and at least one property");
+        }
+        const auto *when = std::get_if<std::string>(&when_arg->value.data);
+        const auto condition = when ? ParseStateCondition(*when) : std::nullopt;
+        if (!condition) {
+            Error(when_arg->line, "unknown state condition");
+        }
+        const auto *scope = std::get_if<std::string>(&scope_arg->value.data);
+        if (!scope || *scope != "target") {
+            Error(scope_arg->line, "state scope must be the literal target");
+        }
+
+        StateRule rule{*condition, {}, {}};
+        std::unordered_set<DslProperty> seen;
+        for (const auto &argument : modifier.arguments) {
+            if (argument.name == "when" || argument.name == "scope") {
+                continue;
+            }
+            AssignStateProperty(rule, seen, component, node, argument);
+        }
+        if (seen.empty()) {
+            Error(modifier.line, "state requires at least one property");
+        }
+        for (const auto &existing : out.state_rules) {
+            for (const auto property : seen) {
+                if (!HasStateProperty(existing, property)) {
+                    continue;
+                }
+                if (existing.condition == rule.condition) {
+                    Error(modifier.line, "duplicate state condition property");
+                }
+                if (IsFocusCondition(existing.condition) || IsFocusCondition(rule.condition)) {
+                    Error(modifier.line, "focus state property conflicts with another condition");
+                }
+            }
+        }
+        out.state_rules.push_back(std::move(rule));
+    }
+
+    void AssignStateProperty(StateRule &rule, std::unordered_set<DslProperty> &seen,
+                             const ComponentSpec &component, const SyntaxNode &node,
+                             const SyntaxArgument &argument)
+    {
+        const auto *spec = FindProperty(argument.name);
+        if (!spec || !SupportsState(component.kind, spec->id) ||
+            !(component.allowed_properties & PropertyBit(spec->id))) {
+            Error(argument.line,
+                  "state property not supported on " + node.name + ": " + argument.name);
+        }
+        if (!seen.insert(spec->id).second) {
+            Error(argument.line, "duplicate state property: " + argument.name);
+        }
+        if (std::holds_alternative<BindingValue>(argument.value.data)) {
+            Error(argument.line, "state values require literals or theme references");
+        }
+
+        PreparedNode value;
+        Apply(value, *spec, argument.value, argument.line);
+        if (!value.theme_refs.empty()) {
+            rule.theme_refs.push_back(std::move(value.theme_refs.front()));
+            return;
+        }
+        const auto &prepared = value.properties.front().value;
+        if (const auto *number = std::get_if<double>(&prepared)) {
+            rule.properties.push_back({spec->id, *number});
+        } else if (const auto *color = std::get_if<contracts::Color>(&prepared)) {
+            rule.properties.push_back({spec->id, *color});
+        } else {
+            Error(argument.line, "state values require numeric or color values");
+        }
+    }
+
+    void ValidatePresentation(const PreparedNode &node, bool visual, bool target)
+    {
+        if (!node.state_rules.empty() && (!visual || !target)) {
+            Error(node.line, "state requires a Visual subtree inside an InteractionTarget");
+        }
+        if (!visual) {
+            return;
+        }
+        constexpr DslProperty excluded[]{DslProperty::Action, DslProperty::Material,
+                                         DslProperty::BackdropBlur, DslProperty::InputShape};
+        for (const auto property : excluded) {
+            if (HasPreparedProperty(node, property)) {
+                Error(node.line,
+                      "Visual subtree cannot declare " + std::string(FindProperty(property)->name));
+            }
         }
     }
 

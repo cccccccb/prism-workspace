@@ -1,6 +1,7 @@
 #pragma once
 #include "prism/animation/timeline.hpp"
 #include "prism/runtime/dsl_schema.hpp"
+#include "prism/runtime/presentation.hpp"
 #include "prism/runtime/scene.hpp"
 #include <algorithm>
 #include <cmath>
@@ -14,6 +15,12 @@ struct Scene::Node {
     bool region_mounted{false};
     std::vector<PropertyBinding> bindings;
     std::vector<TransitionSpec> transitions;
+    std::vector<StateRule> state_rules;
+    std::vector<StateRule> resolved_state_rules;
+    std::vector<PropertyAssignment> state_values;
+    Node *state_owner{};
+    bool decorative{};
+    VisualPresentation presentation{};
     Node *parent{};
     Style style{};
     std::map<DslProperty, PropertyValue> properties;

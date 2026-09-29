@@ -24,6 +24,19 @@ Scene；configure/close 继续作用于同一 surface。相邻 motion 只有在 
 命中快照版本；交互变换及其同代快照仍按[交互规范](INTERACTION_AND_PRESENTATION_SPEC.md)
 后续阶段实现。当前生产平台适配一个 Wayland seat，未接入 touch。
 
+交互第二阶段的 `InteractionTarget`、`Visual` 与 `.state` 由同一 UI 线程 Scene 消费，
+无需新增业务 ABI、周期 tick 或 Shell 专用回调。输入状态解析出有效目标后，现有单调
+动画时钟与 frame opportunity 驱动 Paint 样本；不可变帧仍只携带绘制数据和版本。
+Visual 子树不参与输入，它的平移、缩放、整体 opacity 以及 background 动画不改变父目标
+的感应范围，不向 WM 发送布局或全屏请求。具体 DSL、优先级和安全范围见
+[交互与呈现规范第 13 节](INTERACTION_AND_PRESENTATION_SPEC.md)。
+
+状态规则保留主题引用和基础 binding；主题成功安装取消旧轨迹并取新主题目标，失败
+保留原结果。隐藏/取消/UI 替换继续沿已有代数和清理通道处理。当前整体透明度需要普通
+绘制图层，变换仍由 UI 采样并回放；尚无 GPU 保留层、渲染线程 Scene 采样或移动控件的
+成功提交命中快照。Topbar 横线只接入反馈，Dock 运行项沿用已有激活动作；没有重打包
+或替换现有会话。本阶段验证结果在上述规范统一填写，不能沿用旧包实机验收作为证明。
+
 `tests/probes/skia_gles_wayland_probe.cpp` 使用同一 SDK 生命周期，测试和诊断程序留在 tests，不安装到生产包。早期 GLES 检查点的计数与验收记录见 [SKIA_GLES_PI.md](SKIA_GLES_PI.md)，不作为当前主题功能的验证结论。
 
 五个生产应用均由统一 host 加业务模块/DSL 包运行，旧独立入口、音乐 exec 适配器和 ImGui 生产路径已删除。SDK 使用 xdg-shell；Shell 角色由 launcher 与 WM 的可信控制通道按真实进程登记，普通 app_id 不授予权限。背景 blur 通过通用 surface effects 契约请求 compositor；SDK 绘制 tint 与客户端内容。Slider 拖动语义尚未实现。空 socket 使用当前 `WAYLAND_DISPLAY`；包入口使用严格 assets 根解析，`LoadUiSource` 的模板查找只服务直接 SDK 调用场景。
@@ -76,7 +89,7 @@ Controls 的变化目前统一保守标记 Paint，即使变化的控件样式�
 
 ### 像素损伤与 buffer 修复
 
-Pixels 准备比较上一成功提交的完整 DisplayList/资源版本与当前列表，产生内容损伤；使用平台实际 buffer age 合并有界成功历史，得到当前 buffer 的修复区域。age 0/未知、首次/尺寸/WSI 变化、历史不足和无法证明的绘制范围全量回退。文字、图标、阴影按实际 Skia ink 计算；结构、clip、非单位 transform 和资源版本变化保守全量。没有增加节点增量布局或显示列表分块缓存。
+Pixels 准备比较上一成功提交的完整 DisplayList/资源版本与当前列表，产生内容损伤；使用平台实际 buffer age 合并有界成功历史，得到当前 buffer 的修复区域。age 0/未知、首次/尺寸/WSI 变化、历史不足和无法证明的绘制范围全量回退。文字、图标、阴影按实际 Skia ink 计算；装饰变换和 opacity 的旧/新范围按当前通用分析路径处理，结构或不受支持的绘制状态保守回退，具体范围以[渲染失效规范](RENDER_SCHEDULING_AND_INVALIDATION.md)为准。没有增加节点增量布局或显示列表分块缓存。
 
 平台顺序为 QueryBufferAge → SetDamage(repair) → Render → Swap(content)。renderer 清理并按原序列绘制精确修复并集，保留区域外内容；提交时声明内容损伤，不能把扩大后的历史修复误传给 compositor。Swap 成功后推进预分配损伤历史，并移动只读帧引用作为下一次比较基线；State/None 不推进，失败使历史失效并清理。EGL 能力不可用时继续同一后端的完整修复/普通 Swap。当前逻辑与 buffer 坐标为 1:1，非 1 scale 暂全量回退。
 

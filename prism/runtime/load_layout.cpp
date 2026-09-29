@@ -24,9 +24,14 @@ public:
     {
     }
 
-    void Convert(SyntaxNode &node, std::vector<std::size_t> &path, bool placeholder = false)
+    void Convert(SyntaxNode &node, std::vector<std::size_t> &path, bool placeholder = false,
+                 bool visual = false)
     {
+        visual = visual || node.name == "Visual";
         if (node.name == "Slot") {
+            if (visual) {
+                LoadSemanticError(source_, node.line, "Visual subtree cannot contain Slot");
+            }
             if (placeholder) {
                 LoadSemanticError(source_, node.line,
                                   "a Slot placeholder cannot contain another Slot");
@@ -38,7 +43,7 @@ public:
         }
         for (std::size_t i = 0; i < node.children.size(); ++i) {
             path.push_back(i);
-            Convert(node.children[i], path, placeholder);
+            Convert(node.children[i], path, placeholder, visual);
             path.pop_back();
         }
     }
@@ -84,7 +89,8 @@ private:
 
     void CheckInert(const SyntaxNode &node) const
     {
-        if (node.name == "Button" || node.name == "IconButton" || node.name == "Toggle") {
+        if (node.name == "Button" || node.name == "IconButton" || node.name == "Toggle" ||
+            node.name == "InteractionTarget") {
             LoadSemanticError(source_, node.line,
                               "Slot placeholder cannot contain interactive controls");
         }

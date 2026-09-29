@@ -4,6 +4,27 @@ namespace prism::runtime {
 void Scene::ApplyCachedProperty(Node &node, DslProperty id, const PropertyValue &value)
 {
     switch (id) {
+    case DslProperty::TranslateX:
+        node.presentation.translate_x = std::get<double>(value);
+        break;
+    case DslProperty::TranslateY:
+        node.presentation.translate_y = std::get<double>(value);
+        break;
+    case DslProperty::ScaleX:
+        node.presentation.scale_x = std::get<double>(value);
+        break;
+    case DslProperty::ScaleY:
+        node.presentation.scale_y = std::get<double>(value);
+        break;
+    case DslProperty::OriginX:
+        node.presentation.origin_x = std::get<double>(value);
+        break;
+    case DslProperty::OriginY:
+        node.presentation.origin_y = std::get<double>(value);
+        break;
+    case DslProperty::Opacity:
+        node.presentation.opacity = std::get<double>(value);
+        break;
     case DslProperty::Visible:
         node.style.visible = std::get<bool>(value);
         break;
@@ -124,6 +145,20 @@ void Scene::ApplyCachedProperty(Node &node, DslProperty id, const PropertyValue 
 PropertyValue Scene::CurrentProperty(const Node &node, DslProperty id) const
 {
     switch (id) {
+    case DslProperty::TranslateX:
+        return node.presentation.translate_x;
+    case DslProperty::TranslateY:
+        return node.presentation.translate_y;
+    case DslProperty::ScaleX:
+        return node.presentation.scale_x;
+    case DslProperty::ScaleY:
+        return node.presentation.scale_y;
+    case DslProperty::OriginX:
+        return node.presentation.origin_x;
+    case DslProperty::OriginY:
+        return node.presentation.origin_y;
+    case DslProperty::Opacity:
+        return node.presentation.opacity;
     case DslProperty::Visible:
         return node.style.visible;
     case DslProperty::Width:

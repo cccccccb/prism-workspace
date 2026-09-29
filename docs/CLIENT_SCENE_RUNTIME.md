@@ -4,7 +4,7 @@
 
 `prism_client_scene` 链接纯值契约 `prism_contracts`、主题值校验/编码库 `prism_theme_contract` 和资源工作线程依赖，不链接 WM、Wayland、Skia 或 DSL parser。`prism_client_dsl` 使用共享的 `prism_dsl_syntax`，将语法树转换为 Blueprint；运行期 Scene 不持有 AST 或后端对象。应用 UI 和主题包使用同一语法解析实现，但分别进行组件和主题语义校验。
 
-Scene 支持 `HStack`、`VStack`、`Card`、`Text`、`Button`、`Image`、`Icon`、`IconButton`、`Separator`、`Progress`、`Toggle`。布局、样式与 binding 按 schema 检查；未支持的组件和修饰符抛出错误。当前输入命中返回节点身份，统一状态机确认激活后才派发 action，业务状态仍由 module 更新。Slider 拖动语义尚未实现。
+Scene 支持 `HStack`、`VStack`、`Card`、`Text`、`Button`、`Image`、`Icon`、`IconButton`、`Separator`、`Progress`、`Toggle`，交互第二阶段另提供 `InteractionTarget` 与 `Visual`。布局、样式与 binding 按 schema 检查；未支持的组件和修饰符抛出错误。当前输入命中返回节点身份，统一状态机确认激活后才派发 action，业务状态仍由 module 更新。Slider 拖动语义尚未实现。
 
 `SetSlot` 是带类型的 `SetBinding` 的字符串便捷入口；Scene 的属性存储依据 schema 元数据决定 Layout/Paint/Composite dirty，背景色变化标记 Paint，viewport 的实际尺寸变化标记 Layout/Paint。`Build` 在无 Paint/Layout 变化时返回空；纯 Composite 更新由平台提交状态，不生成 DisplayList。输出是进程内 DisplayList。文字 glyph id 与位置由调用方提供的 shaping 接口生成；Skia 后端现提供 HarfBuzz + FreeType 实现。固定尺寸与均分的 Row/Column、基础裁剪、圆角和文字命令已通过单元测试。
 
@@ -82,7 +82,8 @@ RenderTree 的 hover/focus 颜色和焦点线宽、Toggle 轨道/滑块圆角、
 `State(NodeId)` 提供 hovered、pressed、captured、focused、focusVisible、enabled。
 pressed 表示仍在原目标内的有效指针按下或有效键盘按下；离开时可保留 captured 而撤销
 pressed。鼠标聚焦不强制显示焦点环，键盘导航明确显示。旧 hover/focus 图元现在从同一
-状态快照取值，主题 Controls 继续提供颜色和线宽，尚未增加声明式 StateRule。
+状态快照取值，主题 Controls 继续为原有控件提供颜色和线宽；第二阶段新增的声明式
+StateRule 见下节。
 
 `SetEnabled(NodeId, bool)` 是 Scene 的 C++ 输入接口，父节点禁用影响整棵子树，立即
 取消相关输入，不改写业务 binding。它不是新增 DSL `enabled` 属性。`CancelInput()`
@@ -95,5 +96,41 @@ pressed。鼠标聚焦不强制显示焦点环，键盘导航明确显示。旧 
 `ActionAt`、`SetPointer`、`FocusNext`、`FocusedAction` 保留为 Scene 级兼容查询/便利接口；
 SDK 动作分派统一走 HandleInput，没有第二套按下即激活路径。
 
-状态作用域 DSL、独立感应区、拖动识别、触摸、transform/opacity 与成功提交对应的命中
-快照仍待后续。接口、实施顺序与验证记录见[交互与呈现规范](INTERACTION_AND_PRESENTATION_SPEC.md)。
+独立感应区、状态作用域与装饰子树呈现由第二阶段接入；拖动识别、触摸、交互节点整体
+变换与成功提交对应的命中快照仍待后续。接口与验证记录见
+[交互与呈现规范](INTERACTION_AND_PRESENTATION_SPEC.md)。
+
+## 固定交互目标与状态呈现第二阶段（2026-09-29）
+
+`InteractionTarget` 与 `Visual` 使用 Card 的叠放布局。前者是稳定输入目标，可有具名
+action，也可只接收局部状态；无 action 时释放不生成空 Activation。后者及其所有后代
+不参加命中和 surface 输入区域，允许装饰运动而不改变父目标的点击位置。
+
+`.state(when: "hovered", scope: "target", scaleX: 1.15)` 在纯准备阶段编译为 StateRule；
+scope 只允许最近的 InteractionTarget，声明必须处于其 Visual 子树内。Scene 安装时
+验证全部规则/主题引用并关联目标身份。运行期按目标状态解析覆盖，不向 module 发送
+hover 或把动画样本回写 binding。基础属性与有效状态目标分开保存；业务或主题改变基础
+值时，状态退出使用最新基础。快速重定向沿用当前呈现值，初次安装不自动播放。
+
+当前条件为 hovered、pressed、captured、disabled、focused、focusVisible。普通属性优先级
+为 disabled > pressed > captured > hovered；焦点条件使用独立属性，不同条件与其写同一
+属性时编译拒绝。重复条件/属性、非法 scope、状态值 binding、类型和范围错误均拒绝。
+StateRule 的属性及主题引用沿组件组合、Blueprint、区域事务与主题候选保留，计入准备预算。
+
+Visual 的 translateX/Y、scaleX/Y、originX/Y、opacity 与 background 可声明状态；除了
+originX/Y，其余新增属性可声明时长 Transition。Visual 内直接绘制节点的 foreground 可
+响应目标状态。范围与可复制示例见[交互规范第 13 节](INTERACTION_AND_PRESENTATION_SPEC.md)。
+`Progress.value` 的既有 Transition 保持业务目标语义，不扩展为状态覆盖属性。
+
+Visual 不能作为组件根；其后代禁止 InteractionTarget、Slot、action、material、
+backdropBlur 与 inputShape 声明。静态材料可以放在外部 Card 或 InteractionTarget，
+从而保留玻璃/阴影布局而只移动内部装饰。Scene 也校验直接 Blueprint 和动态属性写入
+的安全边界。InteractionTarget 本身不接受呈现变换；移动交互对象的同代输入协议未接通。
+
+新增呈现属性随 SnapshotNode 进入 RenderTree/DisplayList；子树 opacity 采用整组图层
+语义，而非逐图元 alpha 相乘。它们当前产生 Paint、完整列表更新及 Skia 回放，不产生
+Layout 失效；临时 opacity 图层不等于保留缓存。无变化输入或已经结束的轨迹不应继续
+Build/Render/Swap。旧控件保留主题 Controls 的默认反馈，InteractionTarget 由显式
+StateRule 描述反馈，不在 renderer 中写死 Topbar/Dock 样式。
+
+本阶段完整构建、60/60 CTest 和五项隔离 V3D SDK 门槛通过，像素对照与详细记录见交互规范第 13 节；尚未部署到现有 VNC 会话。

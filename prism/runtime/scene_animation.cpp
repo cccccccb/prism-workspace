@@ -178,6 +178,8 @@ bool Scene::RetargetPresentation(Node &node, DslProperty property, const Propert
 
 bool Scene::AdvanceAnimations(std::uint64_t now)
 {
+    ResolveStateTargets(now, true);
+
     if (!animation_state_) {
         return false;
     }
@@ -233,6 +235,10 @@ std::optional<std::uint64_t> Scene::NextAnimationDeadlineNs(std::uint64_t now) c
 
 void Scene::ApplyPresentation(const Node &node, SnapshotNode &snapshot) const
 {
+    for (const auto &value : node.state_values) {
+        ApplySnapshotProperty(snapshot, value.id, value.value);
+    }
+
     if (!animation_state_) {
         return;
     }
@@ -243,12 +249,7 @@ void Scene::ApplyPresentation(const Node &node, SnapshotNode &snapshot) const
             continue;
         }
 
-        const auto &value = found->second->presented;
-        if (spec.property == DslProperty::Value) {
-            snapshot.value = std::get<double>(value);
-        } else if (spec.property == DslProperty::Foreground) {
-            snapshot.style.foreground = std::get<contracts::Color>(value);
-        }
+        ApplySnapshotProperty(snapshot, spec.property, found->second->presented);
     }
 }
 
@@ -263,7 +264,7 @@ void Scene::CancelAnimations() noexcept
         (void)key;
         Node *node = Find(owned->node);
         if (node && IsVisible(*node) &&
-            owned->presented != CurrentProperty(*node, owned->property)) {
+            owned->presented != EffectiveProperty(*node, owned->property)) {
             ++node->revision;
             Invalidate(Dirty::Paint);
             changed = true;
@@ -301,6 +302,9 @@ void Scene::ReconcileCommittedAnimations(
     const auto now = animation_state_->clock.NowNs();
     for (const auto &[live, previous] : pairs) {
         for (const auto &spec : live->transitions) {
+            if (IsStateProperty(*live, spec.property)) {
+                continue;
+            }
             const auto old_value = CurrentProperty(*previous, spec.property);
             const auto target = CurrentProperty(*live, spec.property);
             if (old_value == target) {

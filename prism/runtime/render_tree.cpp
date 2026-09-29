@@ -45,7 +45,7 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot &snapshot, const RenderT
         }
         if (old && old->source_revision == source.revision &&
             SameBounds(old->bounds, source.bounds) && old->children == source.children &&
-            old->visible == visible[source.id.index]) {
+            old->visible == visible[source.id.index] && old->presentation == source.presentation) {
             tree.nodes.push_back(*old);
             continue;
         }
@@ -56,6 +56,8 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot &snapshot, const RenderT
         node.clip = source.style.clip;
         node.clip = node.clip || source.style.overflow == "clip";
         node.clip_radius = source.style.radius;
+        node.presentation_scope = source.kind == Kind::Visual;
+        node.presentation = source.presentation;
         node.children = source.children;
         node.source_revision = source.revision;
         node.render_generation = old ? old->render_generation + 1 : 1;
@@ -69,7 +71,7 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot &snapshot, const RenderT
                                                    source.style.shadow_y, source.style.shadow_color,
                                                    false});
         }
-        if (source.style.background.a) {
+        if (source.style.background.a || source.kind == Kind::Visual) {
             if (source.style.radius > 0) {
                 node.visuals.emplace_back(
                     RoundedRectVisual{source.style.radius, source.style.background});
@@ -77,7 +79,8 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot &snapshot, const RenderT
                 node.visuals.emplace_back(RectVisual{source.style.background});
             }
         }
-        if (source.interaction.hovered && snapshot.controls.hover.a) {
+        if (source.kind != Kind::InteractionTarget && source.interaction.hovered &&
+            snapshot.controls.hover.a) {
             node.visuals.emplace_back(
                 RoundedRectVisual{source.style.radius, snapshot.controls.hover});
         }
@@ -90,8 +93,8 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot &snapshot, const RenderT
             node.visuals.emplace_back(BorderVisual{source.style.radius, source.style.border_width,
                                                    source.style.border_color});
         }
-        if (source.interaction.focusVisible && snapshot.controls.focus_width > 0 &&
-            snapshot.controls.focus.a) {
+        if (source.kind != Kind::InteractionTarget && source.interaction.focusVisible &&
+            snapshot.controls.focus_width > 0 && snapshot.controls.focus.a) {
             node.visuals.emplace_back(BorderVisual{
                 source.style.radius, snapshot.controls.focus_width, snapshot.controls.focus});
         }

@@ -37,11 +37,8 @@ ClientApplication::Impl::CaptureFramePacket(bool pixels, contracts::BufferSize s
     runtime::FramePacket packet;
     packet.sequence = ++next_frame_sequence;
     packet.ui = installed_ui;
-    packet.scene_revision = scene->TransactionRevision();
-    packet.pixels_revision = scene->PixelsRevision();
     packet.theme_generation = theme ? theme->generation : 0;
     packet.resource_epoch = commands.ResourceEpoch();
-    packet.animation_sample = scene->AnimationSample();
     packet.configure_count = configure_count;
     packet.buffer_size = size;
     packet.scale = scale;
@@ -63,8 +60,6 @@ ClientApplication::Impl::CaptureFramePacket(bool pixels, contracts::BufferSize s
         if (!last_list) {
             throw std::runtime_error("Scene has no pixel display list");
         }
-
-        packet.pixels_revision = scene->PixelsRevision();
     }
 
     // Even State-only packets retain the current pixels. A later forced redraw
@@ -73,6 +68,11 @@ ClientApplication::Impl::CaptureFramePacket(bool pixels, contracts::BufferSize s
     packet.image_uses = last_image_uses;
     packet.surface_effects = scene->SurfaceEffects();
     packet.input_regions = scene->InputRegions();
+    // Layout can reconcile a stationary pointer against newly moved targets.
+    // Capture the state sample that produced this list, including that rehit.
+    packet.scene_revision = scene->TransactionRevision();
+    packet.pixels_revision = scene->PixelsRevision();
+    packet.animation_sample = scene->AnimationSample();
     return std::make_shared<const runtime::FramePacket>(std::move(packet));
 }
 
@@ -118,6 +118,10 @@ void ClientApplication::Impl::PublishFramePacket()
 
     queued_frame = std::move(next);
     force_frame_capture = false;
+
+    // Build may have started a state transition while reconciling geometry.
+    // Keep the final animation frame queued before deciding to close its gate.
+    SyncAnimationSampling();
 }
 
 } // namespace prism::sdk

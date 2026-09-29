@@ -116,6 +116,11 @@ void ClientApplication::Impl::HandleWindowEvent(const contracts::WindowEvent &ev
         queued_frame.reset();
         QueueRenderUpdate(true);
     }
+    if (result.changed && scene->HasActiveAnimations()) {
+        // Input state changes can start a timeline without a business binding.
+        // Stopping waits until PublishFramePacket retains the final pixels.
+        SyncAnimationSampling();
+    }
     if (result.activation && on_action) {
         // The Scene has finished the input sequence before business code may
         // replace a region, install a new UI, or close this application.

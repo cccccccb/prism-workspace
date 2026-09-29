@@ -85,6 +85,22 @@ int main()
         const auto *g = &gpu_pixels[((height - point.second - 1) * width + point.first) * 4];
         assert(c[2] == g[0] && c[1] == g[1] && c[0] == g[2] && c[3] == g[3]);
     }
+    using namespace prism::contracts;
+    list.commands = {PushOpacity{0.5}, FillRect{{2, 2, 20, 18}, {255, 0, 0, 255}},
+                     FillRect{{10, 2, 20, 18}, {0, 255, 0, 255}}, PopOpacity{}};
+    assert(cpu.Render(list, cpu_pixels.data(), width, height, width * 4));
+    assert(gpu.Render(list, width, height));
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, gpu_pixels.data());
+    assert(glGetError() == GL_NO_ERROR);
+    for (const auto point : {std::pair{4, 10}, std::pair{15, 10}, std::pair{27, 10}}) {
+        const auto *c = &cpu_pixels[(point.second * width + point.first) * 4];
+        const auto *g = &gpu_pixels[((height - point.second - 1) * width + point.first) * 4];
+        assert(c[3] == 128 && g[3] == 128);
+        assert(c[2] == g[0] && c[1] == g[1] && c[0] == g[2]);
+        if (point.first > 10) {
+            assert(c[2] == 0 && c[1] == 128 && c[0] == 0);
+        }
+    }
     gpu.Close();
     assert(eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
     assert(eglDestroyContext(display, context));

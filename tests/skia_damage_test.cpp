@@ -122,6 +122,27 @@ std::vector<Frame> Frames(TextShaper &shaper)
                      {10.0 + (icon % 9) * 34, 176.0 + (icon / 9) * 24, 22, 22},
                      {140, 220, 230, 170}});
     }
+    const auto group = initial.commands.size();
+    const DrawCommand group_commands[] = {
+        PushTransform{},
+        PushOpacity{1},
+        RoundedRectShadow{{50, 60, 85, 46}, 8, 4, 3, {8, 12, 24, 140}, false},
+        PushClipRect{{50.25, 58.25, 95.5, 65.5}},
+        FillRect{{48, 56, 64, 50}, {225, 55, 95, 255}},
+        PushTransform{},
+        PushOpacity{0.65},
+        FillRoundedRect{{68, 70, 50, 42}, 7, {45, 200, 160, 255}},
+        FillRect{{85, 76, 35, 22}, {70, 120, 230, 255}},
+        DrawIcon{VectorIcon::Music, {81, 81, 15, 15}, {255, 255, 255, 255}},
+        Text(shaper, shaper.FontId(), "gyp", 13.5, 70, 103, {230, 235, 240, 220}),
+        DrawImage{image_id, {102, 72, 13, 13}, ImageFit::Contain},
+        PopOpacity{},
+        PopTransform{},
+        PopClip{},
+        PopOpacity{},
+        PopTransform{}};
+    initial.commands.insert(initial.commands.end(), std::begin(group_commands),
+                            std::end(group_commands));
     std::vector<Frame> frames;
     Frame first;
     first.name = "initial";
@@ -211,9 +232,29 @@ std::vector<Frame> Frames(TextShaper &shaper)
     std::get<PushTransform>(
         add("affine transform full fallback", ExpectedDamage::Full).list.commands[16])
         .values = {0.95, 0.12, -12.5, -0.1, 1.05, 5};
-    add("unchanged nonidentity transform full fallback", ExpectedDamage::Full);
-    add("return to identity full fallback", ExpectedDamage::Full).list.commands[16] =
+    add("unchanged arbitrary affine full fallback", ExpectedDamage::Full);
+    add("return from arbitrary affine full fallback", ExpectedDamage::Full).list.commands[16] =
         PushTransform{};
+    std::get<PushOpacity>(add("group opacity overlap").list.commands[group + 1]).opacity = 0.5;
+    std::get<PushTransform>(add("scaled group with clipped shadow").list.commands[group]).values = {
+        1.13, 0, -4.25, 0, 1.07, 3.5};
+    std::get<PushOpacity>(add("nested opacity").list.commands[group + 6]).opacity = 0.23;
+    std::get<PushTransform>(add("nested transform").list.commands[group + 5]).values = {
+        0.8, 0, 18.5, 0, 1.4, -27.25};
+    auto &group_shadow =
+        std::get<RoundedRectShadow>(add("transformed shadow ink changes").list.commands[group + 2]);
+    group_shadow.blur = 8;
+    group_shadow.offset_y = -6;
+    std::get<PushTransform>(add("nonuniform scale radial shadow").list.commands[group]).values = {
+        1.9, 0, -20, 0, 0.45, 60};
+    std::get<PushOpacity>(add("group opacity erases subtree").list.commands[group + 1]).opacity = 0;
+    add("transparent group unchanged", ExpectedDamage::Empty);
+    std::get<PushTransform>(
+        add("transparent group moves without damage", ExpectedDamage::Empty).list.commands[group])
+        .values = {1.08, 0, 12.5, 0, 0.83, 15.25};
+    std::get<PushOpacity>(add("group opacity restores moved subtree").list.commands[group + 1])
+        .opacity = 1;
+    add("group motion idle", ExpectedDamage::Empty);
     add("command structure full fallback", ExpectedDamage::Full)
         .list.commands.emplace_back(FillRect{{333, 235, 27, 12}, {34, 245, 108, 79}});
     add("command removal full fallback", ExpectedDamage::Full).list.commands.pop_back();

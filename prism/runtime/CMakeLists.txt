@@ -12,6 +12,7 @@ add_library(prism_client_scene STATIC
     scene.cpp
     scene_input.cpp
     scene_input_events.cpp
+    scene_state.cpp
     scene_animation.cpp
     scene_nodes.cpp
     scene_theme.cpp

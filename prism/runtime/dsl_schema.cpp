@@ -16,7 +16,7 @@ constexpr std::array properties{
     PropertySpec{"spacing", DslProperty::Spacing, DslValueType::Number, Dirty::Layout,
                  StoredValueType::Number},
     PropertySpec{"background", DslProperty::Background, DslValueType::Color, Dirty::Paint,
-                 StoredValueType::Color},
+                 StoredValueType::Color, 0, 16384, true, KindBit(Kind::Visual)},
     PropertySpec{"foreground", DslProperty::Foreground, DslValueType::Color, Dirty::Paint,
                  StoredValueType::Color, 0, 16384, true,
                  KindBit(Kind::Text) | KindBit(Kind::Icon) | KindBit(Kind::IconButton) |
@@ -81,6 +81,20 @@ constexpr std::array properties{
                  StoredValueType::Number, -16384},
     PropertySpec{"visible", DslProperty::Visible, DslValueType::Boolean,
                  Dirty::Layout | Dirty::Paint | Dirty::Composite, StoredValueType::Boolean},
+    PropertySpec{"translateX", DslProperty::TranslateX, DslValueType::Number, Dirty::Paint,
+                 StoredValueType::Number, -8192, 8192, true, KindBit(Kind::Visual)},
+    PropertySpec{"translateY", DslProperty::TranslateY, DslValueType::Number, Dirty::Paint,
+                 StoredValueType::Number, -8192, 8192, true, KindBit(Kind::Visual)},
+    PropertySpec{"scaleX", DslProperty::ScaleX, DslValueType::Number, Dirty::Paint,
+                 StoredValueType::Number, .01, 8, false, KindBit(Kind::Visual)},
+    PropertySpec{"scaleY", DslProperty::ScaleY, DslValueType::Number, Dirty::Paint,
+                 StoredValueType::Number, .01, 8, false, KindBit(Kind::Visual)},
+    PropertySpec{"originX", DslProperty::OriginX, DslValueType::Number, Dirty::Paint,
+                 StoredValueType::Number, 0, 1},
+    PropertySpec{"originY", DslProperty::OriginY, DslValueType::Number, Dirty::Paint,
+                 StoredValueType::Number, 0, 1},
+    PropertySpec{"opacity", DslProperty::Opacity, DslValueType::Number, Dirty::Paint,
+                 StoredValueType::Number, 0, 1, true, KindBit(Kind::Visual)},
 };
 constexpr auto size = PropertyBit(DslProperty::Width) | PropertyBit(DslProperty::Height) |
                       PropertyBit(DslProperty::Flex) | PropertyBit(DslProperty::Inset) |
@@ -98,6 +112,13 @@ constexpr auto container =
     PropertyBit(DslProperty::Clip) | PropertyBit(DslProperty::PaddingX) |
     PropertyBit(DslProperty::PaddingY) | PropertyBit(DslProperty::Align) |
     PropertyBit(DslProperty::Justify) | PropertyBit(DslProperty::Overflow) | effects;
+constexpr auto visual =
+    (container & ~(PropertyBit(DslProperty::Material) | PropertyBit(DslProperty::BackdropBlur) |
+                   PropertyBit(DslProperty::InputShape))) |
+    PropertyBit(DslProperty::TranslateX) | PropertyBit(DslProperty::TranslateY) |
+    PropertyBit(DslProperty::ScaleX) | PropertyBit(DslProperty::ScaleY) |
+    PropertyBit(DslProperty::OriginX) | PropertyBit(DslProperty::OriginY) |
+    PropertyBit(DslProperty::Opacity);
 constexpr std::array components{
     ComponentSpec{"HStack", Kind::Row, DslProperty::Text, false, true, false, container, 8},
     ComponentSpec{"VStack", Kind::Column, DslProperty::Text, false, true, false, container, 8},
@@ -130,6 +151,9 @@ constexpr std::array components{
                   container | PropertyBit(DslProperty::Checked) |
                       PropertyBit(DslProperty::Foreground) | PropertyBit(DslProperty::Action),
                   0},
+    ComponentSpec{"InteractionTarget", Kind::InteractionTarget, DslProperty::Text, false, true,
+                  false, container | PropertyBit(DslProperty::Action), 0},
+    ComponentSpec{"Visual", Kind::Visual, DslProperty::Text, false, true, false, visual, 0},
 };
 } // namespace
 
@@ -166,10 +190,22 @@ const ComponentSpec *FindComponent(std::string_view name)
 bool SupportsTransition(Kind kind, DslProperty property)
 {
     const auto *spec = FindProperty(property);
-    if (!spec || kind < Kind::Row || kind > Kind::Separator) {
+    if (!spec || kind < Kind::Row || kind > Kind::Visual) {
         return false;
     }
     return (spec->transition_kinds & KindBit(kind)) != 0;
+}
+
+bool SupportsState(Kind kind, DslProperty property)
+{
+    if (property == DslProperty::Value) {
+        return false;
+    }
+    if (kind == Kind::Visual &&
+        (property == DslProperty::OriginX || property == DslProperty::OriginY)) {
+        return true;
+    }
+    return SupportsTransition(kind, property);
 }
 
 bool ValidPropertyValue(DslProperty id, const PropertyValue &value)

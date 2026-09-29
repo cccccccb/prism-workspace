@@ -94,7 +94,8 @@ std::pair<double, double> ShapeSpan(Shape region, double y)
 void Scene::CollectSurfaceEffects(const Node &node, std::vector<Shape> &clips,
                                   std::vector<contracts::SurfaceEffectRegion> &result) const
 {
-    if (!node.style.visible || node.bounds.width <= 0 || node.bounds.height <= 0) {
+    if (node.kind == Kind::Visual || !node.style.visible || node.bounds.width <= 0 ||
+        node.bounds.height <= 0) {
         return;
     }
     const bool clipped = node.style.clip || node.style.overflow == "clip";
@@ -165,14 +166,16 @@ void Scene::AddInputRegion(Shape shape, const std::vector<Shape> &clips) const
 
 void Scene::CollectInputRegions(const Node &node, std::vector<Shape> &clips) const
 {
-    if (!node.style.visible || node.bounds.width <= 0 || node.bounds.height <= 0) {
+    if (node.kind == Kind::Visual || !node.style.visible || node.bounds.width <= 0 ||
+        node.bounds.height <= 0) {
         return;
     }
     const bool clipped = node.style.clip || node.style.overflow == "clip";
     if (clipped) {
         clips.push_back({node.bounds, node.style.radius});
     }
-    const bool material = node.style.input_shape == "bounds" || node.style.background.a ||
+    const bool material = node.kind == Kind::InteractionTarget ||
+                          node.style.input_shape == "bounds" || node.style.background.a ||
                           node.style.backdrop_blur > 0 || !node.action.empty() ||
                           node.kind == Kind::Image;
     if (material) {

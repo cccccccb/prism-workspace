@@ -1,6 +1,7 @@
 #pragma once
 
 #include "prism/runtime/property.hpp"
+#include "prism/runtime/state_rule.hpp"
 #include "prism/runtime/transition_spec.hpp"
 #include <cstdint>
 #include <string>
@@ -8,7 +9,20 @@
 
 namespace prism::runtime {
 
-enum class Kind { Row, Column, Box, Text, Image, Icon, IconButton, Progress, Toggle, Separator };
+enum class Kind {
+    Row,
+    Column,
+    Box,
+    Text,
+    Image,
+    Icon,
+    IconButton,
+    Progress,
+    Toggle,
+    Separator,
+    InteractionTarget,
+    Visual
+};
 
 struct Blueprint {
     Kind kind{Kind::Box};
@@ -18,6 +32,7 @@ struct Blueprint {
     std::vector<PropertyBinding> bindings;
     std::vector<ThemeRef> theme_refs;
     std::vector<TransitionSpec> transitions;
+    std::vector<StateRule> state_rules;
     std::uint64_t allowed_properties{UINT64_MAX};
     std::vector<Blueprint> children;
 };

@@ -132,12 +132,24 @@ struct PopTransform {
     bool operator==(const PopTransform &) const noexcept = default;
 };
 
-using DrawCommand = std::variant<FillRect, FillRoundedRect, StrokeRoundedRect, RoundedRectShadow,
-                                 DrawIcon, DrawImage, DrawGlyphRun, PushClipRect,
-                                 PushClipRoundedRect, PopClip, PushTransform, PopTransform>;
+// Composite the complete enclosed subtree once at this opacity. Overlapping
+// children retain their own source-over result before the group is blended.
+struct PushOpacity {
+    double opacity{1.0};
+    bool operator==(const PushOpacity &) const noexcept = default;
+};
+
+struct PopOpacity {
+    bool operator==(const PopOpacity &) const noexcept = default;
+};
+
+using DrawCommand =
+    std::variant<FillRect, FillRoundedRect, StrokeRoundedRect, RoundedRectShadow, DrawIcon,
+                 DrawImage, DrawGlyphRun, PushClipRect, PushClipRoundedRect, PopClip, PushTransform,
+                 PopTransform, PushOpacity, PopOpacity>;
 
 // In-process, ordered renderer input. Logical coordinates map to the target canvas;
-// caller owns any output scale. Clips/transforms use matched, nested push/pop pairs.
+// caller owns any output scale. Clips/transforms/opacity use matched, nested pairs.
 // Font/image ResourceIds must be registered with the renderer before replay and stay
 // registered through replay. Never serialize this C++ object across IPC.
 // Full replay clears the target transparent; partial replay clears only the

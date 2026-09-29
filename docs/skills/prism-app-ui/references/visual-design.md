@@ -36,8 +36,8 @@ Prism 的默认方向是图标为主、文字为辅的简洁桌面。参考 mac-
 现有 Shell 是普通应用的视觉参考：
 
 - Topbar 只保留 Prism 品牌和时间文字，连接、电源等状态用图标表达；不展示 Wi-Fi
-  名称或 AC 等附加文字。顶部短横线后续作为平铺组的控制入口；当前仍是静态视觉，
-  通用状态、呈现与控制功能按独立阶段接入。
+  名称或 AC 等附加文字。顶部短横线后续作为平铺组的控制入口；第二阶段源码已接入
+  固定目标中的悬停/按下反馈，当前没有全屏/组操作 action。
 - Dock 分为应用中心、固定常用应用、已打开应用三段，使用分割线区分。运行应用
   下方使用清楚的短横线；固定与运行区域出现同一应用不代表创建了两个实例。
 - 横线色彩与厚度来自主题，间距让图标、分割线和运行指示各自清晰。玻璃以烟灰
@@ -46,8 +46,9 @@ Prism 的默认方向是图标为主、文字为辅的简洁桌面。参考 mac-
 第三方普通应用参考其图标、间距和层次即可；不复制 Topbar/Dock 到窗口中，不申请
 Shell 角色。应用自己的选中横线表达实际页面/选项状态，运行指示由平台实例状态决定。
 控制横线的固定感应区、视觉子树、状态规则和系统权限见
-[交互与呈现设计](../../../INTERACTION_AND_PRESENTATION_SPEC.md)。其中的新类型和示意规则
-尚不可作为应用 DSL 使用；普通应用不能凭 action 名称取得系统布局控制权限。
+[交互与呈现规范](../../../INTERACTION_AND_PRESENTATION_SPEC.md)。InteractionTarget、Visual
+与受限 `.state` 已加入第二阶段源码，需匹配版本的 Host；触摸/组控制仍未实现。普通应用
+不能凭 action 名称取得系统布局控制权限。
 
 ## 2. 会话主题与独立明暗配色
 
@@ -309,7 +310,7 @@ center 子节点按自然宽度居中；不要给中心 Text 一个大固定宽�
 
 ## 5. 控件与合法图标
 
-当前视觉组件为以下 11 种，不存在通用 CSS/HTML 标签或可随意起名的 widget：
+当前视觉组件如下，不存在通用 CSS/HTML 标签或可随意起名的 widget：
 
 | 组件 | 支持的视觉用途 | 注意事项 |
 | --- | --- | --- |
@@ -322,6 +323,8 @@ center 子节点按自然宽度居中；不要给中心 Text 一个大固定宽�
 | Separator | 固定粗细分割线，background | 不是通用 RoundedRect；无 cornerRadius 属性 |
 | Progress | value、foreground、background、圆角/材料 | value 必须 0–1；只显示进度，无拖动/action |
 | Toggle | checked、action、前景/背景/材料 | checked 是 bool；点击返回 action，不自行翻转业务状态 |
+| InteractionTarget | 固定命中容器、可选 action、局部状态 | 采用 Card 布局；无 action 只反馈，不自行实现手势或系统控制 |
+| Visual | 纯装饰子树、平移/缩放/整体 opacity、显式状态规则 | 整棵子树不接受输入；不能作根或包含 action/material/backdrop/Slot |
 
 所有这些组件接受 `width/height/flex/inset/anchor/visible`；具体属性仍以 schema 为准。
 不要因为 Card 支持 shadow 就假定 Text、Icon、Image 支持所有同名属性。
@@ -371,6 +374,49 @@ VStack(spacing: 6) {
 在叠放 Card 中放一个短 Progress(value:1) 可表达选中状态。建议保留指示槽高度，
 隐藏内部条而不是整个槽，避免选中切换导致相邻控件跳动；Settings 当前采用此方式。
 这类指示只是绑定渲染，不会自动跟随主题请求或应用运行状态。
+
+### 5.3 固定交互目标与局部状态反馈
+
+以下是交互第二阶段源码支持的自定义图标控制区，需匹配版本的 Host/SDK。静态材料留在
+目标上；只有内部图标子树缩放，点击范围保持 40×40。应用仍负责 `data:refresh` 的业务。
+
+下面的控件片段放入已有父容器；Scene 根占满 viewport，固定命中尺寸在子节点布局中生效。
+
+```prism
+InteractionTarget(width: 40, height: 40, action: "data:refresh",
+                  material: "control", align: "center", justify: "center") {
+    Visual(width: 24, height: 24) {
+        Icon("refresh", foreground: "@text")
+            .state(when: "focusVisible", scope: "target", foreground: "@accent")
+            .transition(property: "foreground", durationMs: 120, easing: "easeOutCubic")
+    }
+        .state(when: "hovered", scope: "target", scaleX: 1.08, scaleY: 1.08)
+        .state(when: "pressed", scope: "target", scaleX: 0.94, scaleY: 0.94)
+        .transition(property: "scaleX", durationMs: 140, easing: "easeOutCubic")
+        .transition(property: "scaleY", durationMs: 140, easing: "easeOutCubic")
+}
+```
+
+状态规则要求 `when`、`scope: "target"` 与至少一个合法呈现属性；scope 指向结构上最近的
+InteractionTarget，声明必须位于其 Visual 子树。规则只接受数字/颜色字面量或主题 token，
+不接受业务 binding、表达式或回调。基础属性可继续使用 binding；状态退出恢复最新基础值。
+使用有 children 的 Visual 时，修饰符位于右花括号之后，沿用现有 DSL 语法。
+
+支持 hovered、pressed、captured、disabled、focused、focusVisible。普通条件的同属性
+优先级为 disabled > pressed > captured > hovered；焦点条件写入的属性不能再被其他条件
+写入，重复条件/属性也拒绝。示例将键盘焦点颜色与按下缩放分开。disabled 来自通用输入
+禁用接口，当前没有 DSL `enabled` 属性；不要伪造 `$disabled` 状态规则来代替输入禁用。
+
+只有 Visual 可声明 translateX/Y（−8192..8192）、scaleX/Y（0.01..8）、originX/Y（0..1）
+及 opacity（0..1）；原点默认 0.5，其余默认平移 0、缩放/opacity 1。原点不能 Transition。
+Visual.background 与子树内直接绘制节点 foreground 可响应状态；状态不能改布局、资源、
+action、材料、模糊或阴影。时长/缓动仍为字面量，没有 MotionSpec 或减弱动效 DSL。
+
+Visual 不能作为组件根，其整个子树不接受输入，也不能放 InteractionTarget、Slot、action、
+material、backdropBlur 或 inputShape；零值也禁止。普通 Card 的材料可放在 Visual 外部。
+opacity 对整组像素合成一次，不能用于禁用目标或宣称透明点击穿透。当前动画仍有 Paint、
+列表与 Skia 回放成本；不使用永久业务 tick，不声称已经获得保留层或组控制能力。
+完整规则及本阶段验证记录见[交互规范第 13 节](../../../INTERACTION_AND_PRESENTATION_SPEC.md)。
 
 ## 6. pending、empty、error、ready 的视觉与交互
 
@@ -461,10 +507,11 @@ Card(height: 120, material: "card", padding: 8, clip: true) {
 | hover/pressed/capture/focus、Tab/Shift+Tab、Enter/Space | 源码已有统一状态；主按钮与键盘释放时激活，取消不触发 action；仍非完整无障碍系统 |
 | Interface v2 critical/deferred 与稳定 Slot | 已有；声明式加载顺序不是动画/滚动布局能力 |
 | Slider 拖动、滚动容器、虚拟列表、TextInput | 当前视觉 schema 未提供，不能写伪 API |
-| CSS opacity/gradient/box-shadow、百分比尺寸、media query | 当前 DSL 未提供；使用现有类型化属性 |
+| CSS gradient/box-shadow、百分比尺寸、media query | 当前 DSL 未提供；使用现有类型化属性，Visual.opacity 也不是任意 CSS 样式 |
 | 自动换行/省略号/自动缩字、任意自定义字体属性 | 未提供对应声明式属性，不作隐式假设 |
-| Paint Transition 与单调帧时间 | 源码 v1 已接入 Progress.value 和指定节点 foreground；范围见[动画规范](../../../ANIMATION_RUNTIME_SPEC.md)，不代表旧部署包已有 |
-| 状态规则、通用 transform/opacity、触摸手势 | [设计契约](../../../INTERACTION_AND_PRESENTATION_SPEC.md)已定义，尚未实现；不要用永久 loop/tick 模拟 |
+| Paint Transition 与单调帧时间 | 已有 Progress.value、指定 foreground，并扩展 Visual 的背景、平移/缩放/opacity；见[动画规范](../../../ANIMATION_RUNTIME_SPEC.md)，不代表旧部署包已有 |
+| 固定目标与局部状态样式 | 第二阶段源码已有 InteractionTarget/Visual/.state；边界见下方示例及[规范](../../../INTERACTION_AND_PRESENTATION_SPEC.md) |
+| 触摸、交互节点整体变换、组/窗口手势、GPU 保留层 | 尚未实现；当前装饰动画走 Paint，不能以永久 loop/tick 模拟 |
 | 节点增量布局、DisplayList 分块缓存 | 延后设计；现有 render tree 复用不是这些功能已完成 |
 | 安全局部像素修复 | 已有 damage/history/buffer-age 与保守完整回退；不改变布局功能边界 |
 | 任意第三方 Wayland 客户端内部主题统一 | 未使用 Prism SDK 的客户端内部内容仍由它维护 |

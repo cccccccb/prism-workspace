@@ -20,7 +20,8 @@ double PadY(const Style &s)
 
 bool Container(Kind kind)
 {
-    return kind == Kind::Row || kind == Kind::Column || kind == Kind::Box;
+    return kind == Kind::Row || kind == Kind::Column || kind == Kind::Box ||
+           kind == Kind::InteractionTarget || kind == Kind::Visual;
 }
 
 Size Measure(SceneSnapshot &snapshot, contracts::NodeId id, const ShapeText &shaper)
@@ -117,7 +118,8 @@ void Place(SceneSnapshot &snapshot, contracts::NodeId id, Rect bounds)
     const double px = PadX(node.style), py = PadY(node.style);
     Rect inner{bounds.x + px, bounds.y + py, std::max(0.0, bounds.width - 2 * px),
                std::max(0.0, bounds.height - 2 * py)};
-    if (node.kind == Kind::Box) {
+    if (node.kind == Kind::Box || node.kind == Kind::InteractionTarget ||
+        node.kind == Kind::Visual) {
         double centered_width = 0;
         for (auto child_id : children) {
             const auto &child = snapshot.Get(child_id);

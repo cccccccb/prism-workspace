@@ -26,7 +26,7 @@ std::unique_ptr<Scene::Node> Scene::MakeShallowNode(Blueprint blueprint, std::si
     node->id = {static_cast<std::uint32_t>(nodes_.size()), 1};
     Node *raw = node.get();
     nodes_.push_back(raw);
-    if (blueprint.kind < Kind::Row || blueprint.kind > Kind::Separator) {
+    if (blueprint.kind < Kind::Row || blueprint.kind > Kind::Visual) {
         throw std::invalid_argument("Invalid Blueprint node kind");
     }
     node->kind = blueprint.kind;
@@ -130,6 +130,7 @@ std::unique_ptr<Scene::Node> Scene::MakeShallowNode(Blueprint blueprint, std::si
         node->explicit_properties.insert(binding.target);
     }
     node->bindings = std::move(blueprint.bindings);
+    PrepareNodeStates(*node, std::move(blueprint.state_rules));
     return node;
 }
 
@@ -141,6 +142,7 @@ Blueprint Scene::CurrentBlueprint(const Node &node) const
     result.region_mounted = node.region_mounted;
     result.bindings = node.bindings;
     result.transitions = node.transitions;
+    result.state_rules = node.state_rules;
     result.allowed_properties = node.allowed_properties;
     result.theme_refs = node.theme_refs;
     for (const auto id : node.explicit_properties) {

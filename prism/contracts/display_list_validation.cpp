@@ -33,7 +33,8 @@ void ValidateDisplayList(const DisplayList &list)
         throw std::invalid_argument("DisplayList command limit is 100000");
     }
 
-    std::vector<bool> stack;
+    enum class Scope { Clip, Transform, Opacity };
+    std::vector<Scope> stack;
     for (std::size_t index = 0; index < list.commands.size(); ++index) {
         const auto &command = list.commands[index];
         if (const auto *rect = std::get_if<FillRect>(&command)) {
@@ -71,29 +72,40 @@ void ValidateDisplayList(const DisplayList &list)
         } else if (const auto *clip = std::get_if<PushClipRect>(&command)) {
             Check(ValidRect(clip->bounds) && stack.size() < 256, index,
                   "invalid rectangle clip bounds/depth");
-            stack.push_back(true);
+            stack.push_back(Scope::Clip);
         } else if (const auto *clip = std::get_if<PushClipRoundedRect>(&command)) {
             Check(ValidRect(clip->bounds) && std::isfinite(clip->radius) && clip->radius >= 0 &&
                       stack.size() < 256,
                   index, "invalid rounded clip bounds/radius/depth");
-            stack.push_back(true);
+            stack.push_back(Scope::Clip);
         } else if (const auto *transform = std::get_if<PushTransform>(&command)) {
             Check(stack.size() < 256, index, "transform stack depth exceeds 256");
             for (double value : transform->values) {
                 Check(std::isfinite(value) && std::abs(value) <= 1e6, index,
                       "invalid affine transform value");
             }
-            stack.push_back(false);
+            stack.push_back(Scope::Transform);
+        } else if (const auto *opacity = std::get_if<PushOpacity>(&command)) {
+            Check(stack.size() < 256 && std::isfinite(opacity->opacity) && opacity->opacity >= 0 &&
+                      opacity->opacity <= 1,
+                  index, "invalid group opacity/depth");
+            stack.push_back(Scope::Opacity);
         } else if (std::holds_alternative<PopClip>(command)) {
-            Check(!stack.empty() && stack.back(), index, "clip pop does not match push");
+            Check(!stack.empty() && stack.back() == Scope::Clip, index,
+                  "clip pop does not match push");
             stack.pop_back();
         } else if (std::holds_alternative<PopTransform>(command)) {
-            Check(!stack.empty() && !stack.back(), index, "transform pop does not match push");
+            Check(!stack.empty() && stack.back() == Scope::Transform, index,
+                  "transform pop does not match push");
+            stack.pop_back();
+        } else if (std::holds_alternative<PopOpacity>(command)) {
+            Check(!stack.empty() && stack.back() == Scope::Opacity, index,
+                  "opacity pop does not match push");
             stack.pop_back();
         }
     }
     if (!stack.empty()) {
-        throw std::invalid_argument("DisplayList has an unclosed clip/transform stack");
+        throw std::invalid_argument("DisplayList has an unclosed clip/transform/opacity stack");
     }
 }
 } // namespace prism::contracts

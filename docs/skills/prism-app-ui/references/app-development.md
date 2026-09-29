@@ -71,7 +71,7 @@ Wayland/EGL/Skia 前端、不运行第二个 SDK 主循环。若框架缺通用�
 | 标识 | 当前值 | 含义 |
 | --- | --- | --- |
 | 文档发布基线 | `0.1.0-13` | 原有运行时能力基线；并非当前安装版本声明 |
-| 动画源码 | Paint Transition v1 | 开发源码新增 `.transition`；发布包是否包含以实际构建为准 |
+| 动画/交互源码 | Paint Transition + 交互第二阶段 | `.transition`、InteractionTarget/Visual 与受限 `.state`；发布包是否包含以实际构建为准 |
 | manifest `format_version` | 整数 `1` | 应用目录包结构 |
 | manifest `runtime_abi` | 整数 `1` | 业务 C ABI；可选尾字段靠 struct_size 协商 |
 | Interface `version` | 数字 `2` | 多区域加载声明 |
@@ -79,14 +79,15 @@ Wayland/EGL/Skia 前端、不运行第二个 SDK 主循环。若框架缺通用�
 | 应用 `version` | 应用自定非空字符串 | 当前不强制 SemVer；建议遵循清晰的版本约定 |
 
 **当前可使用：** HStack/VStack/Card、Text、Image、Icon、Button、IconButton、Separator、
-Progress、Toggle、typed binding、visible、主题材料与 token、light/dark、组件加载图、
+Progress、Toggle、InteractionTarget、Visual、typed binding、visible、主题材料与 token、light/dark、组件加载图、
 critical/deferred、稳定 Slot、Host work、取消、one-shot tick 与平台启动/主题事件。
 
 **当前能力边界：** 没有可直接使用的 Slider 拖动、TextInput、Scroll、Repeater/List
-动态列表、任意自定义向量文件控件、完整无障碍语义 API。动画源码目前只支持
-`Progress.value` 及 `Text`、`Icon`、`IconButton`、`Progress`、`Toggle` 的
-`foreground` 时长过渡；不支持关键帧、弹簧 DSL、通用透明度/变换或 WM 视觉动画。
-已部署的 `0.1.0-13` 仍不包含动画 DSL。Image 当前解码
+动态列表、任意自定义向量文件控件、完整无障碍语义 API。动画源码支持 Progress.value、
+Text/Icon/IconButton/Progress/Toggle 的 foreground，以及 Visual 的背景、局部平移/缩放/
+整体 opacity 时长过渡；固定 InteractionTarget 向装饰子树提供局部状态。当前仍无触摸
+手势、交互节点整体变换、关键帧/弹簧 DSL、GPU 保留层或 WM 视觉动画。
+`0.1.0-13` 基线包不包含动画 DSL。Image 当前解码
 PNG；内建 Icon 使用框架向量图标，与任意 SVG 文件加载是不同接口。真实 Music 的
 三行曲库是应用固定行和 binding，不是通用动态列表实现。
 
@@ -256,7 +257,8 @@ Toggle 点击不代表业务已确认切换；网络、设备或平台请求的�
 当前源码的普通控件在有效按下并释放后才派发 action；拖出释放、取消、隐藏或区域卸载
 不会激活。Enter/Space 在释放时激活，重复键事件不重复派发，Tab/Shift+Tab 切换焦点。
 hover/pressed/capture 是 SDK 局部状态，不通过业务 tick 或 binding 模拟；同一个 action
-可以出现在多个控件中，SDK 使用 NodeId 分别管理状态。状态样式 DSL 尚未开放。
+可以出现在多个控件中，SDK 使用 NodeId 分别管理状态。第二阶段 `.state` 允许 Visual
+子树显式读取最近 InteractionTarget；规则不发送给业务，示例见视觉参考第 5.3 节。
 
 `visible: $show_page` 控制整棵子树的测量、绘制、输入及背景效果。隐藏不等于卸载
 业务模块或擦除 binding；在内容恢复时仍使用当前状态。低 alpha 不能代替隐藏或
@@ -713,7 +715,7 @@ Render 约 106–118ms，而 Ganesh 构造约 1ms。它们是首次调用墙钟�
 RenderTree → DisplayList → 后端补齐通用实现和验证。控件 action 仍交给业务；新主题
 效果通过材料/纯快照/平台能力扩展。应用 ID、主题 ID 不成为 renderer 分支条件。
 
-复杂列表、编辑控件、关键帧/弹簧 DSL、变换与透明度合成动画、增量布局或独立业务
+复杂列表、编辑控件、关键帧/弹簧 DSL、GPU 保留层合成动画、增量布局或独立业务
 进程需要各自设计，写清尚未实现的部分。优先明确接口和实际使用场景，随后扩展
 这个 SKILL 的对应章节与示例。
 

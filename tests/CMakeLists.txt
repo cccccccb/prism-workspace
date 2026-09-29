@@ -141,6 +141,11 @@ if(TARGET prism_client_app)
         prism_client_app)
     add_executable(prepared_ui_probe probes/prepared_ui_probe.cpp)
     target_link_libraries(prepared_ui_probe PRIVATE prism_client_app Threads::Threads)
+    add_executable(sdk_input_animation_probe probes/sdk_input_animation_probe.cpp
+        ${VIRTUAL_INPUT_PROTOCOL_SOURCES})
+    target_include_directories(sdk_input_animation_probe PRIVATE "${VIRTUAL_INPUT_PROTOCOL_DIR}")
+    target_link_libraries(sdk_input_animation_probe PRIVATE prism_client_app
+        ${WAYLAND_CLIENT_LIBRARIES})
 endif()
 
 if(TARGET prism_skia_gles)
@@ -412,6 +417,12 @@ target_link_libraries(scene_transition_test PRIVATE prism_client_dsl prism_clien
 target_compile_options(scene_transition_test PRIVATE -UNDEBUG)
 add_test(NAME scene_transition_test COMMAND scene_transition_test)
 set_tests_properties(scene_transition_test PROPERTIES TIMEOUT 20)
+
+add_executable(scene_state_test scene_state_test.cpp)
+target_link_libraries(scene_state_test PRIVATE prism_client_dsl prism_client_scene)
+target_compile_options(scene_state_test PRIVATE -UNDEBUG)
+add_test(NAME scene_state_test COMMAND scene_state_test)
+set_tests_properties(scene_state_test PROPERTIES TIMEOUT 20)
 
 # Async business fixtures exercise the CPU-only bridge; no production installs.
 add_library(module_work_fixture MODULE fixtures/module_work.cpp)

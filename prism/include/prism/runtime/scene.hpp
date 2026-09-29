@@ -117,6 +117,8 @@ public:
     bool HasActiveAnimations() const noexcept;
     std::uint64_t AnimationNowNs() const noexcept;
     bool AdvanceAnimations(std::uint64_t now);
+    // Resolves local input state without changing authored bindings or theme references.
+    void ResolveInteractionStyles();
     std::optional<std::uint64_t> NextAnimationDeadlineNs(std::uint64_t now) const noexcept;
 
     AnimationSampleStamp AnimationSample() const noexcept
@@ -228,6 +230,15 @@ private:
     bool RetargetPresentation(Node &node, DslProperty property, const PropertyValue &previous,
                               const PropertyValue &target, std::uint64_t now);
     void ApplyPresentation(const Node &node, SnapshotNode &snapshot) const;
+    void PrepareNodeStates(Node &, std::vector<StateRule>);
+    void PrepareInteractionTree();
+    void ValidateInteractionTree(const Node &, const Node *, bool) const;
+    void BindInteractionTree(Node &, Node *, bool) noexcept;
+    bool IsStateProperty(const Node &, DslProperty) const noexcept;
+    PropertyValue EffectiveProperty(const Node &, DslProperty) const;
+    void ResolveStateTargets(std::uint64_t now, bool animate) noexcept;
+    void ResolveNodeStateTargets(Node &, std::uint64_t now, bool animate) noexcept;
+    void ApplySnapshotProperty(SnapshotNode &, DslProperty, const PropertyValue &) const;
     void RecordAnimationSample(std::uint64_t now) noexcept;
     void CancelAnimations() noexcept;
     void CancelHiddenAnimations() noexcept;
@@ -277,6 +288,7 @@ private:
     std::uint64_t build_calls_{0}, layout_count_{0};
     std::unique_ptr<RenderTree> render_tree_;
     std::unique_ptr<AnimationState> animation_state_;
+    bool state_styles_dirty_{true};
     std::unique_ptr<InputState> input_state_;
     AnimationSampleStamp animation_sample_{};
     bool hit_geometry_dirty_{true};

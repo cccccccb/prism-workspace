@@ -126,4 +126,26 @@ int main()
         prism::contracts::DrawImage{{2}, {10, 10, 20, 10}, prism::contracts::ImageFit::Contain});
     assert(renderer.Render(glass, pixels.data(), 120, 80, 120 * 4));
     assert(pixels[15 * 120 + 10] == 0 && (pixels[15 * 120 + 16] >> 24) == 255);
+
+    using namespace prism::contracts;
+    glass.commands = {PushOpacity{0.5}, FillRect{{10, 10, 30, 20}, {255, 0, 0, 255}},
+                      FillRect{{20, 10, 30, 20}, {0, 255, 0, 255}}, PopOpacity{}};
+    assert(renderer.Render(glass, pixels.data(), 120, 80, 120 * 4));
+    assert(pixels[15 * 120 + 15] == 0x80800000);
+    assert(pixels[15 * 120 + 25] == 0x80008000); // overlap has one group alpha, not 0.75
+    glass.commands.insert(glass.commands.begin(), PushOpacity{0.5});
+    glass.commands.emplace_back(PopOpacity{});
+    assert(renderer.Render(glass, pixels.data(), 120, 80, 120 * 4));
+    assert(pixels[15 * 120 + 25] == 0x40004000);
+
+    glass.commands = {PushOpacity{-0.1}, PopOpacity{}};
+    assert(!renderer.Render(glass, pixels.data(), 120, 80, 120 * 4));
+    glass.commands = {PushOpacity{1.1}, PopOpacity{}};
+    assert(!renderer.Render(glass, pixels.data(), 120, 80, 120 * 4));
+    glass.commands = {PushOpacity{std::nan("")}, PopOpacity{}};
+    assert(!renderer.Render(glass, pixels.data(), 120, 80, 120 * 4));
+    glass.commands = {PushOpacity{0.5}, PopClip{}};
+    assert(!renderer.Render(glass, pixels.data(), 120, 80, 120 * 4));
+    glass.commands = {PushOpacity{0.5}, PushTransform{}, PopOpacity{}, PopTransform{}};
+    assert(!renderer.Render(glass, pixels.data(), 120, 80, 120 * 4));
 }

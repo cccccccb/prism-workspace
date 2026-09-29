@@ -26,7 +26,7 @@ bool Scene::ApplyTheme(const contracts::ThemeSnapshot &theme, std::string *diagn
             if (!IsVisible(*live)) {
                 continue;
             }
-            for (unsigned id = 0; id <= static_cast<unsigned>(DslProperty::Visible); ++id) {
+            for (unsigned id = 0; id <= static_cast<unsigned>(DslProperty::Last); ++id) {
                 const auto property = static_cast<DslProperty>(id);
                 if (property != DslProperty::Material &&
                     CurrentProperty(*live, property) !=
@@ -43,6 +43,8 @@ bool Scene::ApplyTheme(const contracts::ThemeSnapshot &theme, std::string *diagn
         theme_.swap(candidate.theme_);
         CommitValues(pairs);
         ReconcileInput();
+        state_styles_dirty_ = true;
+        ResolveStateTargets(AnimationNowNs(), false);
         ++transaction_revision_;
         Invalidate(affected);
         hit_geometry_dirty_ = true;

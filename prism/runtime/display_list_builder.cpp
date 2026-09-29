@@ -11,6 +11,17 @@ void Emit(const RenderTree &tree, contracts::NodeId id, contracts::ResourceId fo
     if (!node.visible || node.bounds.width <= 0 || node.bounds.height <= 0) {
         return;
     }
+    if (node.presentation_scope) {
+        const auto &value = node.presentation;
+        const auto origin_x = node.bounds.x + node.bounds.width * value.origin_x;
+        const auto origin_y = node.bounds.y + node.bounds.height * value.origin_y;
+        list.commands.emplace_back(contracts::PushTransform{
+            {value.scale_x, 0, value.translate_x + origin_x * (1 - value.scale_x), 0, value.scale_y,
+             value.translate_y + origin_y * (1 - value.scale_y)}});
+        // Keep scopes even at their identity values. Animation samples then
+        // change values without repeatedly changing DisplayList structure.
+        list.commands.emplace_back(contracts::PushOpacity{value.opacity});
+    }
     for (const auto &visual : node.visuals) {
         if (const auto *shadow = std::get_if<ShadowVisual>(&visual); shadow && !shadow->inset) {
             list.commands.emplace_back(contracts::RoundedRectShadow{
@@ -90,6 +101,10 @@ void Emit(const RenderTree &tree, contracts::NodeId id, contracts::ResourceId fo
     }
     if (node.clip) {
         list.commands.emplace_back(contracts::PopClip{});
+    }
+    if (node.presentation_scope) {
+        list.commands.emplace_back(contracts::PopOpacity{});
+        list.commands.emplace_back(contracts::PopTransform{});
     }
 }
 } // namespace

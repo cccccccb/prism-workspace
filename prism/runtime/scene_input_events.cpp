@@ -83,7 +83,9 @@ std::optional<Activation> Scene::HandleInputButton(const contracts::PointerButto
     const auto *node = Find(current->captured);
     if (IsInteractive(current->captured) && current->hovered == current->captured &&
         node->action == current->action) {
-        activation = Activation{node->id, current->action};
+        if (!current->action.empty()) {
+            activation = Activation{node->id, current->action};
+        }
     }
     current->captured = {};
     current->action.clear();
@@ -147,7 +149,9 @@ std::optional<Activation> Scene::HandleInputKey(const contracts::KeyEvent &event
     const auto *node = Find(current->node);
     if (focus != input_state_->focus.end() && focus->node == current->node &&
         IsInteractive(current->node) && node->action == current->action) {
-        activation = Activation{node->id, current->action};
+        if (!current->action.empty()) {
+            activation = Activation{node->id, current->action};
+        }
     }
     keys.erase(current);
     return activation;
@@ -177,6 +181,7 @@ InteractionResult Scene::HandleInput(const contracts::WindowEvent &event)
     }
 
     result.changed = ReconcileInput() || result.changed;
+    ResolveInteractionStyles();
     return result;
 }
 } // namespace prism::runtime

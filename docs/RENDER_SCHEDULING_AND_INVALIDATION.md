@@ -176,7 +176,7 @@ Scene 的 `PixelsRevision()` 与显示列表 generation、surface commit、callb
 
 Ganesh 的释放必须使用创建它的 EGL 上下文；SDK 清理先切换到本实例上下文，不可删除另一个客户端同编号的 GL 资源。上下文不可用时先 abandon 再析构，随后释放 EGL 与 Wayland。后端同时校验 Render/Close 的上下文身份，支持同一线程交替使用多个客户端。
 
-本轮 Composite-only 只覆盖属性表中已实现的 backdropBlur/inputShape 等 surface metadata。未来客户端内部 transform、opacity 或离屏 layer 合成须定义独立的合成需求与像素失效，不可仅因标为 Composite 就跳过 GPU 或误当 Wayland State。
+本轮 Composite-only 只覆盖属性表中已实现的 backdropBlur/inputShape 等 surface metadata。2026-09-29 接入的客户端 `Visual` transform/opacity 使用 Paint 像素失效，不能仅因视觉上属于合成属性就跳过 GPU 或误当 Wayland State；跨帧离屏缓存仍未实现。
 
 本阶段仍完整绘制有像素失效的 surface，不声称局部绘制。EGL/WSI 需要的首帧或 resize 可以复用没有改变的显示列表，不以 Build 次数代替像素提交次数。
 
@@ -254,7 +254,7 @@ SDK 累计 `surface_noops/surface_state_commits/surface_pixel_commits/surface_su
 ## 11. 第四阶段规范与执行顺序
 
 1. 建立通用整数 buffer 损伤契约、有界成功提交历史和 EGL 能力查询。内容损伤表示与上一成功提交相比的变化；修复区域合并当前变化和轮转 buffer 缺少的历史。State/None 不推进历史，失败不记录成功；尺寸/WSI epoch 变化拒绝旧计划。首帧、age 0/未知/超历史范围、无法证明的边界回退全量。
-2. 当前完整 DisplayList 与上一成功列表比较，覆盖改变的旧/新实际绘制范围。使用字形真实 ink、同一图标绘制路径和 Skia paint 的阴影扩展；裁剪后向外取整为 buffer 像素。结构/clip/非单位 transform 改变以及资源版本变化保守全量。继续生成完整列表，不在本轮引入节点增量布局或分块缓存。
+2. 当前完整 DisplayList 与上一成功列表比较，覆盖改变的旧/新实际绘制范围。使用字形真实 ink、同一图标绘制路径和 Skia paint 的阴影扩展；裁剪后向外取整为 buffer 像素。结构/clip 改变及资源版本变化保守全量。2026-09-29 的呈现扩展支持正比例缩放/平移和组 opacity 的旧/新范围比较，其他仿射变换继续全量。继续生成完整列表，不引入节点增量布局或分块缓存。
 3. renderer 在整数修复区域的联合 clip 内以 Src 清为透明，再按原序列重放完整列表；区域外保留旧像素。透明、遮挡、移动和删除必须对照同后端全量绘制的整张目标，并满足下述覆盖、保留及数值门槛。不能只重放改变的命令或仅清新位置。
 4. 严格按 MakeCurrent/Resize → QueryBufferAge → Plan → SetDamage(repair) → Render → Swap(content) 排序。平台负责 EGL 底左坐标转换；内容与修复不得混用。Swap 成功后通过预分配 ring 和 move 更新历史/列表，不在不可撤回的提交之后分配；失败清理 WSI 并终止。没有能力时使用同一 renderer 的完整修复/普通 Swap 回退。
 5. 独立测试先覆盖 1/2/3 buffer 轮转、历史不足、resize、失败、透明/阴影/字形/图标/图片与资源替换；真实 Wayland/V3D 再验证实际能力、age、内容损伤和尺寸恢复。报告修复面积、full/partial/empty、Build/Render/Swap 各自计数。最后打包并执行物理启动、主题/配色、交互及同条件短测，验收后记录结果。
@@ -271,7 +271,40 @@ GLES 生产后端在 repair 联合区域内真正裁剪重放。CPU raster 对�
 
 该有限 GPU 数值边界源于固定 Skia 的双线性纹理优化：`SurfaceDrawContext::attemptQuadOptimization` 将裁剪域折入 quad，`GrQuadUtils::crop_simple_rect` 重算局部纹理坐标，浮点乘加顺序随修复区域变化。验证已实际遇到 RGB 和 alpha 各一阶差异；这种差异可以随已修复 buffer 保留，故 repair 外的严格检查比较实际旧 buffer，而不要求其与重新采样的参考图字节相同。真实漏绘（例如 alpha 119 变 0）仍会失败。此口径不将数值变化宣称为绘制次数、GPU 时间或零拷贝收益。
 
-本阶段明确普通非 AA `PushClipRect` 的像素语义：canvas 总矩阵为单位矩阵时，逻辑矩形向外取整为整数 buffer 覆盖，再执行硬裁剪；完整/局部 Replay 与损伤比较使用相同规则。它会保守包含原分数边界外最多一像素，避免与细窄 repair 相交时触发 Ganesh 不同取整分支。非单位矩阵继续使用既有变换裁剪且损伤全量回退。AA 圆角裁剪保持浮点几何，损伤以保守 AA 包络求交；图元的 AA/字形 guard 必须在 clip 求交前加入，不能先把处在边缘覆盖中的图元误判为空。
+普通非 AA `PushClipRect` 的像素语义为：canvas 总矩阵保持轴对齐矩形时，先映射到设备坐标，再向外取整为整数 buffer 覆盖执行硬裁剪；完整/局部 Replay 与损伤比较使用相同规则。该规则自单位矩阵扩展到正比例缩放和平移，会保守包含设备分数边界外最多一像素，避免与细窄 repair 相交时触发 Ganesh 不同取整分支。其他仿射变换的内容损伤继续完整回退。AA 圆角裁剪保持浮点几何，损伤以保守设备 AA 包络求交；图元的 AA/字形 guard 必须在变换后、clip 求交前加入，不能先把处在边缘覆盖中的图元误判为空。
+
+### 装饰变换与组透明度的局部修复（2026-09-29）
+
+比较器分别维护旧、新矩阵、clip、全透明状态及作用域变更标记。父级 transform 或组
+opacity 改变时，即使叶 draw 命令未变，也为其所有可见子节点收集旧、新设备 ink；阴影
+使用同一 SkPaint 的扩展，字形使用实际字体 ink。关闭作用域恢复父状态，不把一个横线
+的变化扩大到其兄弟节点。opacity=0 时不产生可见 ink，重新显示会修复当前位置；从
+可见变透明同时修复原位置。属性变更保持同一命令结构，恒定非单位缩放不单独产生损伤。
+
+非等比缩放下，Skia mask blur 的设备 sigma 是径向值，不能只将局部阴影包围盒按两轴
+分别缩放。比较器和 layer 提示共用设备 ink 计算，以 SkPaint 给出的扩展乘矩阵最大尺度
+保守包含各方向阴影，随后再做设备 AA 保护和裁剪。
+
+部分透明的子树由 Skia 离屏合成后统一应用 alpha，层内重叠图元不可各自乘组 alpha。
+层分配提示来自完整子树 ink，包含变换和阴影，并独立于 repair 区域；否则轮转 buffer
+的不同修复范围可能反过来改变离屏内容裁切。opacity=0/1 避免创建中间层。该路径仍需
+本帧 draw/layer 工作，不宣称 transform 或 opacity 已是无需光栅化的缓存层合成。
+
+验证继续采用上述三个独立像素门槛。`skia_raster_test` 与 `skia_gles_parity_test` 检查
+重叠子树只应用一次组 alpha；`skia_damage_test` 的独立完整参考覆盖嵌套 transform、
+opacity、字形/图标/图片、裁剪、阴影、透明擦除/恢复及 1/2/3 buffer 轮转。真实 Wayland
+验证使用同一测试的 `--wayland <socket>` 入口，测试代码不进入生产包。
+
+本轮 Pi 渲染门槛记录：模拟 1/2/3 buffer 各 **86 帧**通过，partial/full/empty 分别为
+57/14/15、58/18/10、57/21/8；隔离 V3D Wayland 1280×720 目标通过 **85 个场景、86 次
+整目标读回**，partial/full/empty 为 58/17/11。真实 buffer age 支持可用；三次初始未知
+age 与三次诊断覆盖分开记录。非等比阴影、重叠组 alpha、透明后移动再恢复均通过；GPU
+数值仍使用本节双方非透明每通道最多 1/255 的既有门槛，content/repair 外逐字节检查
+不放宽。任意错切矩阵保留完整修复边界。这些是像素与损伤正确性结果，不是动画 FPS
+测量，也不表示已部署到 VNC 会话。
+
+本地证据：`dist/validation/state-presentation-20260929/render-damage.log`、
+`render-native-damage.log`、`render-native-wm.log` 和 `render-native.json`；测试 WM 已回收。
 
 规范依据：[EGL EXT buffer age](https://registry.khronos.org/EGL/extensions/EXT/EGL_EXT_buffer_age.txt)、[KHR partial update](https://registry.khronos.org/EGL/extensions/KHR/EGL_KHR_partial_update.txt)、[KHR swap buffers with damage](https://registry.khronos.org/EGL/extensions/KHR/EGL_KHR_swap_buffers_with_damage.txt)。SetDamage 必须在 age 查询后、绘制前且每帧一次；已声明的修复域之外绘制会使 framebuffer 内容未定义。Swap 损伤是优化提示，成功不等于 GPU/显示完成，也不证明零拷贝。
 

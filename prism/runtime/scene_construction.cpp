@@ -74,6 +74,7 @@ std::unique_ptr<Scene> SceneConstruction::TakeScene()
     if (!Ready()) {
         throw std::logic_error("Scene construction is not ready");
     }
+    impl_->scene->PrepareInteractionTree();
     impl_->consumed = true;
     return std::move(impl_->scene);
 }

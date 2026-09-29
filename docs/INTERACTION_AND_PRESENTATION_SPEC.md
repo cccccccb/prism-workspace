@@ -1,9 +1,10 @@
 # 通用交互状态、呈现属性与桌面控制区
 
-日期：2026-09-29。状态：**第一阶段节点命中、局部输入状态与释放激活已进入源码；状态规则、
-手势、呈现属性与组控制仍为后续设计**。第一阶段边界见第 12 节。
-已实现的 Paint Transition v1 见 [动画运行时规范](ANIMATION_RUNTIME_SPEC.md)。本文决定后续
-接口的职责与执行顺序，不把示意类型或状态规则当作当前可用 DSL。
+日期：2026-09-29。状态：**第一阶段输入状态已经验证；第二阶段固定交互目标、状态规则与
+装饰子树呈现已完成源码与 Pi 隔离验证**。当前接口见第 12、13 节；触摸、交互节点
+整体变换、组控制与保留层仍按后续阶段实施。
+时间语义见 [动画运行时规范](ANIMATION_RUNTIME_SPEC.md)。本文同时保留产品设计，标明
+未来接口与当前源码的边界；源码修改不会自动更新已安装的 Host 或 VNC 会话。
 
 ## 1. 产品目标与当前事实
 
@@ -12,7 +13,7 @@ Prism 使用类 i3 的平铺容器树组织窗口，以简洁的图标、玻璃�
 Topbar 的控制横线面向整个平铺组，窗口之间的控制横线面向分割边界或明确选中的窗口。
 通用状态与呈现接口先完成，组全屏、窗口控制和复杂手势按后续阶段接入。
 
-下表保留本轮输入改造前的差异，第一阶段完成情况见第 12 节。
+下表保留输入改造前的差异，第一、二阶段完成范围分别见第 12、13 节。
 
 | 当前实现 | 对设计的影响 |
 | --- | --- |
@@ -138,8 +139,9 @@ Escape 取消当前控制会话。无 hover 的触摸设备通过接触与捕获
 
 ## 6. 状态规则、属性来源与主题
 
-准备期把状态声明编译为 `StateRule` 一类的带类型数据，包含状态谓词、目标属性和优先级。
-运行期只做状态求值，不重解析 DSL 或执行任意脚本。下列是**规则示意，不是可复制的 DSL**：
+准备期把状态声明编译为 `StateRule`，包含状态谓词、属性赋值与保留的主题引用；优先级由
+公共状态契约定义，首期不接受用户数字 priority。运行期只做状态求值，不重解析 DSL 或执行
+任意脚本。下列仍是设计意图示意；可复制的第二阶段语法见第 13 节：
 
 ```text
 目标：一个固定感应区中的横线视觉子树
@@ -154,11 +156,11 @@ disabled：交互关闭，使用主题的不可用样式
 公开 SetProperty 抹掉 theme_refs 或作者值；状态结束后重新解析仍在生效的基础来源。
 同一轮输入与状态更新完成后统一解析属性目标，再让 Transition 从当前呈现值重定向。
 
-首期交互通道的默认优先级从高到低为 disabled → dragging → pressed → hovered → base，
-只针对它们写入的同一属性竞争。焦点提示与 selected/active 等语义状态使用独立通道，
-不应因 hover 自动消失。没有覆盖的属性保留基础结果；多个通道写同一属性时必须声明
-明确的组合或覆盖规则。相同优先级的规则同时可能命中同一属性且值不一致时，准备期
-拒绝或要求作者显式消歧，不能用源码排列顺序隐式决定。
+第二阶段交互通道的优先级为 disabled → pressed → captured → hovered → base，
+只针对写入的同一属性竞争；尚无 dragging 状态或手势。焦点提示使用独立属性：focused 或
+focusVisible 的目标属性如果也由其他条件写入，准备期保守拒绝；可将焦点颜色与悬停缩放
+分别声明。相同条件对同一属性重复声明也拒绝，不用源码排列顺序决定结果。
+selected/active 等业务或系统状态的组合接口仍待扩展，不能由 hover 推测。
 
 状态规则首期只允许经过 schema 审核的呈现属性，不允许用 hover 每帧重写 action、
 节点身份、资源或 BSP 几何。手势连续值走明确的交互控制通道，避免与 Transition 同时
@@ -172,18 +174,19 @@ MotionPolicy 决定减弱动效等用户策略，主题参数服从该策略，�
 
 ## 7. 通用呈现接口
 
-首期类型设计为逻辑坐标下的二维平移、正比例缩放、归一化变换原点和 opacity。
-身份、范围、有限数检查与真实失效成本归同一 PropertySpec schema；接口名称在 DSL
-语法实现时统一冻结，本文不加入未实现的 `.scaleX()` 等用法到应用示例。
+第二阶段 `Visual` 提供逻辑坐标下的二维平移、正比例缩放、归一化变换原点和 opacity。
+属性名称、范围、有限数检查与真实失效成本归同一 PropertySpec schema；完整范围见
+第 13 节。以下包含已实现的装饰语义与未来交互变换必须满足的边界。
 
 - 布局盒用于测量和排列；呈现变换不改变兄弟布局、不修改业务宽高。
 - 变换组合顺序固定并测试：父变换 × 平移 × 原点平移 × 缩放 × 原点逆平移。
   节点本地裁剪随其变换，祖先裁剪继续约束最终范围。
-- 交互节点使用相同变换的逆矩阵命中；矩阵不可逆或数值越界时拒绝目标，不猜测点击位置。
+- 未来交互节点整体移动时使用相同变换的逆矩阵命中；当前只移动不接受输入的装饰子树，
+  `InteractionTarget` 的布局盒保持固定，不开放其 transform/opacity 属性。
 - 装饰子树显式不参与命中。其他节点不能因 opacity 为零自动改变输入行为；visible 与
   enabled 负责相应生命周期，退出动画阶段需显式关闭交互。
 - 子树 opacity 是整组离屏合成后的透明度，不能简单降低每个绘制命令的 alpha，造成
-  重叠子节点混合错误。叶节点可在证明等价时优化；整体 opacity 能力完成前拒绝其声明。
+  重叠子节点混合错误。当前 `Visual.opacity` 使用整组图层语义；它不是持久 GPU 缓存。
 - 首期只开放客户端本地视觉子树。含 backdrop 区域的子树、窗口根轮廓或跨 surface 阴影
   要在效果与输入同代协议完成后开放变换，不能只移动内容留下原地玻璃。
 
@@ -238,7 +241,8 @@ configure/客户端 buffer 与输入的同步。视觉预览、请求已接受�
 
 ## 10. 动画与材料的设计方向
 
-下表为待校准参数，不是当前运行效果。玻璃、圆角、阴影的具体样式由主题决定。
+下表保留完整运动方案的待校准参数，第二阶段实际采用的字面量见第 13.5 节。
+玻璃、圆角、阴影的具体样式由主题决定。
 
 | 场景 | 初始视觉方案 | 调度/交互约束 |
 | --- | --- | --- |
@@ -262,9 +266,10 @@ configure/客户端 buffer 与输入的同步。视觉预览、请求已接受�
 1. **输入身份与局部状态。** HitResult/NodeId、明确 leave/cancel、按下/释放、捕获和状态
    作用域；把旧即时 hover/focus 绘制迁到统一状态结果。先保持现有静态视觉，验收重复
    action 的不同节点、拖出释放、隐藏/卸载/Close 取消、键盘 repeat 与焦点变化。
-2. **状态规则与呈现属性。** 纯准备期类型校验、状态优先级、来源保留、MotionSpec 设计，
+2. **状态规则与呈现属性，第二阶段源码已接入。** 纯准备期类型校验、状态优先级、来源保留，
    以及本地视觉子树的变换/裁剪。先接固定感应区内的横线反馈；验证无 Layout 增量、
    旧/新位置修复、主题切换、重新定向和结束后停帧。整体 opacity 必须通过重叠子树对照。
+   当前运动参数为字面量，MotionSpec/MotionPolicy 的设计与接入另行实施。
 3. **完整输入与快照协议。** 贯通真实 touch 事件、设备身份、取消与坐标，以及交互变换
    的同代命中/效果、输入事件引用与资源回收；鼠标、触摸、键盘分别验收。
 4. **权威布局控制。** 稳定边界身份、typed 控制会话、活动实例订阅、组沉浸与边缘恢复，
@@ -301,9 +306,10 @@ Layout；静止指针只在命中几何发生变化时重新命中，不因普�
 事务提交后的输入清理不分配新存储，保留区域不会因无关区域安装丢失捕获。
 
 本阶段运行接口详见 [Scene](CLIENT_SCENE_RUNTIME.md) 和 [SDK](CLIENT_APP_SDK.md)。
-SetEnabled 目前是 C++ Scene 接口，未扩展 DSL schema。声明式状态作用域、StateRule、
-独立感应范围、dragging/触摸识别、transform/opacity、成功提交对应的命中快照，以及组
-沉浸和分隔线系统操作继续按第 11 节实施。平台目前只适配一个 Wayland seat；纯状态
+SetEnabled 目前是 C++ Scene 接口，未扩展 DSL schema。该阶段结束时，声明式状态作用域、
+StateRule、独立感应范围与 transform/opacity 尚未接入，第二阶段进展见下节。dragging/
+触摸识别、成功提交对应的命中快照、组沉浸和分隔线系统操作继续按第 11 节实施。
+平台目前只适配一个 Wayland seat；纯状态
 测试中的多 source/seat 隔离不代表多 seat 桌面或触摸已接通。
 
 验证：Pi 上完整 GLES 构建成功，最终 CTest **59/59** 通过，含新增 Scene 输入矩阵、
@@ -313,3 +319,137 @@ SDK 提交、局部损伤、动画四项门槛均通过。风格、800 行与差
 记录位于忽略的 `dist/validation/interaction-v1-20260929/`，最终全量测试为
 `ctest-final.log`，GPU 门槛为 `native/native-gates.json`。本阶段未重新打包或部署到当前
 VNC 会话，也不据此宣称触摸、组控制、真实显示 FPS 或平台间性能比较已验收。
+
+## 13. 第二阶段：状态规则与装饰子树呈现（2026-09-29）
+
+输入阶段先提交为 `9748bdb`。本阶段扩展通用前端与绘制契约，不在 WM 或业务模块中加入
+横线、应用名称、悬停样式或逐帧 binding 更新。以下语法需要包含本阶段源码的 Host/SDK。
+
+### 13.1 固定目标与装饰子树
+
+`InteractionTarget` 是采用 Card 叠放布局的输入容器。它接受常规容器布局、样式和可选
+命名 `action`；即使无 action，也能形成 hover/pressed/captured 状态，但释放不派发空动作。
+命中使用目标的稳定布局盒、圆角和祖先 clip。它不接收本阶段的呈现变换或 opacity 属性。
+`Visual` 也是叠放容器，其自身和所有子孙不参与命中与 surface 输入区域收集。
+以下控件片段放入应用已有的 Card/HStack 等父容器；Scene 根仍按 viewport 布局，
+固定目标尺寸由父容器内的子节点布局约束。
+
+```prism
+InteractionTarget(width: 96, height: 40, action: "panel:toggle", justify: "center") {
+    Visual(width: 64, height: 4, anchor: "center",
+           background: "@indicator", cornerRadius: "@indicator_radius")
+        .state(when: "hovered", scope: "target", scaleX: 1.15)
+        .state(when: "pressed", scope: "target", scaleX: 0.94)
+        .state(when: "focusVisible", scope: "target", background: "@accent")
+        .transition(property: "scaleX", durationMs: 140, easing: "easeOutCubic")
+        .transition(property: "background", durationMs: 120, easing: "easeOutCubic")
+}
+```
+
+示例 action 由应用业务定义，不自动获得窗口或组控制能力。无 action 的 Topbar 控制区
+当前只呈现输入反馈。`InteractionTarget` 不使用旧按钮的隐式 hover/focus 叠加图元，作者应
+通过状态规则明确提供所需反馈；已有 Button/IconButton 等继续保持原有主题 Controls 行为。
+
+`Visual` 可以嵌套，但不能作为组件根。其子树内禁止 `InteractionTarget`、`Slot`，以及
+任何 `action`、`material`、`backdropBlur`、`inputShape` 属性/绑定/引用声明，空字符串或
+零模糊也不例外。需要静态材料时，把材料放在 Visual 外部的目标或普通 Card；本阶段
+不移动背景模糊域、窗口根或外部装饰。DSL 准备、布局 Slot 转换和 Scene 安装分别检查
+各自边界，直接构造 Blueprint 不能绕过这些约束。
+
+### 13.2 状态规则的静态契约
+
+`.state` 要求命名 `when`、`scope` 和至少一个属性。`scope` 当前只能为字符串 `"target"`，
+表示结构上最近的 `InteractionTarget` 祖先；声明节点必须位于该目标的 Visual 子树中。
+准备期验证结构，安装期关联稳定目标身份，不在每个输入事件中按 action 或名字搜索。
+状态只读，不发给业务模块。当前不支持任意祖先选择器、表达式、脚本或状态组合语法。
+
+| when | 语义 / 优先级 |
+| --- | --- |
+| `disabled` | 目标或祖先禁用；同属性优先级 400 |
+| `pressed` | 有效按下；同属性优先级 300 |
+| `captured` | 指针序列仍被该目标捕获；同属性优先级 200，移出后也可保持 |
+| `hovered` | 指针在该目标内；同属性优先级 100 |
+| `focused` / `focusVisible` | 焦点与键盘焦点提示；使用独立属性通道 |
+
+普通条件可覆盖同一属性，按上述优先级选择；不匹配时回到当前基础值。focused 或
+focusVisible 声明的属性不得被任何不同条件再次声明，包括另一种焦点条件；这样焦点提示
+不会被悬停悄悄覆盖。同条件同属性重复声明拒绝；同条件分多条声明不同属性允许。
+规则内只接受合法的数值/颜色字面量或 `"@token"`，拒绝 `$binding`。基础属性仍可绑定业务值。
+未激活规则的主题引用也必须在安装与候选主题验证时合法，不能等第一次 hover 才发现错误。
+
+规则保存 `StateRule { condition, properties, theme_refs }`，沿 PreparedNode、Blueprint、
+组件组合与区域事务传递；向量与字符串容量计入准备结果 retained bytes。没有新增 JSON
+协议或任意源码在运行期求值。组件数、源文件与 AST 既有上限继续适用。
+
+### 13.3 呈现属性范围
+
+| 属性 | 默认值 / 有限范围 | `.state` | `.transition` |
+| --- | --- | --- | --- |
+| `Visual.translateX/Y` | 0；−8192..8192 逻辑像素 | 允许 | 允许 |
+| `Visual.scaleX/Y` | 1；0.01..8 | 允许 | 允许 |
+| `Visual.originX/Y` | 0.5；0..1，在自己的布局盒内归一化 | 允许，立即取值 | 拒绝 |
+| `Visual.opacity` | 1；0..1 | 允许 | 允许 |
+| `Visual.background` | 透明色或作者值 | 允许 | 允许 |
+| Visual 子树内直接绘制节点的 `foreground` | 沿用原有属性 | 允许 | 沿用原有允许范围 |
+
+这里直接绘制节点为 Text、Icon、IconButton、Progress、Toggle；Button 的生成 label 不
+隐式继承状态规则。`Progress.value` 保留已有业务目标 Transition，但不作为状态覆盖属性。
+布局尺寸、visible、action、资源、材料、模糊、边线、阴影等不在本阶段状态/过渡扩展范围。
+width/height 仍决定布局；scale/translate 不改变兄弟分配、目标的感应面积或 BSP 配置。
+
+目标解析保留基础常量、主题引用及 binding。状态覆盖与动画样本分层保存，退出状态读取
+最新基础来源；输入快速变化从当前呈现样本重定向，不先跳回基础。主题候选先验证，成功
+后取消旧轨迹并采用当前状态下的新主题结果；失败保留旧主题和呈现。隐藏、卸载、禁用和
+取消继续遵循通用输入/动画生命周期，不保留失效按下动作。
+
+### 13.4 绘制、输入与成本
+
+每个 Visual 的变换和整体透明度随不可变 Scene snapshot/FramePacket 进入 RenderTree 与
+DisplayList。变换作用于自己的背景、子孙、局部裁剪和阴影；组合顺序为父变换 × 平移 ×
+原点平移 × 缩放 × 原点逆平移。opacity 对整组完成的像素合成一次，两个重叠子项不各自
+降低 alpha；具体命令见 [DisplayList 契约](DISPLAY_LIST_CONTRACT.md)。
+
+这些属性当前标记 **Paint**。UI 采样、更新列表，Skia 回放，group opacity 可能需要临时
+图层；尚无持久 GPU 保留层，也没有渲染线程自行计算 Scene 轨迹。变换不产生 Layout
+失效，但不是零绘制开销。损伤必须覆盖旧/新范围、阴影与嵌套裁剪；无法证明安全时完整
+回退，buffer age 修复仍相对最后成功提交计算。实现细节与证据见
+[渲染失效规范](RENDER_SCHEDULING_AND_INVALIDATION.md)。
+
+因为 Visual 完全不参与输入，当前目标的命中几何与 surface input 不随动画变化，尚不
+需要为它发布移动控件的逆变换命中快照。这不代表第 8 节的通用输入/效果同代协议已经完成。
+opacity 为 0 只隐藏装饰像素，不禁用目标；真正禁止操作仍使用输入生命周期接口。
+
+### 13.5 真实 Shell 接入与验证范围
+
+- Topbar 保留现有主题布局，横线外增加 96 × `@topbar_handle_plate_height` 固定目标；
+  当前主题高度为 8。无 action，hover scaleX 为 1.12，pressed 为 0.96。
+- Dock 保留应用中心、固定应用、运行应用三段。仅运行段 Music/Preferences 使用完整
+  `@dock_icon_size` × `@dock_slot_height` 目标，仍派发原 `app:launch:*`；图标和 dockTile
+  材料静止，运行横线 hover scaleX 为 1.15，pressed 为 0.90。显隐仍来自真实实例状态。
+- 两处横线 scale 过渡为 140 ms、颜色为 120 ms，均为 easeOutCubic；键盘焦点以
+  `@accent` 提示。颜色与尺寸继续引用主题，运动幅度/时长目前是 DSL 字面量。
+
+这些范围沿用当前鼠标布局；Topbar 的 8 像素目标不宣称已满足触摸体验。MotionSpec、
+减弱动效策略、拖动/多点触摸、窗口分隔线、组沉浸/恢复和真实活动窗口广播仍未实现。
+本阶段没有重打 deb、替换当前 VNC 会话或宣称平台间性能优势。
+
+本阶段验证：Pi 完整 GLES 构建和最终增量确认通过；CTest **60/60** 通过，包含新增
+`scene_state_test`、DSL 正反例、真实 Shell 模板、主题与区域事务、输入和原有动画回归。
+状态变化、动画重新定向与结束停帧通过；纯呈现变化不增加 Layout，命中范围保持稳定。
+
+Skia 损伤测试通过 86 帧 × 1/2/3 buffer 轮转。隔离 V3D Wayland 完成 85 场景、86 次整目标
+读回对照，覆盖整体 opacity、重叠内容、嵌套变换、裁剪和非等比缩放阴影；partial/full/empty
+修复计数为 58/17/11。证据见 `dist/validation/state-presentation-20260929/`。
+
+SDK 的 prepared UI、提交、损伤、动画与新增输入动画 **5/5** 门槛通过。新增 native probe
+使用真实 virtual pointer 验证静止指针因布局变化重新命中、hover/press/release/leave、
+仅一色阶的前景动画在连续同目标 motion 后仍完成，以及 UI 替换取消旧动画。每段结束后
+停止构建/渲染/交换；逻辑设备取消另由协议 fixture 和 Scene 测试覆盖，不把移除某个物理
+virtual pointer 等同于撤销客户端的逻辑 wl_pointer。
+
+初次并行编译期间，旧 SDK 损伤 gate 有一次等待提交超时，原日志保留；独立复查和两次
+原顺序复查均通过，未放宽 5 秒或 24 帧断言。此次没有确认该超时根因，不据此给出吞吐或
+FPS 结论。两处新测试 fixture 的目标范围假设也已按既有根节点 viewport 布局规则修正。
+最终记录为 `dist/validation/state-visual-v1-20260929/ctest-final.log` 和
+`native-final/native-gates.json`；风格、800 行、文档链接和差异检查通过。所有隔离 WM
+已回收，当前 VNC 会话未替换。

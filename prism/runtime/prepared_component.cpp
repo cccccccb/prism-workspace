@@ -45,6 +45,7 @@ Blueprint LinkNode(const PreparedNode &node, const std::vector<contracts::Resour
     result.bindings = node.bindings;
     result.theme_refs = node.theme_refs;
     result.transitions = node.transitions;
+    result.state_rules = node.state_rules;
     result.properties.reserve(node.properties.size());
     result.children.reserve(node.children.size());
 
@@ -69,6 +70,7 @@ std::uint64_t NodeBytes(const PreparedNode &node) noexcept
                           node.bindings.capacity() * sizeof(PropertyBinding) +
                           node.theme_refs.capacity() * sizeof(ThemeRef) +
                           node.transitions.capacity() * sizeof(TransitionSpec) +
+                          node.state_rules.capacity() * sizeof(StateRule) +
                           node.children.capacity() * sizeof(PreparedNode) + node.region.capacity();
     for (const auto &property : node.properties) {
         if (const auto *text = std::get_if<std::string>(&property.value)) {
@@ -80,6 +82,18 @@ std::uint64_t NodeBytes(const PreparedNode &node) noexcept
     }
     for (const auto &ref : node.theme_refs) {
         bytes += ref.name.capacity();
+    }
+    for (const auto &rule : node.state_rules) {
+        bytes += rule.properties.capacity() * sizeof(PropertyAssignment) +
+                 rule.theme_refs.capacity() * sizeof(ThemeRef);
+        for (const auto &property : rule.properties) {
+            if (const auto *text = std::get_if<std::string>(&property.value)) {
+                bytes += text->capacity();
+            }
+        }
+        for (const auto &ref : rule.theme_refs) {
+            bytes += ref.name.capacity();
+        }
     }
     for (const auto &child : node.children) {
         bytes += NodeBytes(child);
