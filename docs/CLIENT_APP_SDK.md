@@ -4,6 +4,8 @@
 
 `prism_client_app` 是新架构普通应用的复用入口。调用方给出 DSL 源码、Wayland socket、应用 ID、标题、字体与初始尺寸；SDK 在客户端进程内持有 Scene、图片资源、字体整形、Skia Ganesh GLES、EGL 窗口和 Wayland 对象。WM 不接触 DSL、Scene 或应用 `$slot`。
 
+当前 Scene 到提交阶段经过只读 `FramePacket`：Build 的 DisplayList 移入共享存储，未变化时复用；包记录 UI 身份、版本和效果/输入区域。损伤仍相对最后成功的像素包计算。现阶段 `Pump`、Wayland、EGL 与 Ganesh 仍由同一线程持有；独立渲染线程的所有权、队列和跨线程资源租约设计见[客户端渲染线程迁移设计](CLIENT_RENDER_THREAD_MIGRATION.md)。
+
 平台 host 在 `Open` 前调用 `ApplyTheme` 安装初始快照，随后解析 UI 并创建窗口；在事件循环中调用 `Pump`。业务状态通过带类型的 `SetBinding` 更新，文字可用 `SetSlot`；按钮动作由 `OnAction` 回调交给业务。`Pump` 合并 Wayland 输入/configure、图片完成通知与调用者 FD 等待；资源就绪后在运行时线程更新 Scene。静止页面不自行连续提交。`Close` 按 Skia → EGL → Wayland 的顺序释放图形对象。接口见 [client_application.hpp](../prism/include/prism/sdk/client_application.hpp)。
 
 `tests/probes/skia_gles_wayland_probe.cpp` 使用同一 SDK 生命周期，测试和诊断程序留在 tests，不安装到生产包。早期 GLES 检查点的计数与验收记录见 [SKIA_GLES_PI.md](SKIA_GLES_PI.md)，不作为当前主题功能的验证结论。
@@ -55,7 +57,7 @@ Controls 的变化目前统一保守标记 Paint，即使变化的控件样式�
 
 Pixels 准备比较上一成功提交的完整 DisplayList/资源版本与当前列表，产生内容损伤；使用平台实际 buffer age 合并有界成功历史，得到当前 buffer 的修复区域。age 0/未知、首次/尺寸/WSI 变化、历史不足和无法证明的绘制范围全量回退。文字、图标、阴影按实际 Skia ink 计算；结构、clip、非单位 transform 和资源版本变化保守全量。没有增加节点增量布局或显示列表分块缓存。
 
-平台顺序为 QueryBufferAge → SetDamage(repair) → Render → Swap(content)。renderer 清理并按原序列绘制精确修复并集，保留区域外内容；提交时声明内容损伤，不能把扩大后的历史修复误传给 compositor。Swap 成功后 move 更新预分配历史和列表，State/None 不推进，失败使历史失效并清理。EGL 能力不可用时继续同一后端的完整修复/普通 Swap。当前逻辑与 buffer 坐标为 1:1，非 1 scale 暂全量回退。
+平台顺序为 QueryBufferAge → SetDamage(repair) → Render → Swap(content)。renderer 清理并按原序列绘制精确修复并集，保留区域外内容；提交时声明内容损伤，不能把扩大后的历史修复误传给 compositor。Swap 成功后推进预分配损伤历史，并移动只读帧引用作为下一次比较基线；State/None 不推进，失败使历史失效并清理。EGL 能力不可用时继续同一后端的完整修复/普通 Swap。当前逻辑与 buffer 坐标为 1:1，非 1 scale 暂全量回退。
 
 `ClientConfig::partial_rendering` 默认 true；false 保持同一 renderer、时钟/业务和内容损伤，只强制完整像素修复，可用于策略回退与对照。该 C++ 配置不改变业务模块 ABI v1。`ClientRenderStats` 新增 `full_pixel_repairs/partial_pixel_repairs/empty_pixel_repairs/pixel_repair_pixels`，它们在成功 Render 后计数；`content_damage_pixels/damage_history_commits` 在成功 Swap 后计数。面积为 clip/union 后的 buffer 像素范围，不是实际 fragment 数或 GPU 耗时。`buffer_age_queries/unknown_buffer_ages/last_buffer_age` 是平台方法请求，-1 表示不可用，0 表示内容未知；能力字段为 `buffer_age_supported/swap_damage_supported/partial_update_supported`。与已有 Render/Swap/实际 presentation 计数分开解读。
 

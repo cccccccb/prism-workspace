@@ -159,7 +159,7 @@ bool ClientApplication::OpenPrepared(runtime::UiLoadId load,
         }
         app.installed_ui = previous_ui;
         app.ui_presentation.Clear();
-        app.prepared_ui = {};
+        app.prepared_frame.reset();
         if (diagnostic) {
             *diagnostic = {runtime::LoadStage::Install, prepared.Source(), 0,
                            "Wayland window open failed"};
@@ -174,8 +174,8 @@ void ClientApplication::Impl::CloseGpu()
 {
     damage_history.Invalidate();
     prepared_damage.reset();
-    prepared_list.reset();
-    committed_list.reset();
+    prepared_frame.reset();
+    committed_frame.reset();
 
     // EGL owns native objects backed by the Wayland surface. Release them
     // before the platform's terminal failure destroys that surface/display.
@@ -196,7 +196,7 @@ void ClientApplication::Impl::FailFrontend()
     ui_load.Cancel();
     DiscardInstall(runtime::UiInstallState::Cancelled);
     ui_presentation.Clear();
-    prepared_ui = {};
+    prepared_frame.reset();
     on_ui_submitted = {};
     CloseGpu();
 }
@@ -434,7 +434,7 @@ void ClientApplication::Close()
     impl_->DiscardInstall(runtime::UiInstallState::Cancelled);
     impl_->ClearPreloadedImages();
     impl_->ui_presentation.Clear();
-    impl_->prepared_ui = {};
+    impl_->prepared_frame.reset();
     impl_->on_ui_submitted = {};
     impl_->window.SetPresentationHandler({});
 

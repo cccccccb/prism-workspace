@@ -1490,7 +1490,7 @@ enum class FrameState {
 
 # 26. 多线程
 
-第一版推荐：
+独立渲染线程的目标方案：
 
 ``` text
 Runtime/UI Thread
@@ -1528,6 +1528,13 @@ struct FramePacket {
     ResourceUseSet resources;
 };
 ```
+
+这里的 `damage` 只是 UI 端候选损伤；如果跳过中间包或由渲染线程在提交时采样
+位移/透明度，最终损伤必须相对最后一次成功提交重新计算。图中的 Wayland events
+指 UI 对输入的语义处理，不规定两个线程共享同一事件队列或 EGL context。图中的
+Vulkan 是原始后端示意，当前生产后端为 Skia Ganesh GLES。
+当前生产实现仍为单所有者线程；线程拆分、协议所有权、动画采样与验收边界见
+[动画与渲染优化假设清单](ANIMATION_RENDERING_HYPOTHESES.md)。
 
 ------------------------------------------------------------------------
 

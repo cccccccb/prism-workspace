@@ -27,12 +27,10 @@ void ClientApplication::Impl::CommitScene(runtime::UiLoadId load,
     installed_ui = load;
     ui_presentation.Install(load);
     last_list.reset();
-    committed_list.reset();
-    prepared_list.reset();
+    committed_frame.reset();
+    prepared_frame.reset();
     prepared_damage.reset();
     damage_history.Invalidate();
-    committed_pixels_revision = prepared_pixels_revision = 0;
-    state_prepared = false;
 }
 
 bool ClientApplication::Impl::OpenWindow(runtime::LoadDiagnostic *diagnostic,

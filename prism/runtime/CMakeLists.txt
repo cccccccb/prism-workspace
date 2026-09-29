@@ -47,6 +47,7 @@ target_include_directories(prism_ui_loader PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../
 if(PRISM_ENABLE_GLES AND PRISM_SKIA_ROOT)
     add_library(prism_client_app STATIC
         client_application.cpp
+        client_application_frame.cpp
         client_application_scene.cpp
         client_application_resources.cpp
         client_application_render.cpp

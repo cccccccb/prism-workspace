@@ -6,6 +6,7 @@
 #include "prism/render_skia/raster_renderer.hpp"
 #include "prism/runtime/buffer_damage.hpp"
 #include "prism/runtime/dsl_frontend.hpp"
+#include "prism/runtime/frame_packet.hpp"
 #include "prism/runtime/scene.hpp"
 #include "prism/runtime/task_scheduler.hpp"
 #include "prism/sdk/client_application.hpp"
@@ -103,6 +104,8 @@ struct ClientApplication::Impl {
     contracts::ResourceId RequestImage(std::set<std::uint64_t> &images, std::string_view uri);
     runtime::ShapedText ShapeText(std::string_view text, double size);
     void HandleWindowEvent(const contracts::WindowEvent &event);
+    std::shared_ptr<const runtime::FramePacket>
+    CaptureFramePacket(bool pixels, contracts::BufferSize size, double scale, int configure_count);
     platform::SubmitResult PrepareSubmit(const platform::SubmitRequest &request);
     bool CommitPixels();
     void Submitted(platform::SubmitResult result);
@@ -130,18 +133,16 @@ struct ClientApplication::Impl {
         owner_turn_image_ready{};
     runtime::UiLoadState ui_load;
     runtime::UiLoadId installed_ui{};
-    runtime::UiLoadId prepared_ui{};
     UiPresentationTracker ui_presentation;
     ClientConfig config;
     render_skia::RasterRenderer commands;
     runtime::ImageResources resources;
     std::unique_ptr<runtime::Scene> scene;
     std::optional<contracts::ThemeSnapshot> theme;
-    std::optional<contracts::DisplayList> last_list;
-    std::shared_ptr<const contracts::DisplayList> committed_list, prepared_list;
+    std::shared_ptr<const contracts::DisplayList> last_list;
+    std::shared_ptr<const runtime::FramePacket> committed_frame, prepared_frame;
     runtime::BufferDamageHistory damage_history;
     std::optional<runtime::BufferDamagePlan> prepared_damage;
-    std::uint64_t committed_resource_epoch{}, prepared_resource_epoch{};
     std::uint64_t prepared_content_area{};
     platform::WaylandWindow window;
     platform::WaylandEglSurface egl;
@@ -156,9 +157,6 @@ struct ClientApplication::Impl {
     ClientStartupStats startup_stats{};
     bool egl_init_sampled{}, ganesh_init_sampled{}, submit_build_sampled{};
     bool render_sampled{}, swap_sampled{};
-    std::uint64_t committed_pixels_revision{0};
-    std::uint64_t prepared_pixels_revision{0};
-    bool state_prepared{false};
     bool failed{false};
     bool opened_once{false};
     bool closed{false};

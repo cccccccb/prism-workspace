@@ -34,16 +34,15 @@ platform::SubmitResult
 ClientApplication::Impl::PrepareSubmit(const platform::SubmitRequest &request)
 {
     auto &app = *this;
-    app.state_prepared = false;
     app.prepared_damage.reset();
-    app.prepared_list.reset();
+    app.prepared_frame.reset();
     if (app.failed || !app.scene) {
         return platform::SubmitResult::Failed;
     }
 
     const auto dirty = app.scene->PendingDirty();
-    const bool pixels = request.force_pixels || !app.last_list ||
-                        app.scene->PixelsRevision() != app.committed_pixels_revision;
+    const bool pixels = request.force_pixels || !app.last_list || !app.committed_frame ||
+                        app.scene->PixelsRevision() != app.committed_frame->pixels_revision;
 
     // Keep geometry/material metadata with the corresponding new pixels.
     // A pure Composite change is allowed through an old pixel callback.
@@ -52,6 +51,10 @@ ClientApplication::Impl::PrepareSubmit(const platform::SubmitRequest &request)
     }
 
     try {
+        const contracts::BufferSize size{static_cast<std::uint32_t>(request.width),
+                                         static_cast<std::uint32_t>(request.height)};
+        const auto metrics = app.window.Metrics();
+        std::shared_ptr<const runtime::FramePacket> frame;
         if (pixels) {
             if (!app.EnsureRenderer(request.width, request.height)) {
                 throw std::runtime_error("EGL renderer unavailable");
@@ -65,39 +68,22 @@ ClientApplication::Impl::PrepareSubmit(const platform::SubmitRequest &request)
                 return platform::SubmitResult::Deferred;
             }
 
-            if (!app.last_list || runtime::Has(dirty, runtime::Dirty::Layout) ||
-                runtime::Has(dirty, runtime::Dirty::Paint)) {
-                std::optional<contracts::DisplayList> next;
-                {
-                    FirstCallTimer timer(app.startup_stats.first_submit_build_us,
-                                         app.submit_build_sampled);
-                    next = app.scene->Build(contracts::WindowId{1});
-                }
-                if (next) {
-                    app.last_list = std::move(next);
-                }
-            }
-            if (!app.last_list) {
-                throw std::runtime_error("Scene has no pixel display list");
-            }
-
-            const contracts::BufferSize size{static_cast<std::uint32_t>(request.width),
-                                             static_cast<std::uint32_t>(request.height)};
+            frame = app.CaptureFramePacket(true, size, metrics.scale, app.window.ConfigureCount());
             const auto old_size = app.damage_history.Size();
             const bool resized = old_size.width != size.width || old_size.height != size.height;
             if (resized) {
                 app.damage_history.Reset(size);
             }
 
-            // Prepare the committed snapshot and all region storage before
-            // drawing/Swap. Successful submission then advances by moves.
-            app.prepared_list = std::make_shared<const contracts::DisplayList>(*app.last_list);
-            app.prepared_resource_epoch = app.commands.ResourceEpoch();
-            auto content = resized || app.window.Metrics().scale != 1.0
-                               ? contracts::DamageRegion::Full()
-                               : app.commands.CompareDamage(
-                                     app.committed_list.get(), *app.prepared_list, request.width,
-                                     request.height, app.committed_resource_epoch);
+            // The renderer compares against the last successful submission,
+            // not against the last UI frame created or skipped.
+            auto content =
+                resized || frame->scale != 1.0
+                    ? contracts::DamageRegion::Full()
+                    : app.commands.CompareDamage(
+                          app.committed_frame ? app.committed_frame->display_list.get() : nullptr,
+                          *frame->display_list, request.width, request.height,
+                          app.committed_frame ? app.committed_frame->resource_epoch : 0);
 
             ++app.render_stats.buffer_age_queries;
             const auto age = app.egl.QueryBufferAge();
@@ -109,7 +95,7 @@ ClientApplication::Impl::PrepareSubmit(const platform::SubmitRequest &request)
             app.prepared_damage = app.damage_history.Plan(
                 content, age && *age >= 0 ? std::optional<unsigned>(static_cast<unsigned>(*age))
                                           : std::nullopt);
-            if (!app.config.partial_rendering || app.window.Metrics().scale != 1.0) {
+            if (!app.config.partial_rendering || frame->scale != 1.0) {
                 app.prepared_damage->repair_damage = contracts::DamageRegion::Full();
             }
             app.prepared_content_area =
@@ -122,11 +108,13 @@ ClientApplication::Impl::PrepareSubmit(const platform::SubmitRequest &request)
 
         } else if (!runtime::Has(dirty, runtime::Dirty::Composite)) {
             return platform::SubmitResult::None;
+        } else {
+            frame = app.CaptureFramePacket(false, size, metrics.scale, app.window.ConfigureCount());
         }
 
-        app.window.SetSurfaceEffects(app.scene->SurfaceEffects());
-        app.window.SetInputRegions(app.scene->InputRegions());
-        app.state_prepared = true;
+        app.window.SetSurfaceEffects(frame->surface_effects);
+        app.window.SetInputRegions(frame->input_regions);
+        app.prepared_frame = std::move(frame);
         if (!pixels) {
             return app.window.SurfaceStatePending() ? platform::SubmitResult::State
                                                     : platform::SubmitResult::None;
@@ -139,8 +127,8 @@ ClientApplication::Impl::PrepareSubmit(const platform::SubmitRequest &request)
         bool rendered;
         {
             FirstCallTimer timer(app.startup_stats.first_render_us, app.render_sampled);
-            rendered =
-                app.renderer->Render(*app.prepared_list, request.width, request.height, repair);
+            rendered = app.renderer->Render(*app.prepared_frame->display_list, request.width,
+                                            request.height, repair);
         }
         if (!rendered) {
             throw std::runtime_error("GPU rendering failed");
@@ -154,8 +142,6 @@ ClientApplication::Impl::PrepareSubmit(const platform::SubmitRequest &request)
             ++app.render_stats.partial_pixel_repairs;
         }
         app.render_stats.pixel_repair_pixels += area;
-        app.prepared_pixels_revision = app.scene->PixelsRevision();
-        app.prepared_ui = app.installed_ui;
         return platform::SubmitResult::Pixels;
     } catch (const std::exception &error) {
         std::fprintf(stderr, "[prism-sdk] submission failed: %s\n", error.what());
@@ -199,12 +185,12 @@ void ClientApplication::Impl::Submitted(platform::SubmitResult result)
         return;
     }
 
+    const bool metadata_prepared = static_cast<bool>(app.prepared_frame);
+    const auto submitted_ui = metadata_prepared ? app.prepared_frame->ui : runtime::UiLoadId{};
     if (result == platform::SubmitResult::Pixels) {
-        app.committed_pixels_revision = app.prepared_pixels_revision;
-        app.committed_list = std::move(app.prepared_list);
-        app.committed_resource_epoch = app.prepared_resource_epoch;
+        app.committed_frame = std::move(app.prepared_frame);
         const auto submission = app.window.LastPixelSubmission();
-        if (!app.ui_presentation.Submit(app.prepared_ui, submission,
+        if (!app.ui_presentation.Submit(submitted_ui, submission,
                                         app.window.PresentationPending(submission))) {
             app.FailFrontend();
             return;
@@ -213,12 +199,12 @@ void ClientApplication::Impl::Submitted(platform::SubmitResult result)
 
     // None can acknowledge a checked, identical metadata request, e.g.
     // when the optional effects extension is unavailable.
-    if (app.state_prepared && app.scene) {
+    if (metadata_prepared && app.scene) {
         app.scene->AcknowledgeComposite();
     }
-    app.state_prepared = false;
+    app.prepared_frame.reset();
     if (result == platform::SubmitResult::Pixels && app.on_ui_submitted) {
-        app.on_ui_submitted(app.prepared_ui);
+        app.on_ui_submitted(submitted_ui);
     }
 }
 
