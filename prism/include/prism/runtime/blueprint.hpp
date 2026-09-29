@@ -1,6 +1,7 @@
 #pragma once
 
 #include "prism/runtime/property.hpp"
+#include "prism/runtime/transition_spec.hpp"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -16,6 +17,7 @@ struct Blueprint {
     std::vector<PropertyAssignment> properties;
     std::vector<PropertyBinding> bindings;
     std::vector<ThemeRef> theme_refs;
+    std::vector<TransitionSpec> transitions;
     std::uint64_t allowed_properties{UINT64_MAX};
     std::vector<Blueprint> children;
 };

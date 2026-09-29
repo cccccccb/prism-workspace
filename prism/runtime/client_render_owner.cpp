@@ -137,6 +137,7 @@ bool ClientRenderOwner::OpenWindow()
 void ClientRenderOwner::Run(runtime::RenderWorkerGeneration generation) noexcept
 {
     bool open_reported = false;
+    worker_generation_ = generation;
     try {
         damage_commands_ = std::make_unique<render_skia::RasterRenderer>(config_.font_path);
         if (!damage_commands_->Ready()) {
@@ -201,6 +202,8 @@ void ClientRenderOwner::Run(runtime::RenderWorkerGeneration generation) noexcept
 
 void ClientRenderOwner::CloseGpu() noexcept
 {
+    animation_sampling_active_ = false;
+    ResetFrameOpportunity();
     damage_history_.Invalidate();
     prepared_damage_.reset();
     prepared_frame_.reset();

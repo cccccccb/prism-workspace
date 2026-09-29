@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 #include <variant>
@@ -17,6 +18,8 @@ bool ClientRenderOwner::DrainCommands()
             }
             if (installed_ui_ != installed->ui) {
                 installed_ui_ = installed->ui;
+                animation_sampling_active_ = false;
+                ResetFrameOpportunity();
                 render_frame_.reset();
                 committed_frame_.reset();
                 committed_damage_resource_epoch_ = 0;
@@ -35,6 +38,10 @@ bool ClientRenderOwner::DrainCommands()
                 // A later UI mutation superseded the candidate already read
                 // from the queue. Keep the last successful pixel baseline.
                 render_frame_.reset();
+                approved_frame_.reset();
+                if (!frame_opportunity_) {
+                    spontaneous_animation_frame_allowed_ = false;
+                }
                 window_.RequestUpdate(true);
             }
             continue;
@@ -45,11 +52,29 @@ bool ClientRenderOwner::DrainCommands()
                 throw std::runtime_error("Render frame belongs to an uninstalled UI");
             }
             render_frame_ = std::move(frame->frame);
+            if (animation_sampling_active_) {
+                approved_frame_ = !frame_opportunity_ && spontaneous_animation_frame_allowed_
+                                      ? render_frame_
+                                      : nullptr;
+            }
             window_.RequestUpdate(true);
             continue;
         }
 
+        if (auto *sampling = std::get_if<runtime::SetAnimationSamplingCommand>(&*command)) {
+            SetAnimationSampling(*sampling);
+            continue;
+        }
+
+        if (auto *answer = std::get_if<runtime::AnswerFrameOpportunityCommand>(&*command)) {
+            AnswerFrameOpportunity(std::move(*answer));
+            continue;
+        }
+
         if (auto *request = std::get_if<runtime::RequestRenderCommand>(&*command)) {
+            if (animation_sampling_active_ && !frame_opportunity_ && !approved_frame_) {
+                spontaneous_animation_frame_allowed_ = false;
+            }
             if (request->kind == runtime::RenderRequestKind::Redraw) {
                 window_.RequestRedraw(request->deferred);
             } else {
@@ -79,6 +104,92 @@ bool ClientRenderOwner::DrainCommands()
             return false;
         }
     }
+    return true;
+}
+
+void ClientRenderOwner::ResetFrameOpportunity() noexcept
+{
+    frame_opportunity_.reset();
+    approved_frame_.reset();
+    opportunity_candidate_sequence_ = 0;
+    spontaneous_animation_frame_allowed_ = false;
+}
+
+void ClientRenderOwner::SetAnimationSampling(runtime::SetAnimationSamplingCommand command)
+{
+    if (!command.ui.owner || !command.ui.generation) {
+        throw std::runtime_error("Invalid animation sampling UI");
+    }
+    if (command.ui != installed_ui_ || command.active == animation_sampling_active_) {
+        return;
+    }
+
+    animation_sampling_active_ = command.active;
+    ResetFrameOpportunity();
+    if (command.active) {
+        // The packet already consumed by the worker is only a candidate. The
+        // successful submission remains the damage and presentation baseline.
+        render_frame_.reset();
+    }
+    window_.RequestUpdate(true);
+}
+
+void ClientRenderOwner::AnswerFrameOpportunity(runtime::AnswerFrameOpportunityCommand command)
+{
+    if (!frame_opportunity_ || command.ui != frame_opportunity_->ui ||
+        command.worker != frame_opportunity_->worker ||
+        command.configure_count != frame_opportunity_->configure_count ||
+        command.id != frame_opportunity_->id ||
+        command.configure_count != window_.ConfigureCount()) {
+        return;
+    }
+    if (command.frame &&
+        (command.frame->ui != command.ui ||
+         command.frame->configure_count != command.configure_count || !command.frame->sequence)) {
+        throw std::runtime_error("Invalid frame opportunity response packet");
+    }
+    if (command.frame && committed_frame_ && command.frame->ui == committed_frame_->ui &&
+        command.frame->sequence < committed_frame_->sequence) {
+        ResetFrameOpportunity();
+        window_.RequestUpdate(true);
+        return;
+    }
+    if (render_frame_ && render_frame_->sequence > opportunity_candidate_sequence_ &&
+        (!command.frame || render_frame_->sequence > command.frame->sequence)) {
+        // The UI published a newer packet after this opportunity was sent.
+        // A stale response must not roll it back or park its only permit.
+        ResetFrameOpportunity();
+        window_.RequestUpdate(true);
+        return;
+    }
+
+    frame_opportunity_.reset();
+    opportunity_candidate_sequence_ = 0;
+    spontaneous_animation_frame_allowed_ = true;
+    approved_frame_ = std::move(command.frame);
+    if (approved_frame_) {
+        render_frame_ = approved_frame_;
+        window_.RequestUpdate(true);
+    }
+}
+
+bool ClientRenderOwner::IssueFrameOpportunity()
+{
+    if (!animation_sampling_active_ || !installed_ui_.owner || !installed_ui_.generation ||
+        frame_opportunity_ ||
+        next_frame_opportunity_id_ == std::numeric_limits<std::uint64_t>::max()) {
+        terminal_.Fail(runtime::TerminalReason::InternalFailure);
+        return false;
+    }
+
+    const runtime::FrameOpportunityEvent opportunity{
+        installed_ui_, worker_generation_, window_.ConfigureCount(), ++next_frame_opportunity_id_};
+    if (!QueueEvent(runtime::RenderEvent(opportunity))) {
+        return false;
+    }
+
+    frame_opportunity_ = opportunity;
+    opportunity_candidate_sequence_ = render_frame_ ? render_frame_->sequence : 0;
     return true;
 }
 

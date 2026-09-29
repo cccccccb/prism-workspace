@@ -39,6 +39,7 @@ bool Scene::ApplyTheme(const contracts::ThemeSnapshot &theme, std::string *diagn
             affected = affected | Dirty::Paint;
         }
 
+        CancelAnimations();
         theme_.swap(candidate.theme_);
         CommitValues(pairs);
         ++transaction_revision_;

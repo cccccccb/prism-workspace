@@ -5,6 +5,7 @@
 #include "prism/runtime/frame_packet.hpp"
 #include "prism/runtime/render_bridge_types.hpp"
 #include "prism/runtime/render_resource.hpp"
+#include "prism/runtime/render_worker_lifecycle.hpp"
 #include "prism/runtime/ui_load.hpp"
 
 #include <cstdint>
@@ -51,14 +52,25 @@ struct ImageReleasedEvent {
     ImageVersion version;
 };
 
+// One non-coalesced opportunity per active UI/worker/configure generation.
+// The UI samples current monotonic time and answers with an ordered packet or
+// an explicit no-change result. Status snapshots are not submission permits.
+struct FrameOpportunityEvent {
+    UiLoadId ui{};
+    RenderWorkerGeneration worker{};
+    int configure_count{};
+    std::uint64_t id{};
+};
+
 // One ordered reverse stream preserves configure/input, successful submission,
 // presentation, resource acknowledgments and status across both owners.
 using RenderEvent =
     std::variant<SequencedWindowEvent, SubmittedFrameEvent, platform::PixelPresentation,
-                 ImageUploadedEvent, ImageReleasedEvent, RenderStatusEvent>;
+                 ImageUploadedEvent, ImageReleasedEvent, RenderStatusEvent, FrameOpportunityEvent>;
 
 // Status may replace only an adjacent older status. A configure, input,
-// submission, presentation or resource event remains an ordering barrier.
+// opportunity, submission, presentation or resource event remains an
+// ordering barrier.
 inline bool ReplaceStatusTail(const RenderEvent &older, const RenderEvent &newer) noexcept
 {
     return std::holds_alternative<RenderStatusEvent>(older) &&

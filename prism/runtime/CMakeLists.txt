@@ -10,6 +10,7 @@ target_compile_features(prism_dsl_schema PUBLIC cxx_std_20)
 
 add_library(prism_client_scene STATIC
     scene.cpp
+    scene_animation.cpp
     scene_nodes.cpp
     scene_theme.cpp
     scene_construction.cpp
@@ -24,7 +25,7 @@ add_library(prism_client_scene STATIC
     ui_load.cpp
     theme_tokens.cpp
     buffer_damage.cpp)
-target_link_libraries(prism_client_scene PUBLIC prism_display_list_contract prism_dsl_schema prism_theme_contract prism_task_scheduler Threads::Threads)
+target_link_libraries(prism_client_scene PUBLIC prism_animation_core prism_display_list_contract prism_dsl_schema prism_theme_contract prism_task_scheduler Threads::Threads)
 target_include_directories(prism_client_scene PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
 target_compile_features(prism_client_scene PUBLIC cxx_std_20)
 
@@ -63,6 +64,7 @@ endif()
 if(PRISM_ENABLE_GLES AND PRISM_SKIA_ROOT)
     add_library(prism_client_app STATIC
         client_application.cpp
+        client_application_animation.cpp
         client_application_commands.cpp
         client_application_frame.cpp
         client_application_scene.cpp

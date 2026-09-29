@@ -27,6 +27,11 @@ platform::SubmitResult ClientRenderOwner::PrepareSubmit(const platform::SubmitRe
         return platform::SubmitResult::AwaitFrame;
     }
 
+    if (animation_sampling_active_ && frame_opportunity_ &&
+        frame_opportunity_->configure_count != window_.ConfigureCount()) {
+        ResetFrameOpportunity();
+    }
+
     const auto frame = render_frame_;
     const auto metrics = window_.Metrics();
     if (!frame || frame->ui != installed_ui_ ||
@@ -34,6 +39,10 @@ platform::SubmitResult ClientRenderOwner::PrepareSubmit(const platform::SubmitRe
         frame->buffer_size.width != static_cast<std::uint32_t>(request.width) ||
         frame->buffer_size.height != static_cast<std::uint32_t>(request.height) ||
         frame->scale != metrics.scale) {
+        if (animation_sampling_active_ && request.allow_pixels && !frame_opportunity_ &&
+            !spontaneous_animation_frame_allowed_ && !IssueFrameOpportunity()) {
+            return platform::SubmitResult::Failed;
+        }
         return platform::SubmitResult::AwaitFrame;
     }
     const bool pixels = request.force_pixels || !committed_frame_ ||
@@ -42,6 +51,20 @@ platform::SubmitResult ClientRenderOwner::PrepareSubmit(const platform::SubmitRe
                         frame->buffer_size.width != committed_frame_->buffer_size.width ||
                         frame->buffer_size.height != committed_frame_->buffer_size.height ||
                         frame->scale != committed_frame_->scale;
+
+    if (animation_sampling_active_ && request.allow_pixels && !frame_opportunity_ &&
+        !spontaneous_animation_frame_allowed_ && !approved_frame_ && !IssueFrameOpportunity()) {
+        return platform::SubmitResult::Failed;
+    }
+
+    // A compatible State-only packet may update surface metadata even while
+    // an animated pixel frame waits for a callback or for the UI's response.
+    if (animation_sampling_active_ && pixels && request.allow_pixels &&
+        (!approved_frame_ || frame != approved_frame_)) {
+        // A frame callback is only a permit. It cannot replay the previous
+        // sample while the UI computes this opportunity's current value.
+        return platform::SubmitResult::AwaitFrame;
+    }
 
     if (pixels && !request.allow_pixels) {
         return platform::SubmitResult::None;
@@ -218,8 +241,16 @@ void ClientRenderOwner::Submitted(platform::SubmitResult result) noexcept
         submitted.kind = runtime::SubmittedKind::Pixels;
         submitted.submission = window_.LastPixelSubmission();
         submitted.feedback_expected = window_.PresentationPending(submitted.submission);
+        if (animation_sampling_active_) {
+            approved_frame_.reset();
+            spontaneous_animation_frame_allowed_ = false;
+        }
     } else if (result == platform::SubmitResult::State) {
         submitted.kind = runtime::SubmittedKind::State;
+    }
+    if (animation_sampling_active_ && submitted.metadata_prepared &&
+        result != platform::SubmitResult::Pixels) {
+        approved_frame_.reset();
     }
     prepared_frame_.reset();
 
@@ -229,6 +260,12 @@ void ClientRenderOwner::Submitted(platform::SubmitResult result) noexcept
         // them, while keeping Submitted ahead of its presentation feedback.
         PublishStatus();
         QueueEvent(runtime::RenderEvent(std::move(submitted)));
+        if (animation_sampling_active_ && result == platform::SubmitResult::Pixels) {
+            // Keep one request parked behind the current frame callback.
+            // Once the callback and feedback capacity release, PrepareSubmit
+            // sends a fresh opportunity instead of resubmitting old pixels.
+            window_.RequestUpdate(true);
+        }
     } catch (...) {
         terminal_.Fail(runtime::TerminalReason::EventQueueFailure);
     }

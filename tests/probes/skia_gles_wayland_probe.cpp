@@ -355,13 +355,65 @@ int VerifyDamage(const std::string &socket, const std::string &app_id)
     }
     return 0;
 }
+
+int VerifyAnimation(const std::string &socket, const std::string &app_id)
+{
+    Application app({socket, app_id, "Animation verification",
+                     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 640, 400});
+    Require(app.Open(R"(
+        Card(background:#192A3BFF,padding:24,visible:$show) {
+            Progress(value:$progress,height:10,foreground:#EE7799FF,background:#64748B70)
+                .transition(property:"value",durationMs:600,easing:"easeOutCubic")
+        }
+    )"),
+            "animation UI failed to open");
+    Until(app, [&] { return app.IsMapped(); }, "animation client did not map");
+    Drain(app);
+    Require(app.GlRenderer().find("V3D") != std::string::npos,
+            "animation verification requires V3D");
+    Quiet(app, "animation-initial-idle");
+
+    const auto before = app.GetRenderStats();
+    Require(app.SetBinding("progress", 0.8), "animated progress binding failed");
+    Until(
+        app, [&] { return app.GetRenderStats().swap_successes >= before.swap_successes + 2; },
+        "animation did not produce multiple paced frames");
+    Require(app.SetBinding("progress", 0.1), "animation retarget binding failed");
+
+    const auto settle = std::chrono::steady_clock::now() + 900ms;
+    while (std::chrono::steady_clock::now() < settle) {
+        Require(app.Pump(20), "animation client stopped before the final sample");
+    }
+    Drain(app);
+    const auto after = app.GetRenderStats();
+    Print("animation-retarget-finished", after);
+    Require(after.swap_successes > before.swap_successes + 2 &&
+                after.scene_layouts == before.scene_layouts &&
+                after.surface_submission_failures == 0,
+            "animation lost frames, recomputed layout or failed submission");
+    Quiet(app, "animation-finished-idle");
+
+    const auto before_hide = app.GetRenderStats();
+    Require(app.SetBinding("progress", 0.8), "second animation binding failed");
+    Until(
+        app, [&] { return app.GetRenderStats().swap_successes >= before_hide.swap_successes + 2; },
+        "second animation did not start");
+    Require(app.SetBinding("show", false), "animation hide binding failed");
+    Drain(app);
+    Quiet(app, "animation-hidden-idle");
+    Require(app.SetBinding("show", true), "animation reveal binding failed");
+    Drain(app);
+    Quiet(app, "animation-revealed-idle");
+    app.Close();
+    return 0;
+}
 } // namespace
 
 int main(int argc, char **argv)
 {
     if (argc < 3) {
         std::cerr << "usage: prism_skia_gles_wayland_probe <socket> "
-                     "<dsl-file|--verify-submission|--verify-damage> [app-id]\n";
+                     "<dsl-file|--verify-submission|--verify-damage|--verify-animation> [app-id]\n";
         return 2;
     }
     try {
@@ -370,6 +422,9 @@ int main(int argc, char **argv)
         }
         if (std::string_view(argv[2]) == "--verify-damage") {
             return VerifyDamage(argv[1], argc > 3 ? argv[3] : "prism.skia.damage.probe");
+        }
+        if (std::string_view(argv[2]) == "--verify-animation") {
+            return VerifyAnimation(argv[1], argc > 3 ? argv[3] : "prism.skia.animation.probe");
         }
         std::ifstream input(argv[2]);
         if (!input) {

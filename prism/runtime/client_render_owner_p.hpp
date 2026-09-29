@@ -59,6 +59,10 @@ private:
     void QueuePresentationEvent(const platform::PixelPresentation &event) noexcept;
 
     bool DrainCommands();
+    void SetAnimationSampling(runtime::SetAnimationSamplingCommand command);
+    void AnswerFrameOpportunity(runtime::AnswerFrameOpportunityCommand command);
+    bool IssueFrameOpportunity();
+    void ResetFrameOpportunity() noexcept;
     bool RegisterImage(runtime::RegisterImageCommand command);
     bool ReleaseImage(runtime::ReleaseImageCommand command);
     bool AdvanceImageUploads();
@@ -89,6 +93,13 @@ private:
     std::deque<contracts::ResourceId> upload_queue_;
     std::set<std::uint64_t> queued_uploads_;
     runtime::UiLoadId installed_ui_{};
+    runtime::RenderWorkerGeneration worker_generation_{};
+    std::optional<runtime::FrameOpportunityEvent> frame_opportunity_;
+    std::shared_ptr<const runtime::FramePacket> approved_frame_;
+    std::uint64_t next_frame_opportunity_id_{};
+    std::uint64_t opportunity_candidate_sequence_{};
+    bool animation_sampling_active_{};
+    bool spontaneous_animation_frame_allowed_{};
     std::shared_ptr<const runtime::FramePacket> render_frame_, committed_frame_, prepared_frame_;
     std::uint64_t committed_damage_resource_epoch_{};
     runtime::BufferDamageHistory damage_history_;

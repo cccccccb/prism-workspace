@@ -41,6 +41,7 @@ ClientApplication::Impl::CaptureFramePacket(bool pixels, contracts::BufferSize s
     packet.pixels_revision = scene->PixelsRevision();
     packet.theme_generation = theme ? theme->generation : 0;
     packet.resource_epoch = commands.ResourceEpoch();
+    packet.animation_sample = scene->AnimationSample();
     packet.configure_count = configure_count;
     packet.buffer_size = size;
     packet.scale = scale;

@@ -26,6 +26,9 @@ target_link_libraries(contracts_smoke PRIVATE prism_contracts)
 add_executable(wayland_lifecycle_test wayland_lifecycle_test.cpp)
 target_link_libraries(wayland_lifecycle_test PRIVATE prism_core prism_wayland_client)
 add_test(NAME contracts_smoke COMMAND contracts_smoke)
+add_executable(animation_timeline_test animation_timeline_test.cpp)
+target_link_libraries(animation_timeline_test PRIVATE prism_animation_core)
+add_test(NAME animation_timeline_test COMMAND animation_timeline_test)
 add_test(NAME wayland_lifecycle_test COMMAND wayland_lifecycle_test)
 
 set(VIRTUAL_INPUT_PROTOCOL_DIR "${CMAKE_CURRENT_BINARY_DIR}/virtual-input")
@@ -399,6 +402,12 @@ target_link_libraries(scene_region_transaction_test PRIVATE prism_client_scene)
 target_compile_options(scene_region_transaction_test PRIVATE -UNDEBUG)
 add_test(NAME scene_region_transaction_test COMMAND scene_region_transaction_test)
 set_tests_properties(scene_region_transaction_test PROPERTIES TIMEOUT 20)
+
+add_executable(scene_transition_test scene_transition_test.cpp)
+target_link_libraries(scene_transition_test PRIVATE prism_client_dsl prism_client_scene)
+target_compile_options(scene_transition_test PRIVATE -UNDEBUG)
+add_test(NAME scene_transition_test COMMAND scene_transition_test)
+set_tests_properties(scene_transition_test PROPERTIES TIMEOUT 20)
 
 # Async business fixtures exercise the CPU-only bridge; no production installs.
 add_library(module_work_fixture MODULE fixtures/module_work.cpp)

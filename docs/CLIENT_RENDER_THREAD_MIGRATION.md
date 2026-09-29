@@ -75,7 +75,7 @@ struct FramePacket {
 
 `FrameId` 标识 UI 创建的候选，`PixelSubmissionId` 只在 Pixels 真正成功提交后由 Wayland 所有者分配。两者必须显式映射，不能以 FrameId 代替成功提交计数。同一 surface 上旧于已接受版本的普通帧不能逆序提交，特殊首帧/事务里程碑通过有序控制消息保存。UI load、主题、surface、viewport 和资源代数分别比较：主题身份变化但解析样式相同时可以不产生新像素；旧 UI 的呈现反馈仍归旧 load。Resize 或 surface 重建使旧尺寸快照失效，并重置该 surface 的 buffer age/repair 可信度；不可把旧包改标新代继续提交。
 
-**控制消息与视觉帧分开。** 当前 UI 安装、候选失效、资源注册/释放、更新/重绘请求与输入处理确认走不可合并的有序命令；Open/Close 使用独立握手和终态信号，不依赖普通满帧队列。动画开始/取消等控制消息属于后续阶段。普通未提交帧仅在连续、同 UI load 且没有控制屏障时可被队尾新帧替换；损伤必须相对最后成功像素提交计算，不能相对被跳过的候选帧。Preview 首次提交、与之关联的 Master 准备、Master 安装和呈现里程碑不能被视觉帧合并吞掉。
+**控制消息与视觉帧分开。** 当前 UI 安装、候选失效、资源注册/释放、更新/重绘请求与输入处理确认走不可合并的有序命令；Open/Close 使用独立握手和终态信号，不依赖普通满帧队列。首版动画的采样开关与帧机会应答也走有序控制命令；更高级的 clip/显式触发属于后续阶段。普通未提交帧仅在连续、同 UI load 且没有控制屏障时可被队尾新帧替换；损伤必须相对最后成功像素提交计算，不能相对被跳过的候选帧。Preview 首次提交、与之关联的 Master 准备、Master 安装和呈现里程碑不能被视觉帧合并吞掉。
 
 命令队列与事件队列均有显式容量和非阻塞入队结果。视觉队列满时合并可替代的未提交帧，记录 skipped；关键有序消息满时返回 Busy 或进入有界的终态失败清理，绝不静默丢弃，也不在 UI/协议线程上无限等待。输入队列仅可合并同 seat、同 surface、无按键/配置/焦点等屏障之间的连续指针移动；按下、释放、键盘、configure、提交结果、反馈和关闭不可丢。通知 FD 的入队、唤醒与 drain 在同一锁/原子协议下完成，避免检查空队列到等待之间丢唤醒。线程间用具名方法处理消息，不把存储 lambda 当回调管线。
 
@@ -103,7 +103,7 @@ struct FramePacket {
 
 **第二步（已切换生产线程所有权，验收进行中）。** `FramePacket` 经有界命令队列交给独立渲染/协议线程，WaylandWindow、EGL、Ganesh、GPU 上传、buffer age 和反馈由该线程独占；业务动作在 UI 线程处理。反向有序事件队列交付 configure、输入、提交结果、资源确认和反馈。生产代码只保留这套线程所有权，不保留旧直连提交路径。仍按本节门槛检查同实例 UI 替换、deferred 区域、主题事务、上传、resize、关闭与错误恢复，以及 `UiLoadId`/`PixelSubmissionId` 归属、反馈容量和安装预算。
 
-**第三步接入活动动画与时间测量。** 先做通用动画请求、单调时间、完成/取消和停帧；先用静态命中范围的小横线验证，再考虑保留层的独立采样。按 [A01–A12](ANIMATION_RENDERING_HYPOTHESES.md)对照静态、Paint、布局和合成负载。记录 UI 构建、队列等待、Render/Swap、WM 提交、真实反馈及 CPU/PSS；只有保存 presentation 时钟且确认时钟域后报告输入到呈现 p50/p95/p99。Pi headless/VNC 与将来物理输出分别报告，不互相代替。
+**第三步接入活动动画与时间测量（进行中）。** [动画运行时与 DSL 契约](ANIMATION_RUNTIME_SPEC.md)的首版通用时间核心、属性呈现覆盖层、帧机会应答和停帧已进入代码；下一阶段验证静态命中范围的小横线，再考虑保留层的独立采样。按 [A01–A12](ANIMATION_RENDERING_HYPOTHESES.md)对照静态、Paint、布局和合成负载。记录 UI 构建、队列等待、Render/Swap、WM 提交、真实反馈及 CPU/PSS；只有保存 presentation 时钟且确认时钟域后报告输入到呈现 p50/p95/p99。Pi headless/VNC 与将来物理输出分别报告，不互相代替。
 
 第一步的代码检查确认 `DisplayList` 由 `std::move` 进入共享只读存储，复用和提交只复制 `shared_ptr`。2026-09-29 在 Pi 上增量构建后，9 项相关 CTest 全部通过；隔离 V3D headless WM 下的 `prepared_ui_probe.py` 两项门槛、`async_master_probe.py --mode all` 的 18 个真实 Host 场景全部通过。它们覆盖 Preview/Master、Master-only、资源/主题失败、静置/重复值、State-only、旧 callback、resize 和提交 ID；`skia_damage_test` 覆盖局部修复对照。`python3 tools/check-code-style.py` 与 `git diff --check` 通过。可用上述 `tests/probes/` 脚本重跑，局部运行证据在忽略的 `dist/validation/client-render-thread-step1/`。这些是正确性证据，不代表物理显示 FPS 或独立渲染线程性能。第二步再增加线程归属断言、队列饱和/逆序/失败注入和跨线程资源生命周期门槛；性能对照不阻止架构迁移。
 

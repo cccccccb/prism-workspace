@@ -130,6 +130,11 @@ struct ClientApplication::Impl {
     std::shared_ptr<const runtime::FramePacket>
     CaptureFramePacket(bool pixels, contracts::BufferSize size, double scale, int configure_count);
     void HandlePresentation(const platform::PixelPresentation &event);
+    void HandleFrameOpportunity(const runtime::FrameOpportunityEvent &event);
+    void SyncAnimationSampling();
+    void AdvanceAnimationDeadline();
+    int AnimationTimeoutMs(int timeout_ms) const noexcept;
+    bool HasUnsubmittedPixels() const noexcept;
     bool PollResources();
     void FailFrontend();
     std::set<std::uint64_t> scene_images;
@@ -169,6 +174,9 @@ struct ClientApplication::Impl {
     std::shared_ptr<const std::vector<runtime::ImageVersion>> last_image_uses;
     std::shared_ptr<const runtime::FramePacket> queued_frame, ui_submitted_frame;
     std::uint64_t next_frame_sequence{};
+    std::optional<std::uint64_t> animation_deadline_ns;
+    std::optional<std::uint64_t> pending_animation_finish_sequence;
+    bool animation_worker_active{};
     std::uint64_t last_processed_window_sequence{};
     bool force_frame_capture{};
     std::function<void(std::string_view)> on_action;

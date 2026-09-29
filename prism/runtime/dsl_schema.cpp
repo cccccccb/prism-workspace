@@ -18,7 +18,9 @@ constexpr std::array properties{
     PropertySpec{"background", DslProperty::Background, DslValueType::Color, Dirty::Paint,
                  StoredValueType::Color},
     PropertySpec{"foreground", DslProperty::Foreground, DslValueType::Color, Dirty::Paint,
-                 StoredValueType::Color},
+                 StoredValueType::Color, 0, 16384, true,
+                 KindBit(Kind::Text) | KindBit(Kind::Icon) | KindBit(Kind::IconButton) |
+                     KindBit(Kind::Progress) | KindBit(Kind::Toggle)},
     PropertySpec{"padding", DslProperty::Padding, DslValueType::Number, Dirty::Layout,
                  StoredValueType::Number},
     PropertySpec{"cornerRadius", DslProperty::Radius, DslValueType::Number, Dirty::Paint,
@@ -64,7 +66,7 @@ constexpr std::array properties{
     PropertySpec{"icon", DslProperty::Icon, DslValueType::String, Dirty::Paint,
                  StoredValueType::String},
     PropertySpec{"value", DslProperty::Value, DslValueType::Number, Dirty::Paint,
-                 StoredValueType::Number, 0, 1},
+                 StoredValueType::Number, 0, 1, true, KindBit(Kind::Progress)},
     PropertySpec{"checked", DslProperty::Checked, DslValueType::Boolean, Dirty::Paint,
                  StoredValueType::Boolean},
     PropertySpec{"fit", DslProperty::ImageFit, DslValueType::String, Dirty::Paint,
@@ -159,6 +161,15 @@ const ComponentSpec *FindComponent(std::string_view name)
         }
     }
     return nullptr;
+}
+
+bool SupportsTransition(Kind kind, DslProperty property)
+{
+    const auto *spec = FindProperty(property);
+    if (!spec || kind < Kind::Row || kind > Kind::Separator) {
+        return false;
+    }
+    return (spec->transition_kinds & KindBit(kind)) != 0;
 }
 
 bool ValidPropertyValue(DslProperty id, const PropertyValue &value)

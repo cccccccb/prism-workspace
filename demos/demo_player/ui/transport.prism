@@ -5,6 +5,7 @@ VStack(spacing: 6) {
     }
     Progress(value: $playback_progress, height: "@indicator_height", cornerRadius: "@progress_radius",
              foreground: "@musicAccent", background: "@progressTrack")
+        .transition(property: "value", durationMs: 180, easing: "easeOutCubic")
     HStack(height: 12, justify: "spaceBetween", align: "center", spacing: 0) {
         Text($playback_elapsed, font: "@font_caption", foreground: "@mutedText")
         Text($playback_duration, font: "@font_caption", foreground: "@mutedText")

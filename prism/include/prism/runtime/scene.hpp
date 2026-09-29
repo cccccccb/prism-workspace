@@ -3,6 +3,7 @@
 #include "prism/contracts/display_list.hpp"
 #include "prism/contracts/surface_effect.hpp"
 #include "prism/contracts/theme.hpp"
+#include "prism/runtime/animation_sample.hpp"
 #include "prism/runtime/blueprint.hpp"
 #include "prism/runtime/ui_install.hpp"
 #include <cstddef>
@@ -19,8 +20,13 @@
 #include <utility>
 #include <vector>
 
+namespace prism::animation {
+class AnimationClock;
+}
+
 namespace prism::runtime {
 struct RenderTree;
+struct SnapshotNode;
 
 struct Style {
     bool visible{true};
@@ -82,6 +88,19 @@ public:
     bool AcceptsBinding(std::string_view name, const PropertyValue &value) const;
     bool SetBinding(std::string_view name, PropertyValue value);
     bool SetProperty(contracts::NodeId id, DslProperty property, PropertyValue value);
+    // Enable transitions only after the initial Prepared UI has been installed.
+    // A supplied clock must outlive this Scene.
+    void EnableAnimations(const animation::AnimationClock *clock = nullptr);
+    bool HasActiveAnimations() const noexcept;
+    std::uint64_t AnimationNowNs() const noexcept;
+    bool AdvanceAnimations(std::uint64_t now);
+    std::optional<std::uint64_t> NextAnimationDeadlineNs(std::uint64_t now) const noexcept;
+
+    AnimationSampleStamp AnimationSample() const noexcept
+    {
+        return animation_sample_;
+    }
+
     // Validates a detached candidate before changing the retained scene.
     bool ApplyTheme(const contracts::ThemeSnapshot &, std::string *diagnostic = nullptr);
 
@@ -152,6 +171,7 @@ public:
 private:
     friend class SceneConstruction;
     struct Node;
+    struct AnimationState;
 
     struct EmptyConstruction {};
 
@@ -171,6 +191,16 @@ private:
     Blueprint CurrentBlueprint(const Node &) const;
     Node *Find(contracts::NodeId id) const;
     bool IsVisible(const Node &) const;
+    bool SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyValue value,
+                       std::uint64_t now);
+    bool RetargetPresentation(Node &node, DslProperty property, const PropertyValue &previous,
+                              const PropertyValue &target, std::uint64_t now);
+    void ApplyPresentation(const Node &node, SnapshotNode &snapshot) const;
+    void RecordAnimationSample(std::uint64_t now) noexcept;
+    void CancelAnimations() noexcept;
+    void CancelHiddenAnimations() noexcept;
+    void ReconcileCommittedAnimations(const std::vector<std::pair<Node *, Node *>> &pairs) noexcept;
+    void DropAnimationsForNodes(const std::vector<Node *> &nodes) noexcept;
     void ApplyCachedProperty(Node &node, DslProperty property, const PropertyValue &value);
     PropertyValue CurrentProperty(const Node &node, DslProperty property) const;
     std::optional<std::string> Hit(const Node &node, contracts::LogicalPoint point) const;
@@ -200,6 +230,8 @@ private:
     std::uint64_t pixels_revision_{1};
     std::uint64_t build_calls_{0}, layout_count_{0};
     std::unique_ptr<RenderTree> render_tree_;
+    std::unique_ptr<AnimationState> animation_state_;
+    AnimationSampleStamp animation_sample_{};
     Node *hovered_{nullptr};
     Node *focused_{nullptr};
     mutable bool input_dirty_{true};

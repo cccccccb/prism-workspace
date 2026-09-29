@@ -1,4 +1,5 @@
 #pragma once
+#include "prism/animation/timeline.hpp"
 #include "prism/runtime/dsl_schema.hpp"
 #include "prism/runtime/scene.hpp"
 #include <algorithm>
@@ -12,6 +13,7 @@ struct Scene::Node {
     std::string region;
     bool region_mounted{false};
     std::vector<PropertyBinding> bindings;
+    std::vector<TransitionSpec> transitions;
     Node *parent{};
     Style style{};
     std::map<DslProperty, PropertyValue> properties;
@@ -30,6 +32,35 @@ struct Scene::Node {
     ShapedText shaped{};
     std::uint64_t revision{1};
     std::vector<std::unique_ptr<Node>> children;
+};
+
+struct Scene::AnimationState {
+    using Key = std::pair<std::uint32_t, DslProperty>;
+
+    struct Track {
+        Track(const animation::AnimationClock &clock, contracts::NodeId node_id,
+              DslProperty property_id, PropertyValue from_value, PropertyValue target_value)
+            : node(node_id), property(property_id), from(std::move(from_value)),
+              target(std::move(target_value)), presented(from), progress(clock)
+        {
+        }
+
+        contracts::NodeId node;
+        DslProperty property;
+        PropertyValue from;
+        PropertyValue target;
+        PropertyValue presented;
+        animation::ScalarTimeline progress;
+
+        PropertyValue Interpolate(double progress_value) const;
+    };
+
+    explicit AnimationState(const animation::AnimationClock &value) : clock(value)
+    {
+    }
+
+    const animation::AnimationClock &clock;
+    std::map<Key, std::unique_ptr<Track>> tracks;
 };
 
 namespace scene_detail {

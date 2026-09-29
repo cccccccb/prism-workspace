@@ -4,7 +4,10 @@
 #include "prism/compiler/error.hpp"
 #include "prism/runtime/dsl_schema.hpp"
 #include "prism/runtime/dsl_syntax.hpp"
+#include <cmath>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -36,6 +39,23 @@ bool CorrectType(DslValueType type, const SyntaxValue &value)
                std::holds_alternative<BindingValue>(value.data);
     }
     return false;
+}
+
+std::optional<animation::Easing> ParseEasing(std::string_view name)
+{
+    if (name == "linear") {
+        return animation::Easing::Linear;
+    }
+    if (name == "easeInCubic") {
+        return animation::Easing::EaseInCubic;
+    }
+    if (name == "easeOutCubic") {
+        return animation::Easing::EaseOutCubic;
+    }
+    if (name == "easeInOutCubic") {
+        return animation::Easing::EaseInOutCubic;
+    }
+    return std::nullopt;
 }
 
 class ComponentCompiler {
@@ -209,6 +229,10 @@ private:
                          const ComponentSpec &component, const SyntaxNode &node)
     {
         for (const auto &modifier : node.modifiers) {
+            if (modifier.name == "transition") {
+                AssignTransition(out, component, node, modifier);
+                continue;
+            }
             if (modifier.name == "clip" && modifier.arguments.empty()) {
                 AssignProperty(out, seen, component, node, "clip", SyntaxValue{{true}},
                                modifier.line);
@@ -223,6 +247,61 @@ private:
             AssignProperty(out, seen, component, node, modifier.name,
                            modifier.arguments.front().value, modifier.line);
         }
+    }
+
+    void AssignTransition(PreparedNode &out, const ComponentSpec &component, const SyntaxNode &node,
+                          const SyntaxModifier &modifier)
+    {
+        const SyntaxArgument *property_arg = nullptr;
+        const SyntaxArgument *duration_arg = nullptr;
+        const SyntaxArgument *easing_arg = nullptr;
+
+        for (const auto &argument : modifier.arguments) {
+            const SyntaxArgument **slot = nullptr;
+            if (argument.name == "property") {
+                slot = &property_arg;
+            } else if (argument.name == "durationMs") {
+                slot = &duration_arg;
+            } else if (argument.name == "easing") {
+                slot = &easing_arg;
+            } else {
+                Error(argument.line, "unknown transition argument: " + argument.name);
+            }
+            if (*slot) {
+                Error(argument.line, "duplicate transition argument: " + argument.name);
+            }
+            *slot = &argument;
+        }
+        if (!property_arg || !duration_arg || !easing_arg || modifier.arguments.size() != 3) {
+            Error(modifier.line, "transition requires property, durationMs and easing");
+        }
+
+        const auto *name = std::get_if<std::string>(&property_arg->value.data);
+        const auto *property = name ? FindProperty(*name) : nullptr;
+        if (!property || !SupportsTransition(component.kind, property->id) ||
+            !(component.allowed_properties & PropertyBit(property->id))) {
+            Error(property_arg->line, "property cannot transition on " + node.name);
+        }
+
+        const auto *milliseconds = std::get_if<double>(&duration_arg->value.data);
+        if (!milliseconds || !std::isfinite(*milliseconds) || *milliseconds < 0 ||
+            *milliseconds > 10000 || std::trunc(*milliseconds) != *milliseconds) {
+            Error(duration_arg->line, "transition durationMs must be an integer from 0 to 10000");
+        }
+
+        const auto *easing_name = std::get_if<std::string>(&easing_arg->value.data);
+        const auto easing = easing_name ? ParseEasing(*easing_name) : std::nullopt;
+        if (!easing) {
+            Error(easing_arg->line, "unknown transition easing");
+        }
+
+        for (const auto &existing : out.transitions) {
+            if (existing.property == property->id) {
+                Error(modifier.line, "duplicate transition property: " + *name);
+            }
+        }
+        out.transitions.push_back(
+            {property->id, static_cast<std::uint32_t>(*milliseconds), *easing});
     }
 
     void CreateLabel(PreparedNode &out)

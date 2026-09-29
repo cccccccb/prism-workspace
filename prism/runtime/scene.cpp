@@ -116,14 +116,21 @@ bool Scene::SetBinding(std::string_view name, PropertyValue value)
             return false;
         }
     }
+    const auto now = AnimationNowNs();
     bool changed = false;
     for (const auto &target : it->second) {
-        changed = SetProperty(target.node->id, target.property, value) || changed;
+        changed = SetPropertyAt(target.node->id, target.property, value, now) || changed;
     }
     return changed;
 }
 
 bool Scene::SetProperty(contracts::NodeId id, DslProperty property, PropertyValue value)
+{
+    return SetPropertyAt(id, property, std::move(value), AnimationNowNs());
+}
+
+bool Scene::SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyValue value,
+                          std::uint64_t now)
 {
     Node *node = Find(id);
     if (!node || property == DslProperty::Material ||
@@ -136,6 +143,7 @@ bool Scene::SetProperty(contracts::NodeId id, DslProperty property, PropertyValu
         return false;
     }
     const bool was_visible = IsVisible(*node);
+    const bool animated = RetargetPresentation(*node, property, previous, value, now);
     node->properties[property] = value;
     node->explicit_properties.insert(property);
     std::erase_if(node->theme_refs,
@@ -145,15 +153,16 @@ bool Scene::SetProperty(contracts::NodeId id, DslProperty property, PropertyValu
         node->image_ready = false;
         node->intrinsic_size = {};
     }
-    ++node->revision;
     ++transaction_revision_;
     // Retain all state while concealed, including cache revisions and resolved
     // style overrides. Revealing any ancestor triggers a full layout/snapshot.
     // A child becoming locally visible under a hidden parent stays concealed.
     if (!was_visible && !IsVisible(*node)) {
+        ++node->revision;
         return true;
     }
     if (property == DslProperty::Visible && !node->style.visible) {
+        CancelHiddenAnimations();
         if (hovered_ && !IsVisible(*hovered_)) {
             ++hovered_->revision;
             hovered_ = nullptr;
@@ -177,8 +186,11 @@ bool Scene::SetProperty(contracts::NodeId id, DslProperty property, PropertyValu
     if (input_shape) {
         input_dirty_ = true;
     }
-    Invalidate(affected |
-               (input_shape && affected == Dirty::None ? Dirty::Composite : Dirty::None));
+    if (!animated) {
+        ++node->revision;
+        Invalidate(affected |
+                   (input_shape && affected == Dirty::None ? Dirty::Composite : Dirty::None));
+    }
     return true;
 }
 
@@ -265,6 +277,7 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
         item.bounds = node->bounds;
         item.shaped = node->shaped;
         item.revision = node->revision;
+        ApplyPresentation(*node, item);
         for (const auto &child : node->children) {
             item.children.push_back(child->id);
         }

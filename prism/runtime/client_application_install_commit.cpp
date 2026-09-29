@@ -6,6 +6,7 @@ void ClientApplication::Impl::CommitScene(runtime::UiLoadId load,
                                           const std::set<std::uint64_t> &images)
 {
     auto next_images = images;
+    next->EnableAnimations();
     QueueRenderInstallUi(load);
 
     if (scene) {
@@ -17,6 +18,9 @@ void ClientApplication::Impl::CommitScene(runtime::UiLoadId load,
     scene = std::move(next);
     scene_images.swap(next_images);
     installed_ui = load;
+    animation_worker_active = false;
+    animation_deadline_ns.reset();
+    pending_animation_finish_sequence.reset();
     ui_presentation.Install(load);
     last_list.reset();
     last_image_uses.reset();
@@ -100,6 +104,7 @@ bool ClientApplication::Impl::CommitInstall(const runtime::BindingValues &bindin
     }
     queued_frame.reset();
     PublishFramePacket();
+    SyncAnimationSampling();
     QueueRenderUpdate(true);
     binding_values.swap(current);
     install.reset();

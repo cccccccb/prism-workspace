@@ -5,6 +5,7 @@ namespace prism::sdk {
 void ClientApplication::Impl::ProcessRenderEvents(bool deliver)
 {
     std::uint64_t processed_window_sequence{};
+    std::optional<runtime::FrameOpportunityEvent> opportunity;
     while (auto event = bridge->render_events.TryPop()) {
         if (!deliver || failed || closed ||
             bridge->terminal.Reason() != runtime::TerminalReason::None) {
@@ -36,6 +37,13 @@ void ClientApplication::Impl::ProcessRenderEvents(bool deliver)
             HandlePresentation(*presentation);
             continue;
         }
+        if (const auto *ready = std::get_if<runtime::FrameOpportunityEvent>(&*event)) {
+            // A configure can retire an unanswered opportunity and issue a
+            // replacement before the UI drains the reverse queue. Keep the
+            // newest opportunity and validate its generation after the batch.
+            opportunity = *ready;
+            continue;
+        }
 
         const auto &window = std::get<runtime::SequencedWindowEvent>(*event);
         if (!scene || !window.sequence || window.sequence <= last_processed_window_sequence) {
@@ -57,8 +65,14 @@ void ClientApplication::Impl::ProcessRenderEvents(bool deliver)
         }
     }
 
-    if (!processed_window_sequence || !scene || failed || closed ||
-        bridge->terminal.Reason() != runtime::TerminalReason::None) {
+    if (!scene || failed || closed || bridge->terminal.Reason() != runtime::TerminalReason::None) {
+        return;
+    }
+
+    if (opportunity) {
+        HandleFrameOpportunity(*opportunity);
+    }
+    if (!processed_window_sequence) {
         return;
     }
 
@@ -155,6 +169,11 @@ void ClientApplication::Impl::HandleSubmitted(const runtime::SubmittedFrameEvent
     }
     if (event.kind == runtime::SubmittedKind::Pixels && on_ui_submitted) {
         on_ui_submitted(event.ui);
+    }
+    if (event.kind == runtime::SubmittedKind::Pixels && event.ui == installed_ui &&
+        pending_animation_finish_sequence &&
+        event.frame_sequence >= *pending_animation_finish_sequence) {
+        SyncAnimationSampling();
     }
 }
 

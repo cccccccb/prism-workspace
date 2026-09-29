@@ -135,6 +135,7 @@ private:
         out.kind = node.kind;
         out.bindings = node.bindings;
         out.theme_refs = node.theme_refs;
+        out.transitions = node.transitions;
         out.allowed_properties = node.allowed_properties;
         out.line = node.line;
         for (const auto &property : node.properties) {

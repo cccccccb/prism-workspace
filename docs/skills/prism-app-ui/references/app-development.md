@@ -1,8 +1,9 @@
 # Prism 第三方应用开发指南
 
-基线日期：2026-09-27，对应已部署的 `0.1.0-13` 能力。本文是
+文档原有发布基线：2026-09-27 的 `0.1.0-13`；源码能力核对至 2026-09-29。本文是
 [`prism-app-ui` SKILL](../SKILL.md) 的开发参考，也是第三方开发者和其他 AI 的交接规范。
-它描述当前实现；未来扩展以更新后的契约和源码为准。
+源码新增的动画接口需要用相应版本的 Host/SDK 构建和运行；不能假定旧版已安装包可用。
+未来扩展以更新后的契约和源码为准。
 
 ## 目录
 
@@ -69,7 +70,8 @@ Wayland/EGL/Skia 前端、不运行第二个 SDK 主循环。若框架缺通用�
 
 | 标识 | 当前值 | 含义 |
 | --- | --- | --- |
-| 发布包 | `0.1.0-13` | 本文核对的运行时发布基线 |
+| 文档发布基线 | `0.1.0-13` | 原有运行时能力基线；并非当前安装版本声明 |
+| 动画源码 | Paint Transition v1 | 开发源码新增 `.transition`；发布包是否包含以实际构建为准 |
 | manifest `format_version` | 整数 `1` | 应用目录包结构 |
 | manifest `runtime_abi` | 整数 `1` | 业务 C ABI；可选尾字段靠 struct_size 协商 |
 | Interface `version` | 数字 `2` | 多区域加载声明 |
@@ -81,7 +83,10 @@ Progress、Toggle、typed binding、visible、主题材料与 token、light/dark
 critical/deferred、稳定 Slot、Host work、取消、one-shot tick 与平台启动/主题事件。
 
 **当前能力边界：** 没有可直接使用的 Slider 拖动、TextInput、Scroll、Repeater/List
-动态列表、任意自定义向量文件控件、动画 DSL、完整无障碍语义 API。Image 当前解码
+动态列表、任意自定义向量文件控件、完整无障碍语义 API。动画源码目前只支持
+`Progress.value` 及 `Text`、`Icon`、`IconButton`、`Progress`、`Toggle` 的
+`foreground` 时长过渡；不支持关键帧、弹簧 DSL、通用透明度/变换或 WM 视觉动画。
+已部署的 `0.1.0-13` 仍不包含动画 DSL。Image 当前解码
 PNG；内建 Icon 使用框架向量图标，与任意 SVG 文件加载是不同接口。真实 Music 的
 三行曲库是应用固定行和 binding，不是通用动态列表实现。
 
@@ -211,6 +216,7 @@ Card(material: "card", padding: 8) {
         Text($status, font: "@font_caption", foreground: "@mutedText")
         Progress(value: $progress, height: 4,
                  foreground: "@accent", background: "@progressTrack")
+            .transition(property: "value", durationMs: 180, easing: "easeOutCubic")
     }
 }
 ```
@@ -220,6 +226,14 @@ Card(material: "card", padding: 8) {
 由业务格式化成字符串，数字 binding 用于 Progress、尺寸等实际数值属性。
 Progress 使用 0..1，Toggle 的 checked 使用 bool。不会将 arbitrary JSON 对象自动
 映射成节点树，也没有 DSL 字符串插值、业务表达式或 script handler。
+
+上述 `.transition` 仅用于包含动画 v1 的源码构建：首次安装直接显示 binding 初值；
+之后业务发布新的 `$progress` 目标值时，SDK 按单调时间计算呈现样本。业务继续发布
+有类型的数值，不逐帧写 binding，也不为动画安排 `schedule_tick`。属性名必须是
+当前组件允许过渡的属性；`durationMs` 是 `0..10000` 的整数字面量，`easing` 可为
+`linear`、`easeInCubic`、`easeOutCubic`、`easeInOutCubic`。三个命名参数都必需，
+非法值在准备阶段拒绝。主题切换会取消当前轨迹并直接取新目标；完整约束见
+[动画运行时与 DSL 契约](../../../ANIMATION_RUNTIME_SPEC.md)。
 
 Binding 名称统一使用 `[A-Za-z_][A-Za-z0-9_]*`，保证声明与 `$name` 的词法规则一致。
 当前图像使用静态资源路径，如 `Image("cover.png")`；路径相对 manifest 的 assets
@@ -694,8 +708,9 @@ Render 约 106–118ms，而 Ganesh 构造约 1ms。它们是首次调用墙钟�
 RenderTree → DisplayList → 后端补齐通用实现和验证。控件 action 仍交给业务；新主题
 效果通过材料/纯快照/平台能力扩展。应用 ID、主题 ID 不成为 renderer 分支条件。
 
-复杂列表、编辑控件、动画、增量布局或独立业务进程需要各自设计，写清尚未实现的
-部分。优先明确接口和实际使用场景，随后扩展这个 SKILL 的对应章节与示例。
+复杂列表、编辑控件、关键帧/弹簧 DSL、变换与透明度合成动画、增量布局或独立业务
+进程需要各自设计，写清尚未实现的部分。优先明确接口和实际使用场景，随后扩展
+这个 SKILL 的对应章节与示例。
 
 ## 13. 开发任务交接范例
 

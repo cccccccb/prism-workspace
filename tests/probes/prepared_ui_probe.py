@@ -41,6 +41,9 @@ def run(build, evidence):
                     ("sdk-damage", [str(build / "tests/prism_skia_gles_wayland_probe"),
                                     env["WAYLAND_DISPLAY"], "--verify-damage",
                                     "prism.preparation.damage"]),
+                    ("sdk-animation", [str(build / "tests/prism_skia_gles_wayland_probe"),
+                                       env["WAYLAND_DISPLAY"], "--verify-animation",
+                                       "prism.preparation.animation"]),
                 ]
                 for name, command in commands:
                     started = time.monotonic()

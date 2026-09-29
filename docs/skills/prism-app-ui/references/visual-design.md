@@ -36,7 +36,8 @@ Prism 的默认方向是图标为主、文字为辅的简洁桌面。参考 mac-
 现有 Shell 是普通应用的视觉参考：
 
 - Topbar 只保留 Prism 品牌和时间文字，连接、电源等状态用图标表达；不展示 Wi-Fi
-  名称或 AC 等附加文字。顶部短横线是统一视觉元素，动画交互后续另行实现。
+  名称或 AC 等附加文字。顶部短横线后续作为平铺组的控制入口；当前仍是静态视觉，
+  通用状态、呈现与控制功能按独立阶段接入。
 - Dock 分为应用中心、固定常用应用、已打开应用三段，使用分割线区分。运行应用
   下方使用清楚的短横线；固定与运行区域出现同一应用不代表创建了两个实例。
 - 横线色彩与厚度来自主题，间距让图标、分割线和运行指示各自清晰。玻璃以烟灰
@@ -44,6 +45,9 @@ Prism 的默认方向是图标为主、文字为辅的简洁桌面。参考 mac-
 
 第三方普通应用参考其图标、间距和层次即可；不复制 Topbar/Dock 到窗口中，不申请
 Shell 角色。应用自己的选中横线表达实际页面/选项状态，运行指示由平台实例状态决定。
+控制横线的固定感应区、视觉子树、状态规则和系统权限见
+[交互与呈现设计](../../../INTERACTION_AND_PRESENTATION_SPEC.md)。其中的新类型和示意规则
+尚不可作为应用 DSL 使用；普通应用不能凭 action 名称取得系统布局控制权限。
 
 ## 2. 会话主题与独立明暗配色
 
@@ -459,7 +463,8 @@ Card(height: 120, material: "card", padding: 8, clip: true) {
 | Slider 拖动、滚动容器、虚拟列表、TextInput | 当前视觉 schema 未提供，不能写伪 API |
 | CSS opacity/gradient/box-shadow、百分比尺寸、media query | 当前 DSL 未提供；使用现有类型化属性 |
 | 自动换行/省略号/自动缩字、任意自定义字体属性 | 未提供对应声明式属性，不作隐式假设 |
-| 声明式动画、活动动画单调帧时间入口 | 后续单独设计；不要用永久 loop/tick 冒充支持 |
+| Paint Transition 与单调帧时间 | 源码 v1 已接入 Progress.value 和指定节点 foreground；范围见[动画规范](../../../ANIMATION_RUNTIME_SPEC.md)，不代表旧部署包已有 |
+| 状态规则、通用 transform/opacity、触摸手势 | [设计契约](../../../INTERACTION_AND_PRESENTATION_SPEC.md)已定义，尚未实现；不要用永久 loop/tick 模拟 |
 | 节点增量布局、DisplayList 分块缓存 | 延后设计；现有 render tree 复用不是这些功能已完成 |
 | 安全局部像素修复 | 已有 damage/history/buffer-age 与保守完整回退；不改变布局功能边界 |
 | 任意第三方 Wayland 客户端内部主题统一 | 未使用 Prism SDK 的客户端内部内容仍由它维护 |

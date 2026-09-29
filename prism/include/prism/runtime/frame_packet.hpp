@@ -2,6 +2,7 @@
 
 #include "prism/contracts/display_list.hpp"
 #include "prism/contracts/surface_effect.hpp"
+#include "prism/runtime/animation_sample.hpp"
 #include "prism/runtime/render_resource.hpp"
 #include "prism/runtime/ui_load.hpp"
 #include <cstdint>
@@ -21,6 +22,7 @@ struct FramePacket {
     std::uint64_t pixels_revision{};
     std::uint64_t theme_generation{};
     std::uint64_t resource_epoch{};
+    AnimationSampleStamp animation_sample{};
     int configure_count{};
     contracts::BufferSize buffer_size{};
     double scale{1.0};

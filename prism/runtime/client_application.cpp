@@ -191,6 +191,9 @@ void ClientApplication::Impl::FailFrontend()
     ui_submitted_frame.reset();
     uploaded_image_versions.clear();
     pending_release_versions.clear();
+    animation_worker_active = false;
+    animation_deadline_ns.reset();
+    pending_animation_finish_sequence.reset();
     ui_metrics = {};
     ui_configure_count = 0;
     on_ui_submitted = {};
@@ -254,6 +257,7 @@ bool ClientApplication::Pump(int timeout_ms, std::span<pollfd> wake_fds)
             app.FailFrontend();
             return false;
         }
+        app.AdvanceAnimationDeadline();
         app.PublishFramePacket();
         if (app.ui_work_turn_started) {
             timeout_ms = 0;
@@ -270,7 +274,8 @@ bool ClientApplication::Pump(int timeout_ms, std::span<pollfd> wake_fds)
         sources.push_back({app.bridge->terminal.Fd(), POLLIN, 0});
         sources.insert(sources.end(), wake_fds.begin(), wake_fds.end());
 
-        const int ready = poll(sources.data(), static_cast<nfds_t>(sources.size()), timeout_ms);
+        const int ready = poll(sources.data(), static_cast<nfds_t>(sources.size()),
+                               app.AnimationTimeoutMs(timeout_ms));
         if (ready < 0 && errno != EINTR) {
             throw std::system_error(errno, std::generic_category(), "Client event poll");
         }
@@ -297,6 +302,7 @@ bool ClientApplication::Pump(int timeout_ms, std::span<pollfd> wake_fds)
             app.FailFrontend();
             return false;
         }
+        app.AdvanceAnimationDeadline();
         app.PublishFramePacket();
         return true;
     } catch (const std::exception &error) {
@@ -320,8 +326,15 @@ bool ClientApplication::SetBinding(std::string_view name, runtime::PropertyValue
     }
     app.binding_values.insert_or_assign(std::string(name), value);
     const bool changed = app.scene->SetBinding(name, std::move(value));
-    if (changed && app.scene->PendingDirty() != runtime::Dirty::None) {
+    if (changed &&
+        (app.scene->PendingDirty() != runtime::Dirty::None || app.scene->HasActiveAnimations())) {
         app.InvalidateQueuedFrame();
+    }
+    if (changed && (app.scene->HasActiveAnimations() || app.animation_worker_active)) {
+        app.SyncAnimationSampling();
+        if (app.scene->HasActiveAnimations()) {
+            app.QueueRenderUpdate(true);
+        }
     }
     return true;
 }
@@ -340,6 +353,8 @@ bool ClientApplication::ApplyTheme(const contracts::ThemeSnapshot &theme, std::s
             // A resolved no-op can still change the accepted theme identity
             // while an older visual candidate is waiting for submission.
             app.InvalidateQueuedFrame();
+            app.PublishFramePacket();
+            app.SyncAnimationSampling();
         }
         if (diagnostic) {
             diagnostic->clear();
@@ -401,6 +416,9 @@ void ClientApplication::Close()
     impl_->ui_submitted_frame.reset();
     impl_->uploaded_image_versions.clear();
     impl_->pending_release_versions.clear();
+    impl_->animation_worker_active = false;
+    impl_->animation_deadline_ns.reset();
+    impl_->pending_animation_finish_sequence.reset();
     impl_->on_ui_submitted = {};
 
     if (impl_->scene) {

@@ -34,8 +34,8 @@ void ReplaceRegions(Blueprint &node, std::span<const RegionUpdate> updates,
 bool SameStructure(const Blueprint &a, const Blueprint &b)
 {
     if (a.kind != b.kind || a.region != b.region || a.region_mounted != b.region_mounted ||
-        a.allowed_properties != b.allowed_properties || a.bindings.size() != b.bindings.size() ||
-        a.children.size() != b.children.size()) {
+        a.allowed_properties != b.allowed_properties || a.transitions != b.transitions ||
+        a.bindings.size() != b.bindings.size() || a.children.size() != b.children.size()) {
         return false;
     }
     for (std::size_t i = 0; i < a.bindings.size(); ++i) {
@@ -235,6 +235,9 @@ void Scene::ValidateRetainedValues(const std::vector<std::pair<Node *, Node *>> 
         if (live->explicit_properties != candidate->explicit_properties) {
             throw std::invalid_argument("Candidate changes retained property provenance");
         }
+        if (live->transitions != candidate->transitions) {
+            throw std::invalid_argument("Candidate changes retained transition descriptors");
+        }
         auto expected_refs = live->theme_refs;
         for (const auto &[property, projection] : projected) {
             if (CurrentProperty(*live, property) != *projection.second) {
@@ -305,6 +308,8 @@ bool Scene::Preflight(const BindingValues &values, std::string *diagnostic)
         CollectPairs(*root_, *candidate.root_, pairs);
 
         CommitValues(pairs);
+        ReconcileCommittedAnimations(pairs);
+        CancelHiddenAnimations();
         ++transaction_revision_;
         input_dirty_ = true;
         Invalidate(Dirty::Layout | Dirty::Paint | Dirty::Composite);
@@ -410,6 +415,7 @@ bool Scene::MountRegions(std::span<const RegionUpdate> updates, const BindingVal
         // Every allocation, projection and whole-scene validation has completed.
         // These moves preserve retained node addresses and cannot fail.
         CommitValues(pairs);
+        ReconcileCommittedAnimations(pairs);
         for (auto &[live, prepared] : replacements) {
             live->children.swap(prepared->children);
             for (auto &child : live->children) {
@@ -420,6 +426,8 @@ bool Scene::MountRegions(std::span<const RegionUpdate> updates, const BindingVal
             next_nodes[i]->id = {static_cast<std::uint32_t>(i), 1};
         }
         nodes_.swap(next_nodes);
+        DropAnimationsForNodes(removed);
+        CancelHiddenAnimations();
         bindings_.swap(next_bindings);
         regions_.swap(next_regions);
         hovered_ = remove_hover ? nullptr : hovered_;

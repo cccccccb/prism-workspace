@@ -60,6 +60,7 @@ struct PreparedNode {
     std::vector<PreparedPropertyAssignment> properties;
     std::vector<PropertyBinding> bindings;
     std::vector<ThemeRef> theme_refs;
+    std::vector<TransitionSpec> transitions;
     std::uint64_t allowed_properties{UINT64_MAX};
     std::vector<PreparedNode> children;
     int line{1};

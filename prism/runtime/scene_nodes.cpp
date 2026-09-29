@@ -30,6 +30,27 @@ std::unique_ptr<Scene::Node> Scene::MakeShallowNode(Blueprint blueprint, std::si
         throw std::invalid_argument("Invalid Blueprint node kind");
     }
     node->kind = blueprint.kind;
+    for (const auto &transition : blueprint.transitions) {
+        if (!SupportsTransition(node->kind, transition.property) ||
+            !(blueprint.allowed_properties & PropertyBit(transition.property)) ||
+            transition.duration_ms > 10000 ||
+            std::any_of(node->transitions.begin(), node->transitions.end(),
+                        [&transition](const TransitionSpec &existing) {
+                            return existing.property == transition.property;
+                        })) {
+            throw std::invalid_argument("Invalid Blueprint transition");
+        }
+        switch (transition.easing) {
+        case animation::Easing::Linear:
+        case animation::Easing::EaseInCubic:
+        case animation::Easing::EaseOutCubic:
+        case animation::Easing::EaseInOutCubic:
+            break;
+        default:
+            throw std::invalid_argument("Invalid Blueprint transition easing");
+        }
+        node->transitions.push_back(transition);
+    }
     node->region = std::move(blueprint.region);
     node->region_mounted = blueprint.region_mounted;
     if (!node->region.empty()) {
@@ -119,6 +140,7 @@ Blueprint Scene::CurrentBlueprint(const Node &node) const
     result.region = node.region;
     result.region_mounted = node.region_mounted;
     result.bindings = node.bindings;
+    result.transitions = node.transitions;
     result.allowed_properties = node.allowed_properties;
     result.theme_refs = node.theme_refs;
     for (const auto id : node.explicit_properties) {

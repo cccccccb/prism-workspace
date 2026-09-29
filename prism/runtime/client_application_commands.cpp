@@ -168,6 +168,9 @@ bool ClientApplication::Impl::ResetRenderBridge() noexcept
         pending_release_versions.clear();
         queued_frame.reset();
         ui_submitted_frame.reset();
+        animation_worker_active = false;
+        animation_deadline_ns.reset();
+        pending_animation_finish_sequence.reset();
         platform_status = {};
         ui_metrics = {};
         ui_configure_count = 0;

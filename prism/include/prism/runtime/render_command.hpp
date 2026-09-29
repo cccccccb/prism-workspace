@@ -3,6 +3,7 @@
 #include "prism/runtime/frame_packet.hpp"
 #include "prism/runtime/image_resources.hpp"
 #include "prism/runtime/render_resource.hpp"
+#include "prism/runtime/render_worker_lifecycle.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -25,6 +26,24 @@ struct InstallUiCommand {
 // frame follows after the UI has combined its pending scene changes.
 struct InvalidateFrameCommand {
     UiLoadId ui{};
+};
+
+// The UI owns animation sampling. While enabled, a callback cannot resubmit
+// the last candidate until the UI has answered the worker's frame opportunity.
+struct SetAnimationSamplingCommand {
+    UiLoadId ui{};
+    bool active{};
+};
+
+// A null frame means that quantization produced no new visible pixels. The
+// immutable ready packet travels in this ordered command, so an earlier
+// candidate cannot be mistaken for the response to this opportunity.
+struct AnswerFrameOpportunityCommand {
+    UiLoadId ui{};
+    RenderWorkerGeneration worker{};
+    int configure_count{};
+    std::uint64_t id{};
+    std::shared_ptr<const FramePacket> frame;
 };
 
 enum class RenderRequestKind { Update, Redraw };
@@ -53,7 +72,8 @@ struct ReleaseImageCommand {
 // only adjacent frames of the same UI load may replace each other.
 using RenderCommand =
     std::variant<FrameCommand, InstallUiCommand, InvalidateFrameCommand, RequestRenderCommand,
-                 UiEventsProcessedCommand, RegisterImageCommand, ReleaseImageCommand>;
+                 UiEventsProcessedCommand, RegisterImageCommand, ReleaseImageCommand,
+                 SetAnimationSamplingCommand, AnswerFrameOpportunityCommand>;
 
 inline bool ReplaceFrameTail(const RenderCommand &older, const RenderCommand &newer) noexcept
 {
