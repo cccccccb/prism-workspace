@@ -220,7 +220,8 @@ void WaylandWindow::SurfaceConfigure(void *data, xdg_surface *surface, std::uint
     if (resize) {
         self.input_sent_ = false;
     }
-    self.Emit(contracts::ConfigureEvent{contracts::WindowId{1}, self.metrics_});
+    self.Emit(
+        contracts::ConfigureEvent{contracts::WindowId{1}, self.metrics_, self.configure_count_});
     if (resize && self.frame_callback_) {
         wl_callback_destroy(self.frame_callback_);
         self.frame_callback_ = nullptr;

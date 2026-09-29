@@ -35,7 +35,7 @@ const SkImage *GlesRenderer::Impl::Find(contracts::ResourceId id) const noexcept
 {
     const auto found = images.find(id.value);
     if (found == images.end() || !found->second.generation ||
-        found->second.generation != commands.ImageGeneration(id)) {
+        found->second.generation != resources.ImageGeneration(id)) {
         return nullptr;
     }
     return found->second.texture.get();
@@ -45,7 +45,7 @@ void GlesRenderer::Impl::PruneImages()
 {
     for (auto image = images.begin(); image != images.end();) {
         if (!image->second.generation ||
-            image->second.generation != commands.ImageGeneration({image->first})) {
+            image->second.generation != resources.ImageGeneration({image->first})) {
             image = images.erase(image);
         } else {
             ++image;
@@ -67,8 +67,8 @@ bool GlesRenderer::UploadImage(contracts::ResourceId id)
     if (ImageUploaded(id)) {
         return true;
     }
-    const auto *source = self.commands.RegisteredImage(id);
-    const auto generation = self.commands.ImageGeneration(id);
+    const auto *source = self.resources.Image(id);
+    const auto generation = self.resources.ImageGeneration(id);
     if (!source || !generation) {
         return false;
     }

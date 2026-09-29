@@ -3,6 +3,14 @@
 #include "presentation-time-client-protocol.h"
 #include "prism/platform/wayland_window.hpp"
 #include "xdg-shell-protocol.h"
+#ifdef PRISM_CLIENT_APP_TEST
+#include "prism/runtime/dsl_frontend.hpp"
+#include "prism/runtime/scene.hpp"
+#include "prism/sdk/client_application.hpp"
+#include <linux/input-event-codes.h>
+#include <string>
+#include <string_view>
+#endif
 #include <algorithm>
 #include <atomic>
 #include <cassert>
@@ -44,6 +52,9 @@ class Server {
         wl_resource *xdg{};
         wl_resource *toplevel{};
         bool configured{};
+#ifdef PRISM_CLIENT_APP_TEST
+        bool awaiting_pointer{};
+#endif
         std::vector<Record *> records;
     };
 
@@ -51,6 +62,11 @@ class Server {
     wl_global *compositor_{};
     wl_global *shell_{};
     wl_global *presentation_{};
+#ifdef PRISM_CLIENT_APP_TEST
+    wl_global *seat_{};
+    wl_resource *pointer_{};
+    bool batch_input_on_configure_{}, batch_input_sent_{};
+#endif
     std::thread thread_;
     std::atomic<bool> stop_{};
     std::mutex mutex_;
@@ -145,6 +161,58 @@ class Server {
         surface.configured = true;
     }
 
+#ifdef PRISM_CLIENT_APP_TEST
+    void ConfigureAndPress(Surface &surface)
+    {
+        assert(pointer_ &&
+               wl_resource_get_client(pointer_) == wl_resource_get_client(surface.resource));
+        Configure(surface, 160, 90);
+        const auto serial = wl_display_next_serial(display_);
+        wl_pointer_send_enter(pointer_, serial, surface.resource, wl_fixed_from_int(140),
+                              wl_fixed_from_int(20));
+        wl_pointer_send_button(pointer_, wl_display_next_serial(display_), 1, BTN_LEFT,
+                               WL_POINTER_BUTTON_STATE_PRESSED);
+        wl_pointer_send_frame(pointer_);
+        batch_input_sent_ = true;
+    }
+
+    static void DestroyPointer(wl_resource *resource)
+    {
+        auto *server = static_cast<Server *>(wl_resource_get_user_data(resource));
+        if (server->pointer_ == resource) {
+            server->pointer_ = nullptr;
+        }
+    }
+
+    static void GetPointer(wl_client *client, wl_resource *seat, uint32_t id)
+    {
+        auto *server = static_cast<Server *>(wl_resource_get_user_data(seat));
+        static const struct wl_pointer_interface implementation{
+            .set_cursor = [](wl_client *, wl_resource *, uint32_t, wl_resource *, int32_t,
+                             int32_t) {},
+            .release = Destroy};
+        server->pointer_ = wl_resource_create(client, &wl_pointer_interface, 5, id);
+        assert(server->pointer_);
+        wl_resource_set_implementation(server->pointer_, &implementation, server, DestroyPointer);
+        if (server->current_ && server->current_->awaiting_pointer) {
+            server->current_->awaiting_pointer = false;
+            server->ConfigureAndPress(*server->current_);
+        }
+    }
+
+    static void BindSeat(wl_client *client, void *data, uint32_t version, uint32_t id)
+    {
+        static const struct wl_seat_interface implementation{.get_pointer = GetPointer,
+                                                             .get_keyboard = nullptr,
+                                                             .get_touch = nullptr,
+                                                             .release = Destroy};
+        auto *seat = wl_resource_create(client, &wl_seat_interface, std::min(version, 5u), id);
+        assert(seat);
+        wl_resource_set_implementation(seat, &implementation, data, nullptr);
+        wl_seat_send_capabilities(seat, WL_SEAT_CAPABILITY_POINTER);
+    }
+#endif
+
     static void Commit(wl_client *, wl_resource *resource)
     {
         auto &surface = *static_cast<Surface *>(wl_resource_get_user_data(resource));
@@ -153,6 +221,20 @@ class Server {
             record->pending = false;
         }
         if (!surface.configured) {
+#ifdef PRISM_CLIENT_APP_TEST
+            if (surface.server->batch_input_on_configure_) {
+                // The detached SDK Scene was laid out at 480 pixels. Queue a
+                // same-size configure followed by a 160-pixel resize and
+                // input before the client can dispatch either configure.
+                Configure(surface, 480, 90);
+                if (surface.server->pointer_) {
+                    surface.server->ConfigureAndPress(surface);
+                } else {
+                    surface.awaiting_pointer = true;
+                }
+                return;
+            }
+#endif
             Configure(surface);
         }
     }
@@ -403,6 +485,24 @@ public:
         });
     }
 
+#ifdef PRISM_CLIENT_APP_TEST
+    void EnableBatchInput()
+    {
+        Sync([&] {
+            batch_input_on_configure_ = true;
+            seat_ = wl_global_create(display_, &wl_seat_interface, 5, this, BindSeat);
+            assert(seat_);
+        });
+    }
+
+    bool BatchInputSent()
+    {
+        bool sent = false;
+        Sync([&] { sent = batch_input_sent_; });
+        return sent;
+    }
+#endif
+
     void ReleaseFrames()
     {
         Sync(std::bind_front(&Server::ReleaseFramesOnThread, this));
@@ -518,6 +618,209 @@ struct DeferredFixture {
         return window.IsConfigured() && preparations > 0;
     }
 };
+
+struct AwaitFrameFixture {
+    prism::platform::WaylandWindow window;
+    SubmitRequest request;
+    unsigned preparations{}, commits{}, states{}, pixels{};
+    std::atomic<bool> ready{};
+
+    SubmitResult Prepare(const SubmitRequest &next)
+    {
+        ++preparations;
+        request = next;
+        assert(next.force_pixels);
+        return ready.load(std::memory_order_acquire) ? SubmitResult::Pixels
+                                                     : SubmitResult::AwaitFrame;
+    }
+
+    bool Commit()
+    {
+        ++commits;
+        wl_surface_commit(request.surface);
+        return wl_display_flush(request.display) >= 0;
+    }
+
+    void Submitted(SubmitResult result)
+    {
+        if (result == SubmitResult::State) {
+            ++states;
+        } else {
+            assert(result == SubmitResult::Pixels);
+            ++pixels;
+        }
+    }
+
+    bool Configured() const
+    {
+        return window.IsConfigured() && states == 1;
+    }
+
+    void Publish(int wake)
+    {
+        std::this_thread::sleep_for(40ms);
+        ready.store(true, std::memory_order_release);
+        const std::uint64_t signal = 1;
+        assert(write(wake, &signal, sizeof(signal)) == sizeof(signal));
+    }
+};
+
+void VerifyAwaitFrame(Server &server)
+{
+    const auto before = server.Inspect();
+    AwaitFrameFixture fixture;
+    fixture.window.SetSubmitHandlers(std::bind_front(&AwaitFrameFixture::Prepare, &fixture),
+                                     std::bind_front(&AwaitFrameFixture::Commit, &fixture),
+                                     std::bind_front(&AwaitFrameFixture::Submitted, &fixture));
+    assert(fixture.window.Open("wayland-submit-test", "await.fixture", "Await fixture", 160, 90));
+    Until(fixture.window, std::bind_front(&AwaitFrameFixture::Configured, &fixture));
+    assert(fixture.window.Pump(0));
+    UntilServer(server, [&before](const Snapshot &snapshot) {
+        return snapshot.commits == before.commits + 2;
+    });
+
+    // The configure acknowledgement commits State even though the first UI
+    // frame has not arrived. The pending pixel demand and submission identity
+    // must survive without creating a frame callback or feedback object.
+    const auto waiting = server.Inspect();
+    const auto stats = fixture.window.GetSubmitStats();
+    assert(waiting.frames == before.frames && waiting.feedbacks == before.feedbacks);
+    assert(stats.state_commits == 1 && stats.pixel_commits == 0 && stats.failures == 0 &&
+           stats.none == 0);
+    assert(!fixture.window.SurfaceStatePending() && !fixture.window.LastPixelSubmission() &&
+           !fixture.window.FrameCallbackPending());
+    assert(fixture.commits == 0 && fixture.states == 1 && fixture.pixels == 0);
+
+    const int wake = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    assert(wake >= 0);
+    pollfd source{wake, POLLIN, 0};
+    bool blocked = false;
+    for (unsigned turn = 0; turn < 3 && !blocked; ++turn) {
+        const auto attempts = fixture.preparations;
+        const auto started = std::chrono::steady_clock::now();
+        assert(fixture.window.Pump(60, std::span(&source, 1)));
+        const auto elapsed = std::chrono::steady_clock::now() - started;
+        blocked = elapsed >= 30ms;
+        assert(fixture.preparations <= attempts + 4 && !(source.revents & POLLIN));
+    }
+    assert(blocked);
+    assert(fixture.window.GetSubmitStats().none == 0);
+
+    // A caller-owned command FD wakes the protocol wait. No second redraw
+    // request is needed, and only the actual Pixels commit receives an ID.
+    std::thread publisher(&AwaitFrameFixture::Publish, &fixture, wake);
+    const auto deadline = std::chrono::steady_clock::now() + 1s;
+    while (!(source.revents & POLLIN)) {
+        assert(std::chrono::steady_clock::now() < deadline);
+        assert(fixture.window.Pump(200, std::span(&source, 1)));
+    }
+    publisher.join();
+    assert(source.revents & POLLIN);
+    std::uint64_t received{};
+    assert(read(wake, &received, sizeof(received)) == sizeof(received) && received == 1);
+    close(wake);
+    UntilServer(server, [&before](const Snapshot &snapshot) {
+        return snapshot.commits == before.commits + 3 && snapshot.frames == before.frames + 1 &&
+               snapshot.feedbacks == before.feedbacks + 1;
+    });
+    assert(fixture.commits == 1 && fixture.pixels == 1 && fixture.window.IsMapped());
+    assert(fixture.window.LastPixelSubmission().value == 1 &&
+           fixture.window.FrameCallbackPending());
+    server.Release();
+    Until(fixture.window, [&fixture] { return fixture.window.FrameDoneCount() == 1; });
+    fixture.window.Close();
+    UntilServer(server, [](const Snapshot &snapshot) { return snapshot.surfaces == 0; });
+}
+
+#ifdef PRISM_CLIENT_APP_TEST
+constexpr std::string_view resize_input_ui = R"(
+    Card {
+        IconButton("play", "target", anchor:"right", width:40, height:40)
+    }
+)";
+
+prism::runtime::ShapedText ResizeInputShape(std::string_view, double size)
+{
+    return {{}, 0, size};
+}
+
+struct ResizeInputActions {
+    std::vector<std::string> received;
+
+    void Handle(std::string_view action)
+    {
+        received.emplace_back(action);
+    }
+};
+
+void VerifyResizeInputUsesNewLayout(Server &server)
+{
+    const prism::contracts::LogicalPoint click{140, 20};
+    prism::runtime::Scene expected(prism::runtime::ParseBlueprint(resize_input_ui),
+                                   ResizeInputShape, {1});
+    assert(expected.SetViewport({480, 90}) && expected.Build({1}));
+    assert(!expected.ActionAt(click));
+    assert(expected.SetViewport({160, 90}) && expected.Build({1}));
+    assert(expected.ActionAt(click).value_or("") == "target");
+
+    server.EnableBatchInput();
+    prism::sdk::ClientConfig config;
+    config.socket = "wayland-submit-test";
+    config.app_id = "resize.input.fixture";
+    config.title = "Resize and input batch";
+    config.font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+    config.width = 480;
+    config.height = 90;
+    prism::sdk::ClientApplication app(std::move(config));
+    ResizeInputActions actions;
+    app.OnAction(std::bind_front(&ResizeInputActions::Handle, &actions));
+    assert(app.Open(resize_input_ui));
+    const auto initial_status = app.GetPlatformStatus();
+    assert(initial_status.configure_count == 0 && !initial_status.configured &&
+           !initial_status.mapped);
+
+    // The server sends both configures and the pointer press in protocol
+    // order before the client enters Pump. No EGL pixel submission is needed.
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (!server.BatchInputSent()) {
+        assert(std::chrono::steady_clock::now() < deadline);
+        std::this_thread::yield();
+    }
+    // BatchInputSent is set before the server flushes its client socket.
+    // Complete one more server turn so both configures and the press have
+    // reached the client before the single SDK Pump below.
+    server.Sync([] {});
+    assert(app.ConfigureCount() == 0);
+    assert(app.Pump(0));
+    assert(app.ConfigureCount() == 2);
+    assert(actions.received == std::vector<std::string>{"target"});
+    const auto status = app.GetPlatformStatus();
+    const auto stats = app.GetRenderStats();
+    assert(status.configured && status.configure_count == app.ConfigureCount());
+    assert(status.metrics.logical_size.width == 160 && status.metrics.logical_size.height == 90 &&
+           status.metrics.buffer_size.width == 160 && status.metrics.buffer_size.height == 90 &&
+           status.metrics.scale == 1.0);
+    assert(status.mapped == app.IsMapped() &&
+           status.frame_callback_pending == app.FrameCallbackPending());
+    assert(status.frame_done_count == app.FrameDoneCount() &&
+           status.presentation_feedback == app.HasPresentationFeedback());
+    assert(status.presentation_count == app.PresentationCount() &&
+           status.wait_duration_ns == app.WaitDurationNs());
+    assert(stats.gpu_render_attempts == 0 &&
+           stats.surface_state_commits == status.surface_state_commits &&
+           stats.surface_pixel_commits == status.surface_pixel_commits &&
+           stats.surface_submission_failures == status.surface_submission_failures &&
+           stats.surface_noops == status.surface_noops);
+    app.Close();
+    const auto closed_status = app.GetPlatformStatus();
+    assert(!closed_status.configured && !closed_status.mapped &&
+           !closed_status.frame_callback_pending && !closed_status.presentation_feedback);
+    assert(closed_status.metrics.logical_size.width == 0 &&
+           closed_status.metrics.buffer_size.width == 0);
+    assert(closed_status.configure_count == status.configure_count);
+    UntilServer(server, [](const Snapshot &snapshot) { return snapshot.surfaces == 0; });
+}
+#endif
 
 void VerifyDeferredPreparation(Server &server)
 {
@@ -662,6 +965,43 @@ void VerifyFeedbackBackpressure(Server &server)
     Until(fixture.window, std::bind_front(&IdentityFixture::FramesAt, &fixture, 9));
     fixture.window.Close();
     UntilServer(server, [](const Snapshot &snapshot) { return snapshot.surfaces == 0; });
+}
+
+void SignalOpenCancel(int cancel)
+{
+    std::this_thread::sleep_for(25ms);
+    assert(eventfd_write(cancel, 1) == 0);
+}
+
+void VerifyCancellableOpen()
+{
+    wl_display *stalled = wl_display_create();
+    assert(stalled && wl_display_add_socket(stalled, "wayland-open-stalled") == 0);
+
+    prism::platform::WaylandWindow window;
+    const auto started = std::chrono::steady_clock::now();
+    const prism::platform::WaylandOpenOptions timeout{-1, std::chrono::steady_clock::now() + 40ms};
+    assert(!window.Open("wayland-open-stalled", "timeout.fixture", "Timeout fixture", 160, 90,
+                        timeout));
+    assert(window.Display() == nullptr);
+    assert(std::chrono::steady_clock::now() - started < 1s);
+
+    const int cancel = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    assert(cancel >= 0);
+    std::thread signaler(SignalOpenCancel, cancel);
+    const auto cancellation_started = std::chrono::steady_clock::now();
+    const prism::platform::WaylandOpenOptions cancellable{cancel,
+                                                          std::chrono::steady_clock::now() + 2s};
+    assert(!window.Open("wayland-open-stalled", "cancel.fixture", "Cancel fixture", 160, 90,
+                        cancellable));
+    signaler.join();
+    assert(window.Display() == nullptr);
+    assert(std::chrono::steady_clock::now() - cancellation_started < 1s);
+    close(cancel);
+    wl_display_destroy(stalled);
+
+    assert(window.Open("wayland-submit-test", "retry.fixture", "Retry fixture", 160, 90));
+    window.Close();
 }
 } // namespace
 
@@ -835,6 +1175,11 @@ int main()
         VerifyOutOfOrderFeedback(server);
         VerifyFeedbackBackpressure(server);
         VerifyDeferredPreparation(server);
+        VerifyAwaitFrame(server);
+#ifdef PRISM_CLIENT_APP_TEST
+        VerifyResizeInputUsesNewLayout(server);
+#endif
+        VerifyCancellableOpen();
     }
     std::filesystem::remove_all(path);
 }

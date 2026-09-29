@@ -13,19 +13,16 @@ foreach(SKIA_SUPPORT_LIBRARY IN ITEMS libskcms.a libwuffs.a)
         message(FATAL_ERROR "Missing Skia support archive ${SKIA_SUPPORT_LIBRARY}")
     endif()
 endforeach()
-pkg_check_modules(PRISM_HARFBUZZ REQUIRED IMPORTED_TARGET harfbuzz)
-pkg_check_modules(PRISM_FREETYPE REQUIRED IMPORTED_TARGET freetype2)
 pkg_check_modules(PRISM_FONTCONFIG REQUIRED IMPORTED_TARGET fontconfig)
-pkg_check_modules(PRISM_PNG REQUIRED IMPORTED_TARGET libpng)
-add_library(prism_skia_raster STATIC raster_renderer.cpp image_codec.cpp)
+pkg_check_modules(PRISM_SKIA_PNG REQUIRED IMPORTED_TARGET libpng)
+add_library(prism_skia_raster STATIC raster_renderer.cpp resource_table.cpp)
 target_include_directories(prism_skia_raster PRIVATE "${PRISM_SKIA_ROOT}")
 target_include_directories(prism_skia_raster PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
 target_link_libraries(prism_skia_raster PUBLIC prism_client_scene prism_display_list_contract
     "${PRISM_SKIA_LIBRARY}"
     "${PRISM_SKIA_ROOT}/out/${PRISM_SKIA_VARIANT}/libskcms.a"
     "${PRISM_SKIA_ROOT}/out/${PRISM_SKIA_VARIANT}/libwuffs.a"
-    PkgConfig::PRISM_HARFBUZZ PkgConfig::PRISM_FREETYPE
-    PkgConfig::PRISM_FONTCONFIG PkgConfig::PRISM_PNG)
+    PkgConfig::PRISM_FONTCONFIG PkgConfig::PRISM_SKIA_PNG)
 
 if(PRISM_ENABLE_GLES)
     if(NOT PRISM_SKIA_VARIANT STREQUAL "PrismGLES")

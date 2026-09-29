@@ -221,9 +221,11 @@ void DeduplicationAndRetainedOwnership()
 
     auto renderer_owner = resources.Retain(id);
     auto other_owner = renderer_owner;
-    assert(renderer_owner);
+    assert(renderer_owner && renderer_owner.get() == resources.Get(id));
+    assert(renderer_owner->rgba.size() == 4);
     resources.Release(id);
     assert(!resources.Get(id) && resources.DecodedBytes() == 0);
+    assert(other_owner->width == 1 && other_owner->rgba.size() == 4);
     assert(budget->Stats().retained_bytes == retained_bytes);
     renderer_owner.reset();
     assert(budget->Stats().retained_bytes == retained_bytes);

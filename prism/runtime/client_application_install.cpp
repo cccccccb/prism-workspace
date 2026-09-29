@@ -83,7 +83,8 @@ bool ClientApplication::StartPreparedInstall(runtime::UiLoadId load,
     auto &app = *impl_;
     const auto source = prepared ? prepared.Source() : runtime::ComponentSource{};
     if (!prepared || !app.ui_load.Current(load) || app.failed || app.closed ||
-        app.installed_ui == load || !app.commands.Ready() || app.config.app_id.empty()) {
+        app.installed_ui == load || !app.shaper.Ready() || !app.commands.Ready() ||
+        app.config.app_id.empty()) {
         return Reject(diagnostic, source, "Cannot stage this critical UI load");
     }
     if (app.install) {
@@ -151,9 +152,6 @@ bool ClientApplication::UiInstallPending() const noexcept
 bool ClientApplication::UiInstallNeedsWork() const noexcept
 {
     const auto &app = *impl_;
-    if (!app.upload_queue.empty() && app.window.IsConfigured()) {
-        return true;
-    }
     if (!app.install) {
         return false;
     }
@@ -162,11 +160,27 @@ bool ClientApplication::UiInstallNeedsWork() const noexcept
         return true;
     }
     for (const auto &image : stage.images) {
-        if (app.resources.State(image.id) == runtime::ImageState::Loading) {
+        const auto state = app.resources.State(image.id);
+        if (state == runtime::ImageState::Loading) {
             return false;
         }
+        if (state == runtime::ImageState::Failed) {
+            return true;
+        }
     }
-    return !stage.regions || app.window.IsConfigured();
+    if (stage.registered != stage.images.size()) {
+        return true;
+    }
+    if (app.ui_configure_count) {
+        for (const auto &image : stage.images) {
+            const auto uploaded = app.uploaded_image_versions.find(image.id.value);
+            if (uploaded == app.uploaded_image_versions.end() ||
+                uploaded->second != app.resources.Generation(image.id)) {
+                return false;
+            }
+        }
+    }
+    return !stage.regions || app.ui_configure_count;
 }
 
 runtime::UiInstallStats ClientApplication::GetUiInstallStats() const noexcept
@@ -252,39 +266,15 @@ runtime::UiInstallState ClientApplication::AdvanceUiInstall(const runtime::Bindi
             return runtime::UiInstallState::Pending;
         }
 
-        if (app.window.IsConfigured() && !stage.images.empty()) {
-            if (!app.EnsureRenderer(static_cast<int>(app.window.Metrics().buffer_size.width),
-                                    static_cast<int>(app.window.Metrics().buffer_size.height))) {
-                throw std::runtime_error("Staged GPU renderer is unavailable");
-            }
-            std::uint64_t bytes = app.owner_turn_upload_bytes;
-            std::size_t uploaded = app.owner_turn_uploads;
+        if (app.ui_configure_count && !stage.images.empty()) {
             for (auto &image : stage.images) {
-                if (app.renderer->ImageUploaded(image.id)) {
-                    image.uploaded = true;
-                    continue;
-                }
-                const auto size = app.resources.Get(image.id)->rgba.size();
-                if (uploaded >= app.config.install_limits.images_per_turn ||
-                    Clock::now() >= deadline ||
-                    (uploaded &&
-                     size > app.config.install_limits.upload_bytes_per_turn -
-                                std::min(bytes, app.config.install_limits.upload_bytes_per_turn))) {
+                const auto uploaded = app.uploaded_image_versions.find(image.id.value);
+                image.uploaded = uploaded != app.uploaded_image_versions.end() &&
+                                 uploaded->second == app.resources.Generation(image.id);
+                if (!image.uploaded) {
                     ++app.install_stats.budget_yields;
                     return runtime::UiInstallState::Pending;
                 }
-                if (!app.renderer->UploadImage(image.id)) {
-                    throw std::runtime_error("Staged image GPU upload failed");
-                }
-                image.uploaded = true;
-                ++uploaded;
-                bytes += size;
-                app.owner_turn_uploads = uploaded;
-                app.owner_turn_upload_bytes = bytes;
-                ++app.install_stats.image_uploads;
-                app.install_stats.upload_bytes += size;
-                app.install_stats.oversized_uploads +=
-                    size > app.config.install_limits.upload_bytes_per_turn;
             }
         }
 
@@ -308,8 +298,8 @@ runtime::UiInstallState ClientApplication::AdvanceUiInstall(const runtime::Bindi
             stage.transaction_revision = stage.regions ? app.scene->TransactionRevision() : 0;
             stage.constructed_theme = app.theme;
             stage.construction = std::make_unique<runtime::SceneConstruction>(
-                std::move(blueprint), std::bind_front(&Impl::ShapeText, &app),
-                app.commands.FontId(), app.theme);
+                std::move(blueprint), std::bind_front(&Impl::ShapeText, &app), app.shaper.FontId(),
+                app.theme);
         }
         if (stage.construction) {
             if (app.owner_turn_nodes >= app.config.install_limits.nodes_per_turn) {
@@ -349,6 +339,9 @@ runtime::UiInstallState ClientApplication::AdvanceUiInstall(const runtime::Bindi
         }
         if (!app.CommitInstall(bindings, diagnostic)) {
             app.DiscardInstall(runtime::UiInstallState::Failed);
+            if (!app.opened_once && app.worker_generation) {
+                app.ResetRenderBridge();
+            }
         }
         return app.install_state;
     } catch (const runtime::LoadFailure &error) {
@@ -359,10 +352,16 @@ runtime::UiInstallState ClientApplication::AdvanceUiInstall(const runtime::Bindi
         Reject(diagnostic, stage.units.front().prepared.Source(), error.what());
     }
     if (app.opened_once && !app.scene) {
-        app.window.Close();
+        app.QueueStopRenderWorker();
+        app.ui_metrics = {};
+        app.ui_configure_count = 0;
         app.opened_once = false;
     }
     app.DiscardInstall(runtime::UiInstallState::Failed);
+    if (!app.opened_once && app.worker_generation) {
+        app.CloseRenderWorker();
+        app.ResetRenderBridge();
+    }
     return app.install_state;
 }
 } // namespace prism::sdk

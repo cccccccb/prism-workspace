@@ -21,9 +21,10 @@ GrGLFuncPtr ResolveGlFunction(void *, const char *name)
 }
 } // namespace
 
-GlesRenderer::GlesRenderer(const RasterRenderer &commands, GlesRendererOptions options)
-    : impl_(std::make_unique<Impl>(commands))
+GlesRenderer::GlesRenderer(std::string font_path, GlesRendererOptions options)
+    : impl_(std::make_unique<Impl>())
 {
+    impl_->resources.RegisterFont(contracts::ResourceId{1}, font_path);
     impl_->egl_display = eglGetCurrentDisplay();
     impl_->egl_context = eglGetCurrentContext();
     if (impl_->egl_display == EGL_NO_DISPLAY || impl_->egl_context == EGL_NO_CONTEXT) {
@@ -45,7 +46,29 @@ GlesRenderer::~GlesRenderer()
 
 bool GlesRenderer::Ready() const
 {
-    return impl_->context && !impl_->context->abandoned();
+    return impl_->context && !impl_->context->abandoned() &&
+           impl_->resources.HasFont(contracts::ResourceId{1});
+}
+
+bool GlesRenderer::RegisterFont(contracts::ResourceId id, const std::string &path)
+{
+    return impl_->resources.RegisterFont(id, path);
+}
+
+bool GlesRenderer::RegisterImage(contracts::ResourceId id, const runtime::DecodedImage &image)
+{
+    return impl_->resources.RegisterImage(id, image);
+}
+
+bool GlesRenderer::RegisterImage(contracts::ResourceId id, runtime::ImageLease image)
+{
+    return impl_->resources.RegisterImage(id, std::move(image));
+}
+
+void GlesRenderer::UnregisterImage(contracts::ResourceId id)
+{
+    impl_->resources.UnregisterImage(id);
+    ReleaseImage(id);
 }
 
 void GlesRenderer::Close()
@@ -120,8 +143,8 @@ bool GlesRenderer::Render(const contracts::DisplayList &list, int width, int hei
         impl_->height = height;
         impl_->framebuffer = framebuffer;
     }
-    if (!impl_->commands.Replay(list, impl_->surface->getCanvas(), width, height, *normalized,
-                                impl_.get())) {
+    if (!RasterRenderer::Replay(list, impl_->surface->getCanvas(), width, height, *normalized,
+                                impl_->resources, impl_.get())) {
         return false;
     }
     if (!normalized->full && normalized->rects.empty()) {

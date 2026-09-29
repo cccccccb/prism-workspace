@@ -1,33 +1,53 @@
 #include "prism/render_skia/raster_renderer.hpp"
 #include "prism/runtime/dsl_frontend.hpp"
+#include "prism/runtime/png_codec.hpp"
 #include "prism/runtime/scene.hpp"
+#include "prism/runtime/text_shaper.hpp"
 #include <cassert>
+#include <cmath>
+#include <cstddef>
 #include <cstdint>
+#include <string_view>
 #include <variant>
 #include <vector>
 
 int main()
 {
     prism::render_skia::RasterRenderer renderer("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
-    assert(renderer.Ready());
+    prism::runtime::TextShaper shaper("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
+    assert(renderer.Ready() && shaper.Ready());
     const prism::contracts::ResourceId alternate_font{37};
     assert(
         renderer.RegisterFont(alternate_font, "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"));
-    assert(
-        !renderer.RegisterFont(alternate_font, "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"));
-    assert(renderer.Shape(alternate_font, "Prism", 20).glyphs.size() == 5);
-    auto shaped = renderer.Shape("Prism", 20);
+    assert(shaper.RegisterFont(alternate_font, "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"));
+    assert(!shaper.RegisterFont(alternate_font, "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"));
+    const auto alternate_shaped = shaper.Shape(alternate_font, "Prism", 20);
+    const auto shaped = shaper.Shape("Prism", 20);
     assert(shaped.glyphs.size() == 5 && shaped.width > 0);
+    assert(shaped.height > 0 && alternate_shaped.glyphs.size() == shaped.glyphs.size());
+    assert(alternate_shaped.width == shaped.width && alternate_shaped.height == shaped.height);
+    for (std::size_t i = 0; i < shaped.glyphs.size(); ++i) {
+        const auto &glyph = shaped.glyphs[i];
+        const auto &alternate_glyph = alternate_shaped.glyphs[i];
+        assert(glyph.glyph_index != 0 && std::isfinite(glyph.origin.x));
+        assert(std::isfinite(glyph.origin.y) && glyph.origin.x >= 0);
+        assert(glyph.glyph_index == alternate_glyph.glyph_index);
+        assert(glyph.origin.x == alternate_glyph.origin.x);
+        assert(glyph.origin.y == alternate_glyph.origin.y);
+    }
+    const auto larger = shaper.Shape("Prism", 40);
+    assert(larger.width > shaped.width && larger.height > shaped.height);
+    assert(shaper.Shape("Prism", 0).glyphs.empty());
     prism::runtime::Scene scene(
         prism::runtime::ParseBlueprint(
             "VStack(background: #102030FF) { Text(\"Prism\", font: 20, foreground: #FFFFFFFF) "
             "Card(height: 30, background: #FF0000FF).cornerRadius(5) }"),
-        [&](std::string_view text, double size) { return renderer.Shape(text, size); },
-        renderer.FontId());
+        [&](std::string_view text, double size) { return shaper.Shape(text, size); },
+        shaper.FontId());
     assert(scene.SetViewport({120, 80}));
     auto list = scene.Build(prism::contracts::WindowId{1});
     assert(list);
-    auto image = prism::render_skia::RasterRenderer::DecodePng(PRISM_TEST_IMAGE);
+    auto image = prism::runtime::DecodePng(PRISM_TEST_IMAGE);
     assert(image && image->width == 4 && image->height == 4);
     assert(renderer.RegisterImage(prism::contracts::ResourceId{2}, *image));
     list->commands.emplace_back(
@@ -53,7 +73,9 @@ int main()
             run->font = alternate_font;
         }
     }
+    const auto original_pixels = pixels;
     assert(renderer.Render(alternate, pixels.data(), 120, 80, 120 * 4));
+    assert(pixels == original_pixels);
     auto missing_font = alternate;
     for (auto &command : missing_font.commands) {
         if (auto *run = std::get_if<prism::contracts::DrawGlyphRun>(&command)) {

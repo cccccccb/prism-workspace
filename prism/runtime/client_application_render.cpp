@@ -1,210 +1,160 @@
 #include "client_application_p.hpp"
 
 namespace prism::sdk {
+
+void ClientApplication::Impl::ProcessRenderEvents(bool deliver)
+{
+    std::uint64_t processed_window_sequence{};
+    while (auto event = bridge->render_events.TryPop()) {
+        if (!deliver || failed || closed ||
+            bridge->terminal.Reason() != runtime::TerminalReason::None) {
+            continue;
+        }
+
+        if (const auto *status = std::get_if<runtime::RenderStatusEvent>(&*event)) {
+            ApplyRenderStatus(*status);
+            continue;
+        }
+        if (const auto *uploaded = std::get_if<runtime::ImageUploadedEvent>(&*event)) {
+            const auto version = uploaded->version;
+            if (resources.Generation(version.id) == version.generation &&
+                registered_images.contains(version.id.value)) {
+                uploaded_image_versions.insert_or_assign(version.id.value, version.generation);
+            }
+            continue;
+        }
+        if (const auto *released = std::get_if<runtime::ImageReleasedEvent>(&*event)) {
+            pending_release_versions.erase(
+                {released->version.id.value, released->version.generation});
+            continue;
+        }
+        if (const auto *submitted = std::get_if<runtime::SubmittedFrameEvent>(&*event)) {
+            HandleSubmitted(*submitted);
+            continue;
+        }
+        if (const auto *presentation = std::get_if<platform::PixelPresentation>(&*event)) {
+            HandlePresentation(*presentation);
+            continue;
+        }
+
+        const auto &window = std::get<runtime::SequencedWindowEvent>(*event);
+        if (!scene || !window.sequence || window.sequence <= last_processed_window_sequence) {
+            bridge->terminal.Fail(runtime::TerminalReason::EventQueueFailure);
+            FailFrontend();
+            break;
+        }
+        last_processed_window_sequence = window.sequence;
+        processed_window_sequence = window.sequence;
+
+        // A prior action in this ordered batch may have changed hit bounds.
+        if (runtime::Has(scene->PendingDirty(), runtime::Dirty::Layout)) {
+            PublishFramePacket();
+        }
+        const bool configured = std::holds_alternative<contracts::ConfigureEvent>(window.event);
+        HandleWindowEvent(window.event);
+        if (configured) {
+            PublishFramePacket();
+        }
+    }
+
+    if (!processed_window_sequence || !scene || failed || closed ||
+        bridge->terminal.Reason() != runtime::TerminalReason::None) {
+        return;
+    }
+
+    // A window event is not consumed by the render owner merely because its
+    // reverse queue became empty. Publish the resulting frame before acking
+    // the highest sequence so old pixels cannot race UI input processing.
+    PublishFramePacket();
+    runtime::RenderCommand acknowledgment(
+        runtime::UiEventsProcessedCommand{processed_window_sequence});
+    if (bridge->render_commands.TryPush(std::move(acknowledgment)) !=
+        runtime::QueuePushResult::Accepted) {
+        bridge->terminal.Fail(runtime::TerminalReason::CommandQueueFailure);
+        throw std::runtime_error("Render input acknowledgment unavailable");
+    }
+}
+
 void ClientApplication::Impl::HandleWindowEvent(const contracts::WindowEvent &event)
 {
-    auto &app = *this;
     if (auto *configure = std::get_if<contracts::ConfigureEvent>(&event)) {
-        app.scene->SetViewport(configure->metrics.logical_size);
+        if (configure->configure_count <= ui_configure_count) {
+            throw std::runtime_error("Out-of-order Wayland configure event");
+        }
+
+        ui_metrics = configure->metrics;
+        ui_configure_count = configure->configure_count;
+        scene->SetViewport(configure->metrics.logical_size);
+        queued_frame.reset();
     } else if (auto *motion = std::get_if<contracts::PointerMotionEvent>(&event)) {
-        if (app.scene->SetPointer(motion->position)) {
-            app.window.RequestUpdate(true);
+        if (scene->SetPointer(motion->position)) {
+            queued_frame.reset();
+            QueueRenderUpdate(true);
         }
     } else if (auto *key = std::get_if<contracts::KeyEvent>(&event)) {
         if (key->state == contracts::ButtonState::Pressed) {
-            if (key->physical_key == 0x2B && app.scene->FocusNext()) {
-                app.window.RequestUpdate(true);
-            } else if ((key->physical_key == 0x28 || key->physical_key == 0x2C) && app.on_action) {
-                if (auto action = app.scene->FocusedAction()) {
-                    app.on_action(*action);
+            if (key->physical_key == 0x2B && scene->FocusNext()) {
+                queued_frame.reset();
+                QueueRenderUpdate(true);
+            } else if ((key->physical_key == 0x28 || key->physical_key == 0x2C) && on_action) {
+                if (auto action = scene->FocusedAction()) {
+                    on_action(*action);
                 }
             }
         }
     } else if (auto *button = std::get_if<contracts::PointerButtonEvent>(&event)) {
         if (button->state == contracts::ButtonState::Pressed &&
-            button->button == contracts::PointerButton::Primary && app.on_action) {
-            if (auto action = app.scene->ActionAt(button->position)) {
-                app.on_action(*action);
+            button->button == contracts::PointerButton::Primary && on_action) {
+            if (auto action = scene->ActionAt(button->position)) {
+                on_action(*action);
             }
         }
     }
 }
 
-platform::SubmitResult
-ClientApplication::Impl::PrepareSubmit(const platform::SubmitRequest &request)
+void ClientApplication::Impl::HandleSubmitted(const runtime::SubmittedFrameEvent &event)
 {
-    auto &app = *this;
-    app.prepared_damage.reset();
-    app.prepared_frame.reset();
-    if (app.failed || !app.scene) {
-        return platform::SubmitResult::Failed;
-    }
-
-    const auto dirty = app.scene->PendingDirty();
-    const bool pixels = request.force_pixels || !app.last_list || !app.committed_frame ||
-                        app.scene->PixelsRevision() != app.committed_frame->pixels_revision;
-
-    // Keep geometry/material metadata with the corresponding new pixels.
-    // A pure Composite change is allowed through an old pixel callback.
-    if (pixels && !request.allow_pixels) {
-        return platform::SubmitResult::None;
-    }
-
-    try {
-        const contracts::BufferSize size{static_cast<std::uint32_t>(request.width),
-                                         static_cast<std::uint32_t>(request.height)};
-        const auto metrics = app.window.Metrics();
-        std::shared_ptr<const runtime::FramePacket> frame;
-        if (pixels) {
-            if (!app.EnsureRenderer(request.width, request.height)) {
-                throw std::runtime_error("EGL renderer unavailable");
-            }
-            if (!app.ImagesUploaded()) {
-                for (auto value : app.scene_images) {
-                    if (app.registered_images.contains(value)) {
-                        app.QueueImageUpload({value});
-                    }
-                }
-                return platform::SubmitResult::Deferred;
-            }
-
-            frame = app.CaptureFramePacket(true, size, metrics.scale, app.window.ConfigureCount());
-            const auto old_size = app.damage_history.Size();
-            const bool resized = old_size.width != size.width || old_size.height != size.height;
-            if (resized) {
-                app.damage_history.Reset(size);
-            }
-
-            // The renderer compares against the last successful submission,
-            // not against the last UI frame created or skipped.
-            auto content =
-                resized || frame->scale != 1.0
-                    ? contracts::DamageRegion::Full()
-                    : app.commands.CompareDamage(
-                          app.committed_frame ? app.committed_frame->display_list.get() : nullptr,
-                          *frame->display_list, request.width, request.height,
-                          app.committed_frame ? app.committed_frame->resource_epoch : 0);
-
-            ++app.render_stats.buffer_age_queries;
-            const auto age = app.egl.QueryBufferAge();
-            app.render_stats.last_buffer_age = age.value_or(-1);
-            if (!age || *age == 0) {
-                ++app.render_stats.unknown_buffer_ages;
-            }
-
-            app.prepared_damage = app.damage_history.Plan(
-                content, age && *age >= 0 ? std::optional<unsigned>(static_cast<unsigned>(*age))
-                                          : std::nullopt);
-            if (!app.config.partial_rendering || frame->scale != 1.0) {
-                app.prepared_damage->repair_damage = contracts::DamageRegion::Full();
-            }
-            app.prepared_content_area =
-                runtime::DamageArea(app.prepared_damage->content_damage, size);
-
-            if (app.egl.SetDamage(app.prepared_damage->repair_damage) ==
-                platform::DamageRegionResult::Failed) {
-                throw std::runtime_error("EGL repair declaration failed");
-            }
-
-        } else if (!runtime::Has(dirty, runtime::Dirty::Composite)) {
-            return platform::SubmitResult::None;
-        } else {
-            frame = app.CaptureFramePacket(false, size, metrics.scale, app.window.ConfigureCount());
-        }
-
-        app.window.SetSurfaceEffects(frame->surface_effects);
-        app.window.SetInputRegions(frame->input_regions);
-        app.prepared_frame = std::move(frame);
-        if (!pixels) {
-            return app.window.SurfaceStatePending() ? platform::SubmitResult::State
-                                                    : platform::SubmitResult::None;
-        }
-
-        ++app.render_stats.gpu_render_attempts;
-        const auto &repair = app.prepared_damage->repair_damage;
-        const auto area = runtime::DamageArea(repair, {static_cast<std::uint32_t>(request.width),
-                                                       static_cast<std::uint32_t>(request.height)});
-        bool rendered;
-        {
-            FirstCallTimer timer(app.startup_stats.first_render_us, app.render_sampled);
-            rendered = app.renderer->Render(*app.prepared_frame->display_list, request.width,
-                                            request.height, repair);
-        }
-        if (!rendered) {
-            throw std::runtime_error("GPU rendering failed");
-        }
-        ++app.render_stats.gpu_render_successes;
-        if (repair.full) {
-            ++app.render_stats.full_pixel_repairs;
-        } else if (repair.rects.empty()) {
-            ++app.render_stats.empty_pixel_repairs;
-        } else {
-            ++app.render_stats.partial_pixel_repairs;
-        }
-        app.render_stats.pixel_repair_pixels += area;
-        return platform::SubmitResult::Pixels;
-    } catch (const std::exception &error) {
-        std::fprintf(stderr, "[prism-sdk] submission failed: %s\n", error.what());
-        app.FailFrontend();
-        return platform::SubmitResult::Failed;
-    }
-}
-
-bool ClientApplication::Impl::CommitPixels()
-{
-    auto &app = *this;
-    ++app.render_stats.swap_attempts;
-
-    bool swapped = false;
-    if (app.prepared_damage) {
-        FirstCallTimer timer(app.startup_stats.first_swap_us, app.swap_sampled);
-        swapped = app.egl.Swap(app.prepared_damage->content_damage);
-    }
-    if (!swapped) {
-        app.FailFrontend();
-        return false;
-    }
-    ++app.render_stats.swap_successes;
-    ++app.presented;
-
-    if (!app.damage_history.Commit(std::move(*app.prepared_damage))) {
-        app.FailFrontend();
-        return false;
-    }
-    app.prepared_damage.reset();
-    ++app.render_stats.damage_history_commits;
-    app.render_stats.content_damage_pixels += app.prepared_content_area;
-    return true;
-}
-
-void ClientApplication::Impl::Submitted(platform::SubmitResult result)
-{
-    auto &app = *this;
-    if (result == platform::SubmitResult::Failed) {
-        app.FailFrontend();
+    if (event.metadata_prepared && (!event.frame || event.frame->sequence != event.frame_sequence ||
+                                    event.frame->ui != event.ui)) {
+        bridge->terminal.Fail(runtime::TerminalReason::EventQueueFailure);
+        FailFrontend();
         return;
     }
-
-    const bool metadata_prepared = static_cast<bool>(app.prepared_frame);
-    const auto submitted_ui = metadata_prepared ? app.prepared_frame->ui : runtime::UiLoadId{};
-    if (result == platform::SubmitResult::Pixels) {
-        app.committed_frame = std::move(app.prepared_frame);
-        const auto submission = app.window.LastPixelSubmission();
-        if (!app.ui_presentation.Submit(submitted_ui, submission,
-                                        app.window.PresentationPending(submission))) {
-            app.FailFrontend();
+    if (event.kind == runtime::SubmittedKind::Pixels) {
+        if (!event.metadata_prepared || !event.submission) {
+            bridge->terminal.Fail(runtime::TerminalReason::EventQueueFailure);
+            FailFrontend();
             return;
         }
+
+        // A fast sequence of UI installations can evict an older load from
+        // the two-slot presentation tracker before its ordered swap result is
+        // consumed. That retired result is valid, but cannot prove that the
+        // current UI was submitted or presented.
+        const bool retired = event.ui.owner == installed_ui.owner && event.ui.generation > 0 &&
+                             event.ui.generation < installed_ui.generation &&
+                             !ui_presentation.Get(event.ui).installed;
+        if (retired) {
+            return;
+        }
+
+        if (!ui_presentation.Submit(event.ui, event.submission, event.feedback_expected)) {
+            FailFrontend();
+            return;
+        }
+        ui_submitted_frame = event.frame;
     }
 
-    // None can acknowledge a checked, identical metadata request, e.g.
-    // when the optional effects extension is unavailable.
-    if (metadata_prepared && app.scene) {
-        app.scene->AcknowledgeComposite();
+    // A later Scene, theme or pixel update must not be acknowledged by an
+    // older State/None/Pixels result waiting in the reverse queue.
+    if (event.metadata_prepared && scene && event.ui == installed_ui &&
+        event.scene_revision == scene->TransactionRevision() &&
+        event.pixels_revision == scene->PixelsRevision() &&
+        event.theme_generation == (theme ? theme->generation : 0)) {
+        scene->AcknowledgeComposite();
     }
-    app.prepared_frame.reset();
-    if (result == platform::SubmitResult::Pixels && app.on_ui_submitted) {
-        app.on_ui_submitted(submitted_ui);
+    if (event.kind == runtime::SubmittedKind::Pixels && on_ui_submitted) {
+        on_ui_submitted(event.ui);
     }
 }
 
@@ -216,7 +166,10 @@ void ClientApplication::Impl::HandlePresentation(const platform::PixelPresentati
     }
     const auto state = ui_presentation.Get(load);
     if (state.installed && !state.presented && event.submission.value == state.last_submission) {
-        window.RequestRedraw(true);
+        queued_frame.reset();
+        force_frame_capture = true;
+        PublishFramePacket();
+        QueueRenderRedraw(true);
     }
 }
 

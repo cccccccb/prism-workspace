@@ -27,6 +27,9 @@ struct DecodedImage {
     std::vector<std::uint8_t> rgba;
 };
 
+// A decoded image and its scheduler budget reservation share one lifetime.
+using ImageLease = std::shared_ptr<const DecodedImage>;
+
 enum class ImageState { Loading, Ready, Failed };
 
 struct ImageUpdate {
@@ -59,7 +62,8 @@ public:
     int CompletionFd() const noexcept;
     const DecodedImage *Get(contracts::ResourceId id) const;
     ImageState State(contracts::ResourceId id) const;
-    std::shared_ptr<const void> Retain(contracts::ResourceId id) const;
+    ImageLease Retain(contracts::ResourceId id) const;
+    std::uint64_t Generation(contracts::ResourceId id) const noexcept;
     void Release(contracts::ResourceId id);
 
     std::size_t DecodedBytes() const
@@ -72,6 +76,7 @@ private:
 
     struct Entry {
         ImageState state{ImageState::Loading};
+        std::uint64_t generation{};
         std::string uri;
         std::shared_ptr<const TaskOutput> output;
         std::uint64_t task{};
@@ -86,6 +91,7 @@ private:
     std::size_t max_bytes_;
     std::size_t decoded_bytes_{0};
     std::uint64_t next_id_{1};
+    std::uint64_t next_generation_{1};
     std::size_t pending_bytes_{};
     std::vector<ImageUpdate> immediate_;
     void QueueDecode(contracts::ResourceId id, const ImageDescription &description);

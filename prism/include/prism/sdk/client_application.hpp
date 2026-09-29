@@ -1,5 +1,6 @@
 #pragma once
 #include "prism/contracts/theme.hpp"
+#include "prism/contracts/types.hpp"
 #include "prism/runtime/prepared_component.hpp"
 #include "prism/runtime/prepared_regions.hpp"
 #include "prism/runtime/property.hpp"
@@ -69,8 +70,22 @@ struct ClientStartupStats {
     std::uint64_t first_render_us{}, first_swap_us{};
 };
 
-// Client-owned DSL scene, resources, Skia GLES renderer and Wayland window.
-// All methods except construction/destruction run on the Wayland thread.
+// UI-owned copy of protocol state sampled at a completed Wayland pump or
+// window lifecycle boundary. It contains values only; callers never inspect
+// Wayland proxies through this SDK view.
+struct ClientPlatformStatus {
+    bool close_requested{}, configured{}, mapped{};
+    bool frame_callback_pending{}, presentation_feedback{};
+    contracts::WindowMetrics metrics{};
+    int configure_count{}, frame_done_count{}, presentation_count{};
+    std::uint64_t wait_duration_ns{};
+    std::uint64_t surface_state_commits{}, surface_pixel_commits{};
+    std::uint64_t surface_submission_failures{}, surface_noops{};
+};
+
+// Public methods run on the UI/Host owner thread. The internal render worker
+// owns this client's Wayland connection, EGL context, Ganesh renderer, GPU
+// resources and submissions; Close joins it before releasing the bridge.
 class ClientApplication {
 public:
     explicit ClientApplication(ClientConfig config);
@@ -132,6 +147,7 @@ public:
     bool HasPresentationFeedback() const;
     int PresentationCount() const;
     std::uint64_t WaitDurationNs() const noexcept;
+    ClientPlatformStatus GetPlatformStatus() const noexcept;
     ClientRenderStats GetRenderStats() const;
     ClientStartupStats GetStartupStats() const noexcept;
     int RequestedImageCount() const;

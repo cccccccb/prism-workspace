@@ -1,12 +1,14 @@
-#include "prism/render_skia/raster_renderer.hpp"
+#include "prism/runtime/png_codec.hpp"
+#include <algorithm>
 #include <array>
 #include <cerrno>
+#include <cstdint>
 #include <fcntl.h>
 #include <png.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
-namespace prism::render_skia {
+namespace prism::runtime {
 namespace {
 struct InputFd {
     int value;
@@ -26,7 +28,7 @@ std::uint32_t BigEndian(const unsigned char *bytes)
 }
 } // namespace
 
-std::optional<runtime::ImageDescription> RasterRenderer::InspectPng(const std::string &path)
+std::optional<ImageDescription> InspectPng(const std::string &path)
 {
     InputFd fd{open(path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC)};
     struct stat info{};
@@ -56,16 +58,15 @@ std::optional<runtime::ImageDescription> RasterRenderer::InspectPng(const std::s
     if (width == 0 || height == 0 || width > 4096 || height > 4096) {
         return {};
     }
-    return runtime::ImageDescription{width, height, static_cast<std::size_t>(width) * height * 4};
+    return ImageDescription{width, height, static_cast<std::size_t>(width) * height * 4};
 }
 
-std::optional<runtime::DecodedImage> RasterRenderer::DecodePng(const std::string &path)
+std::optional<DecodedImage> DecodePng(const std::string &path)
 {
     return DecodePngBounded(path, 64 * 1024 * 1024);
 }
 
-std::optional<runtime::DecodedImage> RasterRenderer::DecodePngBounded(const std::string &path,
-                                                                      std::size_t max_bytes)
+std::optional<DecodedImage> DecodePngBounded(const std::string &path, std::size_t max_bytes)
 {
     // Recheck the fixed metadata before entering libpng. Package resources are
     // immutable while an instance runs; changed dimensions cannot widen its lease.
@@ -84,7 +85,7 @@ std::optional<runtime::DecodedImage> RasterRenderer::DecodePngBounded(const std:
         return {};
     }
     png.format = PNG_FORMAT_RGBA;
-    runtime::DecodedImage decoded;
+    DecodedImage decoded;
     decoded.width = png.width;
     decoded.height = png.height;
     try {
@@ -100,4 +101,4 @@ std::optional<runtime::DecodedImage> RasterRenderer::DecodePngBounded(const std:
     png_image_free(&png);
     return decoded;
 }
-} // namespace prism::render_skia
+} // namespace prism::runtime

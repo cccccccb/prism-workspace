@@ -1,12 +1,12 @@
 #pragma once
 #include "prism/contracts/damage.hpp"
 #include "prism/contracts/display_list.hpp"
+#include "prism/runtime/image_resources.hpp"
 #include <cstddef>
 #include <memory>
+#include <string>
 
 namespace prism::render_skia {
-class RasterRenderer;
-
 struct GlesRendererOptions {
     // Soft budget for Ganesh resources; EGL/driver and live allocations may exceed it.
     std::size_t resource_cache_bytes{32u * 1024u * 1024u};
@@ -21,11 +21,15 @@ struct GlesRenderStats {
 // EGL context, surface and buffer presentation belong to the platform layer.
 class GlesRenderer {
 public:
-    explicit GlesRenderer(const RasterRenderer &commands, GlesRendererOptions options = {});
+    explicit GlesRenderer(std::string font_path, GlesRendererOptions options = {});
     ~GlesRenderer();
     GlesRenderer(const GlesRenderer &) = delete;
     GlesRenderer &operator=(const GlesRenderer &) = delete;
     bool Ready() const;
+    bool RegisterFont(contracts::ResourceId id, const std::string &path);
+    bool RegisterImage(contracts::ResourceId id, const runtime::DecodedImage &image);
+    bool RegisterImage(contracts::ResourceId id, runtime::ImageLease image);
+    void UnregisterImage(contracts::ResourceId id);
     // Requires the creation EGL context current. Success means a real backend
     // texture exists and its upload was submitted, not that the GPU is finished.
     bool UploadImage(contracts::ResourceId id);

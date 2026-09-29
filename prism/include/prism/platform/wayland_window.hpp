@@ -4,6 +4,7 @@
 #include "prism/contracts/surface_effect.hpp"
 #include "prism/platform/presentation.hpp"
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -34,7 +35,7 @@ struct prism_surface_effect_v1;
 
 namespace prism::platform {
 
-enum class SubmitResult { None, State, Pixels, Failed, Deferred };
+enum class SubmitResult { None, State, Pixels, Failed, Deferred, AwaitFrame };
 
 struct SubmitRequest {
     wl_display *display{};
@@ -45,6 +46,13 @@ struct SubmitRequest {
 
 struct SubmitStats {
     std::uint64_t none{}, state_commits{}, pixel_commits{}, failures{};
+};
+
+struct WaylandOpenOptions {
+    // The descriptor is polled, never consumed. Its owner must keep it open
+    // until Open returns. A readable or broken descriptor cancels startup.
+    int cancel_fd{-1};
+    std::chrono::steady_clock::time_point deadline{std::chrono::steady_clock::time_point::max()};
 };
 
 // A single xdg-shell toplevel. It owns Wayland objects and temporary SHM
@@ -58,6 +66,8 @@ public:
 
     bool Open(const std::string &socket_name, const std::string &app_id, const std::string &title,
               int preferred_width, int preferred_height);
+    bool Open(const std::string &socket_name, const std::string &app_id, const std::string &title,
+              int preferred_width, int preferred_height, WaylandOpenOptions options);
 
     void SetEventHandler(std::function<void(const contracts::WindowEvent &)> handler)
     {
@@ -78,10 +88,12 @@ public:
     // swaps it, after the window requests its frame/presentation objects.
     // Deferred preserves the request and yields one owner turn without a
     // commit or observer notification. Use it for bounded work that can make
-    // progress next turn; None remains the result for no currently ready work.
-    // State and None never request those objects. Failed is terminal: callbacks
-    // must release external WSI resources before returning failure, then the
-    // window destroys its surface to discard pending server-side state.
+    // progress next turn. AwaitFrame waits for a caller wake FD or Wayland
+    // event without polling; a pending configure State may still commit while
+    // the pixel request remains active. None means no currently ready work.
+    // State and None never request frame/presentation objects. Failed is
+    // terminal: callbacks must release external WSI resources before returning
+    // failure, then the window destroys its surface to discard pending state.
     void SetSubmitHandlers(std::function<SubmitResult(const SubmitRequest &)> prepare,
                            std::function<bool()> commit_pixels,
                            std::function<void(SubmitResult)> on_submitted = {})
@@ -201,6 +213,7 @@ public:
 private:
     struct ShmBuffer;
     static void RegistryGlobal(void *, wl_registry *, std::uint32_t, const char *, std::uint32_t);
+    static void OpenSyncDone(void *, wl_callback *, std::uint32_t);
     static void EffectCapabilities(void *, prism_surface_effect_manager_v1 *, std::uint32_t);
     static void RegistryGlobalRemove(void *, wl_registry *, std::uint32_t);
     static void ShellPing(void *, xdg_wm_base *, std::uint32_t);
@@ -252,6 +265,8 @@ private:
     SubmitResult TrySubmit();
     SubmitResult CompleteSubmit(SubmitResult);
     int DispatchPending();
+    bool WaitForOpenSync(bool &done, const WaylandOpenOptions &options);
+    bool OpenRoundtrip(const WaylandOpenOptions &options);
     void ReapBuffers();
 
     wp_presentation *presentation_{nullptr};

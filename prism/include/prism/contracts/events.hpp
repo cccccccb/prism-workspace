@@ -50,6 +50,7 @@ struct TextInputEvent {
 struct ConfigureEvent {
     WindowId window{};
     WindowMetrics metrics{};
+    int configure_count{};
 };
 
 struct FocusEvent {

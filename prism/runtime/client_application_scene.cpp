@@ -48,7 +48,7 @@ contracts::ResourceId ClientApplication::Impl::RequestImage(std::set<std::uint64
 
 runtime::ShapedText ClientApplication::Impl::ShapeText(std::string_view text, double size)
 {
-    return commands.Shape(text, size);
+    return shaper.Shape(text, size);
 }
 
 bool ClientApplication::Impl::InstallScene(runtime::UiLoadId load,
@@ -87,10 +87,10 @@ bool ClientApplication::Impl::InstallScene(runtime::UiLoadId load,
         auto next = std::make_unique<runtime::Scene>(
             runtime::LinkComponent(prepared,
                                    std::bind_front(&Impl::RequestImage, this, std::ref(images))),
-            std::bind_front(&Impl::ShapeText, this), app.commands.FontId(), app.theme);
+            std::bind_front(&Impl::ShapeText, this), app.shaper.FontId(), app.theme);
 
-        next->SetViewport(app.window.IsConfigured()
-                              ? app.window.Metrics().logical_size
+        next->SetViewport(app.ui_configure_count
+                              ? app.ui_metrics.logical_size
                               : contracts::LogicalSize{static_cast<double>(app.config.width),
                                                        static_cast<double>(app.config.height)});
 

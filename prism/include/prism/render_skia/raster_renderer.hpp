@@ -2,20 +2,21 @@
 #include "prism/contracts/damage.hpp"
 #include "prism/contracts/display_list.hpp"
 #include "prism/runtime/image_resources.hpp"
-#include "prism/runtime/scene.hpp"
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
-#include <string_view>
 class SkCanvas;
 class SkImage;
 
 namespace prism::render_skia {
 namespace detail {
 class ImageProvider;
-}
+class ResourceTable;
+} // namespace detail
 class GlesRenderer;
 
-// Diagnostic CPU backend and shared command/font/image owner for GLES.
+// Diagnostic CPU backend and display-list damage analyzer.
 // No Skia types escape its public API.
 class RasterRenderer {
 public:
@@ -25,18 +26,10 @@ public:
     RasterRenderer &operator=(const RasterRenderer &) = delete;
 
     bool Ready() const;
-    runtime::ShapedText Shape(std::string_view text, double size) const;
-    runtime::ShapedText Shape(contracts::ResourceId font, std::string_view text, double size) const;
     bool RegisterFont(contracts::ResourceId id, const std::string &path);
-    static std::optional<runtime::DecodedImage> DecodePng(const std::string &path);
-    static std::optional<runtime::ImageDescription> InspectPng(const std::string &path);
-    static std::optional<runtime::DecodedImage> DecodePngBounded(const std::string &path,
-                                                                 std::size_t max_bytes);
     bool RegisterImage(contracts::ResourceId id, const runtime::DecodedImage &image);
-    // The owner must keep image.rgba immutable and alive until Skia releases
-    // its raster data. Production resources retain their task output/lease.
-    bool RegisterImage(contracts::ResourceId id, const runtime::DecodedImage &image,
-                       std::shared_ptr<const void> owner);
+    // The lease binds immutable RGBA bytes to the Skia raster data lifetime.
+    bool RegisterImage(contracts::ResourceId id, runtime::ImageLease image);
     void UnregisterImage(contracts::ResourceId id);
     bool Render(const contracts::DisplayList &list, void *pixels, int width, int height,
                 int stride) const;
@@ -60,12 +53,10 @@ private:
     // via producer fragmentation/area policies after WSI SetDamage.
     static std::optional<contracts::DamageRegion> ClipRepair(const contracts::DamageRegion &,
                                                              int width, int height);
-    bool Replay(const contracts::DisplayList &list, SkCanvas *canvas) const;
-    bool Replay(const contracts::DisplayList &list, SkCanvas *canvas, int width, int height,
-                const contracts::DamageRegion &repair,
-                const detail::ImageProvider *images = nullptr) const;
-    const SkImage *RegisteredImage(contracts::ResourceId id) const noexcept;
-    std::uint64_t ImageGeneration(contracts::ResourceId id) const noexcept;
+    static bool Replay(const contracts::DisplayList &list, SkCanvas *canvas, int width, int height,
+                       const contracts::DamageRegion &repair,
+                       const detail::ResourceTable &resources,
+                       const detail::ImageProvider *images = nullptr);
     struct Impl;
     std::unique_ptr<Impl> impl_;
     contracts::ResourceId default_font_{1};

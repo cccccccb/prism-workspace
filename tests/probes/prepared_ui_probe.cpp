@@ -2,6 +2,7 @@
 #include "prism/runtime/prepared_component.hpp"
 #include "prism/sdk/client_application.hpp"
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
@@ -148,20 +149,48 @@ struct UiSubmitObserver {
 
 void NoWork(const Stats &before, const Stats &after, std::string_view detail);
 
+void WaitForSettledUi(Application &app, UiLoadId load)
+{
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    std::uint64_t previous_swaps = UINT64_MAX;
+    int quiet_turns = 0;
+    while (quiet_turns < 3) {
+        Require(std::chrono::steady_clock::now() < deadline,
+                "Prepared UI did not settle before state-only check");
+        Require(app.Pump(20), "Prepared UI stopped while settling");
+
+        const auto ui = app.GetUiPresentation(load);
+        const auto swaps = app.GetRenderStats().swap_successes;
+        const bool settled = app.GetUiInstallStats().image_uploads >=
+                                 static_cast<std::uint64_t>(app.LoadedImageCount()) &&
+                             ui.last_submission == ui.last_presented_submission &&
+                             app.PresentationCount() >= static_cast<int>(ui.presented_count) &&
+                             !app.FrameCallbackPending() && swaps == previous_swaps;
+        quiet_turns = settled ? quiet_turns + 1 : 0;
+        previous_swaps = swaps;
+    }
+}
+
 void CheckStateOnlyIdentity(Application &app, UiLoadId load, UiSubmitObserver &observer)
 {
+    WaitForSettledUi(app, load);
     const auto before = app.GetUiPresentation(load);
     const auto stats = app.GetRenderStats();
     const auto callbacks = observer.callbacks;
     Require(app.SetBinding("blur", 8.0), "State-only blur binding was missing");
-    Require(app.Pump(0), "State-only metadata submission stopped client");
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (app.GetRenderStats().surface_state_commits == stats.surface_state_commits) {
+        Require(std::chrono::steady_clock::now() < deadline,
+                "Blur metadata did not commit state independently");
+        Require(app.Pump(20), "State-only metadata submission stopped client");
+    }
     const auto after = app.GetUiPresentation(load);
     Require(after.first_submission == before.first_submission &&
                 after.last_submission == before.last_submission &&
                 after.submitted_count == before.submitted_count && observer.callbacks == callbacks,
             "State-only commit acquired a pixel/UI submission identity");
     Require(app.GetRenderStats().surface_state_commits == stats.surface_state_commits + 1,
-            "Blur metadata did not commit state independently");
+            "Blur metadata did not produce exactly one state commit");
     NoWork(stats, app.GetRenderStats(), "State-only metadata rendered or swapped UI");
 }
 
@@ -332,6 +361,42 @@ void CheckOpenRetry(const std::string &socket, const std::string &assets)
     app.Close();
 }
 
+void CheckSupersededSubmission(const std::string &socket, const std::string &assets)
+{
+    Application app(Config(socket, assets, "prepared_superseded_submission"));
+    const auto base = app.BeginUiLoad();
+    const auto initial = PrepareOnWorker(R"(Card { Text("Base") })", "submission-base");
+    Require(app.OpenPrepared(base, initial), "Superseded submission client did not open");
+    WaitForUi(app, base, 0);
+    WaitForSettledUi(app, base);
+    const auto swaps_before = app.GetRenderStats().swap_successes;
+
+    const auto prepared_a = PrepareOnWorker(R"(Card { Text("A") })", "submission-a");
+    const auto prepared_b = PrepareOnWorker(R"(Card { Text("B") })", "submission-b");
+    const auto prepared_c = PrepareOnWorker(R"(Card { Text("C") })", "submission-c");
+    const auto a = app.BeginUiLoad();
+    Require(app.ReplaceUiPrepared(a, prepared_a), "First rapid replacement failed");
+
+    // Render runs independently. Let A swap while the UI owner deliberately
+    // leaves its Submitted event in the reverse queue.
+    std::this_thread::sleep_for(300ms);
+    Require(!app.GetUiPresentation(a).submitted,
+            "Unpumped A submission unexpectedly reached the UI owner");
+
+    const auto b = app.BeginUiLoad();
+    Require(app.ReplaceUiPrepared(b, prepared_b), "Second rapid replacement failed");
+    const auto c = app.BeginUiLoad();
+    Require(app.ReplaceUiPrepared(c, prepared_c), "Third rapid replacement failed");
+    Require(!app.GetUiPresentation(a).installed && app.GetUiPresentation(c).installed,
+            "Three replacements did not evict the oldest UI identity");
+
+    WaitForUi(app, c, 0);
+    Require(app.GetRenderStats().swap_successes >= swaps_before + 2,
+            "Old and newest rapid replacements did not both submit pixels");
+    Print("superseded-submission-three-replacements", app, c);
+    app.Close();
+}
+
 class TemporaryImages {
 public:
     explicit TemporaryImages(const std::string &assets)
@@ -392,8 +457,6 @@ private:
 void CheckTurnBudget(const prism::runtime::UiInstallStats &before,
                      const prism::runtime::UiInstallStats &after)
 {
-    Require(after.image_uploads - before.image_uploads <= 1,
-            "Install and Pump consumed two upload allowances in one owner turn");
     Require(after.nodes - before.nodes <= 1,
             "Staged scene construction exceeded the shared one-node allowance");
 }
@@ -401,6 +464,10 @@ void CheckTurnBudget(const prism::runtime::UiInstallStats &before,
 void WaitForInstallResources(Application &app)
 {
     if (app.UiInstallNeedsWork()) {
+        return;
+    }
+    if (app.ConfigureCount() > 0) {
+        Require(app.Pump(20), "Staged upload acknowledgment stopped the client");
         return;
     }
     const int completion = app.ResourceCompletionFd();
@@ -433,6 +500,70 @@ void FinishStagedInstall(Application &app, const prism::runtime::BindingValues &
             WaitForInstallResources(app);
         }
     }
+}
+
+void CheckStagedImageAcknowledgments(const std::string &socket, const std::string &assets)
+{
+    auto config = Config(socket, assets, "prepared_image_ack");
+    config.install_limits.nodes_per_turn = 1;
+    config.install_limits.images_per_turn = 1;
+    config.install_limits.cpu_per_turn = 50ms;
+    Application app(std::move(config));
+    const auto live = app.BeginUiLoad();
+    const auto plain = PrepareOnWorker(R"(Card { Text("Live") })", "image-ack-live");
+    Require(app.OpenPrepared(live, plain), "Image acknowledgment client did not open");
+    WaitForUi(app, live, 0);
+
+    const auto image = app.BeginUiLoad();
+    const auto prepared =
+        PrepareOnWorker(R"(Card { Image("checker.png",width:72,height:72) })", "image-ack-staged");
+    Require(app.StartPreparedInstall(image, prepared), "Image acknowledgment stage did not start");
+
+    const auto before = app.GetUiInstallStats().image_uploads;
+    const auto registrations = app.GetUiInstallStats().image_registrations;
+    const auto deadline = std::chrono::steady_clock::now() + 10s;
+    while (app.GetUiInstallStats().image_registrations == registrations) {
+        Require(std::chrono::steady_clock::now() < deadline,
+                "Staged image registration did not complete");
+        UiInstallState state;
+        {
+            UiWorkTurn turn(app);
+            state = app.AdvanceUiInstall({});
+        }
+        Require(state == UiInstallState::Pending,
+                "Staged image committed before its upload acknowledgment");
+        if (app.GetUiInstallStats().image_registrations == registrations) {
+            WaitForInstallResources(app);
+        }
+    }
+
+    // The worker may have uploaded the texture already, but UI installation
+    // cannot consume its acknowledgment until a reverse-event Pump.
+    {
+        UiWorkTurn turn(app);
+        Require(app.AdvanceUiInstall({}) == UiInstallState::Pending,
+                "Staged image committed before its upload acknowledgment was delivered");
+    }
+
+    FinishStagedInstall(app, {}, true);
+    WaitForUi(app, image, 1);
+    const auto uploaded = app.GetUiInstallStats().image_uploads;
+    Require(uploaded == before + 1, "Staged image did not upload exactly once");
+
+    const auto cleared = app.BeginUiLoad();
+    Require(app.StartPreparedInstall(cleared, plain), "Image release stage did not start");
+    FinishStagedInstall(app, {}, true);
+    WaitForUi(app, cleared, 1);
+
+    const auto replacement = app.BeginUiLoad();
+    Require(app.StartPreparedInstall(replacement, prepared),
+            "Image replacement stage did not start");
+    FinishStagedInstall(app, {}, true);
+    WaitForUi(app, replacement, 2);
+    Require(app.GetUiInstallStats().image_uploads == uploaded + 1,
+            "Image released then requested again did not receive one new upload");
+    Print("staged-image-version-ack-and-release", app, replacement);
+    app.Close();
 }
 
 void CheckStagedCancellation(Application &app)
@@ -518,9 +649,11 @@ void CheckStagedOwnerLedger(const std::string &socket, const std::string &assets
         UiWorkTurn turn(app);
         Require(app.Pump(5), "Staged window failed before first configure");
     }
-    Require(app.GetUiInstallStats().image_uploads == 0 && !app.GetUiPresentation(first).submitted &&
-                !app.FrameCallbackPending(),
-            "First configure rendered before its bounded image uploads");
+    Require(app.ConfigureCount() > 0, "Master-only UI missed its first configure");
+    if (app.GetUiPresentation(first).submitted) {
+        Require(app.GetUiInstallStats().image_uploads == 3,
+                "Master-only UI submitted before all three images uploaded");
+    }
 
     const auto replacement = PrepareOnWorker(R"(
         VStack {
@@ -529,23 +662,20 @@ void CheckStagedOwnerLedger(const std::string &socket, const std::string &assets
         }
     )",
                                              "staged-post-pump-replacement");
-    UiLoadId next;
-    // Wait for a turn that performs exactly one upload. Zero-progress turns
-    // caused by an unpreemptible driver call must not make the gate vacuous.
-    while (!next.owner) {
+    // Uploads run on the independent render worker. UI may observe one or
+    // several worker turns together, so only cumulative versions are tested.
+    while (app.GetUiInstallStats().image_uploads == 0) {
         Require(std::chrono::steady_clock::now() < deadline, "Initial staged upload timed out");
+        Require(app.Pump(20), "Staged client stopped during worker image upload");
+    }
+    const auto first_upload = app.GetUiInstallStats();
+    Require(first_upload.oversized_uploads > 0 && first_upload.upload_bytes > 1,
+            "Oversized atomic image upload was not recorded");
+
+    const auto next = app.BeginUiLoad();
+    {
         const auto before = app.GetUiInstallStats();
         UiWorkTurn turn(app);
-        Require(app.Pump(0), "Staged client stopped during first upload");
-        const auto after_pump = app.GetUiInstallStats();
-        CheckTurnBudget(before, after_pump);
-        if (after_pump.image_uploads == before.image_uploads) {
-            continue;
-        }
-        Require(after_pump.image_uploads == 1 && after_pump.oversized_uploads == 1 &&
-                    after_pump.upload_bytes > 1 && !app.GetUiPresentation(first).submitted,
-                "First atomic oversized upload did not preserve unsubmitted master-only UI");
-        next = app.BeginUiLoad();
         Require(app.StartPreparedInstall(next, replacement), "Could not stage post-Pump UI");
         Require(app.AdvanceUiInstall({{"next", std::string("Next staged image")}}) ==
                     UiInstallState::Pending,
@@ -554,14 +684,18 @@ void CheckStagedOwnerLedger(const std::string &socket, const std::string &assets
                 "Post-Pump candidate prematurely replaced live bindings");
         Require(app.Pump(0), "Second Pump in the same scoped turn stopped the client");
         CheckTurnBudget(before, app.GetUiInstallStats());
-        Require(!app.GetUiPresentation(next).installed && !app.GetUiPresentation(first).submitted,
-                "Exhausted owner turn installed/submitted replacement UI");
+        Require(!app.GetUiPresentation(next).installed,
+                "Exhausted UI owner turn installed replacement UI");
     }
     FinishStagedInstall(app, {{"next", std::string("Next staged image")}}, true);
     Require(app.SetBinding("next", std::string("Next staged image")) &&
                 !app.SetBinding("original", std::string("Obsolete")),
             "Committed staged replacement retained old binding targets");
     WaitForUi(app, next, 3);
+    WaitForSettledUi(app, next);
+    Require(app.GetUiInstallStats().image_uploads == 3 &&
+                app.GetUiInstallStats().oversized_uploads == 3,
+            "Independent worker did not upload three image versions exactly once");
     Require(app.GlRenderer().find("V3D") != std::string::npos,
             "Staged upload/presentation did not use the real V3D driver");
     CheckStagedCancellation(app);
@@ -576,6 +710,8 @@ void CheckStagedOwnerLedger(const std::string &socket, const std::string &assets
 int Verify(const std::string &socket, const std::string &assets)
 {
     CheckOpenRetry(socket, assets);
+    CheckSupersededSubmission(socket, assets);
+    CheckStagedImageAcknowledgments(socket, assets);
     CheckStagedOwnerLedger(socket, assets);
 
     Application first(Config(socket, assets, "prepared_first"));

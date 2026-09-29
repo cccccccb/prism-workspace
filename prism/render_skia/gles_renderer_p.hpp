@@ -6,6 +6,7 @@
 #include "include/gpu/GrDirectContext.h"
 #include "prism/render_skia/gles_renderer.hpp"
 #include "prism/render_skia/raster_renderer.hpp"
+#include "resource_table_p.hpp"
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 #include <unordered_map>
@@ -17,15 +18,11 @@ struct GlesRenderer::Impl final : detail::ImageProvider {
         std::uint64_t generation{};
     };
 
-    explicit Impl(const RasterRenderer &source) : commands(source)
-    {
-    }
-
     const SkImage *Find(contracts::ResourceId id) const noexcept override;
     bool Current() const noexcept;
     void PruneImages();
 
-    const RasterRenderer &commands;
+    detail::ResourceTable resources;
     sk_sp<GrDirectContext> context;
     sk_sp<SkSurface> surface;
     std::unordered_map<std::uint64_t, Image> images;

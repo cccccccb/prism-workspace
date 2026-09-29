@@ -49,6 +49,8 @@ int main()
         });
     auto id = resources.Request("image");
     assert(id && resources.Request("image") == id);
+    const auto generation = resources.Generation(id);
+    assert(generation != 0 && resources.Generation(id) == generation);
     auto blueprint =
         prism::runtime::ParseBlueprint("VStack { Image(\"image\") }", [&](std::string_view uri) {
             return resources.Request(std::string(uri));
@@ -92,10 +94,13 @@ int main()
     const auto *fill = std::get_if<prism::contracts::DrawImage>(&wallpaper_list->commands.front());
     assert(fill && fill->destination.width == 300 && fill->destination.height == 180);
     auto bad = resources.Request("bad");
+    assert(resources.Generation(bad) > generation);
     updates.clear();
     updates = AwaitCompletion(resources);
     assert(updates.size() == 1 && updates.front().id == bad);
     assert(resources.State(bad) == prism::runtime::ImageState::Failed);
+    resources.Release(bad);
+    assert(resources.Generation(bad) == 0);
 
     prism::runtime::ImageResources limited(
         [](const std::string &) -> std::optional<prism::runtime::DecodedImage> {

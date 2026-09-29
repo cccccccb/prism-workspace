@@ -1,12 +1,16 @@
 #include "prism/platform/wayland_window.hpp"
 #include "prism/render_skia/raster_renderer.hpp"
 #include "prism/runtime/dsl_frontend.hpp"
+#include "prism/runtime/png_codec.hpp"
 #include "prism/runtime/scene.hpp"
+#include "prism/runtime/text_shaper.hpp"
 #include <fstream>
 #include <iostream>
 #include <iterator>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <variant>
 
 int main(int argc, char **argv)
@@ -21,10 +25,11 @@ int main(int argc, char **argv)
     }
     std::string source(std::istreambuf_iterator<char>{input}, {});
     prism::render_skia::RasterRenderer renderer("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
-    if (!renderer.Ready()) {
+    prism::runtime::TextShaper shaper("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
+    if (!renderer.Ready() || !shaper.Ready()) {
         return 3;
     }
-    prism::runtime::ImageResources resources(prism::render_skia::RasterRenderer::DecodePng);
+    prism::runtime::ImageResources resources(prism::runtime::DecodePng);
     int requested_images = 0;
     int loaded_images = 0;
     prism::runtime::Scene scene(
@@ -33,8 +38,8 @@ int main(int argc, char **argv)
                                            ++requested_images;
                                            return resources.Request(std::string(uri));
                                        }),
-        [&](std::string_view text, double size) { return renderer.Shape(text, size); },
-        renderer.FontId());
+        [&](std::string_view text, double size) { return shaper.Shape(text, size); },
+        shaper.FontId());
     std::optional<prism::contracts::DisplayList> last_list;
     prism::platform::WaylandWindow window;
     window.SetEventHandler([&](const prism::contracts::WindowEvent &event) {

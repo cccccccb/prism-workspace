@@ -43,7 +43,7 @@ int main()
     assert(context != EGL_NO_CONTEXT && eglMakeCurrent(display, surface, surface, context));
 
     prism::render_skia::RasterRenderer cpu("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
-    prism::render_skia::GlesRenderer gpu(cpu);
+    prism::render_skia::GlesRenderer gpu("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
     assert(cpu.Ready() && gpu.Ready());
     prism::contracts::DisplayList list;
     list.window = prism::contracts::WindowId{1};

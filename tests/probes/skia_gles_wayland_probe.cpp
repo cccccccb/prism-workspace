@@ -1,6 +1,7 @@
 #include "prism/sdk/client_application.hpp"
 #include <cerrno>
 #include <chrono>
+#include <cstdint>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -56,18 +57,49 @@ void Until(Application &app, std::function<bool()> condition, const char *detail
     }
 }
 
+struct ActivitySnapshot {
+    int configure_count{};
+    int presentation_count{};
+    bool frame_callback_pending{};
+    std::uint64_t frame_callbacks_done{};
+    std::uint64_t swap_successes{};
+    std::uint64_t surface_state_commits{};
+    std::uint64_t surface_pixel_commits{};
+
+    bool operator==(const ActivitySnapshot &) const = default;
+};
+
+ActivitySnapshot ObserveActivity(const Application &app)
+{
+    const auto stats = app.GetRenderStats();
+    return {app.ConfigureCount(),       app.PresentationCount(), app.FrameCallbackPending(),
+            stats.frame_callbacks_done, stats.swap_successes,    stats.surface_state_commits,
+            stats.surface_pixel_commits};
+}
+
 void Drain(Application &app)
 {
-    Until(app, [&] { return !app.FrameCallbackPending(); }, "pixel callback did not complete");
-    if (app.HasPresentationFeedback()) {
-        Until(
-            app, [&] { return app.PresentationCount() > 0; },
-            "startup presentation did not complete");
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    auto quiet_since = std::chrono::steady_clock::now();
+    auto previous = ObserveActivity(app);
+
+    while (std::chrono::steady_clock::now() < deadline) {
+        Require(app.Pump(20), "client stopped while draining events");
+
+        const auto now = std::chrono::steady_clock::now();
+        const auto current = ObserveActivity(app);
+        if (current != previous) {
+            previous = current;
+            quiet_since = now;
+        }
+        if (!current.frame_callback_pending &&
+            (!app.HasPresentationFeedback() || current.presentation_count > 0) &&
+            now - quiet_since >= 200ms) {
+            return;
+        }
     }
-    // Dispatch residual configure/feedback messages before measuring quiet work.
-    for (int i = 0; i < 4; ++i) {
-        Require(app.Pump(0), "client stopped while draining events");
-    }
+
+    throw std::runtime_error("client did not settle after configure/pixel/state activity");
 }
 
 void NoPixels(const Stats &before, const Stats &after, const char *detail)
@@ -161,16 +193,19 @@ int Verify(const std::string &socket, const std::string &app_id)
     // Request Pixels and stop as soon as submitted, before pumping its callback.
     before = app.GetRenderStats();
     Require(app.SetBinding("title", std::string("Pending pixels")), "pixel binding rejected");
-    Require(app.Pump(0), "pending pixel pump failed");
-    Require(app.GetRenderStats().swap_successes > before.swap_successes, "pixel update missing");
-    Require(app.FrameCallbackPending(), "fixture failed to observe a pending pixel callback");
+    Until(
+        app, [&] { return app.GetRenderStats().swap_successes > before.swap_successes; },
+        "pixel update missing");
     before = app.GetRenderStats();
     Require(app.SetBinding("blur", 22.0), "pending metadata binding rejected");
-    Require(app.Pump(0), "pending state pump failed");
+    Until(
+        app,
+        [&] { return app.GetRenderStats().surface_state_commits > before.surface_state_commits; },
+        "state after pixel submission missing");
     after = app.GetRenderStats();
-    Print("state-during-pixel-callback", after);
-    Require(after.surface_state_commits > before.surface_state_commits,
-            "pixel callback blocked state commit");
+    Print("state-after-pixel-submission", after);
+    // The worker may consume the pixel callback before the UI observes its
+    // status. wayland_submit_test covers a deliberately withheld callback.
     NoPixels(before, after, "state during callback rendered pixels");
     Drain(app);
     before = app.GetRenderStats();

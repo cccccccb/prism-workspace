@@ -1,4 +1,7 @@
 #include "client_application_p.hpp"
+#include <cerrno>
+#include <poll.h>
+#include <system_error>
 
 namespace prism::sdk {
 std::optional<std::string> LoadUiSource(std::string_view installed_name,
@@ -29,7 +32,7 @@ ClientApplication::~ClientApplication()
 
 bool ClientApplication::FrontendReady() const
 {
-    return impl_->commands.Ready();
+    return impl_->shaper.Ready() && impl_->commands.Ready();
 }
 
 bool ClientApplication::ConfigureWindow(ClientConfig config)
@@ -64,8 +67,8 @@ bool ClientApplication::ReplaceUi(std::string_view source)
 bool ClientApplication::Open(std::string_view dsl_source)
 {
     auto &app = *impl_;
-    if (app.opened_once || app.closed || app.failed || !app.commands.Ready() ||
-        app.config.app_id.empty()) {
+    if (app.opened_once || app.closed || app.failed || !app.shaper.Ready() ||
+        !app.commands.Ready() || app.config.app_id.empty()) {
         return false;
     }
 
@@ -121,7 +124,7 @@ bool ClientApplication::ReplaceUiPrepared(runtime::UiLoadId load,
         return false;
     }
 
-    app.window.RequestUpdate(true);
+    app.PublishFramePacket();
     return true;
 }
 
@@ -130,8 +133,8 @@ bool ClientApplication::OpenPrepared(runtime::UiLoadId load,
                                      runtime::LoadDiagnostic *diagnostic)
 {
     auto &app = *impl_;
-    if (app.opened_once || app.closed || app.failed || !app.commands.Ready() ||
-        app.config.app_id.empty()) {
+    if (app.opened_once || app.closed || app.failed || !app.shaper.Ready() ||
+        !app.commands.Ready() || app.config.app_id.empty()) {
         if (diagnostic) {
             *diagnostic = {runtime::LoadStage::Install,
                            prepared ? prepared.Source() : runtime::ComponentSource{}, 0,
@@ -148,7 +151,9 @@ bool ClientApplication::OpenPrepared(runtime::UiLoadId load,
         if (app.scene) {
             AddSceneStats(app.render_stats, app.scene->GetRenderStats());
         }
-        app.window.Close();
+        app.CloseRenderWorker();
+        app.ui_metrics = {};
+        app.ui_configure_count = 0;
         app.scene.reset();
         const auto discarded_images = app.scene_images;
         app.scene_images.clear();
@@ -159,10 +164,15 @@ bool ClientApplication::OpenPrepared(runtime::UiLoadId load,
         }
         app.installed_ui = previous_ui;
         app.ui_presentation.Clear();
-        app.prepared_frame.reset();
-        if (diagnostic) {
+        if (!app.ResetRenderBridge() && diagnostic) {
             *diagnostic = {runtime::LoadStage::Install, prepared.Source(), 0,
-                           "Wayland window open failed"};
+                           "Render bridge recovery failed after window open"};
+        }
+        if (diagnostic) {
+            if (diagnostic->message.empty()) {
+                *diagnostic = {runtime::LoadStage::Install, prepared.Source(), 0,
+                               "Wayland window open failed"};
+            }
         }
         return false;
     }
@@ -170,53 +180,43 @@ bool ClientApplication::OpenPrepared(runtime::UiLoadId load,
     return true;
 }
 
-void ClientApplication::Impl::CloseGpu()
-{
-    damage_history.Invalidate();
-    prepared_damage.reset();
-    prepared_frame.reset();
-    committed_frame.reset();
-
-    // EGL owns native objects backed by the Wayland surface. Release them
-    // before the platform's terminal failure destroys that surface/display.
-    // Another ClientApplication on this thread may have made its GL context
-    // current. Ganesh must delete resources in this renderer's own context.
-    if (renderer) {
-        if (!egl.MakeCurrent()) {
-            renderer->Abandon();
-        }
-        renderer.reset();
-    }
-    egl.Close();
-}
-
 void ClientApplication::Impl::FailFrontend()
 {
     failed = true;
+    QueueStopRenderWorker();
     ui_load.Cancel();
     DiscardInstall(runtime::UiInstallState::Cancelled);
     ui_presentation.Clear();
-    prepared_frame.reset();
+    queued_frame.reset();
+    ui_submitted_frame.reset();
+    uploaded_image_versions.clear();
+    pending_release_versions.clear();
+    ui_metrics = {};
+    ui_configure_count = 0;
     on_ui_submitted = {};
-    CloseGpu();
+    CloseRenderWorker();
+    bridge->render_events.Close();
+    bridge->render_commands.Close();
+    while (bridge->render_commands.TryPop()) {
+    }
 }
 
 bool ClientApplication::Impl::PollResources()
 {
     const auto updates = resources.Poll();
     for (const auto &update : updates) {
-        if (!scene_images.contains(update.id.value)) {
+        if (!scene_images.contains(update.id.value) || !scene) {
             continue;
         }
         const auto *image = resources.Get(update.id);
         if (update.state != runtime::ImageState::Ready || !image || !RegisterImage(update.id) ||
             !scene->ImageReady(update.id, update.intrinsic_size)) {
+            bridge->terminal.Fail(runtime::TerminalReason::ResourceFailure);
             FailFrontend();
             continue;
         }
-        QueueImageUpload(update.id);
         if (scene->PendingDirty() != runtime::Dirty::None) {
-            window.RequestUpdate(true);
+            InvalidateQueuedFrame();
         }
     }
     return !updates.empty();
@@ -232,60 +232,77 @@ bool ClientApplication::Pump(int timeout_ms, std::span<pollfd> wake_fds)
     for (auto &fd : wake_fds) {
         fd.revents = 0;
     }
-    if (!app.scene || app.failed) {
+    if (!app.scene || app.failed || app.closed) {
         return false;
     }
+
     try {
-        // A consumed resource completion must return control to the host even
-        // if it belonged to a hidden subtree and produced no pixel dirtiness.
+        if (app.bridge->terminal.Reason() != runtime::TerminalReason::None ||
+            app.bridge->terminal.StopRequested()) {
+            app.FailFrontend();
+            return false;
+        }
+
+        // Resource completion and reverse protocol events are independent of
+        // the Wayland poll; only the render worker waits on that display.
         if (app.PollResources()) {
             timeout_ms = 0;
         }
-        if (app.failed) {
-            app.window.Close();
-            return false;
-        }
-        if (!app.AdvanceImageUploads()) {
+        app.ProcessRenderEvents(true);
+        if (app.failed || app.bridge->terminal.Reason() != runtime::TerminalReason::None ||
+            app.bridge->terminal.StopRequested()) {
             app.FailFrontend();
-            app.window.Close();
             return false;
         }
-        if (app.ui_work_turn_started || (!app.upload_queue.empty() && app.window.IsConfigured())) {
+        app.PublishFramePacket();
+        if (app.ui_work_turn_started) {
             timeout_ms = 0;
         }
 
         std::vector<pollfd> sources;
         const int completion_fd = app.resources.CompletionFd();
         const std::size_t resource_sources = completion_fd >= 0 ? 1 : 0;
-        sources.reserve(resource_sources + wake_fds.size());
+        sources.reserve(resource_sources + 2 + wake_fds.size());
         if (resource_sources) {
             sources.push_back({completion_fd, POLLIN, 0});
         }
+        sources.push_back({app.bridge->render_events.Fd(), POLLIN, 0});
+        sources.push_back({app.bridge->terminal.Fd(), POLLIN, 0});
         sources.insert(sources.end(), wake_fds.begin(), wake_fds.end());
 
-        const bool running = app.window.Pump(timeout_ms, sources);
-        for (std::size_t i = 0; i < wake_fds.size(); ++i) {
-            wake_fds[i].revents = sources[resource_sources + i].revents;
+        const int ready = poll(sources.data(), static_cast<nfds_t>(sources.size()), timeout_ms);
+        if (ready < 0 && errno != EINTR) {
+            throw std::system_error(errno, std::generic_category(), "Client event poll");
         }
-        if (!running) {
+        for (std::size_t i = 0; i < wake_fds.size(); ++i) {
+            wake_fds[i].revents = sources[resource_sources + 2 + i].revents;
+        }
+
+        if (app.bridge->terminal.Reason() != runtime::TerminalReason::None ||
+            app.bridge->terminal.StopRequested()) {
+            app.ProcessRenderEvents(false);
             app.FailFrontend();
-            app.window.Close();
+            return false;
+        }
+        app.ProcessRenderEvents(true);
+        if (app.failed || app.bridge->terminal.Reason() != runtime::TerminalReason::None ||
+            app.bridge->terminal.StopRequested()) {
+            app.FailFrontend();
             return false;
         }
 
         app.PollResources();
-        if (app.failed) {
-            app.window.Close();
+        if (app.failed || app.bridge->terminal.Reason() != runtime::TerminalReason::None ||
+            app.bridge->terminal.StopRequested()) {
+            app.FailFrontend();
             return false;
         }
-
-        // Resource updates defer submission; the next host turn re-collects
-        // its sources, then Window submits before entering the next wait.
+        app.PublishFramePacket();
         return true;
     } catch (const std::exception &error) {
         std::fprintf(stderr, "[prism-sdk] event pump failed: %s\n", error.what());
+        app.bridge->terminal.Fail(runtime::TerminalReason::InternalFailure);
         app.FailFrontend();
-        app.window.Close();
         return false;
     }
 }
@@ -302,9 +319,9 @@ bool ClientApplication::SetBinding(std::string_view name, runtime::PropertyValue
         return false;
     }
     app.binding_values.insert_or_assign(std::string(name), value);
-    app.scene->SetBinding(name, std::move(value));
-    if (app.scene->PendingDirty() != runtime::Dirty::None) {
-        app.window.RequestUpdate(true);
+    const bool changed = app.scene->SetBinding(name, std::move(value));
+    if (changed && app.scene->PendingDirty() != runtime::Dirty::None) {
+        app.InvalidateQueuedFrame();
     }
     return true;
 }
@@ -319,8 +336,10 @@ bool ClientApplication::ApplyTheme(const contracts::ThemeSnapshot &theme, std::s
             return false;
         }
         app.theme.swap(prepared);
-        if (app.scene && app.scene->PendingDirty() != runtime::Dirty::None) {
-            app.window.RequestUpdate(true);
+        if (app.scene) {
+            // A resolved no-op can still change the accepted theme identity
+            // while an older visual candidate is waiting for submission.
+            app.InvalidateQueuedFrame();
         }
         if (diagnostic) {
             diagnostic->clear();
@@ -342,66 +361,6 @@ std::uint64_t ClientApplication::ThemeGeneration() const
 void ClientApplication::OnAction(std::function<void(std::string_view)> callback)
 {
     impl_->on_action = std::move(callback);
-}
-
-bool ClientApplication::IsCloseRequested() const
-{
-    return impl_->window.IsCloseRequested();
-}
-
-bool ClientApplication::IsMapped() const
-{
-    return impl_->window.IsMapped();
-}
-
-int ClientApplication::ConfigureCount() const
-{
-    return impl_->window.ConfigureCount();
-}
-
-int ClientApplication::FrameDoneCount() const
-{
-    return impl_->window.FrameDoneCount();
-}
-
-bool ClientApplication::FrameCallbackPending() const
-{
-    return impl_->window.FrameCallbackPending();
-}
-
-int ClientApplication::PresentedCount() const
-{
-    return impl_->presented;
-}
-
-bool ClientApplication::HasPresentationFeedback() const
-{
-    return impl_->window.HasPresentationFeedback();
-}
-
-int ClientApplication::PresentationCount() const
-{
-    return impl_->window.PresentationCount();
-}
-
-std::uint64_t ClientApplication::WaitDurationNs() const noexcept
-{
-    return impl_->window.WaitDurationNs();
-}
-
-ClientRenderStats ClientApplication::GetRenderStats() const
-{
-    auto stats = impl_->render_stats;
-    if (impl_->scene) {
-        AddSceneStats(stats, impl_->scene->GetRenderStats());
-    }
-    stats.frame_callbacks_done = static_cast<std::uint64_t>(impl_->window.FrameDoneCount());
-    const auto submitted = impl_->window.GetSubmitStats();
-    stats.surface_state_commits = submitted.state_commits;
-    stats.surface_pixel_commits = submitted.pixel_commits;
-    stats.surface_submission_failures = submitted.failures;
-    stats.surface_noops = submitted.none;
-    return stats;
 }
 
 ClientStartupStats ClientApplication::GetStartupStats() const noexcept
@@ -426,31 +385,44 @@ std::string ClientApplication::GlRenderer() const
 
 void ClientApplication::Close()
 {
-    if (!impl_) {
+    if (!impl_ || impl_->closed) {
         return;
     }
+
     impl_->closed = true;
+    impl_->QueueStopRenderWorker();
+    impl_->CloseRenderWorker();
+
     impl_->ui_load.Cancel();
     impl_->DiscardInstall(runtime::UiInstallState::Cancelled);
     impl_->ClearPreloadedImages();
     impl_->ui_presentation.Clear();
-    impl_->prepared_frame.reset();
+    impl_->queued_frame.reset();
+    impl_->ui_submitted_frame.reset();
+    impl_->uploaded_image_versions.clear();
+    impl_->pending_release_versions.clear();
     impl_->on_ui_submitted = {};
-    impl_->window.SetPresentationHandler({});
 
-    impl_->CloseGpu();
-    impl_->window.Close();
     if (impl_->scene) {
         AddSceneStats(impl_->render_stats, impl_->scene->GetRenderStats());
     }
     impl_->scene.reset();
     impl_->last_list.reset();
+    impl_->last_image_uses.reset();
     const auto discarded_images = impl_->scene_images;
     impl_->scene_images.clear();
     for (auto value : discarded_images) {
         impl_->DropImage({value});
     }
-    impl_->upload_queue.clear();
-    impl_->queued_uploads.clear();
+
+    impl_->ui_metrics = {};
+    impl_->ui_configure_count = 0;
+    impl_->bridge->render_events.Close();
+    impl_->bridge->render_commands.Close();
+    while (impl_->bridge->render_events.TryPop()) {
+    }
+    while (impl_->bridge->render_commands.TryPop()) {
+    }
 }
+
 } // namespace prism::sdk

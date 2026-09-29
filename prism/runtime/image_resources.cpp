@@ -177,12 +177,14 @@ contracts::ResourceId ImageResources::Request(std::string uri)
         return item.second.state == ImageState::Loading;
     });
     if (uri.empty() || uri.size() > 4096 || entries_.size() >= 4096 || pending >= 128 ||
-        next_id_ >= std::numeric_limits<std::uint64_t>::max() / 2) {
+        next_id_ >= std::numeric_limits<std::uint64_t>::max() / 2 ||
+        next_generation_ == std::numeric_limits<std::uint64_t>::max()) {
         return {};
     }
 
     contracts::ResourceId id{next_id_++};
     Entry entry;
+    entry.generation = next_generation_++;
     entry.uri = std::move(uri);
     entries_.emplace(id.value, std::move(entry));
     by_uri_.emplace(entries_.at(id.value).uri, id);
@@ -273,10 +275,26 @@ ImageState ImageResources::State(contracts::ResourceId id) const
     return found == entries_.end() ? ImageState::Failed : found->second.state;
 }
 
-std::shared_ptr<const void> ImageResources::Retain(contracts::ResourceId id) const
+ImageLease ImageResources::Retain(contracts::ResourceId id) const
 {
     const auto found = entries_.find(id.value);
-    return found == entries_.end() ? nullptr : found->second.output;
+    if (found == entries_.end() || found->second.state != ImageState::Ready) {
+        return {};
+    }
+
+    auto output = std::dynamic_pointer_cast<const ImageOutput>(found->second.output);
+    if (!output || !output->pixels) {
+        return {};
+    }
+
+    const DecodedImage *pixels = &*output->pixels;
+    return ImageLease(std::move(output), pixels);
+}
+
+std::uint64_t ImageResources::Generation(contracts::ResourceId id) const noexcept
+{
+    const auto found = entries_.find(id.value);
+    return found == entries_.end() ? 0 : found->second.generation;
 }
 
 void ImageResources::Release(contracts::ResourceId id)

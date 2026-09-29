@@ -8,7 +8,7 @@
 - `ResourceId` 是一个客户端运行期本地 ID，0 无效。字体 ID 必须注册到字体表，图片 ID 必须注册到图片表；两种资源分别按命令类型查找。文字 shaping 产生的 glyph ID 必须来自该命令引用的同一字体文件。资源应在回放完成前保持有效。当前字体注册后不卸载，图片注册后可由同一 ID 更新。
 - CPU 和 GLES 都通过同一个 Skia 回放器解释命令，差别仅在目标画布和 GPU 提交。结构验证由共享回放器完成；像素差异仍受光栅化、采样和颜色格式影响。
 
-当前字体资源由 `RasterRenderer::RegisterFont` 注册，默认字体在构造时注册；`Shape(font, text, size)` 与 `DrawGlyphRun.font` 使用同一个 ID。图片通过 `ImageResources` 异步解码后注册到回放器，Scene 收到 `ImageReady` 才发出 `DrawImage`。
+当前 UI 字体整形由 `runtime::TextShaper` 持有 FreeType/HarfBuzz 状态；回放字体由 `RasterRenderer::RegisterFont` 注册 SkTypeface。两侧默认字体在构造时从同一配置路径注册，`TextShaper::Shape(font, text, size)` 与 `DrawGlyphRun.font` 使用相同本地 ID。图片通过 `ImageResources` 异步解码后注册到回放器，Scene 收到 `ImageReady` 才发出 `DrawImage`；`FramePacket` 另带该 DisplayList 实际引用图片的 UI 侧版本，提交前与已登记/上传版本核对。UI 与渲染所有者使用同一次 ConfigureWindow 固定的字体路径和默认字体 ID；运行期不支持换字体。后续开放可变字体时必须在帧/资源协议中加入字体身份与版本，不能只靠整数 ID。
 
 ## 本地视觉命令（2026-09-26）
 

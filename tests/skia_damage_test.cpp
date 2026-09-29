@@ -3,6 +3,7 @@
 #include "prism/render_skia/gles_renderer.hpp"
 #include "prism/render_skia/raster_renderer.hpp"
 #include "prism/runtime/buffer_damage.hpp"
+#include "prism/runtime/text_shaper.hpp"
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl3.h>
@@ -25,8 +26,11 @@ using namespace prism::contracts;
 using prism::render_skia::GlesRenderer;
 using prism::render_skia::RasterRenderer;
 using prism::runtime::BufferDamageHistory;
+using prism::runtime::TextShaper;
 constexpr BufferSize initial_size{384, 256};
 constexpr ResourceId image_id{71}, serif_font{72};
+constexpr auto default_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+constexpr auto serif_font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf";
 
 [[noreturn]] void Fail(const std::string &detail)
 {
@@ -59,10 +63,10 @@ prism::runtime::DecodedImage Image(unsigned variant)
     return image;
 }
 
-DrawGlyphRun Text(RasterRenderer &renderer, ResourceId font, std::string_view text, double size,
-                  double x, double y, Color color)
+DrawGlyphRun Text(TextShaper &shaper, ResourceId font, std::string_view text, double size, double x,
+                  double y, Color color)
 {
-    auto shaped = renderer.Shape(font, text, size);
+    auto shaped = shaper.Shape(font, text, size);
     Require(!shaped.glyphs.empty(), "font shaping failed");
     for (auto &glyph : shaped.glyphs) {
         glyph.origin.x += x;
@@ -85,7 +89,7 @@ struct Frame {
     bool full_repair{false};
 };
 
-std::vector<Frame> Frames(RasterRenderer &renderer)
+std::vector<Frame> Frames(TextShaper &shaper)
 {
     DisplayList initial;
     initial.window = {1};
@@ -99,7 +103,7 @@ std::vector<Frame> Frames(RasterRenderer &renderer)
         FillRoundedRect{{238, 79, 96, 54}, 12, {93, 173, 211, 85}},
         RoundedRectShadow{{238, 79, 96, 54}, 12, 3, 5, {30, 13, 61, 135}, true},
         DrawImage{image_id, {278.5, 12.25, 68, 48}, ImageFit::Contain},
-        Text(renderer, renderer.FontId(), "Prism gypj", 18.5, 12.25, 127.5, {251, 207, 98, 208}),
+        Text(shaper, shaper.FontId(), "Prism gypj", 18.5, 12.25, 127.5, {251, 207, 98, 208}),
         PushClipRect{{220.25, 143.5, 118.5, 89}},
         FillRect{{208, 135, 120, 38}, {121, 35, 223, 119}},
         DrawImage{image_id, {312, 142, 32, 40}, ImageFit::Cover},
@@ -177,11 +181,11 @@ std::vector<Frame> Frames(RasterRenderer &renderer)
     std::get<FillRect>(add("rounded AA clip fringe recolor").list.commands[14]).color = {227, 52,
                                                                                          149, 211};
     add("glyph font size and descenders").list.commands[8] =
-        Text(renderer, serif_font, "jgy", 28.5, 6.75, 118.25, {182, 247, 245, 121});
-    add("glyph long-to-short ink").list.commands[8] = Text(
-        renderer, renderer.FontId(), "Quick gypsy fjord", 14.25, 14, 134.5, {237, 200, 178, 218});
+        Text(shaper, serif_font, "jgy", 28.5, 6.75, 118.25, {182, 247, 245, 121});
+    add("glyph long-to-short ink").list.commands[8] =
+        Text(shaper, shaper.FontId(), "Quick gypsy fjord", 14.25, 14, 134.5, {237, 200, 178, 218});
     add("glyph short with negative origin").list.commands[8] =
-        Text(renderer, serif_font, "j", 31.25, -2.5, 119.75, {188, 122, 250, 88});
+        Text(shaper, serif_font, "j", 31.25, -2.5, 119.75, {188, 122, 250, 88});
     for (unsigned icon = 0; icon < icon_count; ++icon) {
         auto &value = std::get<DrawIcon>(
             add("vector path " + std::to_string(icon)).list.commands[first_icon + icon]);
@@ -283,8 +287,7 @@ public:
 
 class GpuTarget {
 public:
-    GpuTarget(EglDisplay &owner, RasterRenderer &commands, BufferSize size)
-        : owner_(owner), commands_(commands)
+    GpuTarget(EglDisplay &owner, BufferSize size) : owner_(owner)
     {
         const EGLint attributes[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
         context_ = eglCreateContext(owner_.display, owner_.config, EGL_NO_CONTEXT, attributes);
@@ -326,8 +329,19 @@ public:
         surface_ = eglCreatePbufferSurface(owner_.display, owner_.config, attributes);
         Require(surface_ != EGL_NO_SURFACE, "pbuffer creation failed");
         Current();
-        renderer_ = std::make_unique<GlesRenderer>(commands_);
+        renderer_ = std::make_unique<GlesRenderer>(default_font_path);
         Require(renderer_->Ready(), "Ganesh initialization failed");
+        Require(renderer_->RegisterFont(serif_font, serif_font_path),
+                "GPU alternate font registration failed");
+        Require(renderer_->RegisterImage(image_id, Image(image_variant_)),
+                "GPU image registration failed");
+    }
+
+    void SetImage(unsigned variant)
+    {
+        image_variant_ = variant;
+        Current();
+        Require(renderer_->RegisterImage(image_id, Image(variant)), "GPU image replacement failed");
     }
 
     GlesRenderer &Renderer()
@@ -360,7 +374,7 @@ public:
 
 private:
     EglDisplay &owner_;
-    RasterRenderer &commands_;
+    unsigned image_variant_{};
     EGLContext context_{EGL_NO_CONTEXT};
     EGLSurface surface_{EGL_NO_SURFACE};
     std::unique_ptr<GlesRenderer> renderer_;
@@ -509,7 +523,7 @@ void CheckLargeRepairDoesNotExpand(EglDisplay &display, RasterRenderer &commands
     Require(commands.Render(expected, cpu_full.data(), size.width, size.height, size.width * 4),
             "80% sentinel CPU reference failed");
     ComparePixels(cpu_partial, cpu_full, size, true, "80% repair outside sentinel CPU");
-    GpuTarget partial(display, commands, size), full(display, commands, size);
+    GpuTarget partial(display, size), full(display, size);
     partial.Current();
     Require(partial.Renderer().Render(before, size.width, size.height),
             "80% sentinel GPU initialization failed");
@@ -532,11 +546,11 @@ void RunRotation(EglDisplay &display, RasterRenderer &commands, const std::vecto
     history.Reset(size);
     std::array<std::unique_ptr<GpuTarget>, 3> targets;
     for (auto &target : targets) {
-        target = std::make_unique<GpuTarget>(display, commands, size);
+        target = std::make_unique<GpuTarget>(display, size);
     }
     // This fourth independent context always clears/replays the full list. It
     // never consumes CompareDamage, repair rectangles, or a partial result.
-    GpuTarget reference(display, commands, size);
+    GpuTarget reference(display, size);
     reference.Current();
     const auto *driver = glGetString(GL_RENDERER);
     Require(driver != nullptr, "GL renderer string unavailable");
@@ -567,6 +581,10 @@ void RunRotation(EglDisplay &display, RasterRenderer &commands, const std::vecto
                     label + " image replacement failed");
             Require(commands.ResourceEpoch() > before_epoch,
                     label + " missing resource epoch advancement");
+            for (auto &target : targets) {
+                target->SetImage(*frame.image_variant);
+            }
+            reference.SetImage(*frame.image_variant);
         }
         if (frame.resize || frame.reset_epoch) {
             const auto old_epoch = history.Epoch();
@@ -699,6 +717,7 @@ void CheckExplicitImageUpload(GlesRenderer &renderer, RasterRenderer &commands, 
     constexpr ResourceId upload_id{7301};
     const auto initial = renderer.GetRenderStats();
     Require(commands.RegisterImage(upload_id, Image(0)), "upload fixture registration failed");
+    Require(renderer.RegisterImage(upload_id, Image(0)), "GPU source registration failed");
     Require(!renderer.ImageUploaded(upload_id), "CPU registration reported GPU residency");
     Require(!renderer.UploadImage({}), "zero ID unexpectedly uploaded");
     Require(renderer.UploadImage(upload_id), "explicit backend texture upload failed");
@@ -717,6 +736,9 @@ void CheckExplicitImageUpload(GlesRenderer &renderer, RasterRenderer &commands, 
     const auto first_pixels = ReadNative(size);
 
     Require(commands.RegisterImage(upload_id, Image(1)), "same-ID replacement failed");
+    Require(renderer.ImageUploaded(upload_id),
+            "raster image replacement unexpectedly mutated GPU resource table");
+    Require(renderer.RegisterImage(upload_id, Image(1)), "GPU source replacement failed");
     Require(!renderer.ImageUploaded(upload_id), "same-ID replacement reused stale GPU image");
     Require(renderer.Render(list, size.width, size.height, {}), "empty replay failed");
     Require(renderer.GetRenderStats().image_upload_successes == stats.image_upload_successes,
@@ -734,9 +756,11 @@ void CheckExplicitImageUpload(GlesRenderer &renderer, RasterRenderer &commands, 
     Require(renderer.UploadImage(upload_id), "released image could not reupload");
     CheckUploadedPixels(renderer, commands, size, list, "released/reuploaded image");
     commands.UnregisterImage(upload_id);
+    Require(renderer.ImageUploaded(upload_id),
+            "raster unregister unexpectedly mutated GPU resource table");
+    renderer.UnregisterImage(upload_id);
     Require(!renderer.ImageUploaded(upload_id) && !renderer.UploadImage(upload_id),
             "unregistered image retained or uploaded a stale CPU resource");
-    renderer.ReleaseImage(upload_id);
     std::cout << "explicit GPU texture upload/replay/replacement/release bytes="
               << renderer.GetRenderStats().image_uploaded_bytes - initial.image_uploaded_bytes
               << " passed\n"
@@ -810,7 +834,7 @@ void RunNative(RasterRenderer &commands, const std::vector<Frame> &frames,
                     history.Reset(size);
                 }
                 if (!reference) {
-                    reference = std::make_unique<GpuTarget>(reference_display, commands, size);
+                    reference = std::make_unique<GpuTarget>(reference_display, size);
                     reference_size = size;
                 } else if (reference_size.width != size.width ||
                            reference_size.height != size.height) {
@@ -861,7 +885,10 @@ void RunNative(RasterRenderer &commands, const std::vector<Frame> &frames,
                         "native repair declaration failed");
                 const auto before_native = ReadNative(size);
                 if (!renderer) {
-                    renderer = std::make_unique<GlesRenderer>(commands);
+                    renderer = std::make_unique<GlesRenderer>(default_font_path);
+                    Require(renderer->RegisterFont(serif_font, serif_font_path) &&
+                                renderer->RegisterImage(image_id, Image(0)),
+                            "native GPU resource registration failed");
                     CheckExplicitImageUpload(*renderer, commands, size);
                 }
                 Require(renderer->Ready() &&
@@ -975,6 +1002,10 @@ void RunNative(RasterRenderer &commands, const std::vector<Frame> &frames,
                     "native image replacement altered display commands");
             Require(commands.RegisterImage(image_id, Image(*frame.image_variant)),
                     "native image replacement failed");
+            Require(egl.MakeCurrent() &&
+                        renderer->RegisterImage(image_id, Image(*frame.image_variant)),
+                    "native GPU image replacement failed");
+            reference->SetImage(*frame.image_variant);
         }
         if (frame.reset_epoch) {
             history.Reset(history.Size());
@@ -1008,11 +1039,12 @@ void RunNative(RasterRenderer &commands, const std::vector<Frame> &frames,
 
 int main(int argc, char **argv)
 {
-    RasterRenderer commands("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
-    Require(commands.Ready(), "default font unavailable");
-    Require(commands.RegisterFont(serif_font, "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"),
-            "alternate font unavailable");
-    const auto frames = Frames(commands);
+    RasterRenderer commands(default_font_path);
+    TextShaper shaper(default_font_path);
+    Require(commands.Ready() && shaper.Ready(), "default font unavailable");
+    Require(commands.RegisterFont(serif_font, serif_font_path), "alternate font unavailable");
+    Require(shaper.RegisterFont(serif_font, serif_font_path), "alternate shaping font unavailable");
+    const auto frames = Frames(shaper);
     if (argc == 3 && std::string_view(argv[1]) == "--wayland") {
         RunNative(commands, frames, argv[2]);
         return 0;
@@ -1020,7 +1052,7 @@ int main(int argc, char **argv)
     Require(argc == 1, "usage: skia_damage_test [--wayland <socket>]");
     EglDisplay display;
     {
-        GpuTarget target(display, commands, initial_size);
+        GpuTarget target(display, initial_size);
         target.Current();
         CheckExplicitImageUpload(target.Renderer(), commands, initial_size);
     }

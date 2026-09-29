@@ -1,12 +1,16 @@
 # 客户端 SDK：DSL 到 Wayland 窗口
 
-日期：2026-09-26。当前运行时主题接口见 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md)；本轮测试与部署结果另行记录。
+日期：2026-09-29。当前运行时主题接口见 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md)；渲染线程切换与 Pi 功能验收见 [CLIENT_RENDER_THREAD_MIGRATION.md](CLIENT_RENDER_THREAD_MIGRATION.md#第二步线程切换验收记录)。
 
-`prism_client_app` 是新架构普通应用的复用入口。调用方给出 DSL 源码、Wayland socket、应用 ID、标题、字体与初始尺寸；SDK 在客户端进程内持有 Scene、图片资源、字体整形、Skia Ganesh GLES、EGL 窗口和 Wayland 对象。WM 不接触 DSL、Scene 或应用 `$slot`。
+`prism_client_app` 是新架构普通应用的复用入口。调用方给出 DSL 源码、Wayland socket、应用 ID、标题、字体与初始尺寸；客户端进程内的 UI 线程持有 Scene、CPU 图片资源与字体整形，独立渲染线程持有 Skia Ganesh GLES、EGL、Wayland 窗口及 GPU 图片。WM 不接触 DSL、Scene 或应用 `$slot`。
 
-当前 Scene 到提交阶段经过只读 `FramePacket`：Build 的 DisplayList 移入共享存储，未变化时复用；包记录 UI 身份、版本和效果/输入区域。损伤仍相对最后成功的像素包计算。现阶段 `Pump`、Wayland、EGL 与 Ganesh 仍由同一线程持有；独立渲染线程的所有权、队列和跨线程资源租约设计见[客户端渲染线程迁移设计](CLIENT_RENDER_THREAD_MIGRATION.md)。
+2026-09-29 的资源边界拆分后，Scene 使用独立的 `runtime::TextShaper` 完成 FreeType/HarfBuzz 整形；CPU 回放/损伤分析用的 `RasterRenderer` 和生产 GPU `GlesRenderer` 各自持有 Skia 字体/图片资源表，共享带类型的解码图片强租约。PNG 检查与解码由 `runtime::png_codec` 在 CPU 准备层提供。图片登记获得 UI 侧单调版本，帧只记录实际引用的图片版本；各表当前使用同一配置字体路径及本地字体 ID，字体路径在 ConfigureWindow 前固定并同时复制给 UI 与渲染所有者；当前不支持运行期换字体，字体 ID 由同一配置初始化。
 
-平台 host 在 `Open` 前调用 `ApplyTheme` 安装初始快照，随后解析 UI 并创建窗口；在事件循环中调用 `Pump`。业务状态通过带类型的 `SetBinding` 更新，文字可用 `SetSlot`；按钮动作由 `OnAction` 回调交给业务。`Pump` 合并 Wayland 输入/configure、图片完成通知与调用者 FD 等待；资源就绪后在运行时线程更新 Scene。静止页面不自行连续提交。`Close` 按 Skia → EGL → Wayland 的顺序释放图形对象。接口见 [client_application.hpp](../prism/include/prism/sdk/client_application.hpp)。
+直接调用 `RasterRenderer::Shape`、`InspectPng` 或 `DecodePng` 的 C++ 程序需改用 `runtime::TextShaper` 与 `runtime::png_codec`；这些旧 C++ 方法已移除。直接构造 `GlesRenderer` 的程序改为传字体路径，并在该 renderer 上登记图片后再上传；它不再从 `RasterRenderer` 读取图片。统一 Host 的业务模块 C ABI 不受此接口拆分影响。
+
+当前 Scene 到提交阶段经过只读 `FramePacket`：UI 的 `Pump` 轮次构建并将帧放入有界正向队列，Build 的 DisplayList 移入共享存储，未变化时复用；图片登记/释放与帧按序交付，控制消息不能被帧合并越过。连续变更绑定、图片资源或主题时，已发布但未提交的候选通过不可合并的 `InvalidateFrameCommand` 作废，更新后的 Scene 在本次或下一次 UI `Pump` 集中封包；已成功提交的像素与损伤基线仍保留。区域替换旧图片时，失效屏障先于旧图片释放命令入队，防止 worker 消费仍引用该版本的候选。Wayland 输入、提交结果、呈现反馈和图片版本确认通过同一有界反向事件队列回到 UI，按协议顺序处理命中与 Host 里程碑；提交回调只消费已交付的包，无兼容包时保留请求，configure 状态仍可单独提交。损伤始终相对最后成功的像素包计算。`Pump` 只在 UI/Host 线程轮询资源、反向事件与 Host FD；独立渲染线程持有 Wayland、EGL、Ganesh、GPU 图像、上传及损伤历史。输入采用递增序号与 UI 处理确认，渲染线程在确认前不提交旧帧。所有权及关闭握手见[客户端渲染线程迁移设计](CLIENT_RENDER_THREAD_MIGRATION.md)。
+
+平台 host 在 `Open` 前调用 `ApplyTheme` 安装初始快照，随后解析 UI 并创建窗口；在事件循环中调用 `Pump`。业务状态通过带类型的 `SetBinding` 更新，文字可用 `SetSlot`；按钮动作由 `OnAction` 回调交给业务。调用成功表示绑定已被接受，不表示独立渲染线程已经提交新画面；需要观察提交/呈现状态时继续驱动 `Pump`。同一 UI 轮次的多次绑定修改会失效中间候选，在下一次封包时取最终 Scene 值；重复相同绑定不制造新像素。`Pump` 合并 Wayland 输入/configure、图片完成通知与调用者 FD 等待；资源就绪后在 UI 线程更新 Scene。静止页面不自行连续提交。`Close` 请求 worker 停止，待其在所属线程按 Ganesh → EGL → Wayland 顺序清理并 Join 后，UI 才释放自己的 Scene 与 CPU 资源。接口见 [client_application.hpp](../prism/include/prism/sdk/client_application.hpp)。
 
 `tests/probes/skia_gles_wayland_probe.cpp` 使用同一 SDK 生命周期，测试和诊断程序留在 tests，不安装到生产包。早期 GLES 检查点的计数与验收记录见 [SKIA_GLES_PI.md](SKIA_GLES_PI.md)，不作为当前主题功能的验证结论。
 
@@ -42,14 +46,19 @@ Controls 的变化目前统一保守标记 Paint，即使变化的控件样式�
 
 `ClientApplication::GetRenderStats()` 返回累计 `ClientRenderStats`：Scene Build 调用/实际新列表/布局次数，GPU Render 与 Swap 尝试/成功，以及 frame callback 次数。跨 Preview/Master UI 替换累计；主题的隔离预检候选不计为实际前端工作。计数只读，不影响 dirty 或提交行为，不向 WM 发送 DSL/Skia 信息。GPU 调用成功及 Swap 成功不代表实际呈现或 GPU 完成；完整计数和调度规范见 [RENDER_SCHEDULING_AND_INVALIDATION.md](RENDER_SCHEDULING_AND_INVALIDATION.md)。
 
+### 平台状态快照
+
+`GetPlatformStatus()` 返回按值复制的 `ClientPlatformStatus`，包含关闭请求、配置/映射状态、当前尺寸与 scale、frame callback 与 presentation 能力/计数、累计等待时间和 surface 提交计数。`IsCloseRequested()`、`IsMapped()`、`ConfigureCount()`、`FrameDoneCount()`、`FrameCallbackPending()`、`HasPresentationFeedback()`、`PresentationCount()`、`WaitDurationNs()` 读取同一份 UI 侧快照；`GetRenderStats()` 将快照中的平台计数与 Scene/GPU 统计合并。`PresentedCount()` 仍是 SDK 的成功 Swap 计数，不等于 presentation feedback 次数。Scene 布局使用与输入同序交付的 `ConfigureEvent` 自带尺寸、scale 和 configure 计数；不能用快照中的最新尺寸去解释队列里较早的事件。
+
+渲染线程在配置、提交、回调、呈现和图片上传等状态变化后发送有序值事件；UI 消费后更新快照。Open 完成时还读取线程安全的初始值副本，使紧随 Open 的能力 getter 可用；关闭等待渲染线程清理后读取最终副本。纯等待时间变化不单独发送状态事件。Host 与业务入口始终不跨线程访问 Wayland 对象；快照描述最近已处理的平台边界，不承诺调用时刻的实时硬件或 compositor 状态。
 
 ### 提交与事件等待
 
-`Pump(timeout_ms, std::span<pollfd> wake_fds = {})` 允许调用者提供借用的控制/退出 FD。负 timeout 为无限等待，非负为等待上限；描述符由调用者持有，SDK 只回填 `revents`。SDK 内部加入 `ImageResources::CompletionFd()`，由资源队列负责 drain。所有 Wayland prepare/read/cancel 配对归平台适配器；派发已有事件后返回 Host 重新计算等待源与业务 deadline。
+`Pump(timeout_ms, std::span<pollfd> wake_fds = {})` 允许调用者提供借用的控制/退出 FD。负 timeout 为无限等待，非负为等待上限；描述符由调用者持有，SDK 只回填 `revents`。SDK 内部加入 `ImageResources::CompletionFd()`、反向事件 FD 与独立终态 FD；正向命令 FD 由渲染线程的 Wayland 等待监听，Host 不排空正向命令。所有 Wayland prepare/read/cancel 配对只在渲染线程的适配器中完成；UI 派发已有事件后返回 Host 重新计算等待源与业务 deadline。
 
-平台提交采用 `None / State / Pixels / Failed` 与 prepare/commit/completion 三个阶段。仅 Pixels 申请帧回调和 presentation feedback；State 不受旧像素 callback 阻塞。Scene 的 `PixelsRevision()` 与 Build generation 独立，纯 Composite 不 Build；首帧/resize 仍允许强制绘制。重复值和仅身份变化的合法主题不推进像素版本。
+平台提交采用 `None / State / Pixels / Failed` 结果与 prepare/commit/completion 三个阶段；`Deferred` 表示本轮受预算准备让出，`AwaitFrame` 表示等待兼容 UI 包或通知 FD。仅 Pixels 申请帧回调和 presentation feedback；State 不受旧像素 callback 阻塞。Scene 的 `PixelsRevision()` 与 Build generation 独立，纯 Composite 不 Build；首帧/resize 仍允许强制绘制。重复值和仅身份变化的合法主题不推进像素版本。
 
-对应 metadata 随 State/Pixels 成功提交后调用 `AcknowledgeComposite()`。准备阶段已检查 metadata、请求与上次相同，或可选效果扩展不可用而没有请求可发送时，checked-identical `None` 也可确认 Composite，不额外制造 surface commit。因旧像素 callback 尚未完成而推迟准备的 `None` 不确认状态；待处理像素版本和 Composite 继续保留。ACK 只清 Composite，未提交的 Paint/Layout 不受影响；Failed 不确认内容。
+对应 metadata 随 State/Pixels 成功提交后，经反向事件在 UI 轮次调用 `AcknowledgeComposite()`，且只确认仍匹配的 Scene/主题版本。准备阶段已检查 metadata、请求与上次相同，或可选效果扩展不可用而没有请求可发送时，checked-identical `None` 也可确认 Composite，不额外制造 surface commit。因旧像素 callback 尚未完成而推迟准备的 `None` 不确认状态；待处理像素版本和 Composite 继续保留。ACK 只清 Composite，未提交的 Paint/Layout 不受影响；Failed 不确认内容。
 
 新增计数为 `surface_noops`、`surface_state_commits`、`surface_pixel_commits`、`surface_submission_failures`；它们和 GPU/Swap/实际呈现独立。`FrameCallbackPending()` 提供只读节流状态，不使调用者拥有回调对象。提交失败终止当前连接，不能用销毁客户端 callback 代理来宣称撤回服务端 pending 请求。精确生命周期与验证规范见 [渲染调度与失效传播](RENDER_SCHEDULING_AND_INVALIDATION.md) 第 9 节。
 
@@ -84,7 +93,7 @@ Close 为终态，撤销所有未安装结果。安装诊断是 LoadDiagnostic�
 计数；当前与前一代的状态有界保存。仅成功像素提交触发具名 `OnUiSubmitted` 观察者，
 实际 presented/discarded 与该提交对应；State、None、Swap 失败、frame callback 或旧代
 反馈不能证明新代已经呈现。未知/已淘汰代数返回 false，Close 清理追踪与观察者。
-提交观察者只能做短时通知/派发，不在 Wayland 提交回调中替换 live Scene。
+提交观察者在 UI 轮次处理有序提交事件，只能做短时通知/派发；它不从 Wayland 提交回调中直接调用 Host。
 
 图片任务回滚、分阶段挂载、绑定状态表和多组件 critical 聚合就绪仍按
 [加载规范](MASTER_PARALLEL_LOADING.md) 后续步骤实施。

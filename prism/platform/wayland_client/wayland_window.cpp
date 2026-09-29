@@ -169,6 +169,7 @@ SubmitResult WaylandWindow::CompleteSubmit(SubmitResult result)
         failed_ = true;
         break;
     case SubmitResult::Deferred:
+    case SubmitResult::AwaitFrame:
         return result;
     }
     if (on_submitted_) {
@@ -212,6 +213,17 @@ SubmitResult WaylandWindow::TrySubmit()
             // A configure/frame listener and Pump may both reach TrySubmit in
             // one turn. A bounded preparation defers at most once per turn.
             submission_deferred_ = true;
+            return result;
+        }
+        if (result == SubmitResult::AwaitFrame) {
+            // The UI has not published a compatible frame. A configure ACK or
+            // other State-only change can progress without consuming the
+            // forced pixel request or requesting a pixel frame callback.
+            if (state_pending_) {
+                wl_surface_commit(surface_);
+                state_pending_ = false;
+                return CompleteSubmit(SubmitResult::State);
+            }
             return result;
         }
         if (force_pixels_ && allow_pixels && result != SubmitResult::Pixels) {
@@ -314,54 +326,6 @@ void WaylandWindow::RequestUpdate(bool deferred)
     if (!deferred) {
         TrySubmit();
     }
-}
-
-bool WaylandWindow::Open(const std::string &socket_name, const std::string &app_id,
-                         const std::string &title, int preferred_width, int preferred_height)
-{
-    if (display_) {
-        return false;
-    }
-    failed_ = false;
-    preferred_width_ = std::clamp(preferred_width, 1, 4096);
-    preferred_height_ = std::clamp(preferred_height, 1, 4096);
-    display_ = wl_display_connect(socket_name.empty() ? nullptr : socket_name.c_str());
-
-    if (!display_) {
-        return false;
-    }
-    registry_ = wl_display_get_registry(display_);
-    static const wl_registry_listener registry_listener{.global = RegistryGlobal,
-                                                        .global_remove = RegistryGlobalRemove};
-    wl_registry_add_listener(registry_, &registry_listener, this);
-    if (wl_display_roundtrip(display_) < 0 || wl_display_roundtrip(display_) < 0 || !compositor_ ||
-        !shm_ || !shell_) {
-        Close();
-        return false;
-    }
-    surface_ = wl_compositor_create_surface(compositor_);
-    if (surface_) {
-        xdg_surface_ = xdg_wm_base_get_xdg_surface(shell_, surface_);
-    }
-    if (xdg_surface_) {
-        toplevel_ = xdg_surface_get_toplevel(xdg_surface_);
-    }
-    if (!surface_ || !xdg_surface_ || !toplevel_) {
-        Close();
-        return false;
-    }
-    static const xdg_surface_listener surface_listener{.configure = SurfaceConfigure};
-    static const xdg_toplevel_listener toplevel_listener{.configure = ToplevelConfigure,
-                                                         .close = ToplevelClose,
-                                                         .configure_bounds =
-                                                             ToplevelConfigureBounds,
-                                                         .wm_capabilities = ToplevelCapabilities};
-    xdg_surface_add_listener(xdg_surface_, &surface_listener, this);
-    xdg_toplevel_add_listener(toplevel_, &toplevel_listener, this);
-    xdg_toplevel_set_app_id(toplevel_, app_id.c_str());
-    xdg_toplevel_set_title(toplevel_, title.c_str());
-    wl_surface_commit(surface_); // Required empty initial commit before any buffer.
-    return wl_display_flush(display_) >= 0 || errno == EAGAIN;
 }
 
 int WaylandWindow::DispatchPending()

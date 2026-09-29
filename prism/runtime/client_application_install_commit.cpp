@@ -6,14 +6,8 @@ void ClientApplication::Impl::CommitScene(runtime::UiLoadId load,
                                           const std::set<std::uint64_t> &images)
 {
     auto next_images = images;
-    std::deque<contracts::ResourceId> next_queue;
-    std::set<std::uint64_t> next_queued;
-    for (auto value : images) {
-        if (registered_images.contains(value) && (!renderer || !renderer->ImageUploaded({value}))) {
-            next_queue.push_back({value});
-            next_queued.insert(value);
-        }
-    }
+    QueueRenderInstallUi(load);
+
     if (scene) {
         AddSceneStats(render_stats, scene->GetRenderStats());
     }
@@ -22,29 +16,24 @@ void ClientApplication::Impl::CommitScene(runtime::UiLoadId load,
     preloaded_ui = {};
     scene = std::move(next);
     scene_images.swap(next_images);
-    upload_queue.swap(next_queue);
-    queued_uploads.swap(next_queued);
     installed_ui = load;
     ui_presentation.Install(load);
     last_list.reset();
-    committed_frame.reset();
-    prepared_frame.reset();
-    prepared_damage.reset();
-    damage_history.Invalidate();
+    last_image_uses.reset();
+    queued_frame.reset();
+    ui_submitted_frame.reset();
+    force_frame_capture = true;
 }
 
 bool ClientApplication::Impl::OpenWindow(runtime::LoadDiagnostic *diagnostic,
                                          const runtime::ComponentSource &source)
 {
-    window.SetEventHandler(std::bind_front(&Impl::HandleWindowEvent, this));
-    window.SetSubmitHandlers(std::bind_front(&Impl::PrepareSubmit, this),
-                             std::bind_front(&Impl::CommitPixels, this),
-                             std::bind_front(&Impl::Submitted, this));
-    window.SetPresentationHandler(std::bind_front(&Impl::HandlePresentation, this));
-    if (!window.Open(config.socket, config.app_id, config.title, config.width, config.height)) {
-        window.Close();
+    std::string failure;
+    std::string detail;
+    if (!OpenRenderWorker(&failure, &detail)) {
         if (diagnostic) {
-            *diagnostic = {runtime::LoadStage::Install, source, 0, "Wayland window open failed"};
+            *diagnostic = {runtime::LoadStage::Install, source, 0,
+                           failure.empty() ? "Wayland window open failed" : std::move(failure)};
         }
         return false;
     }
@@ -64,8 +53,8 @@ bool ClientApplication::Impl::CommitInstall(const runtime::BindingValues &bindin
     }
 
     std::string failure;
-    const auto viewport = window.IsConfigured()
-                              ? window.Metrics().logical_size
+    const auto viewport = ui_configure_count
+                              ? ui_metrics.logical_size
                               : contracts::LogicalSize{static_cast<double>(config.width),
                                                        static_cast<double>(config.height)};
     stage.scene->SetViewport(viewport);
@@ -85,6 +74,11 @@ bool ClientApplication::Impl::CommitInstall(const runtime::BindingValues &bindin
             }
             return false;
         }
+
+        // Retire the old candidate before releasing images it may still use.
+        // The following frame is published after the new region tree is ready.
+        QueueRenderInvalidate(installed_ui);
+        queued_frame.reset();
         scene_images.swap(next_images);
         for (auto value : old_images) {
             if (!scene_images.contains(value) && !preloaded_images.contains(value)) {
@@ -104,10 +98,12 @@ bool ClientApplication::Impl::CommitInstall(const runtime::BindingValues &bindin
         }
         CommitScene(stage.load, std::move(stage.scene), std::move(stage.result_images));
     }
+    queued_frame.reset();
+    PublishFramePacket();
+    QueueRenderUpdate(true);
     binding_values.swap(current);
     install.reset();
     install_state = runtime::UiInstallState::Committed;
-    window.RequestUpdate(true);
     if (diagnostic) {
         *diagnostic = {};
     }

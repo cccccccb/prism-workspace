@@ -44,19 +44,41 @@ add_library(prism_ui_loader STATIC load_session.cpp master_load_session.cpp mast
 target_link_libraries(prism_ui_loader PUBLIC prism_client_dsl prism_load_plan prism_task_scheduler)
 target_include_directories(prism_ui_loader PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
 
+if(PRISM_SKIA_ROOT)
+    pkg_check_modules(PRISM_HARFBUZZ REQUIRED IMPORTED_TARGET harfbuzz)
+    pkg_check_modules(PRISM_FREETYPE REQUIRED IMPORTED_TARGET freetype2)
+    pkg_check_modules(PRISM_PNG REQUIRED IMPORTED_TARGET libpng)
+    add_library(prism_text_shaper STATIC text_shaper.cpp)
+    target_include_directories(prism_text_shaper PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
+    target_compile_features(prism_text_shaper PUBLIC cxx_std_20)
+    target_link_libraries(prism_text_shaper PUBLIC
+        PkgConfig::PRISM_HARFBUZZ PkgConfig::PRISM_FREETYPE)
+
+    add_library(prism_png_codec STATIC png_codec.cpp)
+    target_include_directories(prism_png_codec PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
+    target_compile_features(prism_png_codec PUBLIC cxx_std_20)
+    target_link_libraries(prism_png_codec PUBLIC PkgConfig::PRISM_PNG)
+endif()
+
 if(PRISM_ENABLE_GLES AND PRISM_SKIA_ROOT)
     add_library(prism_client_app STATIC
         client_application.cpp
+        client_application_commands.cpp
         client_application_frame.cpp
         client_application_scene.cpp
+        client_application_state.cpp
         client_application_resources.cpp
         client_application_render.cpp
         client_application_install.cpp
         client_application_install_commit.cpp
         client_application_upload.cpp
-        client_application_work_turn.cpp)
+        client_application_work_turn.cpp
+        client_render_owner.cpp
+        client_render_owner_commands.cpp
+        client_render_owner_submit.cpp
+        render_worker_lifecycle.cpp)
     target_include_directories(prism_client_app PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
-    target_link_libraries(prism_client_app PUBLIC prism_client_scene prism_client_dsl prism_skia_gles prism_wayland_egl)
+    target_link_libraries(prism_client_app PUBLIC prism_client_scene prism_client_dsl prism_png_codec prism_text_shaper prism_skia_gles prism_wayland_egl)
 endif()
 
 # Pure Interface/Slot compilation and immutable critical composition.
