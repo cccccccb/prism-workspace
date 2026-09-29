@@ -170,6 +170,7 @@ void Scene::ValidateCandidate(Scene &candidate, const BindingValues &values) con
     if (scene_detail::ValidSize(viewport_)) {
         candidate.SetViewport(viewport_);
         candidate.dirty_ = candidate.dirty_ | Dirty::Layout | Dirty::Paint;
+        candidate.hit_geometry_dirty_ = true;
         candidate.input_dirty_ = true;
         const auto list = candidate.Build({1});
         if (!list) {
@@ -313,12 +314,7 @@ bool Scene::Preflight(const BindingValues &values, std::string *diagnostic)
         ++transaction_revision_;
         input_dirty_ = true;
         Invalidate(Dirty::Layout | Dirty::Paint | Dirty::Composite);
-        if (hovered_ && !IsVisible(*hovered_)) {
-            hovered_ = nullptr;
-        }
-        if (focused_ && !IsVisible(*focused_)) {
-            focused_ = nullptr;
-        }
+        ReconcileInput();
         Success(diagnostic);
         return true;
     } catch (const std::exception &error) {
@@ -407,11 +403,6 @@ bool Scene::MountRegions(std::span<const RegionUpdate> updates, const BindingVal
                 throw std::invalid_argument("Duplicate mounted region");
             }
         }
-        const bool remove_hover =
-            std::find(removed.begin(), removed.end(), hovered_) != removed.end();
-        const bool remove_focus =
-            std::find(removed.begin(), removed.end(), focused_) != removed.end();
-
         // Every allocation, projection and whole-scene validation has completed.
         // These moves preserve retained node addresses and cannot fail.
         CommitValues(pairs);
@@ -430,14 +421,7 @@ bool Scene::MountRegions(std::span<const RegionUpdate> updates, const BindingVal
         CancelHiddenAnimations();
         bindings_.swap(next_bindings);
         regions_.swap(next_regions);
-        hovered_ = remove_hover ? nullptr : hovered_;
-        focused_ = remove_focus ? nullptr : focused_;
-        if (hovered_ && !IsVisible(*hovered_)) {
-            hovered_ = nullptr;
-        }
-        if (focused_ && !IsVisible(*focused_)) {
-            focused_ = nullptr;
-        }
+        ReconcileInput();
         candidate.nodes_.clear();
         candidate.bindings_.clear();
         candidate.regions_.clear();

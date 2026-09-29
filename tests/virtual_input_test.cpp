@@ -36,6 +36,7 @@ struct ClientState {
     std::atomic<bool> keymap_ready{false};
     std::atomic<bool> keymap_checked{false};
     std::atomic<bool> custom_keymap{false};
+    std::atomic<int> capability_phase{0};
     std::atomic<bool> done{false};
     std::atomic<bool> passed{false};
 };
@@ -43,12 +44,55 @@ struct ClientState {
 struct WindowEvents {
     int scroll_count{};
     double last_scroll{};
+    int enter_count{};
+    int leave_count{};
+    int cancel_count{};
+    int focus_lost_count{};
+    int shift_tab_count{};
+    int plain_tab_count{};
+    bool sources_valid{true};
+    prism::contracts::InputSource pointer_source{};
+    prism::contracts::InputSource cancelled_source{};
+
+    void CheckSource(prism::contracts::InputSource source)
+    {
+        sources_valid &= source.seat != 0 && source.device != 0 && source.generation != 0;
+    }
 
     void Handle(const prism::contracts::WindowEvent &event)
     {
         if (const auto *scroll = std::get_if<prism::contracts::PointerScrollEvent>(&event)) {
+            CheckSource(scroll->source);
             ++scroll_count;
             last_scroll = scroll->delta_y;
+        } else if (const auto *enter = std::get_if<prism::contracts::PointerEnterEvent>(&event)) {
+            CheckSource(enter->source);
+            pointer_source = enter->source;
+            ++enter_count;
+        } else if (const auto *leave = std::get_if<prism::contracts::PointerLeaveEvent>(&event)) {
+            CheckSource(leave->source);
+            sources_valid &= leave->source == pointer_source;
+            ++leave_count;
+        } else if (const auto *cancel = std::get_if<prism::contracts::PointerCancelEvent>(&event)) {
+            CheckSource(cancel->source);
+            cancelled_source = cancel->source;
+            ++cancel_count;
+        } else if (const auto *motion = std::get_if<prism::contracts::PointerMotionEvent>(&event)) {
+            CheckSource(motion->source);
+            sources_valid &= motion->source == pointer_source;
+            sources_valid &= motion->position.x >= 0 && motion->position.y >= 0;
+        } else if (const auto *button = std::get_if<prism::contracts::PointerButtonEvent>(&event)) {
+            CheckSource(button->source);
+            sources_valid &= button->source == pointer_source;
+        } else if (const auto *focus = std::get_if<prism::contracts::FocusEvent>(&event)) {
+            CheckSource(focus->source);
+            focus_lost_count += !focus->focused;
+        } else if (const auto *key = std::get_if<prism::contracts::KeyEvent>(&event)) {
+            CheckSource(key->source);
+            if (key->physical_key == 0x2b && key->state == prism::contracts::ButtonState::Pressed) {
+                shift_tab_count += key->modifiers.shift;
+                plain_tab_count += !key->modifiers.shift;
+            }
         }
     }
 };
@@ -125,10 +169,13 @@ public:
             xkb_keymap_new_from_names(context, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
         char *text = keymap ? xkb_keymap_get_as_string(keymap, XKB_KEYMAP_FORMAT_TEXT_V1) : nullptr;
         if (keymap) {
+            const auto shift = xkb_keymap_mod_get_index(keymap, XKB_MOD_NAME_SHIFT);
+            shift_mask_ = shift < 32 ? 1u << shift : 0;
             xkb_keymap_unref(keymap);
         }
         xkb_context_unref(context);
-        if (!text) {
+        if (!text || !shift_mask_) {
+            std::free(text);
             return false;
         }
 
@@ -164,6 +211,12 @@ public:
         zwlr_virtual_pointer_v1_frame(pointer_);
         zwp_virtual_keyboard_v1_key(keyboard_, 103, 30, WL_KEYBOARD_KEY_STATE_PRESSED);
         zwp_virtual_keyboard_v1_key(keyboard_, 104, 30, WL_KEYBOARD_KEY_STATE_RELEASED);
+        zwp_virtual_keyboard_v1_modifiers(keyboard_, shift_mask_, 0, 0, 0);
+        zwp_virtual_keyboard_v1_key(keyboard_, 105, 15, WL_KEYBOARD_KEY_STATE_PRESSED);
+        zwp_virtual_keyboard_v1_key(keyboard_, 106, 15, WL_KEYBOARD_KEY_STATE_RELEASED);
+        zwp_virtual_keyboard_v1_modifiers(keyboard_, 0, 0, 0, 0);
+        zwp_virtual_keyboard_v1_key(keyboard_, 107, 15, WL_KEYBOARD_KEY_STATE_PRESSED);
+        zwp_virtual_keyboard_v1_key(keyboard_, 108, 15, WL_KEYBOARD_KEY_STATE_RELEASED);
         return wl_display_roundtrip(display_) >= 0;
     }
 
@@ -225,6 +278,7 @@ private:
     zwlr_virtual_pointer_v1 *pointer_{};
     zwp_virtual_keyboard_v1 *keyboard_{};
     uint32_t pointer_manager_version_{};
+    uint32_t shift_mask_{};
 };
 
 void Paint(void *data, int width, int height, int stride)
@@ -271,16 +325,63 @@ bool RunClient(ClientState &state)
     }
 
     const auto input_deadline = std::chrono::steady_clock::now() + 4s;
-    while ((window.PointerButtonCount() < 2 || window.KeyCount() < 2 || events.scroll_count < 1) &&
+    while ((window.PointerButtonCount() < 2 || window.KeyCount() < 6 || events.scroll_count < 1) &&
            std::chrono::steady_clock::now() < input_deadline) {
         if (!window.Pump(20)) {
             return false;
         }
     }
-    const bool delivered = window.PointerEnterCount() > 0 && window.PointerButtonCount() >= 2 &&
-                           window.KeyCount() >= 2 && events.scroll_count == 1 &&
-                           events.last_scroll == 15.0;
-    return delivered && remote.CloseDevices();
+    const bool delivered = window.PointerEnterCount() > 0 && events.enter_count > 0 &&
+                           window.PointerButtonCount() >= 2 && window.KeyCount() >= 6 &&
+                           events.scroll_count == 1 && events.last_scroll == 15.0 &&
+                           events.shift_tab_count == 1 && events.plain_tab_count == 1 &&
+                           events.sources_valid;
+    if (!delivered) {
+        return false;
+    }
+
+    const auto original_source = events.pointer_source;
+    const int focus_lost_before = events.focus_lost_count;
+    state.capability_phase = 1;
+    const auto removal_deadline = std::chrono::steady_clock::now() + 3s;
+    while ((events.cancel_count == 0 || events.leave_count == 0 ||
+            events.focus_lost_count == focus_lost_before) &&
+           std::chrono::steady_clock::now() < removal_deadline) {
+        if (!window.Pump(20)) {
+            return false;
+        }
+    }
+    if (events.cancel_count != 1 || events.leave_count == 0 ||
+        events.focus_lost_count == focus_lost_before ||
+        events.cancelled_source != original_source) {
+        return false;
+    }
+
+    state.capability_phase = 3;
+    const auto restore_deadline = std::chrono::steady_clock::now() + 3s;
+    while (state.capability_phase != 4 && std::chrono::steady_clock::now() < restore_deadline) {
+        if (!window.Pump(20)) {
+            return false;
+        }
+    }
+    // Roundtrip the window's get_pointer/get_keyboard requests before sending
+    // the next input sequence from the independent virtual-device connection.
+    if (state.capability_phase != 4 || wl_display_roundtrip(window.Display()) < 0 ||
+        wl_display_roundtrip(window.Display()) < 0 || !remote.SendInput()) {
+        return false;
+    }
+    while ((events.scroll_count < 2 || events.plain_tab_count < 2) &&
+           std::chrono::steady_clock::now() < restore_deadline) {
+        if (!window.Pump(20)) {
+            return false;
+        }
+    }
+    const bool restored_source = events.sources_valid && events.scroll_count == 2 &&
+                                 events.shift_tab_count == 2 && events.plain_tab_count == 2 &&
+                                 events.pointer_source.seat == original_source.seat &&
+                                 events.pointer_source.device == original_source.device &&
+                                 events.pointer_source.generation > original_source.generation;
+    return restored_source && remote.CloseDevices();
 }
 
 void ClientThread(ClientState *state)
@@ -340,12 +441,22 @@ int main()
 
     ClientState state{.socket = socket};
     std::thread client(ClientThread, &state);
-    const auto deadline = std::chrono::steady_clock::now() + 13s;
+    const auto deadline = std::chrono::steady_clock::now() + 20s;
     while (!state.done && std::chrono::steady_clock::now() < deadline) {
         server.RunEventLoopIteration(10);
         if (state.keymap_ready && !state.keymap_checked) {
             state.custom_keymap = HasGermanYMapping(server);
             state.keymap_checked = true;
+        }
+        if (state.capability_phase == 1) {
+            wlr_seat_pointer_notify_clear_focus(server.GetSeat());
+            wlr_seat_pointer_notify_frame(server.GetSeat());
+            wlr_seat_set_capabilities(server.GetSeat(), 0);
+            state.capability_phase = 2;
+        } else if (state.capability_phase == 3) {
+            wlr_seat_set_capabilities(server.GetSeat(),
+                                      WL_SEAT_CAPABILITY_POINTER | WL_SEAT_CAPABILITY_KEYBOARD);
+            state.capability_phase = 4;
         }
     }
     const bool timed_out = !state.done;

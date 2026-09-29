@@ -183,6 +183,10 @@ bool ClientApplication::OpenPrepared(runtime::UiLoadId load,
 void ClientApplication::Impl::FailFrontend()
 {
     failed = true;
+    if (scene) {
+        scene->CancelInput();
+    }
+
     QueueStopRenderWorker();
     ui_load.Cancel();
     DiscardInstall(runtime::UiInstallState::Cancelled);
@@ -405,6 +409,10 @@ void ClientApplication::Close()
     }
 
     impl_->closed = true;
+    if (impl_->scene) {
+        impl_->scene->CancelInput();
+    }
+
     impl_->QueueStopRenderWorker();
     impl_->CloseRenderWorker();
 

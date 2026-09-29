@@ -103,7 +103,7 @@ Transition，不提供应用动画回调、显式暂停控制、减弱动效设�
 1. **时间核心，源码已实现**：注入时钟、时长曲线与弹簧求值、重定向、取消、完成和绝对期限；保持确定性测试比较 0/16/33/200 ms 等不等间隔采样、长暂停、连续改目标和精确终值。同一时刻的结果必须与采样次数无关。
 2. **属性与 DSL，v1 源码已接入**：单一 schema、准备结果和 Scene 呈现覆盖层已贯通 `Progress.value` 与指定节点的 `foreground`。持续验证主题/绑定源值未被覆盖、重复值不建轨迹、主题原子安装并归位、非法 DSL 在准备期拒绝、初次 Preview/Master 不自动动画。
 3. **生产调度，Pi V3D headless 功能门槛已通过**：SDK 独立单次期限、专门 frame opportunity 与应答、一个 UI 轮次合并封包。继续验收慢帧直接跳到时间对应位置且不撑满双向队列、扣留 callback、填满 feedback 槽、只提交 State、resize/安装后旧机会到达、discarded/乱序 feedback；再做 VNC 与物理输出对照。测试与探针保留在 `tests/`，不进入生产包。
-4. **交互与视觉扩展，未实现**：先按[交互与呈现规范](INTERACTION_AND_PRESENTATION_SPEC.md)建立节点命中身份、输入生命周期与局部状态，再接状态规则、视觉子树 transform/opacity。首批控制横线保持固定感应区，在 Pi V3D 下对照完整修复与局部损伤；后续贯通 touch、交互变换的同代命中、权威布局控制，再加入保留层与 WM BSP 视觉运动。每一项保留原始帧记录和资源成本，按 [A01–A12](ANIMATION_RENDERING_HYPOTHESES.md)核对。
+4. **交互与视觉扩展，分阶段实施**：[交互与呈现规范](INTERACTION_AND_PRESENTATION_SPEC.md)的节点命中身份、输入生命周期与局部状态已进入源码；下一步接状态规则、视觉子树 transform/opacity。首批控制横线保持固定感应区，在 Pi V3D 下对照完整修复与局部损伤；后续贯通 touch、交互变换的同代命中、权威布局控制，再加入保留层与 WM BSP 视觉运动。每一项保留原始帧记录和资源成本，按 [A01–A12](ANIMATION_RENDERING_HYPOTHESES.md)核对。
 
 `AnimationSampleStamp` 已记录 Scene 最近一次可见样本的修订号与单调采样时间，并进入 `FramePacket`。后续测量还需把目标/呈现代数、FramePacket 序号、成功提交 ID、feedback 及 UI/Render/Swap/WM 阶段耗时关联起来。客户端目前只保存 presentation 的结果；需先保存并确认 `wp_presentation` 时钟 ID、实际时间戳、refresh、sequence 和 flags，才能报告真实呈现间隔或输入到呈现延迟。Swap 成功计数、feedback 到达时间和 VNC 更新数均不能替代该测量。
 

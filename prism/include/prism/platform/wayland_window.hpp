@@ -32,6 +32,8 @@ struct xdg_surface;
 struct xdg_toplevel;
 struct prism_surface_effect_manager_v1;
 struct prism_surface_effect_v1;
+struct xkb_context;
+struct xkb_state;
 
 namespace prism::platform {
 
@@ -268,6 +270,12 @@ private:
     bool WaitForOpenSync(bool &done, const WaylandOpenOptions &options);
     bool OpenRoundtrip(const WaylandOpenOptions &options);
     void ReapBuffers();
+    static std::uint64_t InputTimeNs();
+    contracts::InputSource PointerSource() const;
+    contracts::InputSource KeyboardSource() const;
+    contracts::KeyModifiers CurrentKeyModifiers() const;
+    void ReleasePointer();
+    void ReleaseKeyboard();
 
     wp_presentation *presentation_{nullptr};
 
@@ -290,8 +298,13 @@ private:
     wl_shm *shm_{nullptr};
     wl_seat *seat_{nullptr};
     std::uint32_t seat_global_name_{0};
+    std::uint64_t seat_identity_{};
+    std::uint64_t pointer_generation_{};
+    std::uint64_t keyboard_generation_{};
     wl_pointer *pointer_{nullptr};
     wl_keyboard *keyboard_{nullptr};
+    xkb_context *keyboard_context_{};
+    xkb_state *keyboard_state_{};
     xdg_wm_base *shell_{nullptr};
     wl_surface *surface_{nullptr};
     prism_surface_effect_manager_v1 *effect_manager_{};

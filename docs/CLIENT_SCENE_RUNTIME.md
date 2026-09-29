@@ -4,7 +4,7 @@
 
 `prism_client_scene` 链接纯值契约 `prism_contracts`、主题值校验/编码库 `prism_theme_contract` 和资源工作线程依赖，不链接 WM、Wayland、Skia 或 DSL parser。`prism_client_dsl` 使用共享的 `prism_dsl_syntax`，将语法树转换为 Blueprint；运行期 Scene 不持有 AST 或后端对象。应用 UI 和主题包使用同一语法解析实现，但分别进行组件和主题语义校验。
 
-Scene 支持 `HStack`、`VStack`、`Card`、`Text`、`Button`、`Image`、`Icon`、`IconButton`、`Separator`、`Progress`、`Toggle`。布局、样式与 binding 按 schema 检查；未支持的组件和修饰符抛出错误。按钮命中返回 action，业务状态仍由 module 更新。Slider 拖动语义尚未实现。
+Scene 支持 `HStack`、`VStack`、`Card`、`Text`、`Button`、`Image`、`Icon`、`IconButton`、`Separator`、`Progress`、`Toggle`。布局、样式与 binding 按 schema 检查；未支持的组件和修饰符抛出错误。当前输入命中返回节点身份，统一状态机确认激活后才派发 action，业务状态仍由 module 更新。Slider 拖动语义尚未实现。
 
 `SetSlot` 是带类型的 `SetBinding` 的字符串便捷入口；Scene 的属性存储依据 schema 元数据决定 Layout/Paint/Composite dirty，背景色变化标记 Paint，viewport 的实际尺寸变化标记 Layout/Paint。`Build` 在无 Paint/Layout 变化时返回空；纯 Composite 更新由平台提交状态，不生成 DisplayList。输出是进程内 DisplayList。文字 glyph id 与位置由调用方提供的 shaping 接口生成；Skia 后端现提供 HarfBuzz + FreeType 实现。固定尺寸与均分的 Row/Column、基础裁剪、圆角和文字命令已通过单元测试。
 
@@ -62,8 +62,38 @@ RenderTree 的 hover/focus 颜色和焦点线宽、Toggle 轨道/滑块圆角、
 
 `SetProperty`（包括通过它执行的 `SetBinding`）按修改前后的实际可见性决定是否失效。若节点在修改前后均因自身或祖先而隐藏，属性仍更新到存储、缓存样式和显式覆盖记录，节点 revision 递增；主题引用遵循正常覆盖规则，直接修改某属性会解除该属性的 token 引用，其余引用保留。这些修改不新增 Scene 的 Layout/Paint/Composite dirty 或输入轮廓失效标记。隐藏父节点下的子节点将自己的 `visible` 从 false 改为 true，也属于此情况；它的实际可见性仍为 false。
 
-可见节点的属性变化继续按 schema 失效。实际可见性从可见变隐藏或从隐藏变可见时，仍触发完整布局、绘制、合成及输入轮廓更新；隐藏时清除的旧 hover/focus 不会在重新显示时自动恢复。同一个 binding 同时命中隐藏与可见节点时，隐藏目标保存状态，可见目标正常失效，不能因存在隐藏目标而跳过整条 binding 的更新。
+可见节点的属性变化继续按 schema 失效。实际可见性从可见变隐藏或从隐藏变可见时，仍触发完整布局、绘制、合成及输入轮廓更新；隐藏时清除旧输入状态。当前交互实现会在重新显示后按指针位置和新几何重新命中 hover，不恢复旧捕获、按下或键盘焦点。同一个 binding 同时命中隐藏与可见节点时，隐藏目标保存状态，可见目标正常失效，不能因存在隐藏目标而跳过整条 binding 的更新。
 
-重新显示父节点后，下一次完整 snapshot/布局会读取隐藏期间的最新文字、进度、样式、尺寸、显隐值与主题覆盖，并据此更新绘制、命中和输入轮廓。若本次只有仍然隐藏的属性更新，且没有其他待处理 dirty，`Build` 返回空，不生成 DisplayList，也不推进 DisplayList generation；其他可见更新产生的 dirty 保留。本规则完善通用可见性的失效语义，布局仍按既有全量流程执行，未引入节点增量布局或 DisplayList 分块缓存。`visual_scene_test` 覆盖隐藏更新不提交、共享 binding 的可见目标失效、重新显示后的最新几何/图元/输入，以及旧 hover/focus 不复活。
+重新显示父节点后，下一次完整 snapshot/布局会读取隐藏期间的最新文字、进度、样式、尺寸、显隐值与主题覆盖，并据此更新绘制、命中和输入轮廓。若本次只有仍然隐藏的属性更新，且没有其他待处理 dirty，`Build` 返回空，不生成 DisplayList，也不推进 DisplayList generation；其他可见更新产生的 dirty 保留。本规则完善通用可见性的失效语义，布局仍按既有全量流程执行，未引入节点增量布局或 DisplayList 分块缓存。`visual_scene_test` 覆盖隐藏更新不提交、共享 binding 的可见目标失效、重新显示后的最新几何/图元/输入，以及静止指针重新命中而旧焦点/捕获不复活。
 
 通用矢量图标新增 `layers`、`rectangle`、`drop`、`wifi-off`、`error`，在契约枚举尾部追加，不改变已有图标编号。符号几何属于后端资源实现，颜色、尺寸与布局仍由 DSL/主题决定；没有 Theme ID 或应用名绘制分支。
+
+## 通用交互状态第一阶段（2026-09-29）
+
+`Scene::HitTest(point)` 返回 `HitResult { NodeId node, LogicalPoint localPosition }`，
+身份限定在当前 Scene；SDK 另用 UiLoadId 隔离加载代数。相同 action 的多个节点独立
+命中，不按字符串重新搜索。命中遵守绘制顺序、圆角与祖先 clip，并拒绝非有限坐标。
+
+`HandleInput(WindowEvent)` 返回 `InteractionResult`：`changed` 表示局部状态变化，
+可选 `Activation { node, action }` 表示已经结束并确认的动作。捕获按 InputSource
+维护，键盘焦点按 seat 维护；释放必须匹配原节点、来源和原 action。该捕获只作用于
+已经获得的 surface 输入，不是跨应用全局抓取。取消和动作确认均先于业务回调。
+
+`State(NodeId)` 提供 hovered、pressed、captured、focused、focusVisible、enabled。
+pressed 表示仍在原目标内的有效指针按下或有效键盘按下；离开时可保留 captured 而撤销
+pressed。鼠标聚焦不强制显示焦点环，键盘导航明确显示。旧 hover/focus 图元现在从同一
+状态快照取值，主题 Controls 继续提供颜色和线宽，尚未增加声明式 StateRule。
+
+`SetEnabled(NodeId, bool)` 是 Scene 的 C++ 输入接口，父节点禁用影响整棵子树，立即
+取消相关输入，不改写业务 binding。它不是新增 DSL `enabled` 属性。`CancelInput()`
+清理当前 Scene 的输入；隐藏、区域替换与 action 改变按目标身份取消，存活且未改变的
+区域保留自己的捕获。主题/区域事务的提交后清理不分配新的输入状态存储。
+
+局部状态只产生 Paint 失效；同一目标内没有状态变化的 motion 不推进像素版本。
+布局或命中形状变化后按当前坐标重新命中静止指针，普通颜色/进度动画不重复执行该过程。
+重新显示时的 hover 来自当前几何重新命中，不恢复旧捕获、按下或键盘焦点。
+`ActionAt`、`SetPointer`、`FocusNext`、`FocusedAction` 保留为 Scene 级兼容查询/便利接口；
+SDK 动作分派统一走 HandleInput，没有第二套按下即激活路径。
+
+状态作用域 DSL、独立感应区、拖动识别、触摸、transform/opacity 与成功提交对应的命中
+快照仍待后续。接口、实施顺序与验证记录见[交互与呈现规范](INTERACTION_AND_PRESENTATION_SPEC.md)。

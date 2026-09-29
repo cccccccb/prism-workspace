@@ -9,20 +9,6 @@
 
 namespace prism::sdk {
 namespace {
-bool ReplacePointerMotion(const runtime::RenderEvent &older,
-                          const runtime::RenderEvent &newer) noexcept
-{
-    const auto *previous_event = std::get_if<runtime::SequencedWindowEvent>(&older);
-    const auto *current_event = std::get_if<runtime::SequencedWindowEvent>(&newer);
-    if (!previous_event || !current_event) {
-        return false;
-    }
-
-    const auto *previous = std::get_if<contracts::PointerMotionEvent>(&previous_event->event);
-    const auto *current = std::get_if<contracts::PointerMotionEvent>(&current_event->event);
-    return previous && current && previous->window == current->window;
-}
-
 bool SameSignificantStatus(const runtime::RenderStatusEvent &left,
                            const runtime::RenderStatusEvent &right) noexcept
 {
@@ -144,6 +130,13 @@ void ClientRenderOwner::Run(runtime::RenderWorkerGeneration generation) noexcept
             throw std::runtime_error("Render damage font unavailable");
         }
 
+        // Install the already queued UI identity before Open's Wayland
+        // roundtrips can deliver input. Image registration only prepares CPU
+        // resources here; uploads still wait for a configured surface.
+        if (!DrainCommands()) {
+            throw std::runtime_error("Initial render commands failed");
+        }
+
         const bool opened = OpenWindow();
         PublishStatus();
         const auto outcome = terminal_.StopRequested() ? runtime::RenderWorkerOpenOutcome::Cancelled
@@ -256,8 +249,9 @@ void ClientRenderOwner::QueueWindowEvent(const contracts::WindowEvent &event) no
 
     try {
         const auto sequence = issued_event_sequence_ + 1;
-        runtime::RenderEvent copy(runtime::SequencedWindowEvent{event, sequence});
-        const auto result = events_.TryPushLatest(std::move(copy), ReplacePointerMotion);
+        runtime::RenderEvent copy(runtime::SequencedWindowEvent{event, sequence, installed_ui_});
+        const auto result =
+            events_.TryPushLatest(std::move(copy), runtime::ReplacePointerMotionTail);
         if (result == runtime::QueuePushResult::Accepted ||
             result == runtime::QueuePushResult::Replaced) {
             issued_event_sequence_ = sequence;

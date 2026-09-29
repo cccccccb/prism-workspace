@@ -253,6 +253,11 @@ Toggle(checked: $monitoring, action: "monitor:toggle", width: 34, height: 18,
 更新 binding。action 是应用自定稳定字符串，SDK 不通过名字理解业务。
 Toggle 点击不代表业务已确认切换；网络、设备或平台请求的最终状态应来自完成结果。
 
+当前源码的普通控件在有效按下并释放后才派发 action；拖出释放、取消、隐藏或区域卸载
+不会激活。Enter/Space 在释放时激活，重复键事件不重复派发，Tab/Shift+Tab 切换焦点。
+hover/pressed/capture 是 SDK 局部状态，不通过业务 tick 或 binding 模拟；同一个 action
+可以出现在多个控件中，SDK 使用 NodeId 分别管理状态。状态样式 DSL 尚未开放。
+
 `visible: $show_page` 控制整棵子树的测量、绘制、输入及背景效果。隐藏不等于卸载
 业务模块或擦除 binding；在内容恢复时仍使用当前状态。低 alpha 不能代替隐藏或
 取消输入，否则留下不可见命中区域。

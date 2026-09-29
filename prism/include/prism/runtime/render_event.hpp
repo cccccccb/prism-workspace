@@ -17,6 +17,7 @@ namespace prism::runtime {
 struct SequencedWindowEvent {
     contracts::WindowEvent event;
     std::uint64_t sequence{};
+    UiLoadId ui{};
 };
 
 enum class SubmittedKind { None, State, Pixels };
@@ -67,6 +68,22 @@ struct FrameOpportunityEvent {
 using RenderEvent =
     std::variant<SequencedWindowEvent, SubmittedFrameEvent, platform::PixelPresentation,
                  ImageUploadedEvent, ImageReleasedEvent, RenderStatusEvent, FrameOpportunityEvent>;
+
+// Only adjacent motions from the same installed UI and logical device can
+// replace each other. Enter/leave, button, cancel and focus remain barriers.
+inline bool ReplacePointerMotionTail(const RenderEvent &older, const RenderEvent &newer) noexcept
+{
+    const auto *previous_event = std::get_if<SequencedWindowEvent>(&older);
+    const auto *current_event = std::get_if<SequencedWindowEvent>(&newer);
+    if (!previous_event || !current_event || previous_event->ui != current_event->ui) {
+        return false;
+    }
+
+    const auto *previous = std::get_if<contracts::PointerMotionEvent>(&previous_event->event);
+    const auto *current = std::get_if<contracts::PointerMotionEvent>(&current_event->event);
+    return previous && current && previous->window == current->window &&
+           previous->source == current->source;
+}
 
 // Status may replace only an adjacent older status. A configure, input,
 // opportunity, submission, presentation or resource event remains an

@@ -274,6 +274,68 @@ void VerifyConfigureReplacesOpportunityGeneration()
     assert(std::get<prism::contracts::ConfigureEvent>(middle.event).configure_count == 5);
     assert(last.configure_count == 5 && last.id == 11);
 }
+
+RenderEvent Motion(std::uint64_t sequence, prism::contracts::InputSource source = {1, 1, 1},
+                   prism::runtime::UiLoadId ui = {1, 1}, prism::contracts::WindowId window = {1})
+{
+    prism::contracts::PointerMotionEvent motion{
+        window, {static_cast<double>(sequence), 2}, sequence * 1000, source};
+    return SequencedWindowEvent{motion, sequence, ui};
+}
+
+void VerifyMotionIdentityAndBarriers()
+{
+    PollableQueue<RenderEvent> queue(3);
+    auto first = Motion(1);
+    auto latest = Motion(2);
+    assert(queue.TryPushLatest(std::move(first), prism::runtime::ReplacePointerMotionTail) ==
+           QueuePushResult::Accepted);
+    assert(queue.TryPushLatest(std::move(latest), prism::runtime::ReplacePointerMotionTail) ==
+           QueuePushResult::Replaced);
+    const auto merged = std::get<SequencedWindowEvent>(*queue.TryPop());
+    assert(merged.sequence == 2 && merged.ui == (prism::runtime::UiLoadId{1, 1}));
+    assert(std::get<prism::contracts::PointerMotionEvent>(merged.event).position.x == 2);
+    assert(!queue.TryPop());
+
+    const auto original = Motion(1);
+    assert(!prism::runtime::ReplacePointerMotionTail(original, Motion(2, {2, 1, 1})));
+    assert(!prism::runtime::ReplacePointerMotionTail(original, Motion(2, {1, 2, 1})));
+    assert(!prism::runtime::ReplacePointerMotionTail(original, Motion(2, {1, 1, 2})));
+    assert(!prism::runtime::ReplacePointerMotionTail(original, Motion(2, {1, 1, 1}, {1, 2})));
+    assert(!prism::runtime::ReplacePointerMotionTail(original, Motion(2, {1, 1, 1}, {2, 1})));
+    assert(!prism::runtime::ReplacePointerMotionTail(original, Motion(2, {1, 1, 1}, {1, 1}, {2})));
+
+    const prism::contracts::WindowEvent barriers[]{
+        prism::contracts::PointerEnterEvent{{1}, {2, 3}, 1, {1, 1, 1}},
+        prism::contracts::PointerLeaveEvent{{1}, 1, {1, 1, 1}},
+        prism::contracts::PointerCancelEvent{{1}, 1, {1, 1, 1}},
+        prism::contracts::PointerButtonEvent{{1},
+                                             {2, 3},
+                                             prism::contracts::PointerButton::Primary,
+                                             prism::contracts::ButtonState::Pressed},
+        prism::contracts::PointerButtonEvent{{1},
+                                             {2, 3},
+                                             prism::contracts::PointerButton::Primary,
+                                             prism::contracts::ButtonState::Released},
+        prism::contracts::FocusEvent{{1}, false, {1, 2, 1}},
+        prism::contracts::ConfigureEvent{{1}},
+    };
+    for (const auto &barrier : barriers) {
+        auto before = Motion(10);
+        RenderEvent ordered(SequencedWindowEvent{barrier, 11, {1, 1}});
+        auto after = Motion(12);
+        assert(queue.TryPushLatest(std::move(before), prism::runtime::ReplacePointerMotionTail) ==
+               QueuePushResult::Accepted);
+        assert(queue.TryPushLatest(std::move(ordered), prism::runtime::ReplacePointerMotionTail) ==
+               QueuePushResult::Accepted);
+        assert(queue.TryPushLatest(std::move(after), prism::runtime::ReplacePointerMotionTail) ==
+               QueuePushResult::Accepted);
+        assert(std::get<SequencedWindowEvent>(*queue.TryPop()).sequence == 10);
+        assert(std::get<SequencedWindowEvent>(*queue.TryPop()).event.index() == barrier.index());
+        assert(std::get<SequencedWindowEvent>(*queue.TryPop()).sequence == 12);
+        assert(!queue.TryPop());
+    }
+}
 } // namespace
 
 int main()
@@ -286,4 +348,5 @@ int main()
     VerifySubmittedPacketIdentity();
     VerifyFrameOpportunityOrdering();
     VerifyConfigureReplacesOpportunityGeneration();
+    VerifyMotionIdentityAndBarriers();
 }

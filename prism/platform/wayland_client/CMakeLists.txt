@@ -21,6 +21,7 @@ add_library(prism_wayland_client STATIC
     wayland_window.cpp
     wayland_window_open.cpp
     wayland_window_events.cpp
+    wayland_window_keyboard.cpp
     "${PRESENTATION_HEADER}"
     "${PRESENTATION_CODE}"
     "${XDG_CLIENT_HEADER}"
@@ -29,9 +30,10 @@ add_library(prism_wayland_client STATIC
 target_include_directories(prism_wayland_client PUBLIC
     "${CMAKE_SOURCE_DIR}/prism/include"
     ${WAYLAND_CLIENT_INCLUDE_DIRS}
+    ${XKBCOMMON_INCLUDE_DIRS}
     PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(prism_wayland_client PUBLIC prism_contracts
-    prism_surface_protocol ${WAYLAND_CLIENT_LIBRARIES})
+    prism_surface_protocol ${WAYLAND_CLIENT_LIBRARIES} ${XKBCOMMON_LIBRARIES})
 
 if(PRISM_ENABLE_GLES)
     pkg_check_modules(PRISM_WAYLAND_EGL REQUIRED IMPORTED_TARGET wayland-egl)

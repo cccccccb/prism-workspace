@@ -54,11 +54,19 @@ void ClientApplication::Impl::ProcessRenderEvents(bool deliver)
         last_processed_window_sequence = window.sequence;
         processed_window_sequence = window.sequence;
 
+        // Input belongs to the UI load observed by the protocol owner. A
+        // queued press from a replaced load must never target the new Scene.
+        // Configure and Close describe the persistent surface, not a UI load.
+        const bool configured = std::holds_alternative<contracts::ConfigureEvent>(window.event);
+        const bool closing = std::holds_alternative<contracts::CloseRequestedEvent>(window.event);
+        if (!configured && !closing && window.ui != installed_ui) {
+            continue;
+        }
+
         // A prior action in this ordered batch may have changed hit bounds.
         if (runtime::Has(scene->PendingDirty(), runtime::Dirty::Layout)) {
             PublishFramePacket();
         }
-        const bool configured = std::holds_alternative<contracts::ConfigureEvent>(window.event);
         HandleWindowEvent(window.event);
         if (configured) {
             PublishFramePacket();
@@ -100,29 +108,18 @@ void ClientApplication::Impl::HandleWindowEvent(const contracts::WindowEvent &ev
         ui_configure_count = configure->configure_count;
         scene->SetViewport(configure->metrics.logical_size);
         queued_frame.reset();
-    } else if (auto *motion = std::get_if<contracts::PointerMotionEvent>(&event)) {
-        if (scene->SetPointer(motion->position)) {
-            queued_frame.reset();
-            QueueRenderUpdate(true);
-        }
-    } else if (auto *key = std::get_if<contracts::KeyEvent>(&event)) {
-        if (key->state == contracts::ButtonState::Pressed) {
-            if (key->physical_key == 0x2B && scene->FocusNext()) {
-                queued_frame.reset();
-                QueueRenderUpdate(true);
-            } else if ((key->physical_key == 0x28 || key->physical_key == 0x2C) && on_action) {
-                if (auto action = scene->FocusedAction()) {
-                    on_action(*action);
-                }
-            }
-        }
-    } else if (auto *button = std::get_if<contracts::PointerButtonEvent>(&event)) {
-        if (button->state == contracts::ButtonState::Pressed &&
-            button->button == contracts::PointerButton::Primary && on_action) {
-            if (auto action = scene->ActionAt(button->position)) {
-                on_action(*action);
-            }
-        }
+        return;
+    }
+
+    const auto result = scene->HandleInput(event);
+    if (result.changed) {
+        queued_frame.reset();
+        QueueRenderUpdate(true);
+    }
+    if (result.activation && on_action) {
+        // The Scene has finished the input sequence before business code may
+        // replace a region, install a new UI, or close this application.
+        on_action(result.activation->action);
     }
 }
 

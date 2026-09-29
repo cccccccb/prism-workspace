@@ -12,6 +12,18 @@
 
 平台 host 在 `Open` 前调用 `ApplyTheme` 安装初始快照，随后解析 UI 并创建窗口；在事件循环中调用 `Pump`。业务状态通过带类型的 `SetBinding` 更新，文字可用 `SetSlot`；按钮动作由 `OnAction` 回调交给业务。调用成功表示绑定已被接受，不表示独立渲染线程已经提交新画面；需要观察提交/呈现状态时继续驱动 `Pump`。同一 UI 轮次的多次绑定修改会失效中间候选，在下一次封包时取最终 Scene 值；重复相同绑定不制造新像素。`Pump` 合并 Wayland 输入/configure、图片完成通知与调用者 FD 等待；资源就绪后在 UI 线程更新 Scene。静止页面不自行连续提交。`Close` 请求 worker 停止，待其在所属线程按 Ganesh → EGL → Wayland 顺序清理并 Join 后，UI 才释放自己的 Scene 与 CPU 资源。接口见 [client_application.hpp](../prism/include/prism/sdk/client_application.hpp)。
 
+2026-09-29 输入升级：SDK 将显式 enter/leave/cancel、主按钮与键盘事件交给 Scene 的
+统一输入状态机。普通按钮在同一节点有效按下并释放后才发送一次 `OnAction`；按下仅
+建立局部状态，不调用业务。Enter/Space 同样在释放时激活，repeat 不重复提交；Tab 与
+Shift+Tab 遍历控件，Escape 取消待定激活。拖出目标释放、隐藏/卸载/禁用、失焦或关闭
+会取消相应序列；离开后返回原目标释放允许点击，手势识别器后续接入。
+
+反向事件带协议所有者当时的 `UiLoadId`，已替换 UI 的输入仍确认消费，但不派发给新
+Scene；configure/close 继续作用于同一 surface。相邻 motion 只有在 UI、窗口和逻辑
+设备身份/代数相同才可合并。该代数用于隔离 UI 生命周期，尚不是成功像素提交对应的
+命中快照版本；交互变换及其同代快照仍按[交互规范](INTERACTION_AND_PRESENTATION_SPEC.md)
+后续阶段实现。当前生产平台适配一个 Wayland seat，未接入 touch。
+
 `tests/probes/skia_gles_wayland_probe.cpp` 使用同一 SDK 生命周期，测试和诊断程序留在 tests，不安装到生产包。早期 GLES 检查点的计数与验收记录见 [SKIA_GLES_PI.md](SKIA_GLES_PI.md)，不作为当前主题功能的验证结论。
 
 五个生产应用均由统一 host 加业务模块/DSL 包运行，旧独立入口、音乐 exec 适配器和 ImGui 生产路径已删除。SDK 使用 xdg-shell；Shell 角色由 launcher 与 WM 的可信控制通道按真实进程登记，普通 app_id 不授予权限。背景 blur 通过通用 surface effects 契约请求 compositor；SDK 绘制 tint 与客户端内容。Slider 拖动语义尚未实现。空 socket 使用当前 `WAYLAND_DISPLAY`；包入口使用严格 assets 根解析，`LoadUiSource` 的模板查找只服务直接 SDK 调用场景。

@@ -19,6 +19,9 @@ void Scene::Invalidate(Dirty affected)
 {
 
     dirty_ = dirty_ | affected;
+    if (Has(affected, Dirty::Layout)) {
+        hit_geometry_dirty_ = true;
+    }
     if (Has(affected, Dirty::Layout) || Has(affected, Dirty::Paint)) {
         ++pixels_revision_;
     }
@@ -40,7 +43,8 @@ Scene::Scene(Blueprint root, ShapeText shaper, contracts::ResourceId font,
 
 Scene::Scene(EmptyConstruction, ShapeText shaper, contracts::ResourceId font,
              std::optional<contracts::ThemeSnapshot> theme)
-    : shaper_(std::move(shaper)), font_(font), theme_(std::move(theme))
+    : shaper_(std::move(shaper)), font_(font), input_state_(std::make_unique<InputState>()),
+      theme_(std::move(theme))
 {
     if (!shaper_) {
         throw std::invalid_argument("Scene requires a text shaper");
@@ -142,6 +146,9 @@ bool Scene::SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyVa
     if (previous == value) {
         return false;
     }
+    if (property == DslProperty::Action) {
+        PrepareInputGeometry();
+    }
     const bool was_visible = IsVisible(*node);
     const bool animated = RetargetPresentation(*node, property, previous, value, now);
     node->properties[property] = value;
@@ -163,14 +170,11 @@ bool Scene::SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyVa
     }
     if (property == DslProperty::Visible && !node->style.visible) {
         CancelHiddenAnimations();
-        if (hovered_ && !IsVisible(*hovered_)) {
-            ++hovered_->revision;
-            hovered_ = nullptr;
-        }
-        if (focused_ && !IsVisible(*focused_)) {
-            ++focused_->revision;
-            focused_ = nullptr;
-        }
+    }
+    if (property == DslProperty::Visible) {
+        ReconcileInput();
+    } else if (property == DslProperty::Action) {
+        RefreshInputGeometry();
     }
     const Dirty affected = FindProperty(property)->affects;
     const bool input_shape =
@@ -185,6 +189,10 @@ bool Scene::SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyVa
          std::get<std::string>(previous).empty() != std::get<std::string>(value).empty());
     if (input_shape) {
         input_dirty_ = true;
+    }
+    if (property == DslProperty::Radius || property == DslProperty::Clip ||
+        property == DslProperty::Overflow || property == DslProperty::InputShape) {
+        hit_geometry_dirty_ = true;
     }
     if (!animated) {
         ++node->revision;
@@ -247,6 +255,9 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
         return std::nullopt;
     }
 
+    if (hit_geometry_dirty_) {
+        PrepareInputGeometry();
+    }
     SceneSnapshot snapshot;
     if (theme_) {
         snapshot.controls = theme_->controls;
@@ -269,8 +280,7 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
         item.icon = node->icon;
         item.value = node->value;
         item.checked = node->checked;
-        item.hovered = node == hovered_;
-        item.focused = node == focused_;
+        item.interaction = State(node->id);
         item.image = node->image;
         item.intrinsic_size = node->intrinsic_size;
         item.image_ready = node->image_ready;
@@ -297,6 +307,17 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
         }
     }
 
+    if (hit_geometry_dirty_) {
+        RefreshInputGeometry();
+        hit_geometry_dirty_ = false;
+        for (auto &item : snapshot.nodes) {
+            if (const auto *node = Find(item.id)) {
+                item.interaction = State(item.id);
+                item.revision = node->revision;
+            }
+        }
+    }
+
     auto next = RenderTreeBuilder::Build(snapshot, render_tree_.get());
     auto list = DisplayListBuilder::Build(next, window, font_, generation_ + 1);
     render_tree_ = std::make_unique<RenderTree>(std::move(next));
@@ -304,104 +325,6 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
 
     dirty_ = Has(dirty_, Dirty::Composite) ? Dirty::Composite : Dirty::None;
     return list;
-}
-
-std::optional<std::string> Scene::Hit(const Node &node, contracts::LogicalPoint point) const
-{
-    if (!node.style.visible) {
-        return std::nullopt;
-    }
-    const bool inside = scene_detail::Inside(node.bounds, point);
-    if (!inside && (node.style.clip || node.style.overflow == "clip")) {
-        return std::nullopt;
-    }
-    const double radius =
-        std::min({node.style.radius, node.bounds.width / 2, node.bounds.height / 2});
-    if (radius > 0 && (node.style.clip || node.style.overflow == "clip" || !node.action.empty())) {
-        const double cx =
-            std::clamp(point.x, node.bounds.x + radius, node.bounds.x + node.bounds.width - radius);
-        const double cy = std::clamp(point.y, node.bounds.y + radius,
-                                     node.bounds.y + node.bounds.height - radius);
-        if ((point.x - cx) * (point.x - cx) + (point.y - cy) * (point.y - cy) > radius * radius) {
-            return std::nullopt;
-        }
-    }
-    for (auto it = node.children.rbegin(); it != node.children.rend(); ++it) {
-        if (auto action = Hit(**it, point)) {
-            return action;
-        }
-    }
-    if (inside && !node.action.empty()) {
-        return node.action;
-    }
-    return std::nullopt;
-}
-
-bool Scene::SetPointer(contracts::LogicalPoint point)
-{
-    Node *next = nullptr;
-    const auto action = ActionAt(point);
-    if (action) {
-        std::vector<Node *> order;
-        CollectNodes(*root_, order);
-        for (auto it = order.rbegin(); it != order.rend(); ++it) {
-            if (*it && IsVisible(**it) && (*it)->action == *action &&
-                scene_detail::Inside((*it)->bounds, point)) {
-                next = *it;
-                break;
-            }
-        }
-    }
-    if (next == hovered_) {
-        return false;
-    }
-    if (hovered_) {
-        ++hovered_->revision;
-    }
-    hovered_ = next;
-    if (hovered_) {
-        ++hovered_->revision;
-    }
-    Invalidate(Dirty::Paint);
-    return true;
-}
-
-bool Scene::FocusNext()
-{
-    std::vector<Node *> actions;
-    std::vector<Node *> order;
-    if (root_) {
-        CollectNodes(*root_, order);
-    }
-    for (auto *node : order) {
-        if (node && IsVisible(*node) && !node->action.empty()) {
-            actions.push_back(node);
-        }
-    }
-    if (actions.empty()) {
-        return false;
-    }
-    const auto it = std::find(actions.begin(), actions.end(), focused_);
-    Node *next =
-        it == actions.end() || std::next(it) == actions.end() ? actions.front() : *std::next(it);
-    if (focused_) {
-        ++focused_->revision;
-    }
-    focused_ = next;
-    ++focused_->revision;
-    Invalidate(Dirty::Paint);
-    return true;
-}
-
-std::optional<std::string> Scene::FocusedAction() const
-{
-    return focused_ && IsVisible(*focused_) ? std::optional<std::string>(focused_->action)
-                                            : std::nullopt;
-}
-
-std::optional<std::string> Scene::ActionAt(contracts::LogicalPoint point) const
-{
-    return root_ ? Hit(*root_, point) : std::nullopt;
 }
 
 } // namespace prism::runtime

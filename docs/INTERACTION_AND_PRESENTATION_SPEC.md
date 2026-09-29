@@ -1,7 +1,8 @@
 # 通用交互状态、呈现属性与桌面控制区
 
-日期：2026-09-29。状态：**设计契约，本文新增的状态、手势、呈现属性与组控制接口尚未实现**。
-已实现的 Paint Transition v1 见 [动画运行时规范](ANIMATION_RUNTIME_SPEC.md)。本文决定下一阶段
+日期：2026-09-29。状态：**第一阶段节点命中、局部输入状态与释放激活已进入源码；状态规则、
+手势、呈现属性与组控制仍为后续设计**。第一阶段边界见第 12 节。
+已实现的 Paint Transition v1 见 [动画运行时规范](ANIMATION_RUNTIME_SPEC.md)。本文决定后续
 接口的职责与执行顺序，不把示意类型或状态规则当作当前可用 DSL。
 
 ## 1. 产品目标与当前事实
@@ -10,6 +11,8 @@ Prism 使用类 i3 的平铺容器树组织窗口，以简洁的图标、玻璃�
 横线可以是运行指示，也可以是控制入口；二者共享视觉语言，但交互语义分别声明。
 Topbar 的控制横线面向整个平铺组，窗口之间的控制横线面向分割边界或明确选中的窗口。
 通用状态与呈现接口先完成，组全屏、窗口控制和复杂手势按后续阶段接入。
+
+下表保留本轮输入改造前的差异，第一阶段完成情况见第 12 节。
 
 | 当前实现 | 对设计的影响 |
 | --- | --- |
@@ -271,4 +274,42 @@ configure/客户端 buffer 与输入的同步。视觉预览、请求已接受�
 
 每一步保持测试/probe 在 tests/，遵循 [代码规范](CODING_STYLE.md)；按
 [动画假设清单](ANIMATION_RENDERING_HYPOTHESES.md)记录功能、开销与设备范围。
-本文本轮只完成设计与源码核对，没有新增可用状态语法、组全屏或触摸控制。
+各阶段分别记录代码能力与实际部署，不把准备好的状态类型当作组全屏或触摸控制已完成。
+
+## 12. 第一阶段源码实现（2026-09-29）
+
+前序动画核心与本规范先提交为 `2f9345b`，随后开始本阶段。当前实现包括：
+
+| 接口/路径 | 当前能力 |
+| --- | --- |
+| Scene::HitTest | 返回当前 Scene 内完整 NodeId 与局部坐标；action 不参与身份匹配 |
+| Scene::HandleInput | 接受 typed WindowEvent，返回局部状态变化与确认完成的 Activation |
+| Scene::State / SetEnabled / CancelInput | 查询统一状态、对子树启用/禁用输入、明确清理当前 Scene 输入 |
+| InteractionState | hovered、pressed、captured、focused、focusVisible、enabled；按来源/seat维护后向节点聚合 |
+| Wayland 适配 | 显式 enter/leave/cancel；InputSource 标识 seat、逻辑设备及重建代数；xkbcommon 解析修饰键 |
+| SDK/worker 队列 | 输入携带 UiLoadId；旧加载输入只确认消费、不派发；motion 合并不跨来源/加载/控制事件 |
+| 生命周期 | 隐藏、禁用、action 改变、区域移除、失焦、设备撤回、UI 替换及 Close 取消对应输入 |
+
+主按钮按下只建立捕获，在原目标内有效释放后激活一次。移出目标时 pressed 撤销而捕获
+可保留；返回原目标后释放允许激活。显式 leave 后 button 事件中的缓存坐标不能重新
+建立 hover，必须由 Enter/Motion 恢复，避免在窗口外释放仍触发按钮。键盘 Enter/Space
+释放时激活，repeat 不重复提交；Tab/Shift+Tab 导航，Escape 取消当前 seat 的待定激活。
+
+输入状态放入不可变 SceneSnapshot；现有 hover/focus 呈现从该状态取值，鼠标聚焦与
+键盘可见焦点分别处理。未改变状态的同目标 motion 不产生像素失效，局部状态变化不触发
+Layout；静止指针只在命中几何发生变化时重新命中，不因普通 Paint 动画反复扫描。
+事务提交后的输入清理不分配新存储，保留区域不会因无关区域安装丢失捕获。
+
+本阶段运行接口详见 [Scene](CLIENT_SCENE_RUNTIME.md) 和 [SDK](CLIENT_APP_SDK.md)。
+SetEnabled 目前是 C++ Scene 接口，未扩展 DSL schema。声明式状态作用域、StateRule、
+独立感应范围、dragging/触摸识别、transform/opacity、成功提交对应的命中快照，以及组
+沉浸和分隔线系统操作继续按第 11 节实施。平台目前只适配一个 Wayland seat；纯状态
+测试中的多 source/seat 隔离不代表多 seat 桌面或触摸已接通。
+
+验证：Pi 上完整 GLES 构建成功，最终 CTest **59/59** 通过，含新增 Scene 输入矩阵、
+真实 Wayland Shift/普通 Tab、设备撤回/重建、configure 与释放同批处理、动作中替换 UI
+后的旧输入隔离，以及原有主题、区域事务和动画回归。隔离 V3D headless 的 prepared UI、
+SDK 提交、局部损伤、动画四项门槛均通过。风格、800 行与差异检查通过。
+记录位于忽略的 `dist/validation/interaction-v1-20260929/`，最终全量测试为
+`ctest-final.log`，GPU 门槛为 `native/native-gates.json`。本阶段未重新打包或部署到当前
+VNC 会话，也不据此宣称触摸、组控制、真实显示 FPS 或平台间性能比较已验收。

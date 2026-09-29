@@ -10,6 +10,8 @@ target_compile_features(prism_dsl_schema PUBLIC cxx_std_20)
 
 add_library(prism_client_scene STATIC
     scene.cpp
+    scene_input.cpp
+    scene_input_events.cpp
     scene_animation.cpp
     scene_nodes.cpp
     scene_theme.cpp

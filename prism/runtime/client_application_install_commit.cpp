@@ -10,6 +10,7 @@ void ClientApplication::Impl::CommitScene(runtime::UiLoadId load,
     QueueRenderInstallUi(load);
 
     if (scene) {
+        scene->CancelInput();
         AddSceneStats(render_stats, scene->GetRenderStats());
     }
     ReleaseUnusedImages(images);

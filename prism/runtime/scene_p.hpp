@@ -31,7 +31,38 @@ struct Scene::Node {
     contracts::LogicalRect bounds{};
     ShapedText shaped{};
     std::uint64_t revision{1};
+    bool enabled{true};
+    InteractionState interaction{};
     std::vector<std::unique_ptr<Node>> children;
+};
+
+struct Scene::InputState {
+    struct Pointer {
+        contracts::InputSource source{};
+        contracts::NodeId hovered{}, captured{};
+        std::string action;
+        contracts::LogicalPoint position{};
+        bool inside{};
+    };
+
+    struct Focus {
+        std::uint64_t seat{};
+        contracts::NodeId node{};
+        bool visible{};
+    };
+
+    struct KeyPress {
+        contracts::InputSource source{};
+        contracts::NodeId node{};
+        std::uint32_t key{};
+        std::string action;
+    };
+
+    std::vector<Pointer> pointers;
+    std::vector<Focus> focus;
+    std::vector<KeyPress> keys;
+    // Only active targets are revisited for pointer motion; idle nodes need no scan.
+    std::vector<contracts::NodeId> active;
 };
 
 struct Scene::AnimationState {

@@ -561,14 +561,21 @@ int main()
     assert(deferred.InputRegions().size() == 1 &&
            deferred.InputRegions().front().bounds.width == 90);
     assert(!deferred.FocusedAction());
-    bool latest_glyph = false, latest_bar = false, marker_restored = false;
+    // Revealing recomputes hover from the stationary pointer's current hit.
+    // Old keyboard focus and press/capture must remain cancelled.
+    const auto revealed_hit = deferred.HitTest({10, 10});
+    assert(revealed_hit && deferred.State(revealed_hit->node).hovered);
+    assert(!deferred.State(revealed_hit->node).focused &&
+           !deferred.State(revealed_hit->node).pressed &&
+           !deferred.State(revealed_hit->node).captured);
+    bool latest_glyph = false, latest_bar = false, marker_restored = false, latest_hover = false;
     for (const auto &command : latest_list->commands) {
         if (const auto *glyph = std::get_if<contracts::DrawGlyphRun>(&command)) {
             latest_glyph |= glyph->color == latest_text && glyph->font_size == 18;
         }
         if (const auto *bar = std::get_if<contracts::FillRoundedRect>(&command)) {
             latest_bar |= bar->color == latest_progress && bar->bounds.width == 45;
-            assert(bar->color != deferred_theme.controls.hover);
+            latest_hover |= bar->color == deferred_theme.controls.hover;
         }
         if (const auto *border = std::get_if<contracts::StrokeRoundedRect>(&command)) {
             assert(border->color != deferred_theme.controls.focus);
@@ -578,7 +585,7 @@ int main()
                                icon->color == deferred_theme.colors[1].value;
         }
     }
-    assert(latest_glyph && latest_bar && marker_restored);
+    assert(latest_glyph && latest_bar && marker_restored && latest_hover);
     assert(deferred.PendingDirty() == runtime::Dirty::None && !BuildAndCommit(deferred));
 
     runtime::Scene hidden_flex(runtime::ParseBlueprint(R"(

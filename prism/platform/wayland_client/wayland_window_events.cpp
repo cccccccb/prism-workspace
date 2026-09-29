@@ -15,111 +15,35 @@
 #include <unistd.h>
 
 namespace prism::platform {
-static std::uint64_t NowNs()
+std::uint64_t WaylandWindow::InputTimeNs()
 {
     return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
                                           std::chrono::steady_clock::now().time_since_epoch())
                                           .count());
 }
 
-// Common Linux evdev keys mapped to USB HID usages. Unknown keys remain zero
-// until a full keymap/IME adapter is added.
-static std::uint32_t HidUsage(std::uint32_t key)
+contracts::InputSource WaylandWindow::PointerSource() const
 {
-    switch (key) {
-    case KEY_A:
-        return 0x04;
-    case KEY_B:
-        return 0x05;
-    case KEY_C:
-        return 0x06;
-    case KEY_D:
-        return 0x07;
-    case KEY_E:
-        return 0x08;
-    case KEY_F:
-        return 0x09;
-    case KEY_G:
-        return 0x0a;
-    case KEY_H:
-        return 0x0b;
-    case KEY_I:
-        return 0x0c;
-    case KEY_J:
-        return 0x0d;
-    case KEY_K:
-        return 0x0e;
-    case KEY_L:
-        return 0x0f;
-    case KEY_M:
-        return 0x10;
-    case KEY_N:
-        return 0x11;
-    case KEY_O:
-        return 0x12;
-    case KEY_P:
-        return 0x13;
-    case KEY_Q:
-        return 0x14;
-    case KEY_R:
-        return 0x15;
-    case KEY_S:
-        return 0x16;
-    case KEY_T:
-        return 0x17;
-    case KEY_U:
-        return 0x18;
-    case KEY_V:
-        return 0x19;
-    case KEY_W:
-        return 0x1a;
-    case KEY_X:
-        return 0x1b;
-    case KEY_Y:
-        return 0x1c;
-    case KEY_Z:
-        return 0x1d;
-    case KEY_1:
-        return 0x1e;
-    case KEY_2:
-        return 0x1f;
-    case KEY_3:
-        return 0x20;
-    case KEY_4:
-        return 0x21;
-    case KEY_5:
-        return 0x22;
-    case KEY_6:
-        return 0x23;
-    case KEY_7:
-        return 0x24;
-    case KEY_8:
-        return 0x25;
-    case KEY_9:
-        return 0x26;
-    case KEY_0:
-        return 0x27;
-    case KEY_ENTER:
-        return 0x28;
-    case KEY_ESC:
-        return 0x29;
-    case KEY_BACKSPACE:
-        return 0x2a;
-    case KEY_TAB:
-        return 0x2b;
-    case KEY_SPACE:
-        return 0x2c;
-    case KEY_RIGHT:
-        return 0x4f;
-    case KEY_LEFT:
-        return 0x50;
-    case KEY_DOWN:
-        return 0x51;
-    case KEY_UP:
-        return 0x52;
-    default:
-        return 0;
+    return {seat_identity_, 1, pointer_generation_};
+}
+
+contracts::InputSource WaylandWindow::KeyboardSource() const
+{
+    return {seat_identity_, 2, keyboard_generation_};
+}
+
+void WaylandWindow::ReleasePointer()
+{
+    if (!pointer_) {
+        return;
     }
+
+    const auto source = PointerSource();
+    wl_pointer_release(pointer_);
+    pointer_ = nullptr;
+    pointer_position_ = {};
+
+    Emit(contracts::PointerCancelEvent{contracts::WindowId{1}, InputTimeNs(), source});
 }
 
 void WaylandWindow::RegistryGlobal(void *data, wl_registry *registry, std::uint32_t name,
@@ -154,6 +78,7 @@ void WaylandWindow::RegistryGlobal(void *data, wl_registry *registry, std::uint3
         self.seat_ = static_cast<wl_seat *>(
             wl_registry_bind(registry, name, &wl_seat_interface, std::min(version, 5u)));
         self.seat_global_name_ = name;
+        ++self.seat_identity_;
         static const wl_seat_listener listener{.capabilities = SeatCapabilities, .name = SeatName};
         wl_seat_add_listener(self.seat_, &listener, &self);
     }
@@ -171,12 +96,8 @@ void WaylandWindow::RegistryGlobalRemove(void *data, wl_registry *, std::uint32_
     if (name != self.seat_global_name_) {
         return;
     }
-    if (self.pointer_) {
-        wl_pointer_release(self.pointer_);
-    }
-    if (self.keyboard_) {
-        wl_keyboard_release(self.keyboard_);
-    }
+    self.ReleasePointer();
+    self.ReleaseKeyboard();
     if (self.seat_) {
         wl_seat_release(self.seat_);
     }
@@ -257,6 +178,7 @@ void WaylandWindow::SeatCapabilities(void *data, wl_seat *seat, std::uint32_t ca
     auto &self = *static_cast<WaylandWindow *>(data);
     if ((caps & WL_SEAT_CAPABILITY_POINTER) && !self.pointer_) {
         self.pointer_ = wl_seat_get_pointer(seat);
+        ++self.pointer_generation_;
         static const wl_pointer_listener listener{.enter = PointerEnter,
                                                   .leave = PointerLeave,
                                                   .motion = PointerMotion,
@@ -271,11 +193,11 @@ void WaylandWindow::SeatCapabilities(void *data, wl_seat *seat, std::uint32_t ca
                                                       PointerAxisRelativeDirection};
         wl_pointer_add_listener(self.pointer_, &listener, &self);
     } else if (!(caps & WL_SEAT_CAPABILITY_POINTER) && self.pointer_) {
-        wl_pointer_release(self.pointer_);
-        self.pointer_ = nullptr;
+        self.ReleasePointer();
     }
     if ((caps & WL_SEAT_CAPABILITY_KEYBOARD) && !self.keyboard_) {
         self.keyboard_ = wl_seat_get_keyboard(seat);
+        ++self.keyboard_generation_;
         static const wl_keyboard_listener listener{.keymap = KeyboardKeymap,
                                                    .enter = KeyboardEnter,
                                                    .leave = KeyboardLeave,
@@ -284,8 +206,7 @@ void WaylandWindow::SeatCapabilities(void *data, wl_seat *seat, std::uint32_t ca
                                                    .repeat_info = KeyboardRepeatInfo};
         wl_keyboard_add_listener(self.keyboard_, &listener, &self);
     } else if (!(caps & WL_SEAT_CAPABILITY_KEYBOARD) && self.keyboard_) {
-        wl_keyboard_release(self.keyboard_);
-        self.keyboard_ = nullptr;
+        self.ReleaseKeyboard();
     }
 }
 
@@ -299,16 +220,15 @@ void WaylandWindow::PointerEnter(void *data, wl_pointer *, std::uint32_t, wl_sur
     auto &self = *static_cast<WaylandWindow *>(data);
     ++self.pointer_enter_count_;
     self.pointer_position_ = {wl_fixed_to_double(x), wl_fixed_to_double(y)};
-    self.Emit(
-        contracts::PointerMotionEvent{contracts::WindowId{1}, self.pointer_position_, NowNs()});
+    self.Emit(contracts::PointerEnterEvent{contracts::WindowId{1}, self.pointer_position_,
+                                           InputTimeNs(), self.PointerSource()});
 }
 
 void WaylandWindow::PointerLeave(void *data, wl_pointer *, std::uint32_t, wl_surface *)
 {
     auto &self = *static_cast<WaylandWindow *>(data);
-    self.pointer_position_ = {-1, -1};
     self.Emit(
-        contracts::PointerMotionEvent{contracts::WindowId{1}, self.pointer_position_, NowNs()});
+        contracts::PointerLeaveEvent{contracts::WindowId{1}, InputTimeNs(), self.PointerSource()});
 }
 
 void WaylandWindow::PointerMotion(void *data, wl_pointer *, std::uint32_t, wl_fixed_t x,
@@ -316,8 +236,8 @@ void WaylandWindow::PointerMotion(void *data, wl_pointer *, std::uint32_t, wl_fi
 {
     auto &self = *static_cast<WaylandWindow *>(data);
     self.pointer_position_ = {wl_fixed_to_double(x), wl_fixed_to_double(y)};
-    self.Emit(
-        contracts::PointerMotionEvent{contracts::WindowId{1}, self.pointer_position_, NowNs()});
+    self.Emit(contracts::PointerMotionEvent{contracts::WindowId{1}, self.pointer_position_,
+                                            InputTimeNs(), self.PointerSource()});
 }
 
 void WaylandWindow::PointerButton(void *data, wl_pointer *, std::uint32_t, std::uint32_t,
@@ -337,11 +257,12 @@ void WaylandWindow::PointerButton(void *data, wl_pointer *, std::uint32_t, std::
     } else if (button == BTN_EXTRA) {
         mapped = contracts::PointerButton::Forward;
     }
-    self.Emit(contracts::PointerButtonEvent{
-        contracts::WindowId{1}, self.pointer_position_, mapped,
-        state == WL_POINTER_BUTTON_STATE_PRESSED ? contracts::ButtonState::Pressed
-                                                 : contracts::ButtonState::Released,
-        mapped == contracts::PointerButton::Other ? button : 0, NowNs()});
+    self.Emit(contracts::PointerButtonEvent{contracts::WindowId{1}, self.pointer_position_, mapped,
+                                            state == WL_POINTER_BUTTON_STATE_PRESSED
+                                                ? contracts::ButtonState::Pressed
+                                                : contracts::ButtonState::Released,
+                                            mapped == contracts::PointerButton::Other ? button : 0,
+                                            InputTimeNs(), self.PointerSource()});
 }
 
 void WaylandWindow::PointerAxis(void *data, wl_pointer *, std::uint32_t, std::uint32_t axis,
@@ -352,7 +273,7 @@ void WaylandWindow::PointerAxis(void *data, wl_pointer *, std::uint32_t, std::ui
     self.Emit(contracts::PointerScrollEvent{contracts::WindowId{1}, self.pointer_position_,
                                             axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL ? delta : 0.0,
                                             axis == WL_POINTER_AXIS_VERTICAL_SCROLL ? delta : 0.0,
-                                            NowNs()});
+                                            InputTimeNs(), self.PointerSource()});
 }
 
 void WaylandWindow::PointerFrame(void *, wl_pointer *)
@@ -376,45 +297,6 @@ void WaylandWindow::PointerAxisValue120(void *, wl_pointer *, std::uint32_t, std
 }
 
 void WaylandWindow::PointerAxisRelativeDirection(void *, wl_pointer *, std::uint32_t, std::uint32_t)
-{
-}
-
-void WaylandWindow::KeyboardKeymap(void *, wl_keyboard *, std::uint32_t, int fd, std::uint32_t)
-{
-    if (fd >= 0) {
-        close(fd);
-    }
-}
-
-void WaylandWindow::KeyboardEnter(void *data, wl_keyboard *, std::uint32_t, wl_surface *,
-                                  wl_array *)
-{
-    static_cast<WaylandWindow *>(data)->Emit(contracts::FocusEvent{contracts::WindowId{1}, true});
-}
-
-void WaylandWindow::KeyboardLeave(void *data, wl_keyboard *, std::uint32_t, wl_surface *)
-{
-    static_cast<WaylandWindow *>(data)->Emit(contracts::FocusEvent{contracts::WindowId{1}, false});
-}
-
-void WaylandWindow::KeyboardKey(void *data, wl_keyboard *, std::uint32_t, std::uint32_t,
-                                std::uint32_t key, std::uint32_t state)
-{
-    auto &self = *static_cast<WaylandWindow *>(data);
-    ++self.key_count_;
-    self.Emit(contracts::KeyEvent{contracts::WindowId{1}, HidUsage(key),
-                                  state == WL_KEYBOARD_KEY_STATE_PRESSED
-                                      ? contracts::ButtonState::Pressed
-                                      : contracts::ButtonState::Released,
-                                  false, NowNs()});
-}
-
-void WaylandWindow::KeyboardModifiers(void *, wl_keyboard *, std::uint32_t, std::uint32_t,
-                                      std::uint32_t, std::uint32_t, std::uint32_t)
-{
-}
-
-void WaylandWindow::KeyboardRepeatInfo(void *, wl_keyboard *, std::int32_t, std::int32_t)
 {
 }
 

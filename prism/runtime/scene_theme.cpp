@@ -42,8 +42,10 @@ bool Scene::ApplyTheme(const contracts::ThemeSnapshot &theme, std::string *diagn
         CancelAnimations();
         theme_.swap(candidate.theme_);
         CommitValues(pairs);
+        ReconcileInput();
         ++transaction_revision_;
         Invalidate(affected);
+        hit_geometry_dirty_ = true;
         input_dirty_ = true;
         if (diagnostic) {
             diagnostic->clear();

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "prism/contracts/display_list.hpp"
+#include "prism/contracts/events.hpp"
 #include "prism/contracts/surface_effect.hpp"
 #include "prism/contracts/theme.hpp"
 #include "prism/runtime/animation_sample.hpp"
@@ -74,6 +75,28 @@ struct SceneRenderStats {
     bool operator==(const SceneRenderStats &) const = default;
 };
 
+// Identities are local to this Scene; the SDK owns the enclosing UI load identity.
+struct HitResult {
+    contracts::NodeId node{};
+    contracts::LogicalPoint localPosition{};
+};
+
+struct InteractionState {
+    bool hovered{}, pressed{}, captured{}, focused{}, focusVisible{};
+    bool enabled{true};
+    bool operator==(const InteractionState &) const = default;
+};
+
+struct Activation {
+    contracts::NodeId node{};
+    std::string action;
+};
+
+struct InteractionResult {
+    bool changed{};
+    std::optional<Activation> activation;
+};
+
 class SceneConstruction;
 class Scene;
 
@@ -134,6 +157,12 @@ public:
     bool ImageReady(contracts::ResourceId image, contracts::LogicalSize intrinsic_size);
     std::optional<contracts::DisplayList> Build(contracts::WindowId window);
     std::optional<std::string> ActionAt(contracts::LogicalPoint point) const;
+    std::optional<HitResult> HitTest(contracts::LogicalPoint point) const;
+    InteractionResult HandleInput(const contracts::WindowEvent &event);
+    InteractionState State(contracts::NodeId id) const;
+    // Typed runtime control; this does not introduce an enabled DSL property.
+    bool SetEnabled(contracts::NodeId id, bool enabled);
+    bool CancelInput();
 
     Dirty PendingDirty() const
     {
@@ -164,6 +193,8 @@ public:
     bool IsVisible(contracts::NodeId id) const;
     std::vector<contracts::SurfaceEffectRegion> SurfaceEffects() const;
     const std::vector<contracts::SurfaceInputRegion> &InputRegions() const;
+    // Legacy convenience entry points use the default source / seat zero.
+    // Platform events and action dispatch go through HandleInput.
     bool SetPointer(contracts::LogicalPoint point);
     bool FocusNext();
     std::optional<std::string> FocusedAction() const;
@@ -172,6 +203,7 @@ private:
     friend class SceneConstruction;
     struct Node;
     struct AnimationState;
+    struct InputState;
 
     struct EmptyConstruction {};
 
@@ -203,7 +235,21 @@ private:
     void DropAnimationsForNodes(const std::vector<Node *> &nodes) noexcept;
     void ApplyCachedProperty(Node &node, DslProperty property, const PropertyValue &value);
     PropertyValue CurrentProperty(const Node &node, DslProperty property) const;
-    std::optional<std::string> Hit(const Node &node, contracts::LogicalPoint point) const;
+    std::optional<HitResult> Hit(const Node &node, contracts::LogicalPoint point) const;
+    bool IsEnabled(const Node &node) const;
+    bool IsInteractive(contracts::NodeId id) const;
+    void TrackInputTarget(contracts::NodeId id);
+    bool RefreshInputStates() noexcept;
+    bool ReconcileInput() noexcept;
+    void PrepareInputGeometry();
+    void RefreshInputGeometry() noexcept;
+    void CancelSeatInput(std::uint64_t seat) noexcept;
+    bool SetInputFocus(contracts::NodeId id, std::uint64_t seat, bool visible);
+    bool MoveInputFocus(std::uint64_t seat, bool reverse);
+    void MoveInputPointer(contracts::InputSource source, contracts::LogicalPoint point);
+    void LeaveInputPointer(contracts::InputSource source, bool cancel);
+    std::optional<Activation> HandleInputButton(const contracts::PointerButtonEvent &);
+    std::optional<Activation> HandleInputKey(const contracts::KeyEvent &);
     void CollectSurfaceEffects(const Node &, std::vector<contracts::SurfaceInputRegion> &,
                                std::vector<contracts::SurfaceEffectRegion> &) const;
     void AddInputRegion(contracts::SurfaceInputRegion,
@@ -231,9 +277,9 @@ private:
     std::uint64_t build_calls_{0}, layout_count_{0};
     std::unique_ptr<RenderTree> render_tree_;
     std::unique_ptr<AnimationState> animation_state_;
+    std::unique_ptr<InputState> input_state_;
     AnimationSampleStamp animation_sample_{};
-    Node *hovered_{nullptr};
-    Node *focused_{nullptr};
+    bool hit_geometry_dirty_{true};
     mutable bool input_dirty_{true};
     mutable std::vector<contracts::SurfaceInputRegion> input_regions_;
     std::optional<contracts::ThemeSnapshot> theme_;

@@ -21,6 +21,9 @@ WaylandWindow::WaylandWindow() = default;
 
 WaylandWindow::~WaylandWindow()
 {
+    // Explicit Close delivers cancellation while the owner is alive. Object
+    // teardown must not invoke callbacks whose bound owner may be gone.
+    event_handler_ = {};
     Close();
 }
 
@@ -499,6 +502,9 @@ void WaylandWindow::SetInputRegions(std::span<const contracts::SurfaceInputRegio
 
 void WaylandWindow::Close()
 {
+    ReleasePointer();
+    ReleaseKeyboard();
+
     for (auto &pending : feedbacks_) {
         if (pending.handle) {
             wp_presentation_feedback_destroy(pending.handle);
@@ -535,12 +541,6 @@ void WaylandWindow::Close()
     }
     if (surface_) {
         wl_surface_destroy(surface_);
-    }
-    if (pointer_) {
-        wl_pointer_release(pointer_);
-    }
-    if (keyboard_) {
-        wl_keyboard_release(keyboard_);
     }
     if (seat_) {
         wl_seat_release(seat_);

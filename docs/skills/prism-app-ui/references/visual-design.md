@@ -458,7 +458,7 @@ Card(height: 120, material: "card", padding: 8, clip: true) {
 | 真实 backdrop blur | Prism compositor 已有有界圆角矩形协议与 GPU 合成；不是客户端假 blur |
 | H/V 流布局、Card 锚定、flex、padding/inset、visible | 已有；不是完整 CSS flexbox |
 | 图标按钮、文字按钮、Progress、Toggle、Separator | 已有；业务状态与动作仍由 module 维护 |
-| hover/focus、Tab 遍历、Enter/Space 调用 action | 已有基础行为；点击仅主按键，不等于完整无障碍系统 |
+| hover/pressed/capture/focus、Tab/Shift+Tab、Enter/Space | 源码已有统一状态；主按钮与键盘释放时激活，取消不触发 action；仍非完整无障碍系统 |
 | Interface v2 critical/deferred 与稳定 Slot | 已有；声明式加载顺序不是动画/滚动布局能力 |
 | Slider 拖动、滚动容器、虚拟列表、TextInput | 当前视觉 schema 未提供，不能写伪 API |
 | CSS opacity/gradient/box-shadow、百分比尺寸、media query | 当前 DSL 未提供；使用现有类型化属性 |
