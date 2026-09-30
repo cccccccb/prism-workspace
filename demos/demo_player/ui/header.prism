@@ -1,6 +1,12 @@
-HStack(height: 28, spacing: 6, align: "center") {
+HStack(height: 28, spacing: 8, align: "center") {
     Icon("music", width: 20, height: 20, foreground: "@musicAccent")
-    Text("Music", width: 44, font: "@font_body", foreground: "@text")
+    Text("Music Studio", width: 88, font: "@font_body", foreground: "@text")
+    Card(height: 20, paddingX: 6, cornerRadius: 4, background: "@accentSoft", align: "center", justify: "center") {
+        HStack(spacing: 4, align: "center") {
+            Icon("layers", width: 12, height: 12, foreground: "@musicAccent")
+            Text("Hi-Res · Lossless", font: "@font_caption", foreground: "@musicAccent")
+        }
+    }
     Text($catalog_status, flex: 1, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
     Card(width: 14, height: 14, align: "center", justify: "center") {
         Icon("refresh", width: 14, height: 14, foreground: "@mutedText", visible: $catalog_pending)
@@ -8,8 +14,10 @@ HStack(height: 28, spacing: 6, align: "center") {
     }
     IconButton("refresh", "player:retry", width: 28, height: 28, padding: 6,
                material: "control", foreground: "@musicAccent", visible: $catalog_error)
+    IconButton("music", "nav:now_playing", width: 28, height: 28, padding: 6,
+               material: "control", foreground: "@text")
     IconButton("grid", "nav:library", width: 28, height: 28, padding: 6,
-               material: "control", foreground: "@mutedText")
+               material: "control", foreground: "@text")
     IconButton("heart", "nav:favorites", width: 28, height: 28, padding: 6,
                material: "control", foreground: "@musicAccent")
 }

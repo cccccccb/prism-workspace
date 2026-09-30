@@ -43,10 +43,20 @@ bool Player::Progress()
 
 bool Player::PublishTrack()
 {
+    const bool is1 = track_ == 0;
+    const bool is2 = track_ == 1;
+    const bool is3 = track_ == 2;
+    Boolean("track_1_active", is1);
+    Boolean("track_2_active", is2);
+    Boolean("track_3_active", is3);
+    Number("volume_level", volume_);
+    Boolean("repeat_active", repeat_);
     if (catalogue_.tracks.empty()) {
+        Boolean("favorite_active", false);
         return Text("track_title", "Preparing library") && Text("track_artist", "") && Progress();
     }
     const auto &track = catalogue_.tracks[track_];
+    Boolean("favorite_active", track.favorite);
     return Text("track_title", track.title) && Text("track_artist", track.artist) && Progress();
 }
 
@@ -185,10 +195,25 @@ void Player::Action(std::string_view action)
 {
     if (action == "player:retry") {
         Load();
+    } else if (action == "nav:now_playing") {
+        library_ = false;
+        PublishPage();
     } else if (action == "nav:library" || action == "nav:favorites") {
         library_ = action == "nav:favorites" || !library_ || favorites_;
         favorites_ = action == "nav:favorites";
         PublishPage();
+    } else if (action == "player:favorite") {
+        if (catalogue_valid_ && track_ < catalogue_.tracks.size()) {
+            catalogue_.tracks[track_].favorite = !catalogue_.tracks[track_].favorite;
+            PublishTrack();
+            PublishRows();
+        }
+    } else if (action == "player:repeat") {
+        repeat_ = !repeat_;
+        Boolean("repeat_active", repeat_);
+    } else if (action == "player:volume_toggle") {
+        volume_ = volume_ > 0.05 ? 0.0 : 0.8;
+        Number("volume_level", volume_);
     } else if (pending_ || !catalogue_valid_) {
         return;
     } else if (action == "player:toggle") {
@@ -215,7 +240,18 @@ void Player::Tick()
         return;
     }
     // This demo advances UI progress; it does not decode or output audio.
-    progress_ = progress_ + 0.02 > 1.0 ? 0 : progress_ + 0.02;
+    if (progress_ + 0.02 > 1.0) {
+        if (repeat_) {
+            progress_ = 0;
+        } else {
+            const auto count = catalogue_.tracks.size();
+            track_ = (track_ + 1) % count;
+            progress_ = 0;
+            PublishTrack();
+        }
+    } else {
+        progress_ += 0.02;
+    }
     Progress();
     Schedule();
 }

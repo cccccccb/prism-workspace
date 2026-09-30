@@ -37,10 +37,12 @@ struct Settings {
                prism::app::Boolean(host, "scheme_dark_selected", scheme == "dark");
     }
 
-    bool Page(bool performance)
+    bool Page(int page)
     {
-        return prism::app::Boolean(host, "page_performance", performance) &&
-               prism::app::Boolean(host, "page_appearance", !performance);
+        return prism::app::Boolean(host, "page_performance", page == 0) &&
+               prism::app::Boolean(host, "page_appearance", page == 1) &&
+               prism::app::Boolean(host, "page_display", page == 2) &&
+               prism::app::Boolean(host, "page_system", page == 3);
     }
 
     bool Error(std::string_view detail = {})
@@ -131,7 +133,7 @@ void *Create(const PrismAppInitV1 *init) noexcept
     Settings *settings = nullptr;
     try {
         settings = new Settings{init->host};
-        if (settings->Selection({}) && settings->SchemeSelection({}) && settings->Page(true) &&
+        if (settings->Selection({}) && settings->SchemeSelection({}) && settings->Page(0) &&
             settings->Error() && settings->Interval(settings->interval_ns) &&
             prism::app::Boolean(init->host, "monitoring_active", true) && settings->Metrics() &&
             settings->Schedule()) {
@@ -163,8 +165,14 @@ void Action(void *instance, PrismStringViewV1 value) noexcept
 
         if (action == "sys:refresh") {
             settings.Metrics(); // A manual sample does not move the periodic deadline.
-        } else if (action == "page:performance" || action == "page:appearance") {
-            settings.Page(action == "page:performance");
+        } else if (action == "page:performance") {
+            settings.Page(0);
+        } else if (action == "page:appearance") {
+            settings.Page(1);
+        } else if (action == "page:display") {
+            settings.Page(2);
+        } else if (action == "page:system") {
+            settings.Page(3);
         } else if (action == "monitor:toggle") {
             settings.monitoring = !settings.monitoring;
             prism::app::Boolean(settings.host, "monitoring_active", settings.monitoring);

@@ -1,26 +1,30 @@
-Card(padding: 8, material: "album") {
-    Card(justify: "center", align: "center", overflow: "clip") {
-        HStack(width: 44, height: 30, anchor: "left", spacing: 4, align: "center") {
-            Separator(width: 3, height: 8, background: "@indicator")
-            Separator(width: 3, height: 18, background: "@indicator")
-            Separator(width: 3, height: 30, background: "@indicator")
-            Separator(width: 3, height: 22, background: "@indicator")
-            Separator(width: 3, height: 12, background: "@indicator")
-        }
-        Card(width: 72, height: 72, anchor: "center", justify: "center", align: "center",
-             material: "control", cornerRadius: 36, background: "@musicAccent",
+Card(padding: 8, material: "album", clip: true) {
+    HStack(spacing: 16, align: "center", justify: "center") {
+        Card(width: 156, height: 156, material: "control", cornerRadius: 14, clip: true,
              borderWidth: 1, borderColor: "@border") {
-            Card(width: 48, height: 48, cornerRadius: 24, anchor: "center", justify: "center", align: "center",
-                 background: "@albumTint", borderWidth: 1, borderColor: "@border") {
-                Icon("music", width: 24, height: 24, anchor: "center", foreground: "@onAccent")
-            }
+            Image("cover_1.png", width: 156, height: 156, fit: "cover", clip: true,
+                  cornerRadius: 14, visible: $track_1_active)
+            Image("cover_2.png", width: 156, height: 156, fit: "cover", clip: true,
+                  cornerRadius: 14, visible: $track_2_active)
+            Image("cover_3.png", width: 156, height: 156, fit: "cover", clip: true,
+                  cornerRadius: 14, visible: $track_3_active)
         }
-        HStack(width: 44, height: 30, anchor: "right", spacing: 4, align: "center") {
-            Separator(width: 3, height: 12, background: "@indicator")
-            Separator(width: 3, height: 22, background: "@indicator")
-            Separator(width: 3, height: 30, background: "@indicator")
-            Separator(width: 3, height: 18, background: "@indicator")
-            Separator(width: 3, height: 8, background: "@indicator")
+        VStack(width: 156, height: 156, spacing: 6, align: "center", justify: "center") {
+            Card(width: 112, height: 112, justify: "center", align: "center") {
+                Image("vinyl_disc.png", width: 112, height: 112, fit: "contain")
+            }
+            HStack(height: 32, spacing: 4, align: "end", justify: "center") {
+                Separator(width: 3, height: 8, background: "@musicAccent")
+                Separator(width: 3, height: 16, background: "@musicAccent")
+                Separator(width: 3, height: 28, background: "@indicator")
+                Separator(width: 3, height: 22, background: "@musicAccent")
+                Separator(width: 3, height: 32, background: "@indicator")
+                Separator(width: 3, height: 18, background: "@musicAccent")
+                Separator(width: 3, height: 26, background: "@indicator")
+                Separator(width: 3, height: 12, background: "@musicAccent")
+                Separator(width: 3, height: 20, background: "@indicator")
+                Separator(width: 3, height: 10, background: "@musicAccent")
+            }
         }
     }
 }

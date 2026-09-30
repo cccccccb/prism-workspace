@@ -35,5 +35,7 @@ private:
     std::size_t row_count_{}, track_{};
     bool pending_{}, playing_{}, library_{}, favorites_{}, ready_{}, catalogue_valid_{};
     double progress_{0.42};
+    double volume_{0.8};
+    bool repeat_{false};
 };
 } // namespace prism::music

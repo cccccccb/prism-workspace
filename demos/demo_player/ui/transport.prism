@@ -10,12 +10,21 @@ VStack(spacing: 6) {
         Text($playback_elapsed, font: "@font_caption", foreground: "@mutedText")
         Text($playback_duration, font: "@font_caption", foreground: "@mutedText")
     }
-    HStack(height: 32, spacing: 12, align: "center", justify: "center") {
-        IconButton("previous", "player:previous", width: 28, height: 28, padding: 6,
+    HStack(height: 34, spacing: 10, align: "center", justify: "center") {
+        IconButton("refresh", "player:repeat", width: 28, height: 28, padding: 6,
                    material: "control", foreground: "@text")
-        IconButton($playback_icon, "player:toggle", width: 44, height: 32, padding: 7,
+        IconButton("previous", "player:previous", width: 30, height: 30, padding: 6,
+                   material: "control", foreground: "@text")
+        IconButton($playback_icon, "player:toggle", width: 48, height: 32, padding: 7,
                    material: "control", foreground: "@onAccent", background: "@musicAccent")
-        IconButton("next", "player:next", width: 28, height: 28, padding: 6,
+        IconButton("next", "player:next", width: 30, height: 30, padding: 6,
                    material: "control", foreground: "@text")
+        IconButton("heart", "player:favorite", width: 28, height: 28, padding: 6,
+                   material: "control", foreground: "@musicAccent")
+        Separator(width: 1, height: 16, background: "@divider")
+        IconButton("volume", "player:volume_toggle", width: 26, height: 26, padding: 5,
+                   material: "control", foreground: "@mutedText")
+        Progress(value: $volume_level, width: 48, height: 4, cornerRadius: 2,
+                 foreground: "@accent", background: "@progressTrack")
     }
 }
