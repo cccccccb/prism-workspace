@@ -1,8 +1,8 @@
 # 通用交互状态、呈现属性与桌面控制区
 
 日期：2026-09-29。状态：**第一阶段输入状态已经验证；第二阶段固定交互目标、状态规则与
-装饰子树呈现已完成源码与 Pi 隔离验证**。当前接口见第 12、13 节；触摸、交互节点
-整体变换、组控制与保留层仍按后续阶段实施。
+装饰子树呈现已完成源码与 Pi 隔离验证；第三阶段布局输入快照与 touch 已接通，验收见第 14 节**。
+当前接口见第 12 至 14 节；交互节点整体变换、手势识别、组控制与保留层继续后续实施。
 时间语义见 [动画运行时规范](ANIMATION_RUNTIME_SPEC.md)。本文同时保留产品设计，标明
 未来接口与当前源码的边界；源码修改不会自动更新已安装的 Host 或 VNC 会话。
 
@@ -197,20 +197,32 @@ PushTransform 并不提供保留层。只有保留资源、失效和 GPU 生命�
 
 ## 8. 呈现快照与输入一致性
 
-UI 线程生成同一修订下的可见变换、裁剪、效果描述和命中快照，并经 FramePacket 提交。
-worker 的成功提交消息关联它实际采用的版本。未来输入事件还要标识 worker 当时已应用
-的输入快照版本。UI 保留 worker 当前用于标记输入的版本、在途候选和仍有队列引用的版本；
-只有 worker 已有序切换且旧事件全部确认后才可回收旧版本。当前输入版本即使暂时没有
-事件引用也不能释放。有界队列沿用失败清理，不依赖无限保留历史快照。
+UI 线程从同一 Scene 修订生成绘制、裁剪、效果区域与不可变 `InputSnapshot`，通过
+`FramePacket.input_snapshot` 发布 `shared_ptr<const InputSnapshot>`。快照包含独立 Scene
+身份、该 Scene 内递增版本、节点身份/代数、布局盒、圆角、祖先裁剪、可用性与 action。
+相同节点索引或相同版本数字不足以证明来自同一 Scene。当前 Visual 子树完全不参与
+命中；交互节点整体变换仍需后续逆变换契约，不能用布局快照宣称已经支持。
 
-尚未提交的动画候选不提前改变交互节点命中几何。与像素变换绑定的 surface 输入/效果
-更新和像素一起提交；独立的 State 更新继续走现有通道。成功提交用于确认输入版本，
-不冒充物理呈现时间。真实呈现仍按 presentation feedback 单独关联。
+worker 只在成功采用提交包之后切换当前输入快照，并将同一个不可变对象附在随后收到的
+`SequencedWindowEvent.input_snapshot`；提交结果同样引用实际采用的 FramePacket。
+UI 按反向队列顺序应用提交快照，使用 `Scene::HandleInput(event, snapshot)` 解释事件。
+首个成功提交前没有可用快照，指针或触摸按下/释放不能激活动作；configure 与关闭事件
+仍正常处理。UI load 已被替换的输入确认消费后丢弃，不能落到新 Scene 的同索引节点。
 
-motion 事件合并不能跨越设备/接触身份、输入快照版本或 Down/Up/Cancel 边界。
-已捕获序列锁定目标身份，但后续坐标根据对应已提交快照解释；不能因下一帧命中了别的
-按钮就把拖动交给它。卸载代数、拓扑变化与取消事件优先于迟到动作。首批固定感应区的
-视觉子树运动可以先使用简化路径；交互节点整体移动必须等待上述协议验收。
+worker 当前版本、在途候选、已提交包与仍排队的输入分别持有强引用；最后一个拥有者
+释放后对象自动回收。当前输入版本即使暂时没有事件引用也由 worker 保留。候选替换、
+队列消费/销毁、UI 卸载与失败清理释放各自租约；有界队列维持有界在途保留，不建立
+无限增长的版本历史表，也不以 UI 的最新 Scene 指针代替事件自带的对象。
+
+尚未提交的布局或动画候选不能提前改变已提交的命中几何。与像素绑定的 surface 输入/
+效果更新跟随像素一起提交；独立 State 更新继续走现有通道。成功提交确定 worker 的
+输入版本，只表示提交边界；物理呈现仍由 presentation feedback 单独关联。
+
+相邻 motion 合并要求相同 UI、窗口、逻辑 source（seat/device/generation）和同一个
+snapshot 对象；touch 还要求相同 contact。不同对象即使版本数字相同也不能合并，
+Down/Up/Cancel/Frame 与其他有序事件保持边界。已捕获序列锁定目标身份，但后续坐标
+根据事件所带的已提交快照解释；不能因下一帧命中了另一个按钮而转移捕获。
+隐藏、禁用、卸载、action 变更、拓扑失效与取消优先于迟到动作，不允许旧快照复活目标。
 
 ## 9. 后续组与分隔线控制协议
 
@@ -415,8 +427,9 @@ DisplayList。变换作用于自己的背景、子孙、局部裁剪和阴影；
 回退，buffer age 修复仍相对最后成功提交计算。实现细节与证据见
 [渲染失效规范](RENDER_SCHEDULING_AND_INVALIDATION.md)。
 
-因为 Visual 完全不参与输入，当前目标的命中几何与 surface input 不随动画变化，尚不
-需要为它发布移动控件的逆变换命中快照。这不代表第 8 节的通用输入/效果同代协议已经完成。
+因为 Visual 完全不参与输入，目标的命中几何与 surface input 不随装饰动画变化，
+无需为 Visual 发布逆变换命中几何。第二阶段结束时尚未完成第 8 节输入快照协议，
+第三阶段的布局快照与 touch 进展见第 14 节。
 opacity 为 0 只隐藏装饰像素，不禁用目标；真正禁止操作仍使用输入生命周期接口。
 
 ### 13.5 真实 Shell 接入与验证范围
@@ -453,3 +466,59 @@ FPS 结论。两处新测试 fixture 的目标范围假设也已按既有根节�
 最终记录为 `dist/validation/state-visual-v1-20260929/ctest-final.log` 和
 `native-final/native-gates.json`；风格、800 行、文档链接和差异检查通过。所有隔离 WM
 已回收，当前 VNC 会话未替换。
+
+
+## 14. 第三阶段：成功提交输入快照与 touch（2026-09-29）
+
+第二阶段提交为 `2219115`。本阶段连接第 8 节的不可变命中快照租约，以及 WM →
+WaylandWindow → SDK → Scene 的 touch 事件。输入 source 继续表示客户端的逻辑 seat/
+device/generation；触摸 contact 在该 source 内区分，接触移动和释放不伪造持久 hover，
+也不合成为鼠标点击。原生 pointer button 与 touch down 的 `protocol_serial` 作为 opaque
+平台凭据保留；WM 控制仍需核对 seat/surface、有效输入序列和操作能力，不能只相信
+客户端提供的 serial/source/time。手势识别、拖动阈值与组控制不属于这次接线。
+
+Scene 的 `CaptureInputSnapshot()` 在布局完成后独立冻结候选，随 FramePacket 发布；
+action-only 或 State-only 更新不增加显示列表构建尝试和像素版本。`InputGeometry()`
+读取最近冻结的候选；`ApplyInputSnapshot(...)` 只在
+有序成功提交边界更新已提交几何与静止指针重新命中。事件通过自带快照命中，仍须用
+当前 Scene 验证节点存活、action 和可用性。候选布局移动/缩小同一个节点时，积压旧
+输入应继续命中旧提交几何；随后收到的输入切换到新提交几何。整个 UI 替换会隔离旧
+Scene 身份和 UI load，即使新节点索引、action 或几何相同也不能承接旧序列。
+
+测试资源全部保留在 `tests/`：队列测试覆盖 snapshot 对象/版本隔离、contact 边界和
+`weak_ptr` 租约回收；协议 fixture 验证首帧前配置可确认但点击不可激活；新增
+`sdk_input_snapshot_probe` 在独立 V3D WM 中验证 UI 暂停后积压点击、绑定移动/缩小、
+新提交几何与动作中替换 UI 后的旧输入隔离。该 probe 的注入通过 compositor roundtrip
+后等待 worker 调度，公开 SDK 当前没有输入接收 fence；单窗口/单输出坐标前提由初始
+实际点击验证。
+
+Pi 原生 V3D 的六项 SDK 门槛通过：prepared-ui、submission、damage、animation、
+input-snapshot、input-animation。首次集成暴露 State-only 冻结调用 Build 导致构建尝试
+增加，现已拆出 `CaptureInputSnapshot()`，原有零构建断言保持不变并通过复测。
+新增 Scene 回归检查 action-only 快照版本、旧快照不可变和无额外像素/构建工作。
+最终完整构建、CTest **61/61**、clang-format 19/行数/goto 检查与 `git diff --check`
+通过；297 个生产文件中最大文件为 594 行。
+
+`virtual_input_test` 经真实 wlroots touch 信号、WM、Wayland 协议及客户端验证多设备
+同号触点隔离、多触点、拖出原 surface 后坐标、up/frame/cancel、设备撤回与重建、窗口
+卸载和关闭清理，以及原生 serial 保留。此项是协议注入，尚未进行实体触屏验收。
+
+证据位于 `dist/validation/input-snapshot-v1-20260929/`：`native/native-gates.json`
+记录六项结果与隔离 WM 回收，初轮失败保留于 `native/initial-state-composite-failure/`。
+最终 Capture 圆角/裁剪修正后的 prepared-ui 与 input-snapshot 定向复测也通过，记录于
+`native-final-capture/native-gates.json`。新增布局用例曾把填满 viewport 的根控件宽度
+误当成声明宽度，现已改为真实子节点验证；初始失败保留于
+`ctest-initial-fixture-failure.log`。
+Wayland 首帧 fixture 也修正了异步调度假设：初始状态检查后显式释放 configure/input，
+以 xdg ping/pong 确认 worker 已分发整批事件。原先自动发送 configure 可能先于 Open
+返回，被初始零计数断言误报；原零动作/零 GPU 断言保留，定向连续 30 次与最终全套通过。
+初始失败与修复记录为 `ctest-initial-wayland-timing-failure.log`、
+`ctest-wayland-fixture-fix.log`。
+最终完整构建、CTest 与格式结果分别由 `build-final.log`、`ctest-final.log`、
+`style-final.log` 记录。本轮使用既有 `build-gles`；全新配置时发现系统
+`/usr/share/cmake-3.31/Modules/CMakeParseImplicitIncludeInfo.cmake` 含损坏字节，尚未修复
+该环境问题，因此不宣称全新目录配置通过。
+
+当前布局快照不提供交互节点逆变换，Visual 仍是装饰子树；成功提交也不等于显示端已经
+呈现。本轮未重打 deb 或替换当前 VNC 会话。组沉浸、连续手势和分隔线控制按
+[后续实施计划](LAYOUT_CONTROL_IMPLEMENTATION_PLAN.md)推进。

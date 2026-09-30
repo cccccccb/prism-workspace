@@ -222,7 +222,8 @@ void handle_cursor_button(struct wl_listener *listener, void *data)
     auto *sig =
         WlContainerOf<WlrServerSignals>(listener, offsetof(WlrServerSignals, cursor_button));
     auto *event = static_cast<struct wlr_pointer_button_event *>(data);
-    sig->server->HandleCursorButton(event->time_msec, event->button, event->state);
+    sig->server->HandleCursorButton(event->time_msec, event->button, event->state,
+                                    &event->pointer->base);
 }
 
 void handle_cursor_axis(struct wl_listener *listener, void *data)

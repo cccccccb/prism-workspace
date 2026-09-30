@@ -95,6 +95,20 @@ void AppHost::DeliverThemeEvent(const contracts::ThemeEvent &event)
     }
 }
 
+void AppHost::DeliverLayoutState(const contracts::LayoutStateEvent &event)
+{
+    if (impl_->business) {
+        impl_->business->Deliver(event);
+    }
+}
+
+void AppHost::DeliverLayoutControlResult(const contracts::LayoutControlResult &event)
+{
+    if (impl_->business) {
+        impl_->business->Deliver(event);
+    }
+}
+
 bool AppHost::ApplyTheme(const contracts::ThemeSnapshot &theme, std::string *diagnostic)
 {
     try {
@@ -352,8 +366,10 @@ void AppHost::Close()
         self.frontend->CancelUiLoad();
         self.frontend->OnUiSubmitted({});
         self.frontend->OnAction({});
+        self.frontend->OnGesture({});
     }
     if (self.business) {
+        self.business->Disconnected();
         self.business->StopWork();
     }
     self.ui.business_work_pending = false;

@@ -11,7 +11,10 @@ target_compile_features(prism_dsl_schema PUBLIC cxx_std_20)
 add_library(prism_client_scene STATIC
     scene.cpp
     scene_input.cpp
+    scene_input_snapshot.cpp
+    scene_input_touch.cpp
     scene_input_events.cpp
+    scene_gesture.cpp
     scene_state.cpp
     scene_animation.cpp
     scene_nodes.cpp
@@ -70,6 +73,7 @@ if(PRISM_ENABLE_GLES AND PRISM_SKIA_ROOT)
         client_application_animation.cpp
         client_application_commands.cpp
         client_application_frame.cpp
+        client_application_gesture.cpp
         client_application_scene.cpp
         client_application_state.cpp
         client_application_resources.cpp

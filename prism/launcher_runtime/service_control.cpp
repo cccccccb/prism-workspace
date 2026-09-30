@@ -35,15 +35,26 @@ void Service::Impl::ReadControl()
     }
     try {
         for (const auto &frame : control->Receive()) {
-            const auto m = launch::DecodeControl(frame);
+            auto m = launch::DecodeControl(frame);
             const auto &p = m.permit;
             if (m.type == launch::ControlType::Ready) {
                 Require(!session && m.success, "Unexpected WM ready");
                 session = p.session;
+                layout_snapshot.Reset(session);
+                SubscribeLayout();
                 SendWmTheme();
                 continue;
             }
             Require(session && p.session == session, "WM session mismatch");
+            if (m.type == launch::ControlType::LayoutSnapshot) {
+                layout_snapshot.Accept(std::move(m.layout_snapshot));
+                PublishLayout();
+                continue;
+            }
+            if (m.type == launch::ControlType::LayoutControlResult) {
+                ReceiveLayoutControl(m);
+                continue;
+            }
             if (m.type == launch::ControlType::ThemeApplied) {
                 Require(m.theme_applied.generation <= theme.generation, "Unexpected WM theme ACK");
                 if (m.theme_applied.generation != theme.generation) {
@@ -104,10 +115,24 @@ void Service::Impl::ReadControl()
             }
         }
         if (control->Closed()) {
+            DisconnectLayout();
             control_failed = true;
         }
     } catch (const std::exception &error) {
+        DisconnectLayout();
         std::cerr << "WM control failed: " << error.what() << std::endl;
+        control_failed = true;
+    }
+}
+
+void Service::Impl::SubscribeLayout()
+{
+    launch::ControlMessage message;
+    message.type = launch::ControlType::LayoutSubscribe;
+    message.permit.session = session;
+    message.layout_subscribe = true;
+    if (!control->Queue(launch::EncodeControl(message))) {
+        DisconnectLayout();
         control_failed = true;
     }
 }

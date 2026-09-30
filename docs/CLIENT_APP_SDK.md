@@ -18,23 +18,35 @@
 Shift+Tab 遍历控件，Escape 取消待定激活。拖出目标释放、隐藏/卸载/禁用、失焦或关闭
 会取消相应序列；离开后返回原目标释放允许点击，手势识别器后续接入。
 
-反向事件带协议所有者当时的 `UiLoadId`，已替换 UI 的输入仍确认消费，但不派发给新
-Scene；configure/close 继续作用于同一 surface。相邻 motion 只有在 UI、窗口和逻辑
-设备身份/代数相同才可合并。该代数用于隔离 UI 生命周期，尚不是成功像素提交对应的
-命中快照版本；交互变换及其同代快照仍按[交互规范](INTERACTION_AND_PRESENTATION_SPEC.md)
-后续阶段实现。当前生产平台适配一个 Wayland seat，未接入 touch。
+反向输入事件携带协议所有者当时的 `UiLoadId` 和 `shared_ptr<const InputSnapshot>`。
+快照包含 Scene 身份与内部版本，来自 worker 最近成功采用的 FramePacket；UI 使用
+事件自带的已提交几何命中，绑定修改产生的未提交候选不能提前移动输入范围。首帧成功
+提交前没有快照，点击/接触不能激活动作；configure/close 继续处理。成功提交用于输入
+排序，真实呈现仍由 presentation feedback 表示。已替换 UI 的输入确认消费后丢弃，
+即使新 Scene 存在相同 NodeId/action 也不能承接旧输入。
+
+相邻 motion 只在 UI、窗口、逻辑设备身份/代数与同一 snapshot 对象相同的情况下合并；
+touch motion 还必须属于同一 contact，Down/Up/Cancel/Frame 均保持边界。worker 当前
+快照、候选帧和排队输入分别持有强引用，有界队列消费/清理后自动释放旧租约，不维护
+无限版本历史。Scene 始终以当前节点存活、action、隐藏和禁用状态否决已失效动作。
+
+本轮将真实 touch 的 down/motion/up/cancel/frame 从 WM 经 WaylandWindow 接到同一
+Scene 输入状态机；contact 单独捕获，不伪造鼠标点击或持久 hover。生产平台仍只适配
+一个 Wayland seat，手势识别和拖动交互继续后续实施。源码与实测边界见
+[交互规范第 14 节](INTERACTION_AND_PRESENTATION_SPEC.md#14-第三阶段成功提交输入快照与-touch2026-09-29)。
 
 交互第二阶段的 `InteractionTarget`、`Visual` 与 `.state` 由同一 UI 线程 Scene 消费，
 无需新增业务 ABI、周期 tick 或 Shell 专用回调。输入状态解析出有效目标后，现有单调
-动画时钟与 frame opportunity 驱动 Paint 样本；不可变帧仍只携带绘制数据和版本。
+动画时钟与 frame opportunity 驱动 Paint 样本；不可变帧携带绘制数据、版本与只读输入快照。
 Visual 子树不参与输入，它的平移、缩放、整体 opacity 以及 background 动画不改变父目标
 的感应范围，不向 WM 发送布局或全屏请求。具体 DSL、优先级和安全范围见
 [交互与呈现规范第 13 节](INTERACTION_AND_PRESENTATION_SPEC.md)。
 
 状态规则保留主题引用和基础 binding；主题成功安装取消旧轨迹并取新主题目标，失败
 保留原结果。隐藏/取消/UI 替换继续沿已有代数和清理通道处理。当前整体透明度需要普通
-绘制图层，变换仍由 UI 采样并回放；尚无 GPU 保留层、渲染线程 Scene 采样或移动控件的
-成功提交命中快照。Topbar 横线只接入反馈，Dock 运行项沿用已有激活动作；没有重打包
+绘制图层，变换仍由 UI 采样并回放；尚无 GPU 保留层或渲染线程 Scene 采样。布局变化
+使用成功提交命中快照，交互节点整体 transform 的逆变换命中仍未开放。Topbar 横线
+只接入反馈，Dock 运行项沿用已有激活动作；没有重打包
 或替换现有会话。本阶段验证结果在上述规范统一填写，不能沿用旧包实机验收作为证明。
 
 `tests/probes/skia_gles_wayland_probe.cpp` 使用同一 SDK 生命周期，测试和诊断程序留在 tests，不安装到生产包。早期 GLES 检查点的计数与验收记录见 [SKIA_GLES_PI.md](SKIA_GLES_PI.md)，不作为当前主题功能的验证结论。
@@ -122,3 +134,19 @@ Close 为终态，撤销所有未安装结果。安装诊断是 LoadDiagnostic�
 
 图片任务回滚、分阶段挂载、绑定状态表和多组件 critical 聚合就绪仍按
 [加载规范](MASTER_PARALLEL_LOADING.md) 后续步骤实施。
+
+## 2026-09-30：连续手势与系统控制接口
+
+`ClientApplication::OnGesture` 在 UI owner 线程交付拥有数据的 `GestureEvent`，包含
+Begin/Update/End/Cancel、进程内不复用 ID、动作、来源、contact、原始 Down serial、
+逻辑坐标和输入快照身份。回调可安全替换 UI；旧 UI 的后续移动被过滤，已开始手势
+有一次终止通知。视觉反馈仍通过通用 state/animation 接口表达。
+
+Host 的业务 ABI v1 使用 `struct_size` 可选尾部提供 `on_gesture`、`subscribe_layout`、
+`on_layout_state`、`control_gesture` 与 `on_layout_control_result`。模块可在真实 Begin
+回调中选定来自 WM 快照的目标，Host 管理真实输入凭证、ACK、移动合并与终止顺序。
+一般应用只获得本地手势；WM 系统控制需经过 launcher/WM 的实际 Shell 身份校验。
+
+本阶段系统操作是跟踪会话，`applied=false`；组沉浸和分隔线尺寸修改尚未启用。
+接口示例、生命周期、权限、上限与验收记录见
+[布局控制计划第 8 节](LAYOUT_CONTROL_IMPLEMENTATION_PLAN.md#8-第二步源码交付连续手势与-typed-控制会话)。

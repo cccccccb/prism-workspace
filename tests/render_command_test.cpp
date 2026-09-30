@@ -1,3 +1,4 @@
+#include "prism/runtime/input_snapshot.hpp"
 #include "prism/runtime/pollable_queue.hpp"
 #include "prism/runtime/render_command.hpp"
 #include "prism/runtime/render_event.hpp"
@@ -31,6 +32,15 @@ std::shared_ptr<const prism::runtime::FramePacket> Frame(std::uint64_t ui, std::
     frame->sequence = revision;
     frame->scene_revision = revision;
     return frame;
+}
+
+std::shared_ptr<const prism::runtime::InputSnapshot> InputGeometry(std::uint64_t version,
+                                                                   std::uint64_t scene = 1)
+{
+    auto snapshot = std::make_shared<prism::runtime::InputSnapshot>();
+    snapshot->scene = scene;
+    snapshot->version = version;
+    return snapshot;
 }
 
 void VerifyFrameReplacement()
@@ -276,11 +286,12 @@ void VerifyConfigureReplacesOpportunityGeneration()
 }
 
 RenderEvent Motion(std::uint64_t sequence, prism::contracts::InputSource source = {1, 1, 1},
-                   prism::runtime::UiLoadId ui = {1, 1}, prism::contracts::WindowId window = {1})
+                   prism::runtime::UiLoadId ui = {1, 1}, prism::contracts::WindowId window = {1},
+                   std::shared_ptr<const prism::runtime::InputSnapshot> snapshot = {})
 {
     prism::contracts::PointerMotionEvent motion{
         window, {static_cast<double>(sequence), 2}, sequence * 1000, source};
-    return SequencedWindowEvent{motion, sequence, ui};
+    return SequencedWindowEvent{motion, sequence, ui, std::move(snapshot)};
 }
 
 void VerifyMotionIdentityAndBarriers()
@@ -336,6 +347,147 @@ void VerifyMotionIdentityAndBarriers()
         assert(!queue.TryPop());
     }
 }
+
+RenderEvent TouchMotion(std::uint64_t sequence, prism::contracts::InputContactId contact,
+                        const std::shared_ptr<const prism::runtime::InputSnapshot> &snapshot,
+                        prism::contracts::InputSource source = {1, 3, 1},
+                        prism::runtime::UiLoadId ui = {1, 1},
+                        prism::contracts::WindowId window = {1})
+{
+    prism::contracts::TouchMotionEvent motion{
+        window, {static_cast<double>(sequence), 2}, contact, sequence * 1000, source};
+    return SequencedWindowEvent{motion, sequence, ui, snapshot};
+}
+
+void VerifyMotionSnapshotIsolation()
+{
+    const auto old_snapshot = InputGeometry(1);
+    const auto current_snapshot = InputGeometry(2);
+    const auto same_version = InputGeometry(1);
+    const auto other_scene = InputGeometry(1, 2);
+    PollableQueue<RenderEvent> queue(2);
+    auto first = Motion(1, {1, 1, 1}, {1, 1}, {1}, old_snapshot);
+    auto latest = Motion(2, {1, 1, 1}, {1, 1}, {1}, old_snapshot);
+    auto changed = Motion(3, {1, 1, 1}, {1, 1}, {1}, current_snapshot);
+    assert(queue.TryPushLatest(std::move(first), prism::runtime::ReplacePointerMotionTail) ==
+           QueuePushResult::Accepted);
+    assert(queue.TryPushLatest(std::move(latest), prism::runtime::ReplacePointerMotionTail) ==
+           QueuePushResult::Replaced);
+    assert(queue.TryPushLatest(std::move(changed), prism::runtime::ReplacePointerMotionTail) ==
+           QueuePushResult::Accepted);
+    const auto before = std::get<SequencedWindowEvent>(*queue.TryPop());
+    const auto after = std::get<SequencedWindowEvent>(*queue.TryPop());
+    assert(before.sequence == 2 && before.input_snapshot == old_snapshot);
+    assert(after.sequence == 3 && after.input_snapshot == current_snapshot);
+
+    const auto original = Motion(1, {1, 1, 1}, {1, 1}, {1}, old_snapshot);
+    for (const auto &snapshot : {current_snapshot, same_version, other_scene,
+                                 std::shared_ptr<const prism::runtime::InputSnapshot>{}}) {
+        assert(!prism::runtime::ReplacePointerMotionTail(
+            original, Motion(2, {1, 1, 1}, {1, 1}, {1}, snapshot)));
+    }
+}
+
+void VerifyTouchContactAndSnapshotBarriers()
+{
+    const auto snapshot = InputGeometry(3);
+    const auto original = TouchMotion(1, 4, snapshot);
+    assert(prism::runtime::ReplacePointerMotionTail(original, TouchMotion(2, 4, snapshot)));
+    assert(!prism::runtime::ReplacePointerMotionTail(original, TouchMotion(2, 5, snapshot)));
+    assert(
+        !prism::runtime::ReplacePointerMotionTail(original, TouchMotion(2, 4, InputGeometry(4))));
+    assert(
+        !prism::runtime::ReplacePointerMotionTail(original, TouchMotion(2, 4, InputGeometry(3))));
+    assert(!prism::runtime::ReplacePointerMotionTail(original,
+                                                     TouchMotion(2, 4, snapshot, {2, 3, 1})));
+    assert(!prism::runtime::ReplacePointerMotionTail(original,
+                                                     TouchMotion(2, 4, snapshot, {1, 4, 1})));
+    assert(!prism::runtime::ReplacePointerMotionTail(original,
+                                                     TouchMotion(2, 4, snapshot, {1, 3, 2})));
+    assert(!prism::runtime::ReplacePointerMotionTail(
+        original, TouchMotion(2, 4, snapshot, {1, 3, 1}, {1, 2})));
+    assert(!prism::runtime::ReplacePointerMotionTail(
+        original, TouchMotion(2, 4, snapshot, {1, 3, 1}, {1, 1}, {2})));
+    assert(!prism::runtime::ReplacePointerMotionTail(original,
+                                                     Motion(2, {1, 3, 1}, {1, 1}, {1}, snapshot)));
+
+    const prism::contracts::WindowEvent barriers[]{
+        prism::contracts::TouchDownEvent{{1}, {2, 3}, 4, 1000, {1, 3, 1}},
+        prism::contracts::TouchUpEvent{{1}, 4, 1000, {1, 3, 1}},
+        prism::contracts::TouchCancelEvent{{1}, 1000, {1, 3, 1}},
+        prism::contracts::TouchFrameEvent{{1}, 1000, {1, 3, 1}},
+    };
+    PollableQueue<RenderEvent> queue(3);
+    for (const auto &barrier : barriers) {
+        auto before = TouchMotion(10, 4, snapshot);
+        RenderEvent ordered(SequencedWindowEvent{barrier, 11, {1, 1}, snapshot});
+        auto after = TouchMotion(12, 4, snapshot);
+        assert(queue.TryPushLatest(std::move(before), prism::runtime::ReplacePointerMotionTail) ==
+               QueuePushResult::Accepted);
+        assert(queue.TryPushLatest(std::move(ordered), prism::runtime::ReplacePointerMotionTail) ==
+               QueuePushResult::Accepted);
+        assert(queue.TryPushLatest(std::move(after), prism::runtime::ReplacePointerMotionTail) ==
+               QueuePushResult::Accepted);
+        assert(std::get<SequencedWindowEvent>(*queue.TryPop()).sequence == 10);
+        assert(std::get<SequencedWindowEvent>(*queue.TryPop()).event.index() == barrier.index());
+        assert(std::get<SequencedWindowEvent>(*queue.TryPop()).sequence == 12);
+        assert(!queue.TryPop());
+    }
+}
+
+void VerifyInputSnapshotLeases()
+{
+    auto current = InputGeometry(1);
+    std::weak_ptr<const prism::runtime::InputSnapshot> old_reference = current;
+    std::weak_ptr<const prism::runtime::InputSnapshot> new_reference;
+    {
+        PollableQueue<RenderEvent> events(1);
+        auto event = Motion(1, {1, 1, 1}, {1, 1}, {1}, current);
+        assert(events.TryPush(std::move(event)) == QueuePushResult::Accepted);
+        current = InputGeometry(2);
+        new_reference = current;
+        assert(!old_reference.expired());
+        assert(!new_reference.expired());
+
+        auto consumed = events.TryPop();
+        assert(consumed && !old_reference.expired());
+        consumed.reset();
+        assert(old_reference.expired());
+        assert(!new_reference.expired());
+
+        auto remaining = TouchMotion(2, 7, current);
+        assert(events.TryPush(std::move(remaining)) == QueuePushResult::Accepted);
+        current.reset();
+        assert(!new_reference.expired());
+        assert(events.Close());
+        assert(!new_reference.expired());
+    }
+    assert(new_reference.expired());
+
+    std::weak_ptr<const prism::runtime::InputSnapshot> discarded;
+    std::weak_ptr<const prism::runtime::InputSnapshot> candidate;
+    {
+        PollableQueue<RenderCommand> commands(1);
+        auto packet = std::make_shared<prism::runtime::FramePacket>();
+        packet->ui = {1, 1};
+        packet->input_snapshot = InputGeometry(3);
+        discarded = packet->input_snapshot;
+        RenderCommand first(FrameCommand{std::move(packet)});
+        assert(commands.TryPushLatest(std::move(first), prism::runtime::ReplaceFrameTail) ==
+               QueuePushResult::Accepted);
+        assert(!discarded.expired());
+
+        packet = std::make_shared<prism::runtime::FramePacket>();
+        packet->ui = {1, 1};
+        packet->input_snapshot = InputGeometry(4);
+        candidate = packet->input_snapshot;
+        RenderCommand replacement(FrameCommand{std::move(packet)});
+        assert(commands.TryPushLatest(std::move(replacement), prism::runtime::ReplaceFrameTail) ==
+               QueuePushResult::Replaced);
+        assert(discarded.expired() && !candidate.expired());
+    }
+    assert(candidate.expired());
+}
 } // namespace
 
 int main()
@@ -349,4 +501,7 @@ int main()
     VerifyFrameOpportunityOrdering();
     VerifyConfigureReplacesOpportunityGeneration();
     VerifyMotionIdentityAndBarriers();
+    VerifyMotionSnapshotIsolation();
+    VerifyTouchContactAndSnapshotBarriers();
+    VerifyInputSnapshotLeases();
 }

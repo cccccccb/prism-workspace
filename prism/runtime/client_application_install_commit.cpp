@@ -11,6 +11,7 @@ void ClientApplication::Impl::CommitScene(runtime::UiLoadId load,
 
     if (scene) {
         scene->CancelInput();
+        CollectGestureEvents();
         AddSceneStats(render_stats, scene->GetRenderStats());
     }
     ReleaseUnusedImages(images);

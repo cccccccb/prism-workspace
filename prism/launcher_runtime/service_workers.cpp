@@ -79,6 +79,7 @@ private:
 void Service::Impl::StopWorker(Worker &worker)
 {
     if (worker.phase != Worker::Phase::Stopping) {
+        RevokeWorkerLayout(worker);
         worker.phase = Worker::Phase::Stopping;
         worker.finish_at = 0;
         worker.kill_at = Now() + 1000000000ULL;
@@ -92,6 +93,7 @@ void Service::Impl::FinishWorker(Worker &worker)
     // normal cleanup/exit a bounded turn before sending enforcement signals.
     // Cancellation, watchdog and session shutdown still call StopWorker.
     if (worker.phase != Worker::Phase::Stopping && worker.phase != Worker::Phase::Finishing) {
+        RevokeWorkerLayout(worker);
         worker.phase = Worker::Phase::Finishing;
         worker.finish_at = host::After(Now(), 250000000ULL);
     }
@@ -113,6 +115,10 @@ void Service::Impl::ReadWorker(Worker &worker)
             } else if (const auto *request = std::get_if<ThemeRequest>(&message)) {
                 Require(worker.phase == Worker::Phase::Assigned, "Theme request from idle worker");
                 SelectTheme({true, static_cast<unsigned>(worker.pid), 0}, *request);
+            } else if (const auto *subscription = std::get_if<LayoutSubscription>(&message)) {
+                SubscribeWorkerLayout(worker, *subscription);
+            } else if (const auto *request = std::get_if<LayoutControlRequest>(&message)) {
+                RequestLayoutControl(worker, *request);
             } else if (const auto *event = std::get_if<LaunchEvent>(&message)) {
                 Require(worker.job != 0, "Event from idle worker");
                 Require(!control ||
@@ -172,6 +178,7 @@ void Service::Impl::ReadWorker(Worker &worker)
     }
 
     if (worker.stream->Closed() && !worker.closed_at) {
+        RevokeWorkerLayout(worker);
         worker.closed_at = Now();
     }
 }

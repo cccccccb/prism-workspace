@@ -1,5 +1,8 @@
 #pragma once
 
+#include "prism/runtime/gesture_spec.hpp"
+#include <optional>
+
 #include "prism/runtime/property.hpp"
 #include "prism/runtime/state_rule.hpp"
 #include "prism/runtime/transition_spec.hpp"
@@ -33,6 +36,7 @@ struct Blueprint {
     std::vector<ThemeRef> theme_refs;
     std::vector<TransitionSpec> transitions;
     std::vector<StateRule> state_rules;
+    std::optional<GestureSpec> gesture;
     std::uint64_t allowed_properties{UINT64_MAX};
     std::vector<Blueprint> children;
 };

@@ -68,8 +68,9 @@ ClientApplication::Impl::CaptureFramePacket(bool pixels, contracts::BufferSize s
     packet.image_uses = last_image_uses;
     packet.surface_effects = scene->SurfaceEffects();
     packet.input_regions = scene->InputRegions();
-    // Layout can reconcile a stationary pointer against newly moved targets.
-    // Capture the state sample that produced this list, including that rehit.
+    packet.input_snapshot = scene->CaptureInputSnapshot();
+    // Record the state sample that produced this packet after preparation.
+    // Submitted input geometry is adopted separately by HandleSubmitted.
     packet.scene_revision = scene->TransactionRevision();
     packet.pixels_revision = scene->PixelsRevision();
     packet.animation_sample = scene->AnimationSample();

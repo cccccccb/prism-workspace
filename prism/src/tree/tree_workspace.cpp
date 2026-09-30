@@ -22,8 +22,8 @@ size_t WorkspaceNode::GetViewCount()
 void WorkspaceNode::Arrange(const core::Rect &screen_area, int inner_gap, int outer_gap,
                             bool smart_gaps, float header_height)
 {
-    bounds = screen_area;
-    if (!root_container_ || !root_container_->HasChildren()) {
+    SetBounds(screen_area);
+    if (!root_container_) {
         return;
     }
 
@@ -54,12 +54,12 @@ void WorkspaceNode::Arrange(const core::Rect &screen_area, int inner_gap, int ou
 ipc::TreeNodeMessage WorkspaceNode::ToMessage(bool is_focused) const
 {
     ipc::TreeNodeMessage message;
-    message.id = id_;
+    message.id = GetNodeId();
     message.type = "workspace";
     message.name = name_;
     message.active = is_active_;
     message.focused = is_focused;
-    message.rect = ipc::RectMessage(bounds);
+    message.rect = ipc::RectMessage(GetBounds());
     message.nodes.emplace();
     if (root_container_) {
         message.nodes->push_back(root_container_->ToMessage(false));

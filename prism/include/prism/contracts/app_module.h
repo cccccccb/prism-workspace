@@ -1,6 +1,7 @@
 #ifndef PRISM_CONTRACTS_APP_MODULE_H
 #define PRISM_CONTRACTS_APP_MODULE_H
 
+#include "prism/contracts/app_control.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -120,6 +121,11 @@ typedef struct PrismHostApiV1 {
      * cancel_work keeps the ID busy until its cancelled completion is dispatched. */
     int32_t (*submit_work)(void *, const PrismWorkRequestV1 *);
     int32_t (*cancel_work)(void *, uint64_t task_id);
+    /* Optional control tail. Subscription returns a queued request ID, not a
+     * grant. control_gesture returns zero when accepted locally; the typed
+     * result reports WM authorization. Ordinary applications receive Denied. */
+    uint64_t (*subscribe_layout)(void *, uint32_t enabled);
+    int32_t (*control_gesture)(void *, const PrismLayoutCommandV1 *);
 } PrismHostApiV1;
 
 typedef struct PrismAppInitV1 {
@@ -185,6 +191,10 @@ typedef struct PrismAppModuleV1 {
      * create/static constructors must return promptly. destroy runs only after
      * host-managed work has been cancelled and joined; no completion follows it. */
     void (*on_work_completed)(void *, const PrismWorkCompletionV1 *);
+    /* Optional tail. All views are borrowed only during these owner callbacks. */
+    void (*on_gesture)(void *, const PrismGestureEventV1 *);
+    void (*on_layout_state)(void *, const PrismLayoutStateV1 *);
+    void (*on_layout_control_result)(void *, const PrismLayoutControlResultV1 *);
 } PrismAppModuleV1;
 
 typedef const PrismAppModuleV1 *(*PrismAppEntryV1)(void);

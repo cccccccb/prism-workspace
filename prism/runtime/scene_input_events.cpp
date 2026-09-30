@@ -8,28 +8,36 @@ constexpr std::uint32_t TabKey = 0x2b;
 constexpr std::uint32_t SpaceKey = 0x2c;
 } // namespace
 
-void Scene::MoveInputPointer(contracts::InputSource source, contracts::LogicalPoint point)
+void Scene::MoveInputPointer(contracts::InputSource source, contracts::LogicalPoint point,
+                             const std::shared_ptr<const InputSnapshot> &snapshot, bool submitted)
 {
+    if (!std::isfinite(point.x) || !std::isfinite(point.y)) {
+        return;
+    }
     auto &pointers = input_state_->pointers;
     auto current = std::find_if(
         pointers.begin(), pointers.end(),
         [source](const InputState::Pointer &pointer) { return pointer.source == source; });
-    const bool inside = scene_detail::Inside({0, 0, viewport_.width, viewport_.height}, point);
-    const auto hit = inside ? HitTest(point) : std::nullopt;
+    const auto viewport = submitted && snapshot ? snapshot->viewport : viewport_;
+    const bool inside = (!submitted || snapshot) &&
+                        scene_detail::Inside({0, 0, viewport.width, viewport.height}, point);
+    const auto hit = InputHit(point, snapshot, submitted);
     const auto id = hit ? hit->node : contracts::NodeId{};
     TrackInputTarget(id);
     if (current == pointers.end()) {
         if (inside) {
-            pointers.push_back({source, id, {}, {}, point, true});
+            pointers.push_back({source, id, {}, {}, point, true, snapshot, submitted});
         }
     } else {
         current->hovered = id;
         current->position = point;
         current->inside = inside;
+        current->snapshot = snapshot;
+        current->submitted = submitted;
     }
 }
 
-void Scene::LeaveInputPointer(contracts::InputSource source, bool cancel)
+void Scene::LeaveInputPointer(contracts::InputSource source, bool cancel, std::uint64_t time_ns)
 {
     for (auto &pointer : input_state_->pointers) {
         if (pointer.source != source) {
@@ -38,14 +46,21 @@ void Scene::LeaveInputPointer(contracts::InputSource source, bool cancel)
         pointer.hovered = {};
         pointer.inside = false;
         if (cancel) {
+            FinishGesture(pointer.gesture, contracts::GesturePhase::Cancel, time_ns);
+            pointer.gesture = 0;
             pointer.captured = {};
             pointer.action.clear();
         }
     }
 }
 
-std::optional<Activation> Scene::HandleInputButton(const contracts::PointerButtonEvent &event)
+std::optional<Activation>
+Scene::HandleInputButton(const contracts::PointerButtonEvent &event,
+                         const std::shared_ptr<const InputSnapshot> &snapshot, bool submitted)
 {
+    if (!std::isfinite(event.position.x) || !std::isfinite(event.position.y)) {
+        return std::nullopt;
+    }
     auto &pointers = input_state_->pointers;
     auto current = std::find_if(
         pointers.begin(), pointers.end(),
@@ -57,7 +72,7 @@ std::optional<Activation> Scene::HandleInputButton(const contracts::PointerButto
     // Wayland buttons carry the adapter's last position. After leave that
     // position is stale; only an enter or motion can restore a captured stream.
     if (current == pointers.end() || current->inside) {
-        MoveInputPointer(event.source, event.position);
+        MoveInputPointer(event.source, event.position, snapshot, submitted);
     }
     if (event.button != contracts::PointerButton::Primary) {
         return std::nullopt;
@@ -73,26 +88,33 @@ std::optional<Activation> Scene::HandleInputButton(const contracts::PointerButto
         if (current->captured || !IsInteractive(current->hovered)) {
             return std::nullopt;
         }
+        current->gesture =
+            StartGesture(current->hovered, event.source, false, 0, event.protocol_serial,
+                         event.position, event.time_ns, snapshot);
         current->captured = current->hovered;
         current->action = Find(current->captured)->action;
         SetInputFocus(current->captured, event.source.seat, false);
         return std::nullopt;
     }
 
+    const bool dragged =
+        FinishGesture(current->gesture, contracts::GesturePhase::End, event.time_ns);
     std::optional<Activation> activation;
     const auto *node = Find(current->captured);
-    if (IsInteractive(current->captured) && current->hovered == current->captured &&
+    if (!dragged && IsInteractive(current->captured) && current->hovered == current->captured &&
         node->action == current->action) {
         if (!current->action.empty()) {
             activation = Activation{node->id, current->action};
         }
     }
+    current->gesture = 0;
     current->captured = {};
     current->action.clear();
     return activation;
 }
 
-std::optional<Activation> Scene::HandleInputKey(const contracts::KeyEvent &event)
+std::optional<Activation> Scene::HandleInputKey(const contracts::KeyEvent &event,
+                                                const InputSnapshot *snapshot, bool submitted)
 {
     if (event.repeat) {
         return std::nullopt;
@@ -101,12 +123,22 @@ std::optional<Activation> Scene::HandleInputKey(const contracts::KeyEvent &event
     if (down && event.physical_key == EscapeKey) {
         for (auto &pointer : input_state_->pointers) {
             if (pointer.source.seat == event.source.seat) {
+                FinishGesture(pointer.gesture, contracts::GesturePhase::Cancel, event.time_ns);
+                pointer.gesture = 0;
                 pointer.captured = {};
                 pointer.action.clear();
             }
         }
         std::erase_if(input_state_->keys, [&event](const InputState::KeyPress &key) {
             return key.source.seat == event.source.seat;
+        });
+        for (const auto &touch : input_state_->touches) {
+            if (touch.source.seat == event.source.seat) {
+                FinishGesture(touch.gesture, contracts::GesturePhase::Cancel, event.time_ns);
+            }
+        }
+        std::erase_if(input_state_->touches, [&event](const InputState::Touch &touch) {
+            return touch.source.seat == event.source.seat;
         });
         return std::nullopt;
     }
@@ -117,7 +149,7 @@ std::optional<Activation> Scene::HandleInputKey(const contracts::KeyEvent &event
         return std::nullopt;
     }
     if (down && event.physical_key == TabKey) {
-        MoveInputFocus(event.source.seat, event.modifiers.shift);
+        MoveInputFocus(event.source.seat, event.modifiers.shift, snapshot, submitted);
         return std::nullopt;
     }
     if (event.physical_key != EnterKey && event.physical_key != SpaceKey) {
@@ -134,7 +166,7 @@ std::optional<Activation> Scene::HandleInputKey(const contracts::KeyEvent &event
         });
     if (down) {
         if (current != keys.end() || focus == input_state_->focus.end() ||
-            !IsInteractive(focus->node)) {
+            !IsInteractive(focus->node) || (submitted && !IsInteractive(focus->node, snapshot))) {
             return std::nullopt;
         }
         focus->visible = true;
@@ -148,7 +180,8 @@ std::optional<Activation> Scene::HandleInputKey(const contracts::KeyEvent &event
     std::optional<Activation> activation;
     const auto *node = Find(current->node);
     if (focus != input_state_->focus.end() && focus->node == current->node &&
-        IsInteractive(current->node) && node->action == current->action) {
+        IsInteractive(current->node) && node->action == current->action &&
+        (!submitted || IsInteractive(current->node, snapshot))) {
         if (!current->action.empty()) {
             activation = Activation{node->id, current->action};
         }
@@ -159,19 +192,45 @@ std::optional<Activation> Scene::HandleInputKey(const contracts::KeyEvent &event
 
 InteractionResult Scene::HandleInput(const contracts::WindowEvent &event)
 {
+    return DispatchInput(event, {}, false);
+}
+
+InteractionResult Scene::HandleInput(const contracts::WindowEvent &event,
+                                     const std::shared_ptr<const InputSnapshot> &snapshot)
+{
+    return DispatchInput(event, snapshot, true);
+}
+
+InteractionResult Scene::DispatchInput(const contracts::WindowEvent &event,
+                                       const std::shared_ptr<const InputSnapshot> &snapshot,
+                                       bool submitted)
+{
     InteractionResult result;
     if (const auto *motion = std::get_if<contracts::PointerMotionEvent>(&event)) {
-        MoveInputPointer(motion->source, motion->position);
+        MoveInputPointer(motion->source, motion->position, snapshot, submitted);
+        for (const auto &pointer : input_state_->pointers) {
+            if (pointer.source == motion->source) {
+                MoveGesture(pointer.gesture, motion->position, motion->time_ns);
+            }
+        }
     } else if (const auto *enter = std::get_if<contracts::PointerEnterEvent>(&event)) {
-        MoveInputPointer(enter->source, enter->position);
+        MoveInputPointer(enter->source, enter->position, snapshot, submitted);
     } else if (const auto *leave = std::get_if<contracts::PointerLeaveEvent>(&event)) {
         LeaveInputPointer(leave->source, false);
     } else if (const auto *cancel = std::get_if<contracts::PointerCancelEvent>(&event)) {
-        LeaveInputPointer(cancel->source, true);
+        LeaveInputPointer(cancel->source, true, cancel->time_ns);
     } else if (const auto *button = std::get_if<contracts::PointerButtonEvent>(&event)) {
-        result.activation = HandleInputButton(*button);
+        result.activation = HandleInputButton(*button, snapshot, submitted);
     } else if (const auto *key = std::get_if<contracts::KeyEvent>(&event)) {
-        result.activation = HandleInputKey(*key);
+        result.activation = HandleInputKey(*key, snapshot.get(), submitted);
+    } else if (const auto *down = std::get_if<contracts::TouchDownEvent>(&event)) {
+        HandleTouchDown(*down, snapshot, submitted);
+    } else if (const auto *motion = std::get_if<contracts::TouchMotionEvent>(&event)) {
+        HandleTouchMotion(*motion, snapshot, submitted);
+    } else if (const auto *up = std::get_if<contracts::TouchUpEvent>(&event)) {
+        result.activation = HandleTouchUp(*up, snapshot, submitted);
+    } else if (const auto *cancel = std::get_if<contracts::TouchCancelEvent>(&event)) {
+        CancelTouchInput(cancel->source, cancel->time_ns);
     } else if (const auto *focus = std::get_if<contracts::FocusEvent>(&event)) {
         if (!focus->focused) {
             CancelSeatInput(focus->source.seat);

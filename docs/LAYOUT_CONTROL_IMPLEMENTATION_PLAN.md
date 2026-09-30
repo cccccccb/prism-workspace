@@ -1,0 +1,409 @@
+# WM 权威布局、组沉浸与分隔线控制实施计划
+
+日期：2026-09-30。状态：**第一步已验收；第二步源码已接入、正在验证，见第 8 节；第三、四步仍为后续计划。**
+
+本计划承接 [通用交互规范](INTERACTION_AND_PRESENTATION_SPEC.md)第 2、8、9、11 节。
+实施顺序为：稳定树与边界身份、WM 权威快照 → typed 控制会话与连续手势桥接 →
+组沉浸与可靠恢复 → 分隔线调节与尺寸约束。每步通过验收后再接下一步。
+Topbar 的 action 只分派语义动作，系统操作必须经过权限与目标验证。
+
+## 1. 第一步结束时的基础与边界
+
+下表保留第一步交付时的基线；第二步更新见第 8 节。
+
+| 范围 | 当前源码事实 | 后续缺口 |
+| --- | --- | --- |
+| 客户端输入 | 已接入 source/contact、取消、成功提交输入快照与 touch；验收状态见通用交互规范第 14 节 | 连续手势识别、阈值和系统控制桥接 |
+| 原生布局 | `ArrangeXdgViews` 根据活动 workspace 安排窗口、Shell 和 XDG configure；布局快照区分目标和客户端提交 | 独立组模式、控制会话及呈现反馈 |
+| 平铺树 | 支持多子节点与嵌套容器；稳定节点/邻接边界身份与不可变树快照 | 递归最小尺寸与受约束的比例操作 |
+| 节点身份 | WM session 内不复用的节点、workspace、输出和边界 ID；客户端 Scene 身份保持独立 | 第二步用这些身份校验控制目标 |
+| 权限 | launcher/WM 私有通道核对 WM session、PID、实例与一次性 ShellPermit | 持续控制能力、操作范围及会话撤销 |
+| 实例订阅 | launcher 的 Running/Stopped 事件保留；私有 WM 通道新增权威布局与焦点快照订阅 | worker/Host/Shell 的 typed 状态桥接 |
+| 模块接口 | 通用 Host 提供状态、释放确认后的 action、启动及实例事件 | 连续 Begin/Update/End/Cancel 与控制结果 |
+| 全屏 | XDG view 的单窗 fullscreen 隐藏其他普通窗口及 Topbar/Dock | 保留整个平铺组的沉浸模式和恢复入口 |
+
+`PointerButtonEvent` 与 `TouchDownEvent` 已保留 `protocol_serial`。它是 opaque 平台
+凭据，默认零表示不可用；仍需 WM 结合真实 seat、surface、输入序列和已授能力验证。
+客户端 `InputSource` 与 receipt time 不能自行构成系统授权。
+
+旧 `Compositor::OnPointerMotion/OnPointerButton` 的分隔线逻辑在存在原生窗口时返回，
+并使用固定屏宽及比例范围。原生分隔线应接入 TreeEngine。当前 split 布局只保证极小的
+可用尺寸，尚未把 XDG `min_width/min_height` 汇总为子树约束。
+
+本计划首版只处理当前输出上的活动 workspace 平铺根。协议仍显式携带 output、workspace
+与 group 身份；尚未支持的多输出工作区请求明确拒绝，不能隐式改用第一个输出。
+
+## 2. 第一步：稳定身份与 WM 权威快照
+
+### 交付范围
+
+新增 WM 专用 typed 布局契约，客户端 Scene 的 `contracts::NodeId` 继续保持本地用途。
+
+| 建议类型 | 身份与生命周期 |
+| --- | --- |
+| WmSessionId | 使用 WM 会话代数；WM 重启后旧请求、订阅和控制全部失效 |
+| OutputId | WM 分配 ID/代数；拔除后重建得到新身份，名称仅用于显示 |
+| WorkspaceId / GroupRootId | workspace 与其平铺根的稳定身份，不能由名字或焦点临时推导 |
+| LayoutNodeId | WM 分配 ID/代数，覆盖 view 和 container；删除、复用不能产生旧句柄别名 |
+| BoundaryId | WM 分配，绑定父容器、相邻两个子节点及分割方向；邻接关系消失即撤销 |
+
+一个有 N 个子节点的 split 容器有 N−1 个边界。BoundaryId 不使用数组下标，也不只使用
+父容器 ID。重排后仍存在的同一邻接关系可保留身份，消失后重新形成的关系获得新身份。
+
+WM 发布完整初始快照及有序更新，包含输出逻辑坐标、workspace/group、目标与已提交窗口
+几何、实际模式、活动实例和边界描述。第一版只表示现有 Normal 组模式，边界
+`resizable=false`；可用控制操作在第二步加入，不能把已有边界误认为已支持拖动。快照由 WM 的真实焦点与布局变化触发，
+Dock 不通过自身 launch 请求的 Activated 回复推测全局焦点。
+
+- `topology_revision` 随插入、删除、重排、重新挂接与布局方向变化推进。
+- `layout_revision` 随目标几何、比例、模式、主题及输出尺寸变化推进。
+- 显式组模式操作记录独立 `mode_revision`，供后续覆盖模式恢复使用。
+- 控制会话自身的比例更新不改变拓扑修订；快照明确区分 configure 目标与客户端已提交几何。
+- 初始化、更新、断线及重订阅均有边界和数量上限；队列超限采用明确的关闭或重新同步策略。
+
+树结构与比例修改通过能更新修订的具名操作完成。已有插入、剪枝、交换与重新挂接路径
+纳入修订；调用者不能直接改写子节点向量和比例，避免有布局变化却没有修订更新。
+
+### 验收门槛
+
+验证三子节点和嵌套容器的边界枚举、重排与中间节点删除；旧 ID/代数不得指向新目标。
+输出重建、workspace 切换和 WM 重启后旧请求失败。键盘、鼠标、触摸、实例激活、映射与
+卸载导致的焦点变化都进入权威快照；首次订阅和断线重订阅得到一致状态。
+
+## 3. 第二步：typed 控制会话与连续手势桥接
+
+### 交付范围
+
+沿已有继承的 worker → launcher → WM 私有通道增加 typed 请求和回复。launcher 根据
+真实 worker/job 身份附加授权信息，WM 再核对会话、实例、PID、角色及允许操作。
+普通 Launch API 不接受调用者自报的 Shell 角色或系统权限。
+
+一次性 ShellPermit 用于启动注册；持续能力绑定已注册实例与端点的生命期，并在撤权、
+实例退出或端点失效时收回。后续控制不能反复消费启动凭据，也不能沿用已退出实例的能力。
+
+| 阶段 | 建议信息与行为 |
+| --- | --- |
+| BeginControl | ControlTarget、输入凭据、预期修订、操作类型；接受后由 WM 分配 ControlSessionId |
+| UpdateControl | 会话 ID、严格递增序号、有限且有范围限制的位置或进度 |
+| EndControl | 最终意图；完成一次，重复请求返回一致结果 |
+| CancelControl | 明确取消；释放捕获、预览和会话资源，迟到 Update/End 不得复活操作 |
+| ControlResult | request/session ID、接受/拒绝/取消原因、当前修订与权威状态 |
+
+首版可限制每个 workspace 同时一个修改布局的会话，其余输入得到 Busy。权限属于端点
+及已授能力；action 字符串、目标 ID 或非零 serial 本身均不能授予权限。
+
+通用 Scene/SDK 增加连续手势生命周期，区分 captured 与 dragging；Host 将已确认的
+手势转成 typed 请求，再向模块和 DSL 反映 WM 结果。业务模块不逐帧重新实现命中或输入
+仲裁。既有模块 C ABI 采用有 `struct_size` 检查的可选尾部扩展，普通模块不能获得 Shell
+控制能力。原生 serial 的验证需要匹配实际输入序列；WM 必要时维护一次性凭据记录。
+
+会话锁定目标和起始输入。目标或边界删除、外部拓扑变化、workspace 切换、输出/约束
+变化、设备撤回、UI 替换、Shell 撤权及端点断开都必须取消或明确拒绝继续。
+建议会话持有临时比例预览，End 再提交持久比例；Cancel 移除预览并按当前树重新安排，
+避免用旧矩形或比例覆盖期间发生的新操作。
+
+连续 Update 只合并同一会话中尚未处理的位置，不能跨 Begin/End/Cancel。限制在途请求、
+会话数与队列字节；超限和断线要清理会话。协议保持 typed 二进制编解码，明确版本、
+类型编号、载荷长度与字段范围，不能直接复用调试 `prism-msg` 文本命令。
+
+### 验收门槛
+
+验证普通应用、伪造角色、过期 WM session、错误实例/输入凭据均被拒绝；多触点与鼠标
+争用不会转移会话所有权。重复 Begin/End、乱序序号、取消后的迟到更新、队列超限及
+断线均有确定结果。外部操作之后取消旧会话不得恢复陈旧布局。
+
+## 4. 第三步：组沉浸与可靠恢复
+
+### 交付范围
+
+WM 按 output/workspace 保存 `Normal/Immersive`，与现有单窗 XDG fullscreen 分开。
+沉浸时使用输出可用范围安排整个组，隐藏 Topbar/Dock，保留成员、拓扑及分割比例。
+退出按当前输出、主题和存活窗口重新安排。外边距策略单独定义，不能通过逐帧修改主题
+或 Shell 保留带实现收起动画，也不把组成员逐个设置为 XDG fullscreen。
+
+组模式和单窗模式分别保存。进入、退出单窗模式遵从最新合法组模式修订；明确的
+“恢复桌面组”操作可以清除覆盖模式。组操作只在 WM 确认后更新 Shell 的实际模式状态。
+
+隐藏 Topbar 前同时完成三条恢复路径：
+
+1. WM 独立键盘命令直接恢复当前组；现有 Super+F 仍是单窗 fullscreen。
+2. WM 保留窄范围边缘入口，在 Down 时确定系统或应用归属，唤出受信任恢复控件。
+   已交给应用的触摸序列保持原归属；不在中途重放点击，也不让全屏透明输入区域长期
+   覆盖应用。边缘尺寸与阈值留在布局控制策略中，后续用实机校准。
+3. Shell 退出/崩溃后，WM 取消该端点会话并保持可恢复状态；输出和 workspace 改变时
+   清理边缘手势与临时唤出状态。
+
+当前 launcher 在 Shell worker 失败或退出后设置 `control_failed`，最终 session
+supervisor 会终止 WM。实现本步必须一起调整故障策略：撤权和取消控制、WM 恢复安全
+组状态，并通过受限重启或保持会话支持恢复。只增加快捷键不能满足 Shell 崩溃验收。
+
+Topbar 继续使用统一 Host/DSL；语义动作调用第二步的 typed 能力。边缘唤出可临时显示
+受信任控制视图，WM 限定其位置和输入范围。Shell 可见性动画不改变应用输入所有权。
+
+### 验收门槛
+
+至少两个原生应用进入沉浸后均可见，拓扑与比例保持，客户端 XDG fullscreen 标志不因
+组操作改变。验证退出、主题/输出改变、workspace 切换、单窗 fullscreen 交错和较新的
+组操作。鼠标、触摸、键盘恢复分别测试，边缘输入不泄漏为应用点击；Shell 崩溃后仍能
+恢复。一次模式变更产生明确布局目标，动画采样不反复 configure 全部窗口。
+
+## 5. 第四步：分隔线调节与尺寸约束
+
+### 交付范围
+
+从已提交的 XDG `min_width/min_height` 镜像窗口约束，在 TreeEngine 中递归汇总子树
+最小尺寸和 gap。水平分割沿宽度求和、垂直分割沿高度求和，交叉方向取最大值；tabbed/
+stacked 子树纳入其头部占用。父容器空间不足时明确禁用该边界操作或报告受限范围。
+
+拖动只调整选中边界两侧相邻子树，保持二者比例之和及其余兄弟比例。位置在父容器
+逻辑坐标中解释，根据约束夹取；拒绝 NaN、无穷及失效目标。持续更新导致约束变化时，
+按第二步的会话规则取消或重新验证，不能静默改控另一条边界。
+
+分隔线 UI 由可信 LayoutControls Host 承载。WM 发布边界几何与允许输入范围，Host 用
+通用 DSL 呈现。若增加专用角色，必须同时更新 WindowRole、ShellPermitGuard、control
+编解码角色范围、Shell bootstrap、ShellRect 与 scene 层级映射。WM 限制实际输入区域，
+不能完全相信客户端自报的全屏 input region。触摸目标大小需要实机校准，较窄分割缝
+可使用明确唤出的受限控件。
+
+按提交能力合并拖动中间目标，跟踪 configure 序号及对应的新 buffer。控制已接受、
+布局目标已更新、客户端已提交新尺寸、输出实际呈现分别记录。旧 buffer 的视觉缩放
+预览不能作为新布局已可交互的依据。
+
+### 验收门槛
+
+覆盖水平/垂直、三个以上兄弟、嵌套子树、tabbed/stacked 最小尺寸、极小输出、大 gap、
+客户端动态改变约束及无法满足的约束。验证拖出边界、取消恢复、多设备争用、窗口关闭
+与拓扑变化。慢客户端、configure 积压及丢弃帧情况下队列仍有界，输入坐标与实际采用
+的几何一致。分别执行鼠标、wlroots touch 协议注入及实体触屏验收。
+
+## 6. 文件职责与交付规则
+
+下表保留整条主线的职责划分。第一步的实际文件见第 7 节；其余文件仍为建议。
+
+| 职责 | 新增建议 / 既有接入点 |
+| --- | --- |
+| 布局契约与编解码 | 新增 `contracts/layout_control.hpp` 及独立 typed 编解码；接入 `launch/control_protocol.*`、`worker_protocol.*` |
+| 树身份、边界与约束 | `tree_node.*`、`tree_engine.*`、`tree_container.*`；按职责新增 `tree_boundary.cpp`、`tree_constraints.cpp` |
+| WM 模式与会话 | 新增 `wm/layout_control.cpp`、`wm/group_mode.cpp`；接入 `wlr_server_views/control/input/touch/frames` |
+| 授权、订阅与故障恢复 | `launcher_runtime/service_control/requests/workers/loop`、`launch/shell_permit.*` 与 session 生命周期 |
+| 通用手势和 Host 桥接 | Scene/SDK、`host/worker.cpp`、`module_session.*`、`contracts/app_module.h` |
+| Shell 呈现 | Topbar、Dock 的权威状态接入及后续 LayoutControls 包；按项目 [prism-app-ui Skill](skills/prism-app-ui/SKILL.md) 开发 |
+
+每步独立补充协议、树算法和原生 Wayland fixture；测试与 probe 留在 `tests/`。
+遵循 [代码规范](CODING_STYLE.md)，按职责拆分新增编译单元，保持 800 行上限。
+阶段报告分别列出源码能力、自动化验收、实体设备校准、实际安装与运行会话更新情况。
+未完成的能力继续标记后续，不以 mock、调试 IPC 或动画预览代替生产控制链路验收。
+
+
+## 7. 第一步源码交付：权威状态与订阅
+
+### 7.1 生产链路与身份
+
+`TreeEngine::CaptureSnapshot()` 冻结树拓扑、比例、节点及相邻 split 边界；
+`WlrServer::GetLayoutSnapshot()` 组合 WM 实际焦点、原生窗口可见性、fullscreen、客户端
+提交几何和输出身份。只在内容变化时发布新的不可变快照，读者持有的旧快照不会被改写。
+
+节点、workspace 根及边界使用会话内不复用身份，不能从地址、数组下标或应用名称推导。
+同一 split 邻接关系保留边界 ID；邻接消失后再次形成会得到新 ID。输出拔除后再创建使用
+新 ID，即使显示名称相同。每份传输快照都携带非零 WM session，WM 重启使旧会话失效。
+
+客户端 Scene 的输入快照与这里的布局快照职责不同：输入快照保存一次实际提交对应的
+客户端命中几何；WM 布局快照描述权威树、输出和窗口状态。二者不能互相替代，也不把
+WM 节点 ID 解释成客户端 Scene NodeId。
+
+### 7.2 修订与几何语义
+
+`revision` 是发布序号，`topology_revision`、`layout_revision`、`focus_revision`
+分别描述拓扑、布局目标/模式/主题/输出和焦点的变化。客户端新 buffer 的提交可能只
+更新已提交几何和发布序号；读者不能只看布局目标修订判断画面是否追上配置。
+
+每个窗口同时保留 `tile_bounds`、`target_bounds`、`committed_bounds` 和
+`has_committed`。目标可能已经改变，客户端仍显示上一尺寸的 buffer；纯位置调整则会
+更新已显示 buffer 的位置。`committed_bounds` 是 WM 观察到的客户端提交结果，**不是
+输出实际呈现确认**，也没有承诺等待了 compositor/GPU fence。
+
+权威焦点包括键盘导航、鼠标点击、触摸 Down、实例 Activate 及窗口 map/unmap 所产生的
+变化。`active_instance=0` 可表示没有活动实例或焦点窗口来自未注册的外部 Wayland
+客户端，不能据此丢弃实际 focused 节点。Shell 不能通过自己上次的 Activate 回复推测
+当前全局焦点。
+
+版本 1 只支持单输出配置中的主输出活动 workspace；接入多个输出时全部明确
+`supported=false`，未分配的 workspace 使用 `output=0`。此字段不授予多输出布局能力。组模式仍为 `Normal`；单窗
+fullscreen 仅写在对应窗口上，不能伪装成组沉浸。边界始终 `resizable=false`。
+
+### 7.3 私有协议和有界缓存
+
+继承的 launcher/WM 私有通道新增 `LayoutSubscribe` 与 `LayoutSnapshot`。launcher 在
+Ready 后用已确认的 session 订阅，WM 回送完整当前快照，再发送有序更新。取消订阅后
+停止更新，重新订阅重新获取完整快照。会话错误关闭通道，不能回退到调试 IPC 或接受
+请求中自报的身份。
+
+快照采用 version 1 typed 二进制，整数为网络字节序，浮点为 IEEE754 binary64。
+WM 先把输出/workspace 的显示名称规范成有界 UTF-8 标签，身份仍由 ID 决定；原始名称
+不作为控制目标。编码和解码都校验有限数值、名称 UTF-8、唯一身份、根/父子关系、
+同 workspace 引用、
+无环树以及完整的相邻 split 边界。载荷上限 192 KiB，最多 16 个输出、64 个 workspace、
+512 个节点、512 个边界和 512 个子节点引用；名称最多 128 字节。Stream 总队列维持
+256 KiB 上限，传输队列超限关闭端点；不存在无界快照历史或静默漏掉部分节点的降级路径。
+
+生产修改入口先检查容量。创建 workspace、插入/拆分/分组等操作在超过节点或 workspace
+上限时拒绝，保留既有树；原生新窗口无法纳入树时终止该客户端连接并给出容量错误，
+不破坏 launcher 的有效订阅。超过输出上限的新输出不纳入布局管理与快照。序列化校验仍是
+第二道边界，不通过事后截断快照掩盖接入数量。
+
+launcher 的 `LayoutSnapshotCache` 仅接受同会话、更大的发布序号和不倒退的子修订，
+以 `shared_ptr<const LayoutSnapshot>` 替换当前值；旧读者按引用生命期释放。断线清空
+缓存，重启重新握手。未来主动重订阅的调用方须先 `Reset(session)`，把完整回复作为
+新订阅的基线，不能把它当作旧订阅中严格递增的更新。**这一步的生产订阅止于
+WM → launcher。** worker、Host、模块及
+Topbar/Dock 的状态接口将在第二步接入；当前桌面 UI 尚未消费这份新快照。
+
+### 7.4 文件与验证
+
+- `contracts/layout_snapshot.hpp` 与独立编解码实现负责可传输数据和边界校验。
+- `tree/tree_snapshot.*` 负责不可变树状态，现有具名修改入口维护稳定身份和修订。
+- WM 独立快照实现负责原生状态组合、输出身份和发布；control 通道承载订阅。
+- launcher 的独立缓存校验会话、发布顺序与修订，失联后清空。
+- `tests/native_layout_snapshot_test.cpp` 用真实 XDG SHM 客户端和继承的私有端点验证
+  订阅、焦点、窗口生命周期、目标与提交几何、输出重建与会话拒绝；测试设备通过
+  wlroots 信号注入，不表示实体触摸屏验收。
+
+本轮 Pi 完整构建通过，CTest **64/64** 通过，包括树身份/邻接边界、协议非法载荷与
+缓存修订、容量拒绝以及原生布局快照。原生 fixture 验证鼠标、真实 wlroots touch 信号、
+键盘及实例 Activate 的权威焦点，目标/提交几何、输出重建和 2× 输出缩放；客户端补交
+buffer 只推进发布序号，空闲读取复用快照。输出平移与实际整数目标几何修正后的最终
+完整构建通过，五项定向回归 **5/5** 通过；暂停客户端时平移输出，目标及已提交窗口
+几何立即同步移动且尺寸不变，输出/窗口 ID 与拓扑修订保持，恢复原位同样无需新 buffer。
+
+隔离 V3D 会话的 `session-launch` normal 场景通过：真实 Shell 授权、实例激活、状态
+订阅和进程清理正常。首次与完整 CTest 同时运行时，Desktop 模块入口超过现有执行预算；
+停止并行负载后的串行复测通过，生产预算未放宽。首轮定向测试中的旧协议测试目标未
+重建，以及 fixture 在 EOF 剩余完整帧尚未排空时过早断言 Closed，均已纠正并复测通过。
+初始失败日志保留，未用它们代替最终结果。
+
+证据位于 `dist/validation/wm-layout-snapshot-v1-20260929/`，包括 `build-full.log`、
+`ctest-full.log`、`build-final.log`、`target-tests-final.log`、`session-launch.log` 和
+`style-final.log`；首轮记录为
+`target-tests-initial.log`、`session-launch-initial-budget-failure.log`。
+代码格式、goto/800 行门槛通过，测试与 fixture 留在独立测试目录。
+
+组沉浸、恢复入口、控制会话、分隔线交互、递归最小尺寸、连续手势、交互节点变换和
+新的动画效果均未在本步启用。本轮未打包安装或替换现有桌面/VNC 会话；实体触屏未验收。
+
+## 8. 第二步源码交付：连续手势与 typed 控制会话
+
+### 8.1 输入声明与业务边界
+
+`InteractionTarget` 新增静态声明 `.gesture(action: "group.track", threshold: 6)`。
+阈值为有限的逻辑像素距离，范围 `[0, 1024]`，默认 6；action 非空且最多 128 字节。
+声明只安装通用拖动识别器，不携带 WM 操作名称、窗口身份或 Shell 权限。
+普通应用同样可以用于自己的滑块、拖动预览等交互。
+
+```prism
+InteractionTarget(action: "group.activate", width: 104, height: 28) {
+    Visual { Card(width: 80, height: 5, background: #DCE3EEFF) }
+}
+.gesture(action: "group.track", threshold: 6)
+```
+
+上例仅说明输入声明，实际尺寸与样式仍由主题和布局决定；不能把 Visual 的动画外观
+误认为已支持变换后的交互命中。交互节点变换仍属于后续步骤。
+
+Down 保留实际已提交画面的输入快照身份、原始 serial、source、contact 和起点。
+移动达到欧氏距离阈值才发布 Begin，之后发布 Update，释放发布 End；未达到阈值仍走
+已有点击逻辑。拖动被认领后不再触发同一次点击，移出控件仍可完成捕获序列。
+`dragging` 加入通用 interaction state，可以驱动 Visual 的状态规则与时间动画。
+
+Gesture ID 在进程内单调递增，不因 UI 替换而复用。隐藏、禁用、移除、修改动作或识别器、
+失去有效输入、设备取消、UI 替换与关闭都会终止相应序列。每个触摸 contact 独立识别。
+Scene 提供拥有数据的事件批次，SDK 在 UI owner 线程调用 `OnGesture`；回调可替换 UI，
+旧 UI 的后续 Update 不会继续交付，已交付 Begin 的终止事件只交付一次。
+
+### 8.2 Host 与模块接口
+
+业务模块 ABI v1 追加可选尾部，loader 继续按 `struct_size` 读取，旧模块无需重新实现
+新回调。`contracts/app_control.h` 定义 C 结构体视图：
+
+- `on_gesture` 接收本地连续手势，普通客户端可使用。
+- `subscribe_layout` / `on_layout_state` 接收 WM 布局快照；数组与字符串只在回调期间有效，
+  保存信息须复制值，不能保留借用指针。
+- `control_gesture` / `on_layout_control_result` 提交并接收 WM 控制会话。
+
+模块在真实 Begin 的 `on_gesture` 回调中选择操作类型及来自当前布局快照的 target。
+Host 绑定当前 Gesture ID，从 SDK 事件填入 serial/contact/位置，管理 request/session/sequence。
+模块不能在这个 API 中自行提供这些输入凭证。后续 Update、End、Cancel 由 Host 自动转发；
+模块可在 End 回调中设置最终 intent，也可提前取消自己已建立的控制序列。
+
+```c
+/* self->target 必须由 on_layout_state 复制当前活动 workspace 和修订。 */
+static void on_gesture(void *context, const PrismGestureEventV1 *event)
+{
+    struct App *self = context;
+    if (event->phase != PRISM_GESTURE_BEGIN_V1) {
+        return;
+    }
+
+    PrismLayoutCommandV1 command = {0};
+    command.struct_size = sizeof(command);
+    command.gesture_id = event->gesture_id;
+    command.phase = PRISM_GESTURE_BEGIN_V1;
+    command.operation = PRISM_LAYOUT_GROUP_GESTURE_V1;
+    command.target = self->target;
+    self->host->control_gesture(self->host->context, &command);
+}
+```
+
+调用前须像其他 ABI 尾部一样检查 Host `struct_size` 和函数指针；模块声明
+`on_layout_state`、`on_layout_control_result` 以消费真实结果。完整可编译的 C 模块用例见
+`tests/fixtures/layout_control_module.c`，它是测试 fixture，不随产品安装。
+
+每个 Host 最多保留 16 个控制序列，每个序列只有一个在途请求。等待 Begin/Update ACK
+期间，连续移动合并成最新一个 Update，End/Cancel 单独保留。Cancel 丢弃尚未发送的移动，
+End 在最后一个已保留 Update 之后发送；始终拿到非零 WM session 后才发送后续阶段。
+同步函数返回成功只代表请求已接收，最终能力与结果以 WM 回复为准。
+
+### 8.3 生产传输与 WM 权威
+
+生产链路为 `Scene → SDK → Host/module → worker → launcher → WM`，结果原路返回。
+worker 与 WM 私有协议追加 typed 二进制消息，已有消息编号保持；公共 launch socket
+不增加系统控制入口。layout state 经 launcher 当前缓存进入 worker/Host/module。
+
+launcher 从实际绑定 job 填入 PID、instance、启动 request、role 和 WM session；不接受
+worker 自报身份。已注册并绑定的 Topbar/Dock 可订阅状态，以便 map 前准备 UI；只有
+已 map 的 Topbar 可请求系统控制。普通应用和 Dock 的控制请求返回 Unauthorized。
+WM 再检查 registration、pidfd 存活及实际 mapped/visible 原生 surface。
+
+WM 记录真正发给该客户端的 pointer/touch Down serial，并绑定 kind/contact 与上述身份。
+serial 为零、猜测 serial、另一实例或其他 contact 均不能开始会话。同一个输入凭证只能
+消费一次；busy 拒绝也消费该次输入。普通释放保留 2 秒宽限，以容纳 Wayland Up 先到、
+异步 Host Begin 后到的快速操作；native Cancel、设备拔除、surface 隐藏或销毁立即作废。
+Down 凭证与会话最长 120 秒，控制会话 30 秒没有有效请求则过期，释放宽限届满也会取消。
+这些是输入控制的有界生命周期，不是动画时钟或动画时长限制。
+
+Begin 锁定非零 WM session、output/workspace/root/boundary 身份和 topology/layout 修订。
+仅支持当前单输出活动 workspace，每个 workspace 同时最多一个会话。目标/输出消失、
+workspace 切换、拓扑或布局修订变化取消会话；纯焦点变化和客户端 buffer 追上目标所产生
+的发布修订不会无故取消。会话内目标、操作与输入凭证不可切换，sequence 严格递增。
+已认证会话提交错误目标或错误序号会取消该会话，避免 Host 结束而 WM 仍占用控制权。
+
+WM 使用最多 64 个输入记录与 256 项重放记录。相同身份和 request 的完全相同请求取得
+缓存结果，篡改同 request 的内容被拒绝；取消后旧请求不能恢复会话。Host 接受 WM 异步
+Cancelled，即使它引用的最后请求已经 ACK。断线、Revoke、worker 退出与 surface unmap
+都会清理状态。传输有明确载荷与队列上限，布局快照仍最多 192 KiB，不保存无界历史。
+
+### 8.4 当前交付能力与后续步骤
+
+当前实现 `GroupGesture` / `BoundaryGesture` 的跟踪会话。End intent 为 None 时返回
+Ended，`applied=false`。EnterImmersive、ExitImmersive、ApplyBoundary 均明确返回 Unsupported
+并终止会话；没有假装已经应用布局。传输中的位置仍是客户端局部逻辑坐标，不直接作为
+受信任的窗口几何输入。
+
+当前主题、Topbar/Dock 及应用 UI 保持现有效果；新接口没有自动把所有本地手势变成系统
+操作。下一步接入组沉浸状态机、恢复入口与 Shell 行为；随后在递归尺寸约束和 WM 几何
+计算具备后接入分隔线调整。边界 `resizable` 在本阶段继续为 false。
+
+### 8.5 验证记录
+
+本阶段验证日志保存于 `dist/validation/layout-control-v1-20260930/`；最终结果在构建和
+回归完成后记录。测试、C ABI fixture、原生 Wayland 客户端与虚拟输入 probe 均保持在
+`tests/`，不进入运行包。未部署或替换当前 Pi 桌面/VNC 会话；测试输入不等同实体触屏验收。

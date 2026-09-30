@@ -3,6 +3,7 @@ add_library(prism_launcher_runtime STATIC
     service_requests.cpp
     service_theme.cpp
     service_control.cpp
+    service_layout.cpp
     service_workers.cpp
     service_loop.cpp)
 target_link_libraries(prism_launcher_runtime PUBLIC prism_launch prism_theme_compiler prism_task_budget)

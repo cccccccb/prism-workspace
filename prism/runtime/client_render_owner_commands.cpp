@@ -18,6 +18,8 @@ bool ClientRenderOwner::DrainCommands()
             }
             if (installed_ui_ != installed->ui) {
                 installed_ui_ = installed->ui;
+                input_ui_ = installed_ui_;
+                input_snapshot_.reset();
                 animation_sampling_active_ = false;
                 ResetFrameOpportunity();
                 render_frame_.reset();

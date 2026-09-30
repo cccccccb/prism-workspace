@@ -91,13 +91,14 @@ StateRule 见下节。
 区域保留自己的捕获。主题/区域事务的提交后清理不分配新的输入状态存储。
 
 局部状态只产生 Paint 失效；同一目标内没有状态变化的 motion 不推进像素版本。
-布局或命中形状变化后按当前坐标重新命中静止指针，普通颜色/进度动画不重复执行该过程。
+独立 Scene 的兼容输入路径在布局变化后重新命中；SDK 的快照路径等成功提交确认后
+才更新静止指针。普通颜色/进度动画不重复执行该过程。
 重新显示时的 hover 来自当前几何重新命中，不恢复旧捕获、按下或键盘焦点。
 `ActionAt`、`SetPointer`、`FocusNext`、`FocusedAction` 保留为 Scene 级兼容查询/便利接口；
 SDK 动作分派统一走 HandleInput，没有第二套按下即激活路径。
 
-独立感应区、状态作用域与装饰子树呈现由第二阶段接入；拖动识别、触摸、交互节点整体
-变换与成功提交对应的命中快照仍待后续。接口与验证记录见
+独立感应区、状态作用域与装饰子树呈现由第二阶段接入；触摸与提交快照由第三阶段接入。
+拖动识别和交互节点整体变换继续后续实施。接口与验证记录见
 [交互与呈现规范](INTERACTION_AND_PRESENTATION_SPEC.md)。
 
 ## 固定交互目标与状态呈现第二阶段（2026-09-29）
@@ -134,3 +135,45 @@ Build/Render/Swap。旧控件保留主题 Controls 的默认反馈，Interaction
 StateRule 描述反馈，不在 renderer 中写死 Topbar/Dock 样式。
 
 本阶段完整构建、60/60 CTest 和五项隔离 V3D SDK 门槛通过，像素对照与详细记录见交互规范第 13 节；尚未部署到现有 VNC 会话。
+
+
+## 输入快照与触摸第三阶段（2026-09-29）
+
+`InputGeometry()` 返回最近 Build/Capture 准备的 `shared_ptr<const InputSnapshot>`。每个快照包含
+独立 Scene 身份和版本；节点记录身份、action、可用性、布局盒、圆角及祖先裁剪。
+纯呈现动画复用原快照；布局/身份变化才重新检查几何。Action-only 更新产生 Composite
+失效；SDK 通过 `CaptureInputSnapshot()` 单独冻结输入，不增加显示列表构建尝试或像素版本。
+该接口要求布局已完成，未解析的 Layout 会被拒绝；圆角、裁剪与动作变化可在布局后独立
+捕获。它不确认 Composite，也不表示 worker 已采用该候选。现有直接调用 Build 的路径
+仍会同步准备快照。
+
+`HandleInput(event, snapshot)` 始终按事件携带的已提交几何解释输入。空快照、跨 Scene
+快照和已经失效的目标不能启动或完成动作；当前可见性、enabled、action 与节点存活检查
+仍优先于旧几何。现有 `HandleInput(event)` 保留直接 Scene 测试/使用的本地几何语义。
+SDK 始终使用显式快照重载，不回退未提交的最新布局。
+
+`ApplyInputSnapshot(snapshot)` 在有序提交确认后更新已有指针/触点使用的几何，拒绝跨
+Scene 和倒退版本。静止指针可能因此产生新状态或启动过渡；SDK 会发布相应反馈帧。
+候选更新不提前覆盖事件几何，区域卸载与 UI 替换也不会使旧 NodeId 激活新内容。
+
+TouchDown/Motion/Up/Cancel/Frame 使用 source+contact 身份，每个触点独立捕获目标，
+不形成持久 hover。Up 按最后触点坐标和事件快照完成一次激活；滑出、取消、失焦、禁用、
+卸载、关闭和逻辑设备撤回清理序列。原生 pointer button 和 touch down 保留 opaque
+`protocol_serial`，未来系统控制必须由平台核对该凭据，客户端 source/time 不提供权限。
+
+当前只支持现有固定/布局变化目标；Visual 仍只装饰。交互节点的呈现变换、逆矩阵命中、
+手势识别、跨 surface 效果变换和组控制分开推进。第三阶段构建与验收结果见
+[交互规范第 14 节](INTERACTION_AND_PRESENTATION_SPEC.md)。
+
+## 连续手势（2026-09-30）
+
+`InteractionTarget` 可声明 `.gesture(action: "drag", threshold: 6)`，手势元数据独立于
+可动画绘制属性，PrepareComponent、Blueprint 和 Scene 使用相同校验。达到逻辑距离
+阈值后产生 Begin，后续移动/释放/取消产生 Update/End/Cancel，认领拖动后抑制点击。
+`dragging` 状态可驱动 Visual 规则；未达到阈值保留原点击行为。
+
+`TakeGestureEvents()` 取走拥有数据的批次，同一次终止不会重复交付；直接 Scene 用户
+须及时取走批次（保留序列最多 256）。SDK 负责 owner 线程派发与 UI 代次检查。
+输入快照包含对应 gesture 元数据，旧几何不能为已经更换识别器的节点启动新手势。
+这些通用接口不包含组沉浸、Dock 或 WM 分隔线策略；完整约束见
+[布局控制计划第 8 节](LAYOUT_CONTROL_IMPLEMENTATION_PLAN.md#8-第二步源码交付连续手势与-typed-控制会话)。

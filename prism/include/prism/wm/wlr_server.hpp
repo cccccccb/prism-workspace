@@ -4,6 +4,7 @@
 #include "prism/core/types.hpp"
 #include "prism/decoration/tiling_drag_manager.hpp"
 #include "prism/wm/compositor.hpp"
+#include "prism/wm/layout_control.hpp"
 #include "prism/wm/performance.hpp"
 #include "prism/wm/theme.hpp"
 
@@ -41,6 +42,10 @@ struct wlr_xcursor_manager;
 struct wlr_output;
 struct wlr_input_device;
 struct wlr_keyboard;
+struct wlr_touch;
+struct wlr_touch_down_event;
+struct wlr_touch_motion_event;
+struct wlr_seat_client;
 struct wlr_virtual_keyboard_manager_v1;
 struct wlr_virtual_keyboard_v1;
 struct wlr_virtual_pointer_manager_v1;
@@ -78,6 +83,8 @@ struct OutputInfo {
 class WlrServer;
 struct WlrXdgView;
 struct WlrKeyboardBinding;
+struct WlrTouchBinding;
+struct WlrPointerBinding;
 class SurfaceEffects;
 struct WlrSurfaceWatch;
 
@@ -103,11 +110,13 @@ struct WlrOutput {
     std::uint64_t last_present_ns{}, presented_count{}, discarded_count{};
     TimingSamples present_intervals;
     std::uint64_t last_frame_ns{};
+    std::uint64_t layout_id{};
     struct wl_listener request_state;
     struct wl_listener destroy;
 };
 
 struct WlrServerSignals {
+    struct wl_listener output_layout_change;
     struct wl_listener new_output;
     struct wl_listener new_input;
     struct wl_listener new_virtual_keyboard;
@@ -144,6 +153,10 @@ public:
 
     // Called on the Wayland event loop. Validation precedes all state changes.
     contracts::ThemeApplied InstallTheme(const contracts::ThemeSnapshot &theme);
+
+    // Event-loop thread only. Values never retain mutable tree/window pointers.
+    std::shared_ptr<const contracts::LayoutSnapshot> GetLayoutSnapshot();
+    void InvalidateLayoutSnapshot() noexcept;
 
     const contracts::ThemeSnapshot *GetTheme() const
     {
@@ -217,12 +230,20 @@ public:
     void HandleKeyboardModifiers(WlrKeyboardBinding *binding);
     void HandleKeyboardKeymap(WlrKeyboardBinding *binding);
     void HandleKeyboardDestroy(WlrKeyboardBinding *binding);
+    void HandleTouchDown(WlrTouchBinding *, const wlr_touch_down_event &);
+    void HandleTouchMotion(WlrTouchBinding *, const wlr_touch_motion_event &);
+    void HandleTouchUp(WlrTouchBinding *, std::uint32_t time_msec, std::int32_t contact);
+    void HandleTouchCancel(WlrTouchBinding *, std::int32_t contact);
+    void HandleTouchFrame();
+    void HandleTouchDestroy(WlrTouchBinding *);
     void CloseFocusedXdgView();
     void HandleCursorMotion(uint32_t time_msec, double dx, double dy,
                             struct wlr_input_device *device = nullptr);
     void HandleCursorMotionAbsolute(uint32_t time_msec, double x, double y,
                                     struct wlr_input_device *device = nullptr);
-    void HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t state);
+    void HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t state,
+                            struct wlr_input_device *device = nullptr);
+    void HandlePointerDestroy(WlrPointerBinding *);
     void HandleCursorAxis(uint32_t time_msec, int axis, double value, int32_t discrete, int source,
                           int relative_direction);
     void HandleOutputFrame(WlrOutput *output);
@@ -299,6 +320,11 @@ private:
     void SynchronizeXdgFocus();
     void SetXdgFullscreen(WlrXdgView *view, bool enabled);
     void UpdateXdgPointerFocus(uint32_t time_msec);
+    void AttachTouchDevice(wlr_touch *);
+    void CancelTouchDevice(WlrTouchBinding *);
+    void CancelTouchClient(wlr_seat_client *);
+    void CancelTouchesForSurface(wlr_surface *);
+    std::int32_t AllocateTouchId();
     enum class FrameReason { Layout, Effects, Mode };
     void ScheduleFrames(FrameReason reason);
     void InvalidateEffects();
@@ -382,12 +408,29 @@ private:
     };
 
     void PumpControl();
+    void PublishLayoutSnapshot();
+    LayoutControlPrincipal LayoutPrincipal(const launch::ShellPermit &) const;
+    void HandleLayoutControl(const launch::ControlMessage &);
+    void PublishLayoutControlNotifications();
+    void RecordLayoutInput(wlr_surface *, contracts::LayoutInputProof);
+    void CancelLayoutControlsForSurface(wlr_surface *);
+    core::Rect PrimaryLogicalBounds() const;
+    static void HandleOutputLayoutChange(wl_listener *, void *);
     void NotifyView(WlrXdgView *view, launch::ControlType type);
     std::unique_ptr<launch::Stream> control_;
     std::map<pid_t, std::unique_ptr<Registration>> registrations_;
     std::uint64_t control_session_{};
     bool control_failed_{};
+    std::shared_ptr<const contracts::LayoutSnapshot> layout_snapshot_;
+    std::shared_ptr<const tree::TreeSnapshot> layout_tree_snapshot_;
+    std::uint64_t layout_theme_generation_{}, layout_sent_revision_{}, next_output_id_{1};
+    bool layout_snapshot_dirty_{true}, layout_subscribed_{};
+    LayoutControlAuthority layout_controls_;
+    std::vector<std::unique_ptr<WlrPointerBinding>> pointers_;
+    wlr_input_device *control_pointer_device_{};
     std::vector<std::unique_ptr<WlrKeyboardBinding>> keyboards_;
+    std::vector<std::unique_ptr<WlrTouchBinding>> touches_;
+    std::int32_t next_touch_id_{};
     WlrXdgView *focused_xdg_view_{nullptr};
     WlrXdgView *dragged_xdg_view_{nullptr};
     ThemeGeometry theme_{};

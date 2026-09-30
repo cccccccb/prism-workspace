@@ -4,7 +4,7 @@ namespace prism::runtime {
 namespace {
 bool HasState(const InteractionState &state)
 {
-    return state.hovered || state.pressed || state.captured || state.focused;
+    return state.hovered || state.pressed || state.captured || state.focused || state.dragging;
 }
 
 void AddTarget(std::vector<contracts::NodeId> &targets, contracts::NodeId id)
@@ -53,6 +53,7 @@ bool Scene::SetEnabled(contracts::NodeId id, bool enabled)
     }
     PrepareInputGeometry();
     node->enabled = enabled;
+    input_snapshot_dirty_ = true;
     state_styles_dirty_ = true;
     ++transaction_revision_;
 
@@ -142,6 +143,8 @@ bool Scene::RefreshInputStates() noexcept
         for (const auto &pointer : input_state_->pointers) {
             state.hovered = state.hovered || pointer.hovered == id;
             state.captured = state.captured || pointer.captured == id;
+            state.dragging =
+                state.dragging || (pointer.captured == id && IsDragging(pointer.gesture));
             state.pressed = state.pressed || (pointer.captured == id && pointer.hovered == id);
         }
         for (const auto &focus : input_state_->focus) {
@@ -150,6 +153,11 @@ bool Scene::RefreshInputStates() noexcept
         }
         for (const auto &key : input_state_->keys) {
             state.pressed = state.pressed || key.node == id;
+        }
+        for (const auto &touch : input_state_->touches) {
+            state.captured = state.captured || touch.captured == id;
+            state.dragging = state.dragging || (touch.captured == id && IsDragging(touch.gesture));
+            state.pressed = state.pressed || (touch.captured == id && touch.inside);
         }
         if (node->interaction != state) {
             node->interaction = state;
@@ -170,12 +178,17 @@ bool Scene::RefreshInputStates() noexcept
 
 bool Scene::ReconcileInput() noexcept
 {
+    ReconcileGestures();
     for (auto &pointer : input_state_->pointers) {
-        if (!IsInteractive(pointer.hovered)) {
+        if (!IsInteractive(pointer.hovered) ||
+            (pointer.submitted && !IsInteractive(pointer.hovered, pointer.snapshot.get()))) {
             pointer.hovered = {};
         }
         const auto *captured = Find(pointer.captured);
-        if (!IsInteractive(pointer.captured) || captured->action != pointer.action) {
+        if (!IsInteractive(pointer.captured) || captured->action != pointer.action ||
+            !IsGestureActive(pointer.gesture)) {
+            FinishGesture(pointer.gesture, contracts::GesturePhase::Cancel);
+            pointer.gesture = 0;
             pointer.captured = {};
             pointer.action.clear();
         }
@@ -188,6 +201,11 @@ bool Scene::ReconcileInput() noexcept
     std::erase_if(input_state_->keys, [this](const InputState::KeyPress &key) {
         const auto *node = Find(key.node);
         return !IsInteractive(key.node) || node->action != key.action;
+    });
+    std::erase_if(input_state_->touches, [this](const InputState::Touch &touch) {
+        const auto *node = Find(touch.captured);
+        return !IsInteractive(touch.captured) || node->action != touch.action ||
+               !IsGestureActive(touch.gesture);
     });
     return RefreshInputStates();
 }
@@ -205,25 +223,33 @@ void Scene::RefreshInputGeometry() noexcept
         if (!pointer.inside) {
             continue;
         }
-        const bool inside =
-            scene_detail::Inside({0, 0, viewport_.width, viewport_.height}, pointer.position);
-        const auto hit = inside ? HitTest(pointer.position) : std::nullopt;
+        const auto hit = InputHit(pointer.position, pointer.snapshot, pointer.submitted);
         pointer.hovered = hit ? hit->node : contracts::NodeId{};
         TrackInputTarget(pointer.hovered);
     }
+    RefreshTouchGeometry();
     ReconcileInput();
 }
 
 bool Scene::CancelInput()
 {
+    for (auto &gesture : input_state_->gestures) {
+        FinishGesture(gesture.event.id, contracts::GesturePhase::Cancel);
+    }
     input_state_->pointers.clear();
     input_state_->focus.clear();
     input_state_->keys.clear();
+    input_state_->touches.clear();
     return RefreshInputStates();
 }
 
 void Scene::CancelSeatInput(std::uint64_t seat) noexcept
 {
+    for (auto &gesture : input_state_->gestures) {
+        if (gesture.event.source.seat == seat) {
+            FinishGesture(gesture.event.id, contracts::GesturePhase::Cancel);
+        }
+    }
     std::erase_if(input_state_->pointers, [seat](const InputState::Pointer &pointer) {
         return pointer.source.seat == seat;
     });
@@ -231,6 +257,8 @@ void Scene::CancelSeatInput(std::uint64_t seat) noexcept
                   [seat](const InputState::Focus &focus) { return focus.seat == seat; });
     std::erase_if(input_state_->keys,
                   [seat](const InputState::KeyPress &key) { return key.source.seat == seat; });
+    std::erase_if(input_state_->touches,
+                  [seat](const InputState::Touch &touch) { return touch.source.seat == seat; });
 }
 
 bool Scene::SetInputFocus(contracts::NodeId id, std::uint64_t seat, bool visible)
@@ -253,14 +281,16 @@ bool Scene::SetInputFocus(contracts::NodeId id, std::uint64_t seat, bool visible
     return true;
 }
 
-bool Scene::MoveInputFocus(std::uint64_t seat, bool reverse)
+bool Scene::MoveInputFocus(std::uint64_t seat, bool reverse, const InputSnapshot *snapshot,
+                           bool submitted)
 {
     std::vector<Node *> order;
     if (root_) {
         CollectNodes(*root_, order);
     }
-    std::erase_if(order, [this](const Node *node) {
-        return !IsInteractive(node->id) || node->action.empty();
+    std::erase_if(order, [this, snapshot, submitted](const Node *node) {
+        return !IsInteractive(node->id) || node->action.empty() ||
+               (submitted && !IsInteractive(node->id, snapshot));
     });
     if (order.empty()) {
         return false;

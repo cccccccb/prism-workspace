@@ -23,6 +23,7 @@ struct wl_shm;
 struct wl_seat;
 struct wl_pointer;
 struct wl_keyboard;
+struct wl_touch;
 struct wl_surface;
 struct wl_callback;
 struct wp_presentation;
@@ -247,6 +248,15 @@ private:
     static void KeyboardModifiers(void *, wl_keyboard *, std::uint32_t, std::uint32_t,
                                   std::uint32_t, std::uint32_t, std::uint32_t);
     static void KeyboardRepeatInfo(void *, wl_keyboard *, std::int32_t, std::int32_t);
+    static void TouchDown(void *, wl_touch *, std::uint32_t, std::uint32_t, wl_surface *,
+                          std::int32_t, wl_fixed_t, wl_fixed_t);
+    static void TouchUp(void *, wl_touch *, std::uint32_t, std::uint32_t, std::int32_t);
+    static void TouchMotion(void *, wl_touch *, std::uint32_t, std::int32_t, wl_fixed_t,
+                            wl_fixed_t);
+    static void TouchFrame(void *, wl_touch *);
+    static void TouchCancel(void *, wl_touch *);
+    static void TouchShape(void *, wl_touch *, std::int32_t, wl_fixed_t, wl_fixed_t);
+    static void TouchOrientation(void *, wl_touch *, std::int32_t, wl_fixed_t);
     static void FrameDone(void *, wl_callback *, std::uint32_t);
     static void BufferRelease(void *, wl_buffer *);
 
@@ -273,9 +283,12 @@ private:
     static std::uint64_t InputTimeNs();
     contracts::InputSource PointerSource() const;
     contracts::InputSource KeyboardSource() const;
+    contracts::InputSource TouchSource() const;
     contracts::KeyModifiers CurrentKeyModifiers() const;
     void ReleasePointer();
     void ReleaseKeyboard();
+    void UpdateTouchCapability(wl_seat *, std::uint32_t);
+    void ReleaseTouch();
 
     wp_presentation *presentation_{nullptr};
 
@@ -301,8 +314,11 @@ private:
     std::uint64_t seat_identity_{};
     std::uint64_t pointer_generation_{};
     std::uint64_t keyboard_generation_{};
+    std::uint64_t touch_generation_{};
     wl_pointer *pointer_{nullptr};
     wl_keyboard *keyboard_{nullptr};
+    wl_touch *touch_{nullptr};
+    std::vector<contracts::InputContactId> touch_contacts_;
     xkb_context *keyboard_context_{};
     xkb_state *keyboard_state_{};
     xdg_wm_base *shell_{nullptr};

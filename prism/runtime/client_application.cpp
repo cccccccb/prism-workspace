@@ -125,6 +125,7 @@ bool ClientApplication::ReplaceUiPrepared(runtime::UiLoadId load,
     }
 
     app.PublishFramePacket();
+    app.DeliverGestureEvents();
     return true;
 }
 
@@ -185,6 +186,7 @@ void ClientApplication::Impl::FailFrontend()
     failed = true;
     if (scene) {
         scene->CancelInput();
+        CollectGestureEvents();
     }
 
     QueueStopRenderWorker();
@@ -205,6 +207,12 @@ void ClientApplication::Impl::FailFrontend()
     bridge->render_events.Close();
     bridge->render_commands.Close();
     while (bridge->render_commands.TryPop()) {
+    }
+    try {
+        DeliverGestureEvents();
+    } catch (...) {
+        pending_gestures.clear();
+        delivered_gestures.clear();
     }
 }
 
@@ -261,6 +269,10 @@ bool ClientApplication::Pump(int timeout_ms, std::span<pollfd> wake_fds)
             app.FailFrontend();
             return false;
         }
+        app.DeliverGestureEvents();
+        if (app.closed || app.failed) {
+            return false;
+        }
         app.AdvanceAnimationDeadline();
         app.PublishFramePacket();
         if (app.ui_work_turn_started) {
@@ -306,6 +318,10 @@ bool ClientApplication::Pump(int timeout_ms, std::span<pollfd> wake_fds)
             app.FailFrontend();
             return false;
         }
+        app.DeliverGestureEvents();
+        if (app.closed || app.failed) {
+            return false;
+        }
         app.AdvanceAnimationDeadline();
         app.PublishFramePacket();
         return true;
@@ -340,6 +356,7 @@ bool ClientApplication::SetBinding(std::string_view name, runtime::PropertyValue
             app.QueueRenderUpdate(true);
         }
     }
+    app.DeliverGestureEvents();
     return true;
 }
 
@@ -360,6 +377,7 @@ bool ClientApplication::ApplyTheme(const contracts::ThemeSnapshot &theme, std::s
             app.PublishFramePacket();
             app.SyncAnimationSampling();
         }
+        app.DeliverGestureEvents();
         if (diagnostic) {
             diagnostic->clear();
         }
@@ -411,6 +429,7 @@ void ClientApplication::Close()
     impl_->closed = true;
     if (impl_->scene) {
         impl_->scene->CancelInput();
+        impl_->CollectGestureEvents();
     }
 
     impl_->QueueStopRenderWorker();
@@ -449,6 +468,7 @@ void ClientApplication::Close()
     }
     while (impl_->bridge->render_commands.TryPop()) {
     }
+    impl_->DeliverGestureEvents();
 }
 
 } // namespace prism::sdk

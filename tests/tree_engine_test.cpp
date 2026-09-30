@@ -196,7 +196,7 @@ void TestTabbedAndStackedLayout()
     auto tab_con = engine.GroupTabbed(v1, win2);
     assert(tab_con != nullptr);
     assert(tab_con->GetLayoutMode() == LayoutMode::Tabbed);
-    assert(tab_con->children.size() == 2);
+    assert(tab_con->GetChildren().size() == 2);
 
     engine.Arrange(screen, *spec);
     auto layout = engine.GetCalculatedLayout();
@@ -363,9 +363,9 @@ void TestDragToSplitSimulation()
     assert(layout.size() == 3);
 
     // Verify layout: win1 is on left, win2 is top-right, win3 is bottom-right!
-    auto r1 = engine.FindViewForWindow(win1)->bounds;
-    auto r2 = engine.FindViewForWindow(win2)->bounds;
-    auto r3 = engine.FindViewForWindow(win3)->bounds;
+    auto r1 = engine.FindViewForWindow(win1)->GetBounds();
+    auto r2 = engine.FindViewForWindow(win2)->GetBounds();
+    auto r3 = engine.FindViewForWindow(win3)->GetBounds();
 
     assert(r1.x < r2.x);
     assert(r2.x == r3.x);
@@ -399,20 +399,21 @@ void TestSmallAreasAndLargeGaps()
         }
         auto check = [&](auto &&self, const std::shared_ptr<TreeNode> &node) -> void {
             if (auto container = std::dynamic_pointer_cast<ContainerNode>(node);
-                container && !container->children.empty()) {
+                container && !container->GetChildren().empty()) {
                 const bool horizontal = container->GetLayoutMode() == LayoutMode::SplitHorizontal;
-                const auto &last = container->children.back()->bounds;
+                const auto &last = container->GetChildren().back()->GetBounds();
                 assert(std::abs((horizontal ? last.x + last.width : last.y + last.height) -
-                                (horizontal ? node->bounds.x + node->bounds.width
-                                            : node->bounds.y + node->bounds.height)) < .0001f);
-                for (std::size_t i = 1; i < container->children.size(); ++i) {
-                    const auto &a = container->children[i - 1]->bounds;
-                    const auto &b = container->children[i]->bounds;
+                                (horizontal ? node->GetBounds().x + node->GetBounds().width
+                                            : node->GetBounds().y + node->GetBounds().height)) <
+                       .0001f);
+                for (std::size_t i = 1; i < container->GetChildren().size(); ++i) {
+                    const auto &a = container->GetChildren()[i - 1]->GetBounds();
+                    const auto &b = container->GetChildren()[i]->GetBounds();
                     assert(horizontal ? a.x + a.width <= b.x + .0001f
                                       : a.y + a.height <= b.y + .0001f);
                 }
             }
-            for (const auto &child : node->children) {
+            for (const auto &child : node->GetChildren()) {
                 self(self, child);
             }
         };
@@ -422,10 +423,10 @@ void TestSmallAreasAndLargeGaps()
     TreeEngine ratio;
     auto left = ratio.InsertWindow(windows[0]);
     auto right = ratio.InsertWindow(windows[1], Direction::Right, left);
-    left->width_fraction = .25;
-    right->width_fraction = .75;
+    left->SetFractions(.25, left->GetHeightFraction());
+    right->SetFractions(.75, right->GetHeightFraction());
     ratio.Arrange({0, 0, 110, 40}, {10, 0, false, 0});
-    assert(left->bounds.width == 25 && right->bounds.width == 75);
+    assert(left->GetBounds().width == 25 && right->GetBounds().width == 75);
     std::cout << "  -> Small areas, large gaps, positive nested geometry and split ratios PASSED\n";
 }
 

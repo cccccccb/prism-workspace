@@ -46,6 +46,7 @@ Blueprint LinkNode(const PreparedNode &node, const std::vector<contracts::Resour
     result.theme_refs = node.theme_refs;
     result.transitions = node.transitions;
     result.state_rules = node.state_rules;
+    result.gesture = node.gesture;
     result.properties.reserve(node.properties.size());
     result.children.reserve(node.children.size());
 
@@ -82,6 +83,9 @@ std::uint64_t NodeBytes(const PreparedNode &node) noexcept
     }
     for (const auto &ref : node.theme_refs) {
         bytes += ref.name.capacity();
+    }
+    if (node.gesture) {
+        bytes += node.gesture->action.capacity();
     }
     for (const auto &rule : node.state_rules) {
         bytes += rule.properties.capacity() * sizeof(PropertyAssignment) +

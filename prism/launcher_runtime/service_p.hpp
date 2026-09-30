@@ -58,7 +58,9 @@ struct Worker : Endpoint {
     pid_t pid{};
     Phase phase{Phase::Preparing};
     std::uint64_t job{}, created{}, finish_at{}, kill_at{}, closed_at{}, theme_generation{};
-    bool frontend_ready{};
+    bool frontend_ready{}, layout_revoked{};
+    std::uint64_t layout_subscription{}, layout_revision{};
+    std::set<std::uint64_t> layout_requests;
 };
 } // namespace prism::launcher::detail
 
@@ -85,6 +87,7 @@ struct Service::Impl {
     int signal_fd{-1};
     std::unique_ptr<launch::Stream> control;
     std::uint64_t session{}, opened_at{};
+    launch::LayoutSnapshotCache layout_snapshot;
     ThemeSnapshot theme, committed_theme;
     bool theme_ready{};
     std::shared_ptr<runtime::SessionTaskBudget> load_budget;
@@ -125,6 +128,15 @@ struct Service::Impl {
     void Fail(Job &job, LaunchError error, std::string detail);
     void BootstrapShell();
     void ReadControl();
+    void SubscribeLayout();
+    Job *LayoutOwner(const Worker &worker, bool controls) const;
+    void SubscribeWorkerLayout(Worker &worker, const LayoutSubscription &request);
+    void PublishWorkerLayout(Worker &worker);
+    void PublishLayout();
+    void RequestLayoutControl(Worker &worker, const LayoutControlRequest &request);
+    void ReceiveLayoutControl(const launch::ControlMessage &message);
+    void RevokeWorkerLayout(Worker &worker);
+    void DisconnectLayout();
     void Request(Owner owner, LaunchRequest source);
     void Cancel(Owner owner, LaunchCancel cancel);
     void Accept();

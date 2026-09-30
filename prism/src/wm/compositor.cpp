@@ -142,7 +142,11 @@ std::shared_ptr<Window> Compositor::CreateWindow(const std::string &app_id,
         win->SetExclusiveMargin(h + 10.0f);
     } else if (layer == LayerType::App) {
         // Only standard App windows enter the BSP Tree Engine!
-        tree_engine_.InsertWindow(win, tree::Direction::Right);
+        if (!tree_engine_.InsertWindow(win, tree::Direction::Right)) {
+            layer_manager_.UnregisterWindow(win);
+            windows_.pop_back();
+            return nullptr;
+        }
     }
 
     PRISM_LOG_INFO("WM",
@@ -336,9 +340,13 @@ std::shared_ptr<Window> Compositor::ManageNativeWindow(const std::string &app_id
             mode = parent->GetLayoutMode();
         }
     }
-    tree_engine_.InsertWindow(win, mode == tree::LayoutMode::SplitVertical
-                                       ? tree::Direction::Down
-                                       : tree::Direction::Right);
+    if (!tree_engine_.InsertWindow(win, mode == tree::LayoutMode::SplitVertical
+                                            ? tree::Direction::Down
+                                            : tree::Direction::Right)) {
+        layer_manager_.UnregisterWindow(win);
+        windows_.pop_back();
+        return nullptr;
+    }
     SynchronizeFocus();
     return win;
 }

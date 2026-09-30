@@ -51,9 +51,10 @@ class Server {
         wl_resource *resource;
         wl_resource *xdg{};
         wl_resource *toplevel{};
+        wl_resource *shell{};
         bool configured{};
 #ifdef PRISM_CLIENT_APP_TEST
-        bool awaiting_pointer{};
+        bool awaiting_batch{};
 #endif
         std::vector<Record *> records;
     };
@@ -65,7 +66,8 @@ class Server {
 #ifdef PRISM_CLIENT_APP_TEST
     wl_global *seat_{};
     wl_resource *pointer_{};
-    bool batch_input_on_configure_{}, batch_input_sent_{}, batch_additional_click_{};
+    bool batch_input_on_configure_{}, batch_input_processed_{}, batch_additional_click_{};
+    std::uint32_t batch_input_ping_{};
 #endif
     std::thread thread_;
     std::atomic<bool> stop_{};
@@ -183,7 +185,16 @@ class Server {
                                    WL_POINTER_BUTTON_STATE_RELEASED);
         }
         wl_pointer_send_frame(pointer_);
-        batch_input_sent_ = true;
+        batch_input_ping_ = wl_display_next_serial(display_);
+        xdg_wm_base_send_ping(surface.shell, batch_input_ping_);
+    }
+
+    static void Pong(wl_client *, wl_resource *resource, std::uint32_t serial)
+    {
+        auto &server = *static_cast<Server *>(wl_resource_get_user_data(resource));
+        if (serial == server.batch_input_ping_) {
+            server.batch_input_processed_ = true;
+        }
     }
 
     static void DestroyPointer(wl_resource *resource)
@@ -204,10 +215,6 @@ class Server {
         server->pointer_ = wl_resource_create(client, &wl_pointer_interface, 5, id);
         assert(server->pointer_);
         wl_resource_set_implementation(server->pointer_, &implementation, server, DestroyPointer);
-        if (server->current_ && server->current_->awaiting_pointer) {
-            server->current_->awaiting_pointer = false;
-            server->ConfigureAndClick(*server->current_);
-        }
     }
 
     static void BindSeat(wl_client *client, void *data, uint32_t version, uint32_t id)
@@ -233,15 +240,9 @@ class Server {
         if (!surface.configured) {
 #ifdef PRISM_CLIENT_APP_TEST
             if (surface.server->batch_input_on_configure_) {
-                // The detached SDK Scene was laid out at 480 pixels. Queue a
-                // same-size configure followed by a 160-pixel resize and
-                // input before the client can dispatch either configure.
-                Configure(surface, 480, 90);
-                if (surface.server->pointer_) {
-                    surface.server->ConfigureAndClick(surface);
-                } else {
-                    surface.awaiting_pointer = true;
-                }
+                // Keep the initial handshake unconfigured until the test
+                // explicitly releases its configure/input batch.
+                surface.awaiting_batch = true;
                 return;
             }
 #endif
@@ -335,9 +336,10 @@ class Server {
                                        DestroyToplevel);
     }
 
-    static void GetXdg(wl_client *client, wl_resource *, uint32_t id, wl_resource *native)
+    static void GetXdg(wl_client *client, wl_resource *shell, uint32_t id, wl_resource *native)
     {
         auto *surface = static_cast<Surface *>(wl_resource_get_user_data(native));
+        surface->shell = shell;
         static const struct xdg_surface_interface implementation = [] {
             struct xdg_surface_interface result{};
             result.destroy = Destroy;
@@ -359,8 +361,12 @@ class Server {
             struct xdg_wm_base_interface result{};
             result.destroy = Destroy;
             result.get_xdg_surface = GetXdg;
+#ifdef PRISM_CLIENT_APP_TEST
+            result.pong = Pong;
+#else
             result.pong = [](wl_client *, wl_resource *, uint32_t) {
             };
+#endif
             return result;
         }();
         auto *resource = wl_resource_create(client, &xdg_wm_base_interface, 1, id);
@@ -500,7 +506,8 @@ public:
     {
         Sync([&] {
             batch_input_on_configure_ = true;
-            batch_input_sent_ = false;
+            batch_input_processed_ = false;
+            batch_input_ping_ = 0;
             batch_additional_click_ = additional_click;
             if (!seat_) {
                 seat_ = wl_global_create(display_, &wl_seat_interface, 5, this, BindSeat);
@@ -509,11 +516,28 @@ public:
         });
     }
 
-    bool BatchInputSent()
+    bool BatchInputReady()
     {
-        bool sent = false;
-        Sync([&] { sent = batch_input_sent_; });
-        return sent;
+        bool ready = false;
+        Sync([&] { ready = current_ && current_->awaiting_batch && pointer_; });
+        return ready;
+    }
+
+    void SendBatchInput()
+    {
+        Sync([&] {
+            assert(current_ && current_->awaiting_batch && pointer_);
+            current_->awaiting_batch = false;
+            Configure(*current_, 480, 90);
+            ConfigureAndClick(*current_);
+        });
+    }
+
+    bool BatchInputProcessed()
+    {
+        bool processed = false;
+        Sync([&] { processed = batch_input_processed_; });
+        return processed;
     }
 
 #endif
@@ -767,20 +791,14 @@ prism::runtime::ShapedText ResizeInputShape(std::string_view, double size)
 
 struct ResizeInputActions {
     std::vector<std::string> received;
-    prism::sdk::ClientApplication *app{};
-    bool replace_on_action{};
 
     void Handle(std::string_view action)
     {
         received.emplace_back(action);
-        if (replace_on_action) {
-            replace_on_action = false;
-            assert(app && app->ReplaceUi(replacement_input_ui));
-        }
     }
 };
 
-void VerifyResizeInputUsesNewLayout(Server &server, bool replace_on_action)
+void VerifyInputBeforeFirstPixels(Server &server, bool replace_before_pump)
 {
     const prism::contracts::LogicalPoint click{140, 20};
     prism::runtime::Scene expected(prism::runtime::ParseBlueprint(resize_input_ui),
@@ -790,7 +808,7 @@ void VerifyResizeInputUsesNewLayout(Server &server, bool replace_on_action)
     assert(expected.SetViewport({160, 90}) && expected.Build({1}));
     assert(expected.ActionAt(click).value_or("") == "target");
 
-    server.EnableBatchInput(replace_on_action);
+    server.EnableBatchInput(replace_before_pump);
     prism::sdk::ClientConfig config;
     config.socket = "wayland-submit-test";
     config.app_id = "resize.input.fixture";
@@ -800,33 +818,33 @@ void VerifyResizeInputUsesNewLayout(Server &server, bool replace_on_action)
     config.height = 90;
     prism::sdk::ClientApplication app(std::move(config));
     ResizeInputActions actions;
-    actions.app = &app;
-    actions.replace_on_action = replace_on_action;
     app.OnAction(std::bind_front(&ResizeInputActions::Handle, &actions));
     assert(app.Open(resize_input_ui));
     const auto initial_status = app.GetPlatformStatus();
     assert(initial_status.configure_count == 0 && !initial_status.configured &&
            !initial_status.mapped);
 
-    // The server sends both configures and pointer clicks in protocol
-    // order before the client enters Pump. No EGL pixel submission is needed.
+    // Both configures and clicks arrive before any submitted input snapshot.
+    // A configured Scene candidate must not make those clicks actionable.
     const auto deadline = std::chrono::steady_clock::now() + 2s;
-    while (!server.BatchInputSent()) {
+    while (!server.BatchInputReady()) {
         assert(std::chrono::steady_clock::now() < deadline);
         std::this_thread::yield();
     }
-    // BatchInputSent is set before the server flushes its client socket.
-    // Complete one more server turn so both configures and the clicks have
-    // reached the client before the single SDK Pump below.
-    server.Sync([] {});
+    server.SendBatchInput();
+    // The ping follows both configures and all pointer events. Its pong
+    // confirms worker dispatch; flushing the server socket alone cannot do so.
+    while (!server.BatchInputProcessed()) {
+        assert(std::chrono::steady_clock::now() < deadline);
+        std::this_thread::yield();
+    }
     assert(app.ConfigureCount() == 0);
+    if (replace_before_pump) {
+        assert(app.ReplaceUi(replacement_input_ui));
+    }
     assert(app.Pump(0));
     assert(app.ConfigureCount() == 2);
-    // A duplicate release never activates twice. When the first activation
-    // installs another UI, the remaining old-load click must not hit it.
-    // Scene interaction tests separately verify that down alone is inert.
-    assert(actions.received == std::vector<std::string>{"target"});
-    assert(!actions.replace_on_action);
+    assert(actions.received.empty());
     const auto status = app.GetPlatformStatus();
     const auto stats = app.GetRenderStats();
     assert(status.configured && status.configure_count == app.ConfigureCount());
@@ -1210,8 +1228,8 @@ int main()
         VerifyDeferredPreparation(server);
         VerifyAwaitFrame(server);
 #ifdef PRISM_CLIENT_APP_TEST
-        VerifyResizeInputUsesNewLayout(server, false);
-        VerifyResizeInputUsesNewLayout(server, true);
+        VerifyInputBeforeFirstPixels(server, false);
+        VerifyInputBeforeFirstPixels(server, true);
 #endif
         VerifyCancellableOpen();
     }

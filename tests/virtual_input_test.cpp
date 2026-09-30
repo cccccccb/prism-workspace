@@ -7,13 +7,16 @@
 #include "wlr-virtual-pointer-unstable-v1-client-protocol.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <string>
 #include <sys/mman.h>
 #include <thread>
@@ -24,6 +27,7 @@
 
 extern "C" {
 #include <wlr/interfaces/wlr_keyboard.h>
+#include <wlr/interfaces/wlr_touch.h>
 #include <wlr/types/wlr_seat.h>
 }
 
@@ -33,10 +37,13 @@ using namespace std::chrono_literals;
 
 struct ClientState {
     std::string socket;
+    int output_width{}, output_height{};
     std::atomic<bool> keymap_ready{false};
     std::atomic<bool> keymap_checked{false};
     std::atomic<bool> custom_keymap{false};
     std::atomic<int> capability_phase{0};
+    std::atomic<int> touch_phase{0};
+    std::atomic<bool> touch_points_valid{true};
     std::atomic<bool> done{false};
     std::atomic<bool> passed{false};
 };
@@ -45,6 +52,7 @@ struct WindowEvents {
     int scroll_count{};
     double last_scroll{};
     int enter_count{};
+    int pointer_motion_count{};
     int leave_count{};
     int cancel_count{};
     int focus_lost_count{};
@@ -53,6 +61,13 @@ struct WindowEvents {
     bool sources_valid{true};
     prism::contracts::InputSource pointer_source{};
     prism::contracts::InputSource cancelled_source{};
+    prism::contracts::InputSource touch_source{};
+    prism::contracts::InputSource touch_cancelled_source{};
+    std::map<prism::contracts::InputContactId, prism::contracts::LogicalPoint> contacts;
+    int touch_down_count{}, touch_motion_count{}, touch_up_count{}, touch_cancel_count{},
+        touch_frame_count{};
+    bool touch_valid{true};
+    prism::contracts::LogicalPoint last_touch_up_position{};
 
     void CheckSource(prism::contracts::InputSource source)
     {
@@ -61,6 +76,7 @@ struct WindowEvents {
 
     void Handle(const prism::contracts::WindowEvent &event)
     {
+        HandleTouch(event);
         if (const auto *scroll = std::get_if<prism::contracts::PointerScrollEvent>(&event)) {
             CheckSource(scroll->source);
             ++scroll_count;
@@ -78,12 +94,14 @@ struct WindowEvents {
             cancelled_source = cancel->source;
             ++cancel_count;
         } else if (const auto *motion = std::get_if<prism::contracts::PointerMotionEvent>(&event)) {
+            ++pointer_motion_count;
             CheckSource(motion->source);
             sources_valid &= motion->source == pointer_source;
             sources_valid &= motion->position.x >= 0 && motion->position.y >= 0;
         } else if (const auto *button = std::get_if<prism::contracts::PointerButtonEvent>(&event)) {
             CheckSource(button->source);
             sources_valid &= button->source == pointer_source;
+            sources_valid &= button->protocol_serial != 0;
         } else if (const auto *focus = std::get_if<prism::contracts::FocusEvent>(&event)) {
             CheckSource(focus->source);
             focus_lost_count += !focus->focused;
@@ -93,6 +111,41 @@ struct WindowEvents {
                 shift_tab_count += key->modifiers.shift;
                 plain_tab_count += !key->modifiers.shift;
             }
+        }
+    }
+
+    void HandleTouch(const prism::contracts::WindowEvent &event)
+    {
+        using namespace prism::contracts;
+        if (const auto *down = std::get_if<TouchDownEvent>(&event)) {
+            CheckSource(down->source);
+            touch_valid &= down->time_ns != 0 && down->source.device != pointer_source.device;
+            touch_valid &= down->protocol_serial != 0;
+            if (!contacts.empty()) {
+                touch_valid &= down->source == touch_source;
+            }
+            touch_source = down->source;
+            touch_valid &= contacts.emplace(down->contact, down->position).second;
+            ++touch_down_count;
+        } else if (const auto *motion = std::get_if<TouchMotionEvent>(&event)) {
+            touch_valid &= motion->source == touch_source && contacts.contains(motion->contact);
+            contacts[motion->contact] = motion->position;
+            ++touch_motion_count;
+        } else if (const auto *up = std::get_if<TouchUpEvent>(&event)) {
+            if (auto contact = contacts.find(up->contact); contact != contacts.end()) {
+                last_touch_up_position = contact->second;
+            }
+            touch_valid &= up->source == touch_source && contacts.erase(up->contact) == 1;
+            ++touch_up_count;
+        } else if (const auto *cancel = std::get_if<TouchCancelEvent>(&event)) {
+            CheckSource(cancel->source);
+            touch_valid &= cancel->source == touch_source;
+            touch_cancelled_source = cancel->source;
+            contacts.clear();
+            ++touch_cancel_count;
+        } else if (const auto *frame = std::get_if<TouchFrameEvent>(&event)) {
+            touch_valid &= frame->source == touch_source;
+            ++touch_frame_count;
         }
     }
 };
@@ -291,6 +344,98 @@ void Paint(void *data, int width, int height, int stride)
     }
 }
 
+bool WaitForTouch(ClientState &state, prism::platform::WaylandWindow &window, WindowEvents &events,
+                  int phase, std::array<int, 5> counts)
+{
+    state.touch_phase = phase;
+    const auto deadline = std::chrono::steady_clock::now() + 3s;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (!window.Pump(10)) {
+            return false;
+        }
+        if (state.touch_phase == phase + 1 && events.touch_down_count >= counts[0] &&
+            events.touch_motion_count >= counts[1] && events.touch_up_count >= counts[2] &&
+            events.touch_cancel_count >= counts[3] && events.touch_frame_count >= counts[4]) {
+            return events.touch_valid && events.sources_valid && state.touch_points_valid;
+        }
+    }
+    std::fprintf(stderr, "touch phase %d timed out: %d/%d/%d/%d/%d\n", phase,
+                 events.touch_down_count, events.touch_motion_count, events.touch_up_count,
+                 events.touch_cancel_count, events.touch_frame_count);
+    return false;
+}
+
+bool RunTouchClient(ClientState &state, prism::platform::WaylandWindow &window,
+                    WindowEvents &events)
+{
+    const auto pointer_enters = window.PointerEnterCount();
+    const auto pointer_buttons = window.PointerButtonCount();
+    const auto pointer_motions = events.pointer_motion_count;
+    if (!WaitForTouch(state, window, events, 1, {2, 0, 0, 0, 1}) || events.contacts.size() != 2) {
+        return false;
+    }
+    const auto initial = events.contacts;
+    auto first = initial.begin();
+    auto second = std::next(first);
+    if (std::abs(second->second.x - first->second.x - state.output_width * 0.05) > 0.01 ||
+        std::abs(second->second.y - first->second.y - state.output_height * 0.05) > 0.01) {
+        return false;
+    }
+    const auto original_source = events.touch_source;
+
+    if (!WaitForTouch(state, window, events, 3, {2, 2, 1, 0, 2}) || events.contacts.size() != 1 ||
+        !events.contacts.contains(second->first) ||
+        std::abs(events.contacts.at(second->first).y - second->second.y -
+                 state.output_height * 0.05) > 0.01 ||
+        std::abs(events.last_touch_up_position.x - first->second.x + state.output_width * 0.5) >
+            0.01 ||
+        std::abs(events.last_touch_up_position.y - first->second.y + state.output_height * 0.5) >
+            0.01) {
+        return false;
+    }
+    if (!WaitForTouch(state, window, events, 5, {2, 2, 1, 1, 2}) || !events.contacts.empty() ||
+        events.touch_cancelled_source != original_source) {
+        return false;
+    }
+    // wl_touch.cancel clears this client's logical source, across physical devices.
+    if (!WaitForTouch(state, window, events, 7, {4, 2, 1, 2, 3}) || !events.contacts.empty() ||
+        events.touch_source != original_source) {
+        return false;
+    }
+    // Removing the last device also withdraws the logical wl_touch capability.
+    if (!WaitForTouch(state, window, events, 9, {5, 2, 1, 4, 4}) || !events.contacts.empty()) {
+        return false;
+    }
+    if (!WaitForTouch(state, window, events, 11, {5, 2, 1, 4, 4}) ||
+        wl_display_roundtrip(window.Display()) < 0 || wl_display_roundtrip(window.Display()) < 0 ||
+        !WaitForTouch(state, window, events, 13, {6, 2, 1, 4, 5})) {
+        return false;
+    }
+    if (events.touch_source.seat != original_source.seat ||
+        events.touch_source.device != original_source.device ||
+        events.touch_source.generation <= original_source.generation ||
+        window.PointerEnterCount() != pointer_enters ||
+        window.PointerButtonCount() != pointer_buttons ||
+        events.pointer_motion_count != pointer_motions || events.contacts.size() != 1 ||
+        events.touch_down_count != 6 || events.touch_motion_count != 2 ||
+        events.touch_up_count != 1) {
+        return false;
+    }
+
+    // Detaching the buffer keeps wl_touch alive, so this cancel must come from the WM.
+    wl_surface_attach(window.Surface(), nullptr, 0, 0);
+    wl_surface_commit(window.Surface());
+    if (wl_display_roundtrip(window.Display()) < 0 ||
+        !WaitForTouch(state, window, events, 15, {6, 2, 1, 5, 5}) || !events.contacts.empty()) {
+        return false;
+    }
+
+    const int cancels = events.touch_cancel_count;
+    window.Close();
+    return events.touch_cancel_count == cancels + 1 && events.contacts.empty() &&
+           events.touch_cancelled_source == events.touch_source && events.touch_valid;
+}
+
 bool RunClient(ClientState &state)
 {
     prism::platform::WaylandWindow window;
@@ -381,7 +526,7 @@ bool RunClient(ClientState &state)
                                  events.pointer_source.seat == original_source.seat &&
                                  events.pointer_source.device == original_source.device &&
                                  events.pointer_source.generation > original_source.generation;
-    return restored_source && remote.CloseDevices();
+    return restored_source && RunTouchClient(state, window, events) && remote.CloseDevices();
 }
 
 void ClientThread(ClientState *state)
@@ -400,6 +545,116 @@ bool HasGermanYMapping(prism::wm::WlrServer &server)
     const int count = xkb_keymap_key_get_syms_by_level(keyboard->keymap, 21 + 8, 0, 0, &symbols);
     return count == 1 && symbols[0] == XKB_KEY_z;
 }
+
+class TouchDevices {
+public:
+    explicit TouchDevices(prism::wm::WlrServer &server) : server_(server)
+    {
+        Attach(first_, first_live_);
+        Attach(second_, second_live_);
+    }
+
+    ~TouchDevices()
+    {
+        Finish(first_, first_live_);
+        Finish(second_, second_live_);
+    }
+
+    void RunPhase(ClientState &state)
+    {
+        const int phase = state.touch_phase;
+        if (phase == 1) {
+            Down(first_, 7, 0.5, 0.5);
+            Down(second_, 7, 0.55, 0.55);
+            Down(first_, 7, 0.6, 0.6);
+            Frame(first_);
+            state.touch_points_valid = wlr_seat_touch_num_points(server_.GetSeat()) == 2;
+        } else if (phase == 3) {
+            Motion(first_, 7, 0.0, 0.0);
+            Motion(second_, 7, 0.55, 0.6);
+            Up(first_, 7);
+            Frame(first_);
+            state.touch_points_valid =
+                state.touch_points_valid && wlr_seat_touch_num_points(server_.GetSeat()) == 1;
+        } else if (phase == 5) {
+            wlr_touch_cancel_event event{.touch = &second_, .time_msec = 205, .touch_id = 7};
+            wl_signal_emit_mutable(&second_.events.cancel, &event);
+            Motion(second_, 7, 0.6, 0.6);
+            Up(second_, 7);
+            Frame(second_);
+            state.touch_points_valid =
+                state.touch_points_valid && wlr_seat_touch_num_points(server_.GetSeat()) == 0;
+        } else if (phase == 7) {
+            Down(first_, 19, 0.5, 0.5);
+            Down(second_, 20, 0.55, 0.55);
+            Frame(first_);
+            Finish(first_, first_live_);
+        } else if (phase == 9) {
+            Up(second_, 20);
+            Down(second_, 19, 0.5, 0.5);
+            Frame(second_);
+            Finish(second_, second_live_);
+        } else if (phase == 11) {
+            Attach(first_, first_live_);
+        } else if (phase == 13) {
+            Down(first_, 7, 0.5, 0.5);
+            Frame(first_);
+        } else if (phase == 15) {
+            state.touch_points_valid =
+                state.touch_points_valid && wlr_seat_touch_num_points(server_.GetSeat()) == 0;
+        } else {
+            return;
+        }
+        state.touch_phase = phase + 1;
+    }
+
+private:
+    void Attach(wlr_touch &touch, bool &live)
+    {
+        static const wlr_touch_impl impl{.name = "prism-test-touch"};
+        touch = {};
+        wlr_touch_init(&touch, &impl, "prism-test-touch");
+        live = true;
+        server_.HandleNewInput(&touch.base);
+    }
+
+    static void Finish(wlr_touch &touch, bool &live)
+    {
+        if (live) {
+            wlr_touch_finish(&touch);
+            live = false;
+        }
+    }
+
+    static void Down(wlr_touch &touch, std::int32_t id, double x, double y)
+    {
+        wlr_touch_down_event event{
+            .touch = &touch, .time_msec = 201, .touch_id = id, .x = x, .y = y};
+        wl_signal_emit_mutable(&touch.events.down, &event);
+    }
+
+    static void Motion(wlr_touch &touch, std::int32_t id, double x, double y)
+    {
+        wlr_touch_motion_event event{
+            .touch = &touch, .time_msec = 202, .touch_id = id, .x = x, .y = y};
+        wl_signal_emit_mutable(&touch.events.motion, &event);
+    }
+
+    static void Up(wlr_touch &touch, std::int32_t id)
+    {
+        wlr_touch_up_event event{.touch = &touch, .time_msec = 203, .touch_id = id};
+        wl_signal_emit_mutable(&touch.events.up, &event);
+    }
+
+    static void Frame(wlr_touch &touch)
+    {
+        wl_signal_emit_mutable(&touch.events.frame, &touch);
+    }
+
+    prism::wm::WlrServer &server_;
+    wlr_touch first_{}, second_{};
+    bool first_live_{}, second_live_{};
+};
 
 } // namespace
 
@@ -438,12 +693,19 @@ int main()
                                                  .led_update = nullptr};
     wlr_keyboard_init(&physical_keyboard, &keyboard_impl, "prism-test-physical-keyboard");
     server.HandleNewInput(&physical_keyboard.base);
+    TouchDevices touch_devices(server);
 
     ClientState state{.socket = socket};
+    const auto outputs = server.GetOutputsInfo();
+    if (!outputs.empty()) {
+        state.output_width = outputs.front().width;
+        state.output_height = outputs.front().height;
+    }
     std::thread client(ClientThread, &state);
     const auto deadline = std::chrono::steady_clock::now() + 20s;
     while (!state.done && std::chrono::steady_clock::now() < deadline) {
         server.RunEventLoopIteration(10);
+        touch_devices.RunPhase(state);
         if (state.keymap_ready && !state.keymap_checked) {
             state.custom_keymap = HasGermanYMapping(server);
             state.keymap_checked = true;
@@ -451,11 +713,12 @@ int main()
         if (state.capability_phase == 1) {
             wlr_seat_pointer_notify_clear_focus(server.GetSeat());
             wlr_seat_pointer_notify_frame(server.GetSeat());
-            wlr_seat_set_capabilities(server.GetSeat(), 0);
+            wlr_seat_set_capabilities(server.GetSeat(), WL_SEAT_CAPABILITY_TOUCH);
             state.capability_phase = 2;
         } else if (state.capability_phase == 3) {
-            wlr_seat_set_capabilities(server.GetSeat(),
-                                      WL_SEAT_CAPABILITY_POINTER | WL_SEAT_CAPABILITY_KEYBOARD);
+            wlr_seat_set_capabilities(server.GetSeat(), WL_SEAT_CAPABILITY_POINTER |
+                                                            WL_SEAT_CAPABILITY_KEYBOARD |
+                                                            WL_SEAT_CAPABILITY_TOUCH);
             state.capability_phase = 4;
         }
     }
@@ -466,9 +729,12 @@ int main()
     client.join();
     const bool restored =
         !timed_out && wlr_seat_get_keyboard(server.GetSeat()) == &physical_keyboard;
-    const bool passed = state.passed && state.custom_keymap && restored;
-    std::fprintf(stderr, "virtual-input: delivered=%d custom-keymap=%d physical-restored=%d\n",
-                 state.passed.load(), state.custom_keymap.load(), restored);
+    const bool touches_cleared = !timed_out && wlr_seat_touch_num_points(server.GetSeat()) == 0;
+    const bool passed = state.passed && state.custom_keymap && restored && touches_cleared;
+    std::fprintf(
+        stderr,
+        "virtual-input: delivered=%d custom-keymap=%d physical-restored=%d touch-cleared=%d\n",
+        state.passed.load(), state.custom_keymap.load(), restored, touches_cleared);
 
     wlr_keyboard_finish(&physical_keyboard);
     server.Stop();

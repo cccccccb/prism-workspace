@@ -57,8 +57,17 @@ std::vector<std::uint8_t> EncodeWorker(const WorkerMessage &message)
         body = EncodeThemeApplied(*applied);
     } else if (const auto *request = std::get_if<contracts::ThemeRequest>(&message)) {
         body = EncodeThemeRequest(*request);
+    } else if (const auto *event = std::get_if<contracts::ThemeEvent>(&message)) {
+        body = EncodeThemeEvent(*event);
+    } else if (const auto *subscription = std::get_if<contracts::LayoutSubscription>(&message)) {
+        body = contracts::EncodeLayoutSubscription(*subscription);
+    } else if (const auto *state = std::get_if<contracts::LayoutStateEvent>(&message)) {
+        body = contracts::EncodeLayoutState(*state);
+    } else if (const auto *request = std::get_if<contracts::LayoutControlRequest>(&message)) {
+        body = contracts::EncodeLayoutControl(*request);
     } else {
-        body = EncodeThemeEvent(std::get<contracts::ThemeEvent>(message));
+        body =
+            contracts::EncodeLayoutControlResult(std::get<contracts::LayoutControlResult>(message));
     }
     std::vector<std::uint8_t> out;
     Put(out, 0x50525731, 4);
@@ -75,9 +84,14 @@ std::size_t WorkerFrameSize(std::span<const std::uint8_t> bytes)
         return 0;
     }
     const auto type = Get(bytes, 6, 2), length = Get(bytes, 8, 4);
-    if (Get(bytes, 0, 4) != 0x50525731 || Get(bytes, 4, 2) != 1 || type < 1 || type > 12 ||
-        length > contracts::kMaxThemePayload) {
+    if (Get(bytes, 0, 4) != 0x50525731 || Get(bytes, 4, 2) != 1 || type < 1 || type > 16 ||
+        length > (type == 14 ? contracts::kMaxLayoutStatePayload : contracts::kMaxThemePayload)) {
         throw std::invalid_argument("Invalid worker header");
+    }
+    if ((type == 13 && length != 11) || (type == 14 && length < 11) ||
+        (type == 15 && length != contracts::kLayoutControlPayload) ||
+        (type == 16 && length != contracts::kLayoutControlResultPayload)) {
+        throw std::invalid_argument("Invalid layout worker payload length");
     }
     return 12 + length;
 }
@@ -119,6 +133,18 @@ WorkerMessage DecodeWorker(std::span<const std::uint8_t> bytes)
     }
     if (type == 12) {
         return contracts::DecodeThemeEvent(body);
+    }
+    if (type == 13) {
+        return contracts::DecodeLayoutSubscription(body);
+    }
+    if (type == 14) {
+        return contracts::DecodeLayoutState(body);
+    }
+    if (type == 15) {
+        return contracts::DecodeLayoutControl(body);
+    }
+    if (type == 16) {
+        return contracts::DecodeLayoutControlResult(body);
     }
     auto decoded = DecodeMessage(body);
     if (type == 3) {

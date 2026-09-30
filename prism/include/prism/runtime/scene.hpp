@@ -2,10 +2,12 @@
 
 #include "prism/contracts/display_list.hpp"
 #include "prism/contracts/events.hpp"
+#include "prism/contracts/gesture.hpp"
 #include "prism/contracts/surface_effect.hpp"
 #include "prism/contracts/theme.hpp"
 #include "prism/runtime/animation_sample.hpp"
 #include "prism/runtime/blueprint.hpp"
+#include "prism/runtime/input_snapshot.hpp"
 #include "prism/runtime/ui_install.hpp"
 #include <cstddef>
 #include <cstdint>
@@ -82,7 +84,7 @@ struct HitResult {
 };
 
 struct InteractionState {
-    bool hovered{}, pressed{}, captured{}, focused{}, focusVisible{};
+    bool hovered{}, pressed{}, captured{}, focused{}, focusVisible{}, dragging{};
     bool enabled{true};
     bool operator==(const InteractionState &) const = default;
 };
@@ -160,11 +162,25 @@ public:
     std::optional<contracts::DisplayList> Build(contracts::WindowId window);
     std::optional<std::string> ActionAt(contracts::LogicalPoint point) const;
     std::optional<HitResult> HitTest(contracts::LogicalPoint point) const;
+    std::optional<HitResult> HitTest(contracts::LogicalPoint point,
+                                     const InputSnapshot &snapshot) const;
+    // Geometry from the latest Build/Capture; the worker chooses when it becomes current.
+    std::shared_ptr<const InputSnapshot> InputGeometry() const noexcept;
+    // Freezes input-only changes after layout, without a display-list build attempt.
+    std::shared_ptr<const InputSnapshot> CaptureInputSnapshot();
+    // Called only after the worker confirms adopting this input geometry.
+    bool ApplyInputSnapshot(const std::shared_ptr<const InputSnapshot> &snapshot);
     InteractionResult HandleInput(const contracts::WindowEvent &event);
+    // A null snapshot has no submitted targets and cannot start an activation.
+    InteractionResult HandleInput(const contracts::WindowEvent &event,
+                                  const std::shared_ptr<const InputSnapshot> &snapshot);
     InteractionState State(contracts::NodeId id) const;
     // Typed runtime control; this does not introduce an enabled DSL property.
     bool SetEnabled(contracts::NodeId id, bool enabled);
     bool CancelInput();
+    // Drains owning values before callbacks can replace a UI or mutate the Scene.
+    std::vector<contracts::GestureEvent> TakeGestureEvents();
+    bool SetGesture(contracts::NodeId, std::optional<GestureSpec>);
 
     Dirty PendingDirty() const
     {
@@ -247,20 +263,52 @@ private:
     void ApplyCachedProperty(Node &node, DslProperty property, const PropertyValue &value);
     PropertyValue CurrentProperty(const Node &node, DslProperty property) const;
     std::optional<HitResult> Hit(const Node &node, contracts::LogicalPoint point) const;
+    std::optional<HitResult> Hit(const InputSnapshotNode &, contracts::LogicalPoint,
+                                 const InputSnapshot &) const;
+    void UpdateInputSnapshot();
+    static std::uint64_t NextInputSceneId();
     bool IsEnabled(const Node &node) const;
     bool IsInteractive(contracts::NodeId id) const;
+    bool IsInteractive(contracts::NodeId id, const InputSnapshot *) const;
+    std::optional<HitResult> InputHit(contracts::LogicalPoint,
+                                      const std::shared_ptr<const InputSnapshot> &, bool) const;
     void TrackInputTarget(contracts::NodeId id);
+    std::uint64_t StartGesture(contracts::NodeId, contracts::InputSource, bool touch,
+                               contracts::InputContactId, std::uint32_t serial,
+                               contracts::LogicalPoint, std::uint64_t time_ns,
+                               const std::shared_ptr<const InputSnapshot> &);
+    void MoveGesture(std::uint64_t id, contracts::LogicalPoint, std::uint64_t time_ns) noexcept;
+    bool FinishGesture(std::uint64_t id, contracts::GesturePhase,
+                       std::uint64_t time_ns = 0) noexcept;
+    bool IsDragging(std::uint64_t id) const noexcept;
+    bool IsGestureActive(std::uint64_t id) const noexcept;
+    void ReconcileGestures() noexcept;
     bool RefreshInputStates() noexcept;
     bool ReconcileInput() noexcept;
     void PrepareInputGeometry();
     void RefreshInputGeometry() noexcept;
     void CancelSeatInput(std::uint64_t seat) noexcept;
     bool SetInputFocus(contracts::NodeId id, std::uint64_t seat, bool visible);
-    bool MoveInputFocus(std::uint64_t seat, bool reverse);
-    void MoveInputPointer(contracts::InputSource source, contracts::LogicalPoint point);
-    void LeaveInputPointer(contracts::InputSource source, bool cancel);
-    std::optional<Activation> HandleInputButton(const contracts::PointerButtonEvent &);
-    std::optional<Activation> HandleInputKey(const contracts::KeyEvent &);
+    bool MoveInputFocus(std::uint64_t seat, bool reverse, const InputSnapshot *snapshot = nullptr,
+                        bool submitted = false);
+    void MoveInputPointer(contracts::InputSource source, contracts::LogicalPoint point,
+                          const std::shared_ptr<const InputSnapshot> &snapshot = {},
+                          bool submitted = false);
+    void LeaveInputPointer(contracts::InputSource source, bool cancel, std::uint64_t time_ns = 0);
+    std::optional<Activation> HandleInputButton(const contracts::PointerButtonEvent &,
+                                                const std::shared_ptr<const InputSnapshot> &, bool);
+    std::optional<Activation> HandleInputKey(const contracts::KeyEvent &, const InputSnapshot *,
+                                             bool);
+    void HandleTouchDown(const contracts::TouchDownEvent &,
+                         const std::shared_ptr<const InputSnapshot> &, bool);
+    void HandleTouchMotion(const contracts::TouchMotionEvent &,
+                           const std::shared_ptr<const InputSnapshot> &, bool);
+    std::optional<Activation> HandleTouchUp(const contracts::TouchUpEvent &,
+                                            const std::shared_ptr<const InputSnapshot> &, bool);
+    void CancelTouchInput(contracts::InputSource, std::uint64_t time_ns = 0) noexcept;
+    void RefreshTouchGeometry() noexcept;
+    InteractionResult DispatchInput(const contracts::WindowEvent &,
+                                    const std::shared_ptr<const InputSnapshot> &, bool);
     void CollectSurfaceEffects(const Node &, std::vector<contracts::SurfaceInputRegion> &,
                                std::vector<contracts::SurfaceEffectRegion> &) const;
     void AddInputRegion(contracts::SurfaceInputRegion,
@@ -290,6 +338,10 @@ private:
     std::unique_ptr<AnimationState> animation_state_;
     bool state_styles_dirty_{true};
     std::unique_ptr<InputState> input_state_;
+    std::shared_ptr<const InputSnapshot> input_snapshot_;
+    const std::uint64_t input_scene_id_{NextInputSceneId()};
+    std::uint64_t applied_input_version_{};
+    bool input_snapshot_dirty_{true};
     AnimationSampleStamp animation_sample_{};
     bool hit_geometry_dirty_{true};
     mutable bool input_dirty_{true};

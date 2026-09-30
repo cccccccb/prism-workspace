@@ -5,7 +5,7 @@
 
 namespace prism::runtime {
 
-enum class StateCondition { Hovered, Pressed, Captured, Disabled, Focused, FocusVisible };
+enum class StateCondition { Hovered, Pressed, Captured, Disabled, Focused, FocusVisible, Dragging };
 
 // The only v1 scope is the nearest enclosing InteractionTarget. References
 // remain typed theme names until installation; no input is sent to a module.
@@ -19,7 +19,7 @@ struct StateRule {
 
 constexpr bool ValidStateCondition(StateCondition condition)
 {
-    return condition >= StateCondition::Hovered && condition <= StateCondition::FocusVisible;
+    return condition >= StateCondition::Hovered && condition <= StateCondition::Dragging;
 }
 
 constexpr bool IsFocusCondition(StateCondition condition)
@@ -32,6 +32,8 @@ constexpr int StatePriority(StateCondition condition)
     switch (condition) {
     case StateCondition::Disabled:
         return 400;
+    case StateCondition::Dragging:
+        return 350;
     case StateCondition::Pressed:
         return 300;
     case StateCondition::Captured:

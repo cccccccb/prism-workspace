@@ -48,3 +48,7 @@ target_link_libraries(prism_theme_contract PUBLIC prism_contracts)
 # Structural drawing validation has no resource registry or backend dependency.
 add_library(prism_display_list_contract STATIC display_list_validation.cpp)
 target_link_libraries(prism_display_list_contract PUBLIC prism_contracts)
+
+add_library(prism_layout_contract STATIC layout_snapshot.cpp layout_snapshot_validation.cpp
+    layout_display_name.cpp layout_control.cpp)
+target_link_libraries(prism_layout_contract PUBLIC prism_contracts)

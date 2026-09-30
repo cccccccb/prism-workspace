@@ -69,11 +69,10 @@ void WlrServer::HandleNewXdgToplevel(struct wlr_xdg_toplevel *toplevel)
     view->x = 0;
     view->y = 0;
     if (role) {
-        const int width =
-            !outputs_.empty() && outputs_[0]->wlr_output ? outputs_[0]->wlr_output->width : 1280;
-        const int height =
-            !outputs_.empty() && outputs_[0]->wlr_output ? outputs_[0]->wlr_output->height : 720;
-        const auto bounds = theme_.ShellRect(role, width, height);
+        const auto output = PrimaryLogicalBounds();
+        auto bounds = theme_.ShellRect(role, int(output.width), int(output.height));
+        bounds.x += output.x;
+        bounds.y += output.y;
         view->x = static_cast<int>(bounds.x);
         view->y = static_cast<int>(bounds.y);
         view->width = static_cast<int>(bounds.width);
@@ -118,6 +117,12 @@ void WlrServer::HandleXdgMap(WlrXdgView *view)
         view->managed = compositor_->ManageNativeWindow(
             view->toplevel->app_id ? view->toplevel->app_id : "",
             view->toplevel->title ? view->toplevel->title : "", view->pid, view->instance);
+        if (!view->managed) {
+            wl_client_post_implementation_error(
+                wl_resource_get_client(view->toplevel->base->surface->resource),
+                "Prism window capacity exceeded");
+            return;
+        }
         view->fullscreen = view->toplevel->requested.fullscreen;
         view->maximized = view->toplevel->requested.maximized;
         if (view->managed) {
@@ -138,6 +143,7 @@ void WlrServer::HandleXdgMap(WlrXdgView *view)
 
 void WlrServer::HandleXdgUnmap(WlrXdgView *view)
 {
+    layout_controls_.Revoke({view->instance});
     if (dragged_xdg_view_ == view) {
         dragged_xdg_view_ = nullptr;
     }
@@ -162,6 +168,7 @@ void WlrServer::HandleXdgUnmap(WlrXdgView *view)
 
 void WlrServer::HandleXdgDestroy(WlrXdgView *view)
 {
+    layout_controls_.Revoke({view->instance});
     if (dragged_xdg_view_ == view) {
         dragged_xdg_view_ = nullptr;
     }
@@ -215,13 +222,20 @@ void WlrServer::ArrangeXdgViews()
     if (!compositor_) {
         return;
     }
-    const int width =
-        !outputs_.empty() && outputs_[0]->wlr_output ? outputs_[0]->wlr_output->width : 1280;
-    const int height =
-        !outputs_.empty() && outputs_[0]->wlr_output ? outputs_[0]->wlr_output->height : 720;
+    const auto output = PrimaryLogicalBounds();
+    const int width = static_cast<int>(output.width);
+    const int height = static_cast<int>(output.height);
     compositor_->SetScreenSize(width, height);
     auto &engine = compositor_->GetTreeEngine();
-    engine.Arrange(theme_.WorkArea(width, height), theme_.TreeLayout());
+    auto work_area = theme_.WorkArea(width, height);
+    work_area.x += output.x;
+    work_area.y += output.y;
+    engine.Arrange(work_area, theme_.TreeLayout());
+    for (const auto &item : outputs_) {
+        wlr_box box{};
+        wlr_output_layout_get_box(output_layout_, item->wlr_output, &box);
+        wlr_scene_output_set_position(item->scene_output, box.x, box.y);
+    }
     const auto active = engine.GetActiveWorkspace();
     WlrXdgView *fullscreen = nullptr;
     for (const auto &view : xdg_views_) {
@@ -240,6 +254,8 @@ void WlrServer::ArrangeXdgViews()
         core::Rect bounds{};
         if (view->shell_role) {
             bounds = theme_.ShellRect(view->shell_role, width, height);
+            bounds.x += output.x;
+            bounds.y += output.y;
             view->visible = view->mapped && (!fullscreen || view->shell_role == 1);
         } else if (view->managed) {
             auto node = engine.FindViewForWindow(view->managed);
@@ -247,16 +263,19 @@ void WlrServer::ArrangeXdgViews()
             view->visible =
                 view->mapped && in_workspace && (!fullscreen || fullscreen == view.get());
             if (fullscreen == view.get()) {
-                bounds = {0, 0, static_cast<float>(width), static_cast<float>(height)};
+                bounds = output;
             } else if (node) {
-                bounds = node->bounds;
+                bounds = node->GetBounds();
             }
-            view->managed->SetBounds(bounds);
             view->managed->SetVisible(view->visible);
         } else {
             view->visible = false;
         }
         wlr_scene_node_set_enabled(&view->scene_tree->node, view->visible);
+        if (!view->visible) {
+            CancelLayoutControlsForSurface(view->toplevel->base->surface);
+            CancelTouchesForSurface(view->toplevel->base->surface);
+        }
         if (!view->shell_role && !view->managed) {
             continue;
         }
@@ -266,6 +285,11 @@ void WlrServer::ArrangeXdgViews()
         const int h = std::max(1, static_cast<int>(std::round(bounds.height)));
         view->x = x;
         view->y = y;
+        if (view->managed) {
+            // Target geometry reports the actual integer XDG configure and
+            // scene position. The separate tree tile can retain fractional bounds.
+            view->managed->SetBounds({float(x), float(y), float(w), float(h)});
+        }
         wlr_scene_node_set_position(&view->scene_tree->node, x, y);
         // Pure topology swaps can move a view without asking the client to
         // resize or commit. Keep the committed size and displayed origin current.
@@ -288,6 +312,7 @@ void WlrServer::ArrangeXdgViews()
     UpdateXdgPointerFocus(static_cast<uint32_t>(core::CurrentTimeNs() / 1000000));
     InvalidateEffects();
     ScheduleFrames(FrameReason::Layout);
+    InvalidateLayoutSnapshot();
 }
 
 void WlrServer::SynchronizeXdgFocus()
@@ -309,6 +334,7 @@ void WlrServer::SynchronizeXdgFocus()
     focused_xdg_view_ = nullptr;
     wlr_seat_keyboard_notify_clear_focus(seat_);
     InvalidateEffects();
+    InvalidateLayoutSnapshot();
 }
 
 void WlrServer::FocusXdgView(WlrXdgView *view)
@@ -347,6 +373,7 @@ void WlrServer::FocusXdgView(WlrXdgView *view)
         wlr_xdg_toplevel_set_activated(focused_xdg_view_->toplevel, false);
     }
     focused_xdg_view_ = view;
+    InvalidateLayoutSnapshot();
     wlr_scene_node_raise_to_top(&view->scene_tree->node);
     if (changed) {
         InvalidateEffects();

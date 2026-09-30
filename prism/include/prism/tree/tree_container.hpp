@@ -17,30 +17,22 @@ public:
         return layout_mode_;
     }
 
-    void SetLayoutMode(LayoutMode mode)
-    {
-        layout_mode_ = mode;
-    }
+    void SetLayoutMode(LayoutMode mode);
 
     int GetActiveChildIndex() const
     {
         return active_child_index_;
     }
 
-    void SetActiveChildIndex(int idx)
-    {
-        if (idx >= 0 && idx < static_cast<int>(children.size())) {
-            active_child_index_ = idx;
-        }
-    }
+    void SetActiveChildIndex(int idx);
 
     std::shared_ptr<TreeNode> GetActiveChild() const
     {
-        if (children.empty()) {
+        if (GetChildren().empty()) {
             return nullptr;
         }
-        int idx = std::clamp(active_child_index_, 0, static_cast<int>(children.size() - 1));
-        return children[idx];
+        int idx = std::clamp(active_child_index_, 0, static_cast<int>(GetChildren().size() - 1));
+        return GetChildren()[idx];
     }
 
     // Fraction Normalization
@@ -55,7 +47,22 @@ public:
     ipc::TreeNodeMessage ToMessage(bool is_focused = false) const override;
     std::string ToJson(bool is_focused = false) const override;
 
+    struct BoundaryIdentity {
+        std::uint64_t id{0};
+        std::uint64_t before{0};
+        std::uint64_t after{0};
+        LayoutMode axis{LayoutMode::None};
+    };
+
+    const std::vector<BoundaryIdentity> &GetBoundaries() const noexcept
+    {
+        return boundaries_;
+    }
+
 private:
+    void ChildrenChanged() override;
+    void AttachmentChanged() override;
+    void RefreshBoundaries();
     void ArrangeSplitHorizontal(const core::Rect &area, int inner_gap, float header_height);
     void ArrangeSplitVertical(const core::Rect &area, int inner_gap, float header_height);
     void ArrangeTabbed(const core::Rect &area, float header_height);
@@ -63,6 +70,8 @@ private:
 
     LayoutMode layout_mode_{LayoutMode::SplitHorizontal};
     int active_child_index_{0};
+    std::weak_ptr<TreeNode> active_child_;
+    std::vector<BoundaryIdentity> boundaries_;
 };
 
 } // namespace prism::tree

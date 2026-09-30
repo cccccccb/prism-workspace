@@ -44,6 +44,8 @@ def run(build, evidence):
                     ("sdk-animation", [str(build / "tests/prism_skia_gles_wayland_probe"),
                                        env["WAYLAND_DISPLAY"], "--verify-animation",
                                        "prism.preparation.animation"]),
+                    ("sdk-input-snapshot", [str(build / "tests/sdk_input_snapshot_probe"),
+                                            env["WAYLAND_DISPLAY"]]),
                     ("sdk-input-animation", [str(build / "tests/sdk_input_animation_probe"),
                                              env["WAYLAND_DISPLAY"]]),
                 ]

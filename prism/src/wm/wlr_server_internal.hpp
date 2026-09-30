@@ -38,6 +38,7 @@ extern "C" {
 #include <wlr/types/wlr_screencopy_v1.h>
 #include <wlr/types/wlr_seat.h>
 #include <wlr/types/wlr_subcompositor.h>
+#include <wlr/types/wlr_touch.h>
 #include <wlr/types/wlr_virtual_keyboard_v1.h>
 #include <wlr/types/wlr_virtual_pointer_v1.h>
 #include <wlr/types/wlr_xcursor_manager.h>
@@ -86,6 +87,38 @@ struct WlrKeyboardBinding {
         wl_list_remove(&keymap.link);
         wl_list_remove(&destroy.link);
     }
+};
+
+struct WlrTouchBinding {
+    struct Listener {
+        wl_listener listener{};
+        WlrTouchBinding *binding{};
+    };
+
+    WlrServer *server{};
+    wlr_touch *touch{};
+    Listener down{}, motion{}, up{}, cancel{}, frame{}, destroy{};
+    // Backend contact ids are only unique within their physical device.
+    std::map<std::int32_t, std::int32_t> contacts;
+
+    WlrTouchBinding(WlrServer *, wlr_touch *);
+    ~WlrTouchBinding();
+    static void Down(wl_listener *, void *);
+    static void Motion(wl_listener *, void *);
+    static void Up(wl_listener *, void *);
+    static void Cancel(wl_listener *, void *);
+    static void Frame(wl_listener *, void *);
+    static void Destroy(wl_listener *, void *);
+};
+
+struct WlrPointerBinding {
+    WlrServer *server{};
+    wlr_input_device *device{};
+    wl_listener destroy{};
+
+    WlrPointerBinding(WlrServer *, wlr_input_device *);
+    ~WlrPointerBinding();
+    static void Destroy(wl_listener *, void *);
 };
 
 struct WlrSurfaceWatch {
@@ -216,9 +249,12 @@ inline void UpdateCommittedGeometry(WlrXdgView *view)
     wlr_xdg_surface_get_geometry(view->toplevel->base, &geometry);
     // wlr_scene_xdg_surface already compensates for the local geometry origin,
     // so the view position is the global origin of this effective rectangle.
-    view->managed->SetCommittedBounds({static_cast<float>(view->x), static_cast<float>(view->y),
-                                       static_cast<float>(geometry.width),
-                                       static_cast<float>(geometry.height)});
+    const core::Rect next{static_cast<float>(view->x), static_cast<float>(view->y),
+                          static_cast<float>(geometry.width), static_cast<float>(geometry.height)};
+    if (view->managed->GetCommittedBounds() != next) {
+        view->managed->SetCommittedBounds(next);
+        view->server->InvalidateLayoutSnapshot();
+    }
 }
 
 void handle_output_frame(struct wl_listener *listener, void *data);

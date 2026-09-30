@@ -27,13 +27,16 @@ ModuleSession::ModuleSession(const std::filesystem::path &module, std::string ap
                              std::uint64_t instance, BindingSink bindings, LaunchSink launch,
                              SubscribeSink subscribe, ThemeSink themes, ColorSchemeSink schemes,
                              std::shared_ptr<runtime::TaskScheduler> scheduler,
-                             ModuleSessionLimits limits, std::filesystem::path assets_root)
+                             ModuleSessionLimits limits, std::filesystem::path assets_root,
+                             LayoutSubscribeSink layout_subscribe, ControlSink control)
     : module_(module), app_id_(std::move(app_id)), assets_root_(assets_root.string()),
       instance_id_(instance), bindings_(std::move(bindings)), launch_(std::move(launch)),
       subscribe_(std::move(subscribe)), themes_(std::move(themes)), schemes_(std::move(schemes)),
-      host_{sizeof(host_), PRISM_APP_ABI_V1, this,      SetBinding,  Ready,
-            Launch,        Schedule,         Subscribe, SelectTheme, SelectColorScheme,
-            SubmitWork,    CancelWork},
+      layout_subscribe_(std::move(layout_subscribe)), controls_(std::move(control)),
+      host_{
+          sizeof(host_),   PRISM_APP_ABI_V1, this,        SetBinding,        Ready,      Launch,
+          Schedule,        Subscribe,        SelectTheme, SelectColorScheme, SubmitWork, CancelWork,
+          SubscribeLayout, ControlGesture},
       limits_(limits), work_(std::make_unique<ModuleWorkState>())
 {
     if (!limits_.outstanding || limits_.outstanding > 128 || !limits_.input_bytes ||
@@ -411,6 +414,7 @@ void ModuleSession::Disconnected()
     if (!OnOwnerThread() || closed_) {
         return;
     }
+    DisconnectControl();
     if (subscription_) {
         Deliver(contracts::InstanceUpdate{
             {subscription_}, {}, 0, contracts::InstanceChange::Reset, {}});

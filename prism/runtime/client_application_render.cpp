@@ -67,7 +67,7 @@ void ClientApplication::Impl::ProcessRenderEvents(bool deliver)
         if (runtime::Has(scene->PendingDirty(), runtime::Dirty::Layout)) {
             PublishFramePacket();
         }
-        HandleWindowEvent(window.event);
+        HandleWindowEvent(window.event, window.input_snapshot);
         if (configured) {
             PublishFramePacket();
         }
@@ -97,7 +97,8 @@ void ClientApplication::Impl::ProcessRenderEvents(bool deliver)
     }
 }
 
-void ClientApplication::Impl::HandleWindowEvent(const contracts::WindowEvent &event)
+void ClientApplication::Impl::HandleWindowEvent(
+    const contracts::WindowEvent &event, const std::shared_ptr<const runtime::InputSnapshot> &input)
 {
     if (auto *configure = std::get_if<contracts::ConfigureEvent>(&event)) {
         if (configure->configure_count <= ui_configure_count) {
@@ -111,7 +112,8 @@ void ClientApplication::Impl::HandleWindowEvent(const contracts::WindowEvent &ev
         return;
     }
 
-    const auto result = scene->HandleInput(event);
+    const auto input_ui = installed_ui;
+    const auto result = scene->HandleInput(event, input);
     if (result.changed) {
         queued_frame.reset();
         QueueRenderUpdate(true);
@@ -121,7 +123,8 @@ void ClientApplication::Impl::HandleWindowEvent(const contracts::WindowEvent &ev
         // Stopping waits until PublishFramePacket retains the final pixels.
         SyncAnimationSampling();
     }
-    if (result.activation && on_action) {
+    DeliverGestureEvents();
+    if (result.activation && on_action && input_ui == installed_ui && !closed && !failed) {
         // The Scene has finished the input sequence before business code may
         // replace a region, install a new UI, or close this application.
         on_action(result.activation->action);
@@ -159,6 +162,17 @@ void ClientApplication::Impl::HandleSubmitted(const runtime::SubmittedFrameEvent
             return;
         }
         ui_submitted_frame = event.frame;
+    }
+
+    if (event.metadata_prepared && scene && event.ui == installed_ui &&
+        scene->ApplyInputSnapshot(event.frame->input_snapshot)) {
+        // A stationary pointer is rehit only after the worker adopted geometry.
+        // Its new state may start an animation independently of business bindings.
+        InvalidateQueuedFrame();
+        QueueRenderUpdate(true);
+        if (scene->HasActiveAnimations()) {
+            SyncAnimationSampling();
+        }
     }
 
     // A later Scene, theme or pixel update must not be acknowledged by an

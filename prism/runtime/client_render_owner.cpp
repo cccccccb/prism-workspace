@@ -201,6 +201,8 @@ void ClientRenderOwner::CloseGpu() noexcept
     prepared_damage_.reset();
     prepared_frame_.reset();
     render_frame_.reset();
+    input_snapshot_.reset();
+    input_ui_ = {};
     committed_frame_.reset();
     committed_damage_resource_epoch_ = 0;
 
@@ -249,7 +251,8 @@ void ClientRenderOwner::QueueWindowEvent(const contracts::WindowEvent &event) no
 
     try {
         const auto sequence = issued_event_sequence_ + 1;
-        runtime::RenderEvent copy(runtime::SequencedWindowEvent{event, sequence, installed_ui_});
+        runtime::RenderEvent copy(
+            runtime::SequencedWindowEvent{event, sequence, input_ui_, input_snapshot_});
         const auto result =
             events_.TryPushLatest(std::move(copy), runtime::ReplacePointerMotionTail);
         if (result == runtime::QueuePushResult::Accepted ||

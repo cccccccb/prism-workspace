@@ -13,6 +13,8 @@ bool Matches(StateCondition condition, const InteractionState &state)
         return state.hovered;
     case StateCondition::Pressed:
         return state.pressed;
+    case StateCondition::Dragging:
+        return state.dragging;
     case StateCondition::Captured:
         return state.captured;
     case StateCondition::Disabled:

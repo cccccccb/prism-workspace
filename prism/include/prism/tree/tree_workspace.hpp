@@ -24,11 +24,6 @@ public:
         return is_active_;
     }
 
-    void SetActive(bool active)
-    {
-        is_active_ = active;
-    }
-
     std::shared_ptr<ContainerNode> GetRootContainer() const
     {
         return root_container_;
@@ -45,6 +40,18 @@ public:
     std::string ToJson(bool is_focused = false) const override;
 
 private:
+    friend class TreeEngine;
+
+    void SetActive(bool active)
+    {
+        if (is_active_ == active) {
+            return;
+        }
+        is_active_ = active;
+        MarkLayoutChanged();
+        MarkFocusChanged();
+    }
+
     int id_{1};
     std::string name_{"1"};
     bool is_active_{false};

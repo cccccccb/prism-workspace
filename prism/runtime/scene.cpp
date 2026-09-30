@@ -21,6 +21,7 @@ void Scene::Invalidate(Dirty affected)
     dirty_ = dirty_ | affected;
     if (Has(affected, Dirty::Layout)) {
         hit_geometry_dirty_ = true;
+        input_snapshot_dirty_ = true;
     }
     if (Has(affected, Dirty::Layout) || Has(affected, Dirty::Paint)) {
         ++pixels_revision_;
@@ -153,6 +154,7 @@ bool Scene::SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyVa
     }
     if (property == DslProperty::Action) {
         PrepareInputGeometry();
+        input_snapshot_dirty_ = true;
     }
     const bool was_visible = IsVisible(*node);
     const bool state_property = IsStateProperty(*node, property);
@@ -207,7 +209,9 @@ bool Scene::SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyVa
     if (!animated) {
         ++node->revision;
         Invalidate(affected |
-                   (input_shape && affected == Dirty::None ? Dirty::Composite : Dirty::None));
+                   ((input_shape && affected == Dirty::None) || property == DslProperty::Action
+                        ? Dirty::Composite
+                        : Dirty::None));
     }
     return true;
 }
@@ -261,8 +265,12 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
 {
     ResolveInteractionStyles();
     ++build_calls_;
-    if (!root_ || !window || !scene_detail::ValidSize(viewport_) ||
-        (!Has(dirty_, Dirty::Layout) && !Has(dirty_, Dirty::Paint))) {
+    if (!root_ || !window || !scene_detail::ValidSize(viewport_)) {
+        return std::nullopt;
+    }
+    input_snapshot_dirty_ = input_snapshot_dirty_ || hit_geometry_dirty_;
+    if (!Has(dirty_, Dirty::Layout) && !Has(dirty_, Dirty::Paint)) {
+        UpdateInputSnapshot();
         return std::nullopt;
     }
 
@@ -331,6 +339,8 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
             }
         }
     }
+
+    UpdateInputSnapshot();
 
     auto next = RenderTreeBuilder::Build(snapshot, render_tree_.get());
     auto list = DisplayListBuilder::Build(next, window, font_, generation_ + 1);

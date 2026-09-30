@@ -130,6 +130,11 @@ std::unique_ptr<Scene::Node> Scene::MakeShallowNode(Blueprint blueprint, std::si
         node->explicit_properties.insert(binding.target);
     }
     node->bindings = std::move(blueprint.bindings);
+    if (blueprint.gesture &&
+        (blueprint.kind != Kind::InteractionTarget || !ValidGestureSpec(*blueprint.gesture))) {
+        throw std::invalid_argument("Invalid Blueprint gesture");
+    }
+    node->gesture = std::move(blueprint.gesture);
     PrepareNodeStates(*node, std::move(blueprint.state_rules));
     return node;
 }
@@ -143,6 +148,7 @@ Blueprint Scene::CurrentBlueprint(const Node &node) const
     result.bindings = node.bindings;
     result.transitions = node.transitions;
     result.state_rules = node.state_rules;
+    result.gesture = node.gesture;
     result.allowed_properties = node.allowed_properties;
     result.theme_refs = node.theme_refs;
     for (const auto id : node.explicit_properties) {

@@ -35,8 +35,8 @@ bool SameStructure(const Blueprint &a, const Blueprint &b)
 {
     if (a.kind != b.kind || a.region != b.region || a.region_mounted != b.region_mounted ||
         a.allowed_properties != b.allowed_properties || a.transitions != b.transitions ||
-        a.state_rules != b.state_rules || a.bindings.size() != b.bindings.size() ||
-        a.children.size() != b.children.size()) {
+        a.state_rules != b.state_rules || a.gesture != b.gesture ||
+        a.bindings.size() != b.bindings.size() || a.children.size() != b.children.size()) {
         return false;
     }
     for (std::size_t i = 0; i < a.bindings.size(); ++i) {
@@ -239,6 +239,9 @@ void Scene::ValidateRetainedValues(const std::vector<std::pair<Node *, Node *>> 
         }
         if (live->transitions != candidate->transitions) {
             throw std::invalid_argument("Candidate changes retained transition descriptors");
+        }
+        if (live->gesture != candidate->gesture) {
+            throw std::invalid_argument("Candidate changes retained gesture descriptors");
         }
         if (live->state_rules != candidate->state_rules) {
             throw std::invalid_argument("Candidate changes retained state descriptors");

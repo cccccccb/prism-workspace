@@ -12,14 +12,6 @@ void WlrServer::AttachControl(int fd, int parent_pid)
 {
     launch::VerifyControlPeer(fd, parent_pid);
     control_ = std::make_unique<launch::Stream>(fd, launch::ControlFrameSize);
-    std::array<std::uint8_t, 8> random{};
-    launch::RandomBytes(random);
-    for (auto byte : random) {
-        control_session_ = (control_session_ << 8) | byte;
-    }
-    if (!control_session_) {
-        throw std::runtime_error("Zero session nonce");
-    }
     launch::ControlMessage ready;
     ready.permit.session = control_session_;
     ready.permit.pid = getpid();
@@ -57,7 +49,12 @@ void WlrServer::PumpControl()
             if (p.session != control_session_) {
                 throw std::runtime_error("Wrong WM session");
             }
-            if (m.type == launch::ControlType::InstallTheme) {
+            if (m.type == launch::ControlType::LayoutControl) {
+                HandleLayoutControl(m);
+            } else if (m.type == launch::ControlType::LayoutSubscribe) {
+                layout_subscribed_ = m.layout_subscribe;
+                layout_sent_revision_ = 0;
+            } else if (m.type == launch::ControlType::InstallTheme) {
                 m.type = launch::ControlType::ThemeApplied;
                 m.theme_applied = InstallTheme(m.theme);
                 m.theme = {};
@@ -93,6 +90,7 @@ void WlrServer::PumpControl()
             } else if (m.type == launch::ControlType::Revoke) {
                 auto r = registrations_.find(p.pid);
                 if (r != registrations_.end() && r->second->permit.instance == p.instance) {
+                    layout_controls_.Revoke(p.instance);
                     registrations_.erase(r);
                     wl_client *client = nullptr;
                     for (const auto &view : xdg_views_) {
@@ -132,6 +130,9 @@ void WlrServer::PumpControl()
         PRISM_LOG_ERROR("WLR-CONTROL", "%s", error.what());
         control_failed_ = true;
         control_->Close();
+    }
+    if (control_failed_) {
+        layout_controls_.Reset();
     }
 }
 

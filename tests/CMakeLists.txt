@@ -16,6 +16,19 @@ add_executable(tree_engine_test
 )
 target_link_libraries(tree_engine_test PRIVATE prism_core)
 
+add_executable(tree_layout_snapshot_test tree_layout_snapshot_test.cpp)
+target_link_libraries(tree_layout_snapshot_test PRIVATE prism_core)
+add_test(NAME tree_layout_snapshot_test COMMAND tree_layout_snapshot_test)
+
+add_executable(layout_snapshot_protocol_test layout_snapshot_protocol_test.cpp)
+target_link_libraries(layout_snapshot_protocol_test PRIVATE prism_control)
+add_test(NAME layout_snapshot_protocol_test COMMAND layout_snapshot_protocol_test)
+
+add_executable(native_layout_snapshot_test native_layout_snapshot_test.cpp)
+target_link_libraries(native_layout_snapshot_test PRIVATE prism_core prism_wayland_client)
+add_test(NAME native_layout_snapshot_test COMMAND native_layout_snapshot_test)
+set_tests_properties(native_layout_snapshot_test PROPERTIES TIMEOUT 40)
+
 add_executable(layer_manager_test
     layer_manager_test.cpp
 )
@@ -141,6 +154,11 @@ if(TARGET prism_client_app)
         prism_client_app)
     add_executable(prepared_ui_probe probes/prepared_ui_probe.cpp)
     target_link_libraries(prepared_ui_probe PRIVATE prism_client_app Threads::Threads)
+    add_executable(sdk_input_snapshot_probe probes/sdk_input_snapshot_probe.cpp
+        ${VIRTUAL_INPUT_PROTOCOL_SOURCES})
+    target_include_directories(sdk_input_snapshot_probe PRIVATE "${VIRTUAL_INPUT_PROTOCOL_DIR}")
+    target_link_libraries(sdk_input_snapshot_probe PRIVATE prism_client_app
+        ${WAYLAND_CLIENT_LIBRARIES})
     add_executable(sdk_input_animation_probe probes/sdk_input_animation_probe.cpp
         ${VIRTUAL_INPUT_PROTOCOL_SOURCES})
     target_include_directories(sdk_input_animation_probe PRIVATE "${VIRTUAL_INPUT_PROTOCOL_DIR}")
@@ -452,3 +470,33 @@ if(TARGET prism_app_host_runtime)
     target_compile_options(async_business_probe PRIVATE -UNDEBUG)
     add_dependencies(async_business_probe async_business_fixture)
 endif()
+
+add_executable(scene_input_snapshot_test scene_input_snapshot_test.cpp)
+target_link_libraries(scene_input_snapshot_test PRIVATE prism_client_dsl prism_client_scene)
+target_compile_options(scene_input_snapshot_test PRIVATE -UNDEBUG)
+add_test(NAME scene_input_snapshot_test COMMAND scene_input_snapshot_test)
+set_tests_properties(scene_input_snapshot_test PROPERTIES TIMEOUT 20)
+
+add_executable(layout_control_protocol_test layout_control_protocol_test.cpp)
+target_link_libraries(layout_control_protocol_test PRIVATE prism_launch)
+add_test(NAME layout_control_protocol_test COMMAND layout_control_protocol_test)
+add_executable(scene_gesture_test scene_gesture_test.cpp)
+target_link_libraries(scene_gesture_test PRIVATE prism_client_dsl prism_client_scene)
+add_test(NAME scene_gesture_test COMMAND scene_gesture_test)
+add_executable(layout_control_authority_test layout_control_authority_test.cpp)
+target_link_libraries(layout_control_authority_test PRIVATE prism_core)
+add_test(NAME layout_control_authority_test COMMAND layout_control_authority_test)
+
+add_executable(layout_control_bridge_test layout_control_bridge_test.cpp)
+target_link_libraries(layout_control_bridge_test PRIVATE prism_module_session)
+add_test(NAME layout_control_bridge_test COMMAND layout_control_bridge_test)
+add_library(layout_control_module_fixture MODULE fixtures/layout_control_module.c)
+target_link_libraries(layout_control_module_fixture PRIVATE prism_contracts)
+add_executable(module_control_test module_control_test.cpp)
+target_link_libraries(module_control_test PRIVATE prism_module_session)
+add_dependencies(module_control_test layout_control_module_fixture)
+add_test(NAME module_control_test COMMAND module_control_test $<TARGET_FILE:layout_control_module_fixture>)
+add_executable(native_layout_control_test native_layout_control_test.cpp)
+target_link_libraries(native_layout_control_test PRIVATE prism_core prism_wayland_client)
+add_test(NAME native_layout_control_test COMMAND native_layout_control_test)
+set_tests_properties(native_layout_control_test PROPERTIES TIMEOUT 45 RUN_SERIAL TRUE)

@@ -27,6 +27,8 @@ struct HostConfig {
     std::function<std::uint64_t()> subscribe_instances;
     std::function<std::uint64_t(std::string_view)> select_theme;
     std::function<std::uint64_t(std::string_view)> select_color_scheme;
+    ModuleSession::LayoutSubscribeSink subscribe_layout;
+    ModuleSession::ControlSink submit_layout_control;
     std::optional<std::size_t> gpu_resource_cache_bytes;
     std::optional<contracts::ThemeSnapshot> initial_theme;
     // Optional pure CPU compiler adapter; ownership/thread rules match LoadSession.
@@ -88,6 +90,8 @@ public:
     void DeliverLaunchEvent(const contracts::LaunchEvent &event);
     void DeliverInstanceEvent(const contracts::InstanceUpdate &event);
     void DeliverThemeEvent(const contracts::ThemeEvent &event);
+    void DeliverLayoutState(const contracts::LayoutStateEvent &event);
+    void DeliverLayoutControlResult(const contracts::LayoutControlResult &event);
     bool ApplyTheme(const contracts::ThemeSnapshot &, std::string *diagnostic = nullptr);
     std::uint64_t ThemeGeneration() const;
     bool Bind(const launch::AppPackage &package);

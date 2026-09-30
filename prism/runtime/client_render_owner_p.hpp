@@ -93,6 +93,8 @@ private:
     std::deque<contracts::ResourceId> upload_queue_;
     std::set<std::uint64_t> queued_uploads_;
     runtime::UiLoadId installed_ui_{};
+    runtime::UiLoadId input_ui_{};
+    std::shared_ptr<const runtime::InputSnapshot> input_snapshot_;
     runtime::RenderWorkerGeneration worker_generation_{};
     std::optional<runtime::FrameOpportunityEvent> frame_opportunity_;
     std::shared_ptr<const runtime::FramePacket> approved_frame_;

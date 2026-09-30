@@ -16,6 +16,7 @@ struct Scene::Node {
     std::vector<PropertyBinding> bindings;
     std::vector<TransitionSpec> transitions;
     std::vector<StateRule> state_rules;
+    std::optional<GestureSpec> gesture;
     std::vector<StateRule> resolved_state_rules;
     std::vector<PropertyAssignment> state_values;
     Node *state_owner{};
@@ -50,6 +51,9 @@ struct Scene::InputState {
         std::string action;
         contracts::LogicalPoint position{};
         bool inside{};
+        std::shared_ptr<const InputSnapshot> snapshot;
+        bool submitted{};
+        std::uint64_t gesture{};
     };
 
     struct Focus {
@@ -65,9 +69,36 @@ struct Scene::InputState {
         std::string action;
     };
 
+    struct Touch {
+        contracts::InputSource source{};
+        contracts::InputContactId contact{};
+        contracts::NodeId captured{};
+        std::string action;
+        contracts::LogicalPoint position{};
+        bool inside{};
+        std::shared_ptr<const InputSnapshot> snapshot;
+        bool submitted{};
+        std::uint64_t gesture{};
+    };
+
+    struct Gesture {
+        contracts::GestureEvent event;
+        GestureSpec spec;
+        std::string click_action;
+        bool dragging{};
+        bool begin_pending{};
+        contracts::LogicalPoint begin_position{};
+        std::uint64_t begin_time_ns{};
+        bool update_pending{};
+        std::uint64_t update_time_ns{};
+        std::optional<contracts::GesturePhase> terminal;
+    };
+
+    std::vector<Gesture> gestures;
     std::vector<Pointer> pointers;
     std::vector<Focus> focus;
     std::vector<KeyPress> keys;
+    std::vector<Touch> touches;
     // Only active targets are revisited for pointer motion; idle nodes need no scan.
     std::vector<contracts::NodeId> active;
 };

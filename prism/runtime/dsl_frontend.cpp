@@ -70,6 +70,9 @@ std::optional<StateCondition> ParseStateCondition(std::string_view name)
     if (name == "captured") {
         return StateCondition::Captured;
     }
+    if (name == "dragging") {
+        return StateCondition::Dragging;
+    }
     if (name == "disabled") {
         return StateCondition::Disabled;
     }
@@ -287,6 +290,10 @@ private:
                          const ComponentSpec &component, const SyntaxNode &node)
     {
         for (const auto &modifier : node.modifiers) {
+            if (modifier.name == "gesture") {
+                AssignGesture(out, component, modifier);
+                continue;
+            }
             if (modifier.name == "state") {
                 AssignState(out, component, node, modifier);
                 continue;
@@ -309,6 +316,40 @@ private:
             AssignProperty(out, seen, component, node, modifier.name,
                            modifier.arguments.front().value, modifier.line);
         }
+    }
+
+    void AssignGesture(PreparedNode &out, const ComponentSpec &component,
+                       const SyntaxModifier &modifier)
+    {
+        if (component.kind != Kind::InteractionTarget || out.gesture) {
+            Error(modifier.line, "gesture requires one InteractionTarget declaration");
+        }
+        GestureSpec spec;
+        bool action_seen = false;
+        bool threshold_seen = false;
+        for (const auto &argument : modifier.arguments) {
+            if (argument.name == "action" && !action_seen) {
+                const auto *action = std::get_if<std::string>(&argument.value.data);
+                if (!action) {
+                    Error(argument.line, "gesture action requires a literal string");
+                }
+                spec.action = *action;
+                action_seen = true;
+            } else if (argument.name == "threshold" && !threshold_seen) {
+                const auto *threshold = std::get_if<double>(&argument.value.data);
+                if (!threshold) {
+                    Error(argument.line, "gesture threshold requires a numeric literal");
+                }
+                spec.threshold = *threshold;
+                threshold_seen = true;
+            } else {
+                Error(argument.line, "unknown or duplicate gesture argument: " + argument.name);
+            }
+        }
+        if (!action_seen || !ValidGestureSpec(spec)) {
+            Error(modifier.line, "gesture requires an action and threshold in [0, 1024]");
+        }
+        out.gesture = std::move(spec);
     }
 
     void AssignState(PreparedNode &out, const ComponentSpec &component, const SyntaxNode &node,

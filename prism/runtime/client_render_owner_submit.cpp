@@ -74,6 +74,10 @@ platform::SubmitResult ClientRenderOwner::PrepareSubmit(const platform::SubmitRe
     }
 
     try {
+        if (!frame->input_snapshot || !frame->input_snapshot->scene ||
+            !frame->input_snapshot->version) {
+            throw std::runtime_error("Frame has no immutable input geometry");
+        }
         const contracts::BufferSize size{static_cast<std::uint32_t>(request.width),
                                          static_cast<std::uint32_t>(request.height)};
         if (pixels) {
@@ -251,6 +255,12 @@ void ClientRenderOwner::Submitted(platform::SubmitResult result) noexcept
     if (animation_sampling_active_ && submitted.metadata_prepared &&
         result != platform::SubmitResult::Pixels) {
         approved_frame_.reset();
+    }
+    if (submitted.metadata_prepared) {
+        // Only successful Pixels/State or checked-identical None reaches here.
+        // Keep this reference even without queued input; future events use it.
+        input_snapshot_ = submitted.frame->input_snapshot;
+        input_ui_ = submitted.frame->ui;
     }
     prepared_frame_.reset();
 

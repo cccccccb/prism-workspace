@@ -123,8 +123,11 @@ struct ClientApplication::Impl {
     contracts::ResourceId RequestImage(std::set<std::uint64_t> &images, std::string_view uri);
     runtime::ShapedText ShapeText(std::string_view text, double size);
     void ProcessRenderEvents(bool deliver);
+    void CollectGestureEvents();
+    void DeliverGestureEvents();
     void ApplyRenderStatus(const runtime::RenderStatusEvent &status);
-    void HandleWindowEvent(const contracts::WindowEvent &event);
+    void HandleWindowEvent(const contracts::WindowEvent &event,
+                           const std::shared_ptr<const runtime::InputSnapshot> &input);
     void HandleSubmitted(const runtime::SubmittedFrameEvent &event);
     void PublishFramePacket();
     std::shared_ptr<const runtime::FramePacket>
@@ -180,6 +183,16 @@ struct ClientApplication::Impl {
     std::uint64_t last_processed_window_sequence{};
     bool force_frame_capture{};
     std::function<void(std::string_view)> on_action;
+    std::function<void(const contracts::GestureEvent &)> on_gesture;
+
+    struct PendingGesture {
+        runtime::UiLoadId ui;
+        contracts::GestureEvent event;
+    };
+
+    std::deque<PendingGesture> pending_gestures;
+    std::set<std::uint64_t> delivered_gestures;
+    bool delivering_gestures{};
     std::function<void(runtime::UiLoadId)> on_ui_submitted;
     std::string gl_renderer;
     int requested_images{0};

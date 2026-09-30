@@ -504,6 +504,7 @@ void WaylandWindow::Close()
 {
     ReleasePointer();
     ReleaseKeyboard();
+    ReleaseTouch();
 
     for (auto &pending : feedbacks_) {
         if (pending.handle) {

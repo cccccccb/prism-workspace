@@ -22,6 +22,7 @@ add_library(prism_wayland_client STATIC
     wayland_window_open.cpp
     wayland_window_events.cpp
     wayland_window_keyboard.cpp
+    wayland_window_touch.cpp
     "${PRESENTATION_HEADER}"
     "${PRESENTATION_CODE}"
     "${XDG_CLIENT_HEADER}"

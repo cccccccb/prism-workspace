@@ -24,9 +24,13 @@ add_library(prism_core
     src/wm/wlr_server_control.cpp
     src/wm/wlr_server_frames.cpp
     src/wm/wlr_server_input.cpp
+    src/wm/wlr_server_touch.cpp
     src/wm/wlr_server_views.cpp
     src/wm/wlr_server_ipc.cpp
     src/wm/wlr_server_status.cpp
+    src/wm/wlr_server_layout.cpp
+    src/wm/layout_control.cpp
+    src/wm/wlr_server_layout_control.cpp
     src/wm/surface_effects.cpp
     src/wm/surface_effects_content.cpp
     src/wm/surface_effects_gpu.cpp
@@ -41,6 +45,8 @@ add_library(prism_core
     src/tree/tree_container.cpp
     src/tree/tree_workspace.cpp
     src/tree/tree_engine.cpp
+    src/tree/tree_boundary.cpp
+    src/tree/tree_snapshot.cpp
 )
 set(XDG_SHELL_PROTOCOL_HEADER "${CMAKE_CURRENT_BINARY_DIR}/xdg-shell-protocol.h")
 add_custom_command(

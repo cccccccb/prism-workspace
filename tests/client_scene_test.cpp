@@ -94,10 +94,16 @@ int main()
                                 contracts::ResourceId{7});
     assert(action_scene.SetViewport({100, 50}));
     assert(BuildAndCommit(action_scene));
+    const auto action_snapshot = action_scene.InputGeometry();
+    const auto action_pixels = action_scene.PixelsRevision();
     assert(action_scene.SetProperty(action_scene.RootId(), runtime::DslProperty::Action,
                                     std::string("two")));
-    assert(action_scene.PendingDirty() == runtime::Dirty::None);
+    assert(action_scene.PendingDirty() == runtime::Dirty::Composite);
     assert(!BuildAndCommit(action_scene));
+    assert(action_scene.PixelsRevision() == action_pixels);
+    assert(action_scene.InputGeometry()->version > action_snapshot->version);
+    assert(action_snapshot->Find(action_scene.RootId())->action == "one");
+    assert(action_scene.InputGeometry()->Find(action_scene.RootId())->action == "two");
     assert(action_scene.ActionAt({10, 10}) == "two");
     bool rejected = false;
     try {

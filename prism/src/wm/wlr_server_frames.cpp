@@ -67,6 +67,10 @@ void WlrServer::HandleOutputCommit(const void *data)
     if (event->state->committed & WLR_OUTPUT_STATE_BUFFER) {
         ++frame_work_.output_buffer_commits;
     }
+    if (event->state->committed & (WLR_OUTPUT_STATE_MODE | WLR_OUTPUT_STATE_SCALE |
+                                   WLR_OUTPUT_STATE_TRANSFORM | WLR_OUTPUT_STATE_ENABLED)) {
+        ArrangeXdgViews();
+    }
 }
 
 void WlrServer::HandleNewSurface(wlr_surface *surface)
@@ -114,8 +118,12 @@ void WlrServer::HandleSurfaceCommit(wlr_surface *surface)
     InvalidateEffects();
 }
 
-void WlrServer::HandleSurfaceMapState(wlr_surface *)
+void WlrServer::HandleSurfaceMapState(wlr_surface *surface)
 {
+    if (!surface->mapped) {
+        CancelLayoutControlsForSurface(surface);
+        CancelTouchesForSurface(surface);
+    }
     // Map/unmap can precede commit, and scene listeners can remove output
     // membership before this observer sees the corresponding buffer detach.
     InvalidateEffects();
@@ -123,6 +131,8 @@ void WlrServer::HandleSurfaceMapState(wlr_surface *)
 
 void WlrServer::HandleSurfaceDestroy(wlr_surface *surface)
 {
+    CancelLayoutControlsForSurface(surface);
+    CancelTouchesForSurface(surface);
     if (surface_effects_) {
         surface_effects_->ForgetSurface(surface);
     }
@@ -132,6 +142,10 @@ void WlrServer::HandleSurfaceDestroy(wlr_surface *surface)
 
 void WlrServer::HandleNewOutput(struct wlr_output *output)
 {
+    if (outputs_.size() >= contracts::kMaxLayoutOutputs) {
+        PRISM_LOG_ERROR("WLR-OUTPUT", "Output capacity exceeded; ignoring additional output");
+        return;
+    }
     wlr_output_init_render(output, allocator_, renderer_);
 
     if (wlr_output_is_wl(output)) {
@@ -140,6 +154,10 @@ void WlrServer::HandleNewOutput(struct wlr_output *output)
 
     // 1. Attach listeners
     auto wlr_out = std::make_unique<WlrOutput>(output, this);
+    if (!next_output_id_) {
+        throw std::overflow_error("WM output identity exhausted");
+    }
+    wlr_out->layout_id = next_output_id_++;
     wlr_output_layout_add_auto(output_layout_, output);
 
     // 2. Attach output to hardware wlr_scene

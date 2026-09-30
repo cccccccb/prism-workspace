@@ -1,4 +1,5 @@
 #include "prism/tree/tree_engine.hpp"
+#include "prism/contracts/layout_snapshot.hpp"
 #include "prism/ipc/wm_messages.hpp"
 #include "prism/wm/window.hpp"
 #include <cmath>
@@ -6,6 +7,16 @@
 #include <nlohmann/json.hpp>
 
 namespace prism::tree {
+
+// Each boundary consumes an adjacent pair under a container. A forest has fewer
+// boundaries than non-workspace nodes, including after a tabbed/split mode change.
+static_assert(contracts::kMaxLayoutBoundaries >= contracts::kMaxLayoutNodes);
+
+bool TreeEngine::HasNodeCapacity(std::size_t additional) const
+{
+    return revisions_->nodes <= contracts::kMaxLayoutNodes &&
+           additional <= contracts::kMaxLayoutNodes - revisions_->nodes;
+}
 
 TreeEngine::TreeEngine()
 {
@@ -20,8 +31,14 @@ std::shared_ptr<WorkspaceNode> TreeEngine::GetOrCreateWorkspace(const std::strin
             return ws;
         }
     }
+    if (workspaces_.size() >= contracts::kMaxLayoutWorkspaces || !HasNodeCapacity(1)) {
+        return nullptr;
+    }
+
     auto ws = std::make_shared<WorkspaceNode>(next_workspace_id_++, name);
-    ws->GetRootContainer()->parent = ws;
+    ws->AttachRevisionState(revisions_);
+    ++revisions_->topology;
+    ++revisions_->layout;
     workspaces_.push_back(ws);
     return ws;
 }
@@ -29,6 +46,9 @@ std::shared_ptr<WorkspaceNode> TreeEngine::GetOrCreateWorkspace(const std::strin
 bool TreeEngine::SwitchWorkspace(const std::string &name)
 {
     auto target_ws = GetOrCreateWorkspace(name);
+    if (!target_ws) {
+        return false;
+    }
     if (target_ws == active_workspace_) {
         return true;
     }
@@ -42,7 +62,8 @@ bool TreeEngine::SwitchWorkspace(const std::string &name)
     active_workspace_->SetActive(true);
 
     // Restore focus
-    if (auto prev_focused = active_workspace_->focused_inactive_child.lock()) {
+    if (auto prev_focused = active_workspace_->focused_inactive_child.lock();
+        prev_focused && prev_focused->GetWorkspace() == active_workspace_) {
         SetFocus(prev_focused);
     } else {
         std::vector<std::shared_ptr<TreeNode>> views;
@@ -60,7 +81,7 @@ bool TreeEngine::SwitchWorkspace(const std::string &name)
 std::shared_ptr<ViewNode> TreeEngine::InsertWindow(std::shared_ptr<wm::Window> win, Direction dir,
                                                    std::shared_ptr<TreeNode> target)
 {
-    if (!win || !active_workspace_) {
+    if (!win || !active_workspace_ || !HasNodeCapacity(1)) {
         return nullptr;
     }
 
@@ -112,10 +133,13 @@ std::shared_ptr<ViewNode> TreeEngine::InsertWindow(std::shared_ptr<wm::Window> w
         parent_con->AddChild(view, insert_idx);
         parent_con->NormalizeFractions();
     } else {
+        if (!HasNodeCapacity(2)) {
+            return nullptr;
+        }
+
         // 4. BSP Binary Space Partitioning Fission: wrap target into a new ContainerNode
         auto fission_con = std::make_shared<ContainerNode>(desired_mode);
-        fission_con->width_fraction = target->width_fraction;
-        fission_con->height_fraction = target->height_fraction;
+        fission_con->SetFractions(target->GetWidthFraction(), target->GetHeightFraction());
 
         parent_con->ReplaceChild(target, fission_con);
 
@@ -138,28 +162,34 @@ std::shared_ptr<ViewNode> TreeEngine::InsertWindow(std::shared_ptr<wm::Window> w
 std::shared_ptr<ContainerNode> TreeEngine::GroupTabbed(std::shared_ptr<TreeNode> target,
                                                        std::shared_ptr<wm::Window> new_win)
 {
-    if (!target || !new_win || !active_workspace_) {
+    if (!target || !new_win || !active_workspace_ || target->GetWorkspace() != active_workspace_) {
         return nullptr;
     }
 
-    auto view = std::make_shared<ViewNode>(new_win);
     auto parent_con = target->GetParentContainer();
     if (!parent_con) {
         return nullptr;
     }
 
-    if (auto existing_con = std::dynamic_pointer_cast<ContainerNode>(target)) {
-        if (existing_con->GetLayoutMode() == LayoutMode::Tabbed) {
+    const auto existing_con = std::dynamic_pointer_cast<ContainerNode>(target);
+    const bool append = existing_con && existing_con->GetLayoutMode() == LayoutMode::Tabbed;
+    if (!HasNodeCapacity(append ? 1 : 2)) {
+        return nullptr;
+    }
+
+    auto view = std::make_shared<ViewNode>(new_win);
+    if (existing_con) {
+        if (append) {
             existing_con->AddChild(view);
-            existing_con->SetActiveChildIndex(static_cast<int>(existing_con->children.size() - 1));
+            existing_con->SetActiveChildIndex(
+                static_cast<int>(existing_con->GetChildren().size() - 1));
             SetFocus(view);
             return existing_con;
         }
     }
 
     auto tab_con = std::make_shared<ContainerNode>(LayoutMode::Tabbed);
-    tab_con->width_fraction = target->width_fraction;
-    tab_con->height_fraction = target->height_fraction;
+    tab_con->SetFractions(target->GetWidthFraction(), target->GetHeightFraction());
 
     parent_con->ReplaceChild(target, tab_con);
     tab_con->AddChild(target);
@@ -222,44 +252,34 @@ bool TreeEngine::RemoveWindow(const std::shared_ptr<wm::Window> &win)
 
 bool TreeEngine::SwapNodes(std::shared_ptr<TreeNode> a, std::shared_ptr<TreeNode> b)
 {
-    if (!a || !b || a == b) {
+    if (!a || !b || a == b || a->revisions_ != revisions_ || b->revisions_ != revisions_) {
         return false;
     }
 
     auto p_a = a->GetParent();
     auto p_b = b->GetParent();
-    if (!p_a || !p_b) {
+    if (!p_a || !p_b || !p_a->IsContainer() || !p_b->IsContainer()) {
         return false;
     }
 
-    int idx_a = p_a->GetChildIndex(a);
-    int idx_b = p_b->GetChildIndex(b);
-    if (idx_a < 0 || idx_b < 0) {
+    if (!a->SwapWith(b)) {
         return false;
     }
-
-    if (p_a == p_b) {
-        std::swap(p_a->children[idx_a], p_a->children[idx_b]);
-        std::swap(a->width_fraction, b->width_fraction);
-        std::swap(a->height_fraction, b->height_fraction);
-        return true;
-    }
-
-    // Cross-container swap
-    p_a->children[idx_a] = b;
-    b->parent = p_a;
-
-    p_b->children[idx_b] = a;
-    a->parent = p_b;
-
-    std::swap(a->width_fraction, b->width_fraction);
-    std::swap(a->height_fraction, b->height_fraction);
 
     if (auto ca = std::dynamic_pointer_cast<ContainerNode>(p_a)) {
         ca->NormalizeFractions();
     }
     if (auto cb = std::dynamic_pointer_cast<ContainerNode>(p_b)) {
         cb->NormalizeFractions();
+    }
+
+    const auto focused = focused_node_.lock();
+    if (focused && focused->GetWorkspace() == active_workspace_) {
+        SetFocus(focused);
+    } else if (focused && active_workspace_) {
+        std::vector<std::shared_ptr<TreeNode>> views;
+        active_workspace_->CollectViews(views);
+        SetFocus(views.empty() ? nullptr : views.front());
     }
 
     return true;
@@ -278,8 +298,8 @@ bool TreeEngine::SwapFocusDirection(Direction dir)
         return false;
     }
 
-    float cx0 = current_node->bounds.x + current_node->bounds.width * 0.5f;
-    float cy0 = current_node->bounds.y + current_node->bounds.height * 0.5f;
+    float cx0 = current_node->GetBounds().x + current_node->GetBounds().width * 0.5f;
+    float cy0 = current_node->GetBounds().y + current_node->GetBounds().height * 0.5f;
 
     std::shared_ptr<TreeNode> best_candidate;
     float min_dist = std::numeric_limits<float>::max();
@@ -289,8 +309,8 @@ bool TreeEngine::SwapFocusDirection(Direction dir)
             continue;
         }
 
-        float cxi = v->bounds.x + v->bounds.width * 0.5f;
-        float cyi = v->bounds.y + v->bounds.height * 0.5f;
+        float cxi = v->GetBounds().x + v->GetBounds().width * 0.5f;
+        float cyi = v->GetBounds().y + v->GetBounds().height * 0.5f;
 
         float dx = cxi - cx0;
         float dy = cyi - cy0;
@@ -339,10 +359,14 @@ bool TreeEngine::SwapFocusDirection(Direction dir)
 
 bool TreeEngine::SetLayoutMode(std::shared_ptr<TreeNode> target, LayoutMode mode)
 {
+    if (mode != LayoutMode::SplitHorizontal && mode != LayoutMode::SplitVertical &&
+        mode != LayoutMode::Tabbed && mode != LayoutMode::Stacked) {
+        return false;
+    }
     if (!target) {
         target = focused_node_.lock();
     }
-    if (!target) {
+    if (!target || target->revisions_ != revisions_) {
         return false;
     }
 
@@ -364,6 +388,10 @@ void TreeEngine::SetFocus(std::shared_ptr<TreeNode> node)
     if (node && node->GetWorkspace() != active_workspace_) {
         return;
     }
+    if (focused_node_.lock() != node) {
+        ++revisions_->focus;
+    }
+
     for (const auto &workspace : workspaces_) {
         std::vector<std::shared_ptr<TreeNode>> views;
         workspace->CollectViews(views);
@@ -416,13 +444,16 @@ bool TreeEngine::SplitFocused(LayoutMode mode)
     if (!parent) {
         return false;
     }
-    if (parent->children.size() == 1) {
+    if (parent->GetChildren().size() == 1) {
         parent->SetLayoutMode(mode);
         return true;
     }
+    if (!HasNodeCapacity(1)) {
+        return false;
+    }
+
     auto container = std::make_shared<ContainerNode>(mode);
-    container->width_fraction = target->width_fraction;
-    container->height_fraction = target->height_fraction;
+    container->SetFractions(target->GetWidthFraction(), target->GetHeightFraction());
     parent->ReplaceChild(target, container);
     container->AddChild(target);
     container->NormalizeFractions();
@@ -438,6 +469,9 @@ bool TreeEngine::MoveWindowToWorkspace(const std::shared_ptr<wm::Window> &win,
         return false;
     }
     auto destination = GetOrCreateWorkspace(name);
+    if (!destination) {
+        return false;
+    }
     if (view->GetWorkspace() == destination) {
         return true;
     }
@@ -445,8 +479,7 @@ bool TreeEngine::MoveWindowToWorkspace(const std::shared_ptr<wm::Window> &win,
         return false;
     }
     // Keep the same view node identity when only its workspace changes.
-    view->width_fraction = 0;
-    view->height_fraction = 0;
+    view->SetFractions(0, 0);
     destination->GetRootContainer()->AddChild(view);
     destination->GetRootContainer()->NormalizeFractions();
     destination->focused_inactive_child = view;
@@ -472,8 +505,8 @@ bool TreeEngine::MoveFocus(Direction dir)
         return false;
     }
 
-    float cx0 = current_node->bounds.x + current_node->bounds.width * 0.5f;
-    float cy0 = current_node->bounds.y + current_node->bounds.height * 0.5f;
+    float cx0 = current_node->GetBounds().x + current_node->GetBounds().width * 0.5f;
+    float cy0 = current_node->GetBounds().y + current_node->GetBounds().height * 0.5f;
 
     std::shared_ptr<TreeNode> best_candidate;
     float min_dist = std::numeric_limits<float>::max();
@@ -483,8 +516,8 @@ bool TreeEngine::MoveFocus(Direction dir)
             continue;
         }
 
-        float cxi = v->bounds.x + v->bounds.width * 0.5f;
-        float cyi = v->bounds.y + v->bounds.height * 0.5f;
+        float cxi = v->GetBounds().x + v->GetBounds().width * 0.5f;
+        float cyi = v->GetBounds().y + v->GetBounds().height * 0.5f;
 
         float dx = cxi - cx0;
         float dy = cyi - cy0;
@@ -555,7 +588,7 @@ TreeEngine::GetCalculatedLayout() const
 
     for (const auto &v : views) {
         if (auto win = v->GetWindow()) {
-            result.emplace_back(win, v->bounds);
+            result.emplace_back(win, v->GetBounds());
         }
     }
     return result;
@@ -584,7 +617,7 @@ std::string TreeEngine::DumpTreeJson() const
     ipc::TreeMessage message;
     auto focused = focused_node_.lock();
     message.active_workspace = active_workspace_ ? active_workspace_->GetName() : "";
-    message.focused_id = focused ? reinterpret_cast<std::uintptr_t>(focused.get()) : 0;
+    message.focused_id = focused ? focused->GetNodeId() : 0;
     for (const auto &workspace : workspaces_) {
         message.workspaces.push_back(workspace->ToMessage(workspace == active_workspace_));
     }

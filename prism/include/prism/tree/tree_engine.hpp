@@ -1,6 +1,7 @@
 #pragma once
 
 #include "prism/tree/tree_layout_config.hpp"
+#include "prism/tree/tree_snapshot.hpp"
 #include "prism/tree/tree_workspace.hpp"
 #include <functional>
 #include <unordered_map>
@@ -61,6 +62,8 @@ public:
     void Arrange(const core::Rect &screen_area, const TreeLayoutConfig &config);
     std::vector<std::pair<std::shared_ptr<wm::Window>, core::Rect>> GetCalculatedLayout() const;
 
+    std::shared_ptr<const TreeSnapshot> CaptureSnapshot() const;
+
     // Sway / i3 JSON Tree Introspection (swaymsg -t get_tree)
     std::string DumpTreeJson() const;
 
@@ -68,11 +71,15 @@ public:
     std::shared_ptr<ViewNode> FindViewForWindow(const std::shared_ptr<wm::Window> &win) const;
 
 private:
+    bool HasNodeCapacity(std::size_t additional) const;
+
     std::vector<std::shared_ptr<WorkspaceNode>> workspaces_;
     std::shared_ptr<WorkspaceNode> active_workspace_;
     std::weak_ptr<TreeNode> focused_node_;
 
     int next_workspace_id_{1};
+    std::shared_ptr<TreeRevisionState> revisions_{std::make_shared<TreeRevisionState>()};
+    mutable std::shared_ptr<const TreeSnapshot> snapshot_;
 };
 
 } // namespace prism::tree

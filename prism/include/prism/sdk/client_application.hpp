@@ -1,4 +1,5 @@
 #pragma once
+#include "prism/contracts/gesture.hpp"
 #include "prism/contracts/theme.hpp"
 #include "prism/contracts/types.hpp"
 #include "prism/runtime/prepared_component.hpp"
@@ -138,6 +139,8 @@ public:
     bool ApplyTheme(const contracts::ThemeSnapshot &, std::string *diagnostic = nullptr);
     std::uint64_t ThemeGeneration() const;
     void OnAction(std::function<void(std::string_view)> callback);
+    // Owner-thread continuous gestures; cancellation values survive UI replacement.
+    void OnGesture(std::function<void(const contracts::GestureEvent &)> callback);
     bool IsCloseRequested() const;
     bool IsMapped() const;
     int ConfigureCount() const;

@@ -44,8 +44,15 @@ void WlrServer::HandleNewInput(struct wlr_input_device *device)
         }
         PRISM_LOG_INFO("WLR-INPUT", "Keyboard attached: %s",
                        device->name ? device->name : "unknown");
-    } else if (device->type == WLR_INPUT_DEVICE_POINTER || device->type == WLR_INPUT_DEVICE_TOUCH) {
+    } else if (device->type == WLR_INPUT_DEVICE_TOUCH) {
+        AttachTouchDevice(wlr_touch_from_input_device(device));
+    } else if (device->type == WLR_INPUT_DEVICE_POINTER) {
+        if (std::any_of(pointers_.begin(), pointers_.end(),
+                        [device](const auto &p) { return p->device == device; })) {
+            return;
+        }
         wlr_cursor_attach_input_device(cursor_, device);
+        pointers_.push_back(std::make_unique<WlrPointerBinding>(this, device));
         PRISM_LOG_INFO("WLR-INPUT", "Pointer/Touchpad attached: %s",
                        device->name ? device->name : "unknown");
     }
@@ -260,7 +267,8 @@ void WlrServer::HandleCursorMotionAbsolute(uint32_t time_msec, double x, double 
     }
 }
 
-void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t state)
+void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t state,
+                                   wlr_input_device *device)
 {
     WlrXdgView *pointed = nullptr;
     if (seat_->pointer_state.focused_surface) {
@@ -276,6 +284,7 @@ void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t
     if (button == 272 && state == WLR_BUTTON_PRESSED && pointed && !pointed->fullscreen &&
         keyboard && (wlr_keyboard_get_modifiers(keyboard) & WLR_MODIFIER_LOGO)) {
         FocusXdgView(pointed);
+        layout_controls_.CancelInput(contracts::LayoutInputKind::Pointer, 0);
         dragged_xdg_view_ = pointed;
         return;
     }
@@ -313,8 +322,18 @@ void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t
             }
         }
     }
-    wlr_seat_pointer_notify_button(seat_, time_msec, button,
-                                   static_cast<wl_pointer_button_state>(state));
+    auto *surface = seat_->pointer_state.focused_surface;
+    const auto serial = wlr_seat_pointer_notify_button(seat_, time_msec, button,
+                                                       static_cast<wl_pointer_button_state>(state));
+    if (button == 272) {
+        if (state == WLR_BUTTON_PRESSED) {
+            control_pointer_device_ = device;
+            RecordLayoutInput(surface, {contracts::LayoutInputKind::Pointer, serial, 0});
+        } else {
+            layout_controls_.ReleaseInput(contracts::LayoutInputKind::Pointer, 0,
+                                          launch::MonotonicNs());
+        }
+    }
     wlr_seat_pointer_notify_frame(seat_);
     if (compositor_) {
         compositor_->OnPointerButton(button, state == WLR_BUTTON_PRESSED);

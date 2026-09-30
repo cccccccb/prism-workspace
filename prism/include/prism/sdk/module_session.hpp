@@ -4,6 +4,7 @@
 #include "prism/launch/module.hpp"
 #include "prism/runtime/property.hpp"
 #include "prism/runtime/task_scheduler.hpp"
+#include "prism/sdk/layout_control_bridge.hpp"
 #include <chrono>
 #include <functional>
 #include <map>
@@ -32,12 +33,15 @@ public:
     using SubscribeSink = std::function<std::uint64_t()>;
     using LaunchSink = std::function<std::uint64_t(std::string_view)>;
     using ColorSchemeSink = std::function<std::uint64_t(std::string_view)>;
+    using LayoutSubscribeSink = std::function<std::uint64_t(bool)>;
+    using ControlSink = LayoutControlBridge::Send;
     using ThemeSink = std::function<std::uint64_t(std::string_view)>;
     ModuleSession(const std::filesystem::path &module, std::string app_id, std::uint64_t instance,
                   BindingSink bindings, LaunchSink launch = {}, SubscribeSink subscribe = {},
                   ThemeSink themes = {}, ColorSchemeSink schemes = {},
                   std::shared_ptr<runtime::TaskScheduler> scheduler = {},
-                  ModuleSessionLimits limits = {}, std::filesystem::path assets_root = {});
+                  ModuleSessionLimits limits = {}, std::filesystem::path assets_root = {},
+                  LayoutSubscribeSink layout_subscribe = {}, ControlSink control = {});
     ~ModuleSession();
     ModuleSession(const ModuleSession &) = delete;
     ModuleSession &operator=(const ModuleSession &) = delete;
@@ -50,6 +54,9 @@ public:
     void Deliver(const contracts::LaunchEvent &event);
     void Deliver(const contracts::InstanceUpdate &event);
     void Deliver(const contracts::ThemeEvent &event);
+    void Gesture(const contracts::GestureEvent &event);
+    void Deliver(const contracts::LayoutStateEvent &event);
+    void Deliver(const contracts::LayoutControlResult &event);
     void Disconnected();
     int WorkCompletionFd() const noexcept;
     // Checks the cooperative budget between indivisible module callbacks.
@@ -76,6 +83,10 @@ private:
     static int32_t Schedule(void *, uint64_t) noexcept;
     static int32_t SubmitWork(void *, const PrismWorkRequestV1 *) noexcept;
     static int32_t CancelWork(void *, uint64_t) noexcept;
+    static uint64_t SubscribeLayout(void *, uint32_t enabled) noexcept;
+    static int32_t ControlGesture(void *, const PrismLayoutCommandV1 *) noexcept;
+    void DispatchControlResults();
+    void DisconnectControl();
     bool OnOwnerThread() const noexcept;
     void DestroyInstance() noexcept;
     const std::thread::id owner_thread_{std::this_thread::get_id()};
@@ -88,6 +99,10 @@ private:
     SubscribeSink subscribe_;
     ThemeSink themes_;
     ColorSchemeSink schemes_;
+    LayoutSubscribeSink layout_subscribe_;
+    LayoutControlBridge controls_;
+    std::uint64_t layout_subscription_{};
+    bool control_disconnected_{};
     std::map<std::uint64_t, std::string> theme_requests_;
     std::uint64_t subscription_{};
 

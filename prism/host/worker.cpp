@@ -51,6 +51,23 @@ struct WorkerRequests {
                    : 0;
     }
 
+    std::uint64_t SubscribeLayout(bool enabled)
+    {
+        if (!next_launch || channel.Closed()) {
+            return 0;
+        }
+        const auto id = next_launch++;
+        return channel.Queue(
+                   prism::launch::EncodeWorker(prism::contracts::LayoutSubscription{id, enabled}))
+                   ? id
+                   : 0;
+    }
+
+    bool SubmitLayoutControl(const prism::contracts::LayoutControlRequest &control)
+    {
+        return !channel.Closed() && channel.Queue(prism::launch::EncodeWorker(control));
+    }
+
     std::uint64_t SelectTheme(std::string_view theme_id)
     {
         if (!next_launch || channel.Closed()) {
@@ -101,6 +118,8 @@ int RunWorker(int fd, const std::filesystem::path &apps, const std::string &sock
     config.on_event = std::bind_front(&WorkerRequests::HandleEvent, &requests);
     config.launch_app = std::bind_front(&WorkerRequests::LaunchApplication, &requests);
     config.subscribe_instances = std::bind_front(&WorkerRequests::SubscribeInstances, &requests);
+    config.subscribe_layout = std::bind_front(&WorkerRequests::SubscribeLayout, &requests);
+    config.submit_layout_control = std::bind_front(&WorkerRequests::SubmitLayoutControl, &requests);
     config.select_theme = std::bind_front(&WorkerRequests::SelectTheme, &requests);
     config.select_color_scheme = std::bind_front(&WorkerRequests::SelectColorScheme, &requests);
 
@@ -161,6 +180,17 @@ int RunWorker(int fd, const std::filesystem::path &apps, const std::string &sock
                     host.DeliverInstanceEvent(*update);
                 } else if (const auto *event = std::get_if<contracts::ThemeEvent>(&message)) {
                     host.DeliverThemeEvent(*event);
+                } else if (const auto *state = std::get_if<contracts::LayoutStateEvent>(&message)) {
+                    if (!bound) {
+                        throw std::runtime_error("Layout state to idle worker");
+                    }
+                    host.DeliverLayoutState(*state);
+                } else if (const auto *result =
+                               std::get_if<contracts::LayoutControlResult>(&message)) {
+                    if (!bound) {
+                        throw std::runtime_error("Layout control result to idle worker");
+                    }
+                    host.DeliverLayoutControlResult(*result);
                 } else {
                     throw std::runtime_error("Unexpected worker command");
                 }

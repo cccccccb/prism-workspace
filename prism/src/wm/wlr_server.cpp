@@ -3,7 +3,17 @@
 namespace prism::wm {
 WlrServer::WlrServer(std::shared_ptr<Compositor> compositor) : compositor_(std::move(compositor))
 {
+    std::array<std::uint8_t, 8> random{};
+    launch::RandomBytes(random);
+    for (auto byte : random) {
+        control_session_ = (control_session_ << 8) | byte;
+    }
+    if (!control_session_) {
+        throw std::runtime_error("Zero WM session nonce");
+    }
+
     wl_list_init(&signals_.new_surface.link);
+    wl_list_init(&signals_.output_layout_change.link);
     wl_list_init(&signals_.new_virtual_keyboard.link);
     wl_list_init(&signals_.new_virtual_pointer.link);
 }
@@ -67,6 +77,8 @@ bool WlrServer::Initialize(const std::string &socket_name)
 
     // 5. Output layout & Hardware Scene graph
     output_layout_ = wlr_output_layout_create(wl_display_);
+    signals_.output_layout_change.notify = HandleOutputLayoutChange;
+    wl_signal_add(&output_layout_->events.change, &signals_.output_layout_change);
     wlr_xdg_output_manager_v1_create(wl_display_, output_layout_);
     scene_ = wlr_scene_create();
     wlr_scene_attach_output_layout(scene_, output_layout_);
@@ -233,6 +245,11 @@ void WlrServer::Stop()
         return;
     }
     running_ = false;
+    wl_list_remove(&signals_.output_layout_change.link);
+    wl_list_init(&signals_.output_layout_change.link);
+    layout_subscribed_ = false;
+    layout_snapshot_.reset();
+    layout_tree_snapshot_.reset();
     registrations_.clear();
     if (surface_effects_) {
         surface_effects_->SetWakeHandler({});
@@ -256,6 +273,10 @@ void WlrServer::Stop()
     focused_xdg_view_ = nullptr;
     xdg_views_.clear();
     keyboards_.clear();
+    touches_.clear();
+    pointers_.clear();
+    layout_controls_.Reset();
+    control_pointer_device_ = nullptr;
     outputs_.clear();
     dock_icon_rects_.clear();
 
@@ -328,6 +349,7 @@ void WlrServer::RunEventLoopIteration(int timeout_ms)
     wl_event_loop_dispatch(wl_event_loop_, timeout_ms);
     PumpControl();
     wl_display_flush_clients(wl_display_);
+    PublishLayoutSnapshot();
 }
 
 } // namespace prism::wm

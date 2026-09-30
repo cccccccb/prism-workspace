@@ -71,6 +71,13 @@ void AppHost::Impl::HandleAction(std::string_view action)
     business->Action(action);
 }
 
+void AppHost::Impl::HandleGesture(const contracts::GestureEvent &event)
+{
+    if (business) {
+        business->Gesture(event);
+    }
+}
+
 bool AppHost::Impl::StartBusiness()
 {
     business = std::make_unique<ModuleSession>(
@@ -78,7 +85,7 @@ bool AppHost::Impl::StartBusiness()
         std::bind_front(&Impl::SetBinding, this), std::bind_front(&Impl::LaunchApplication, this),
         std::bind_front(&Impl::SubscribeInstances, this), std::bind_front(&Impl::SelectTheme, this),
         std::bind_front(&Impl::SelectColorScheme, this), scheduler, config.module_limits,
-        package->assets);
+        package->assets, config.subscribe_layout, config.submit_layout_control);
 
     const bool started = business->Start();
     startup.module_load_us = business->LoadDurationNs() / 1000;
@@ -88,6 +95,7 @@ bool AppHost::Impl::StartBusiness()
     }
 
     frontend->OnAction(std::bind_front(&Impl::HandleAction, this));
+    frontend->OnGesture(std::bind_front(&Impl::HandleGesture, this));
 
     if (config.initial_theme) {
         const auto &theme = *config.initial_theme;

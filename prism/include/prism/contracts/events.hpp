@@ -20,6 +20,9 @@ struct InputSource {
     bool operator==(const InputSource &) const = default;
 };
 
+// Contact identity is scoped to a logical touch source and its generation.
+using InputContactId = std::int32_t;
+
 struct KeyModifiers {
     bool shift{};
     bool control{};
@@ -63,6 +66,10 @@ struct PointerButtonEvent {
     std::uint32_t other_button_code{0};
     std::uint64_t time_ns{0};
     InputSource source{};
+    // Opaque platform credential; zero means unavailable. System control must
+    // validate it against the platform seat/surface and granted capabilities;
+    // client-local source identity or receipt time alone does not authorize it.
+    std::uint32_t protocol_serial{0};
 };
 
 struct PointerScrollEvent {
@@ -70,6 +77,45 @@ struct PointerScrollEvent {
     LogicalPoint position{};
     double delta_x{0.0};
     double delta_y{0.0};
+    std::uint64_t time_ns{0};
+    InputSource source{};
+};
+
+struct TouchDownEvent {
+    WindowId window{};
+    LogicalPoint position{};
+    InputContactId contact{};
+    std::uint64_t time_ns{0};
+    InputSource source{};
+    // Opaque platform credential with the same validation rules as pointer down.
+    std::uint32_t protocol_serial{0};
+};
+
+struct TouchMotionEvent {
+    WindowId window{};
+    LogicalPoint position{};
+    InputContactId contact{};
+    std::uint64_t time_ns{0};
+    InputSource source{};
+};
+
+// Wayland up has no coordinates; consumers retain the contact's last position.
+struct TouchUpEvent {
+    WindowId window{};
+    InputContactId contact{};
+    std::uint64_t time_ns{0};
+    InputSource source{};
+};
+
+// Cancels every active contact belonging to this source, including on removal.
+struct TouchCancelEvent {
+    WindowId window{};
+    std::uint64_t time_ns{0};
+    InputSource source{};
+};
+
+struct TouchFrameEvent {
+    WindowId window{};
     std::uint64_t time_ns{0};
     InputSource source{};
 };
@@ -108,7 +154,8 @@ struct CloseRequestedEvent {
 
 using WindowEvent =
     std::variant<PointerEnterEvent, PointerLeaveEvent, PointerCancelEvent, PointerMotionEvent,
-                 PointerButtonEvent, PointerScrollEvent, KeyEvent, TextInputEvent, ConfigureEvent,
-                 FocusEvent, CloseRequestedEvent>;
+                 PointerButtonEvent, PointerScrollEvent, TouchDownEvent, TouchMotionEvent,
+                 TouchUpEvent, TouchCancelEvent, TouchFrameEvent, KeyEvent, TextInputEvent,
+                 ConfigureEvent, FocusEvent, CloseRequestedEvent>;
 
 } // namespace prism::contracts

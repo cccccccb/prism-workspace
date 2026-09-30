@@ -1,6 +1,9 @@
 #pragma once
+#include "prism/contracts/layout_control.hpp"
+#include "prism/contracts/layout_snapshot.hpp"
 #include "prism/contracts/theme.hpp"
 #include "prism/launch/shell_permit.hpp"
+#include <memory>
 #include <span>
 #include <vector>
 
@@ -15,7 +18,11 @@ enum class ControlType : std::uint16_t {
     Mapped,
     Unmapped,
     InstallTheme,
-    ThemeApplied
+    ThemeApplied,
+    LayoutSubscribe,
+    LayoutSnapshot,
+    LayoutControl,
+    LayoutControlResult
 };
 
 struct ControlMessage {
@@ -24,6 +31,22 @@ struct ControlMessage {
     bool success{};
     contracts::ThemeSnapshot theme;
     contracts::ThemeApplied theme_applied;
+    bool layout_subscribe{};
+    contracts::LayoutSnapshot layout_snapshot;
+    contracts::LayoutControlRequest control_request;
+    contracts::LayoutControlResult control_result;
+};
+
+// Owned immutable cache for one authenticated WM connection. Reset on disconnect.
+class LayoutSnapshotCache {
+public:
+    void Reset(std::uint64_t session = 0);
+    void Accept(contracts::LayoutSnapshot snapshot);
+    std::shared_ptr<const contracts::LayoutSnapshot> Current() const noexcept;
+
+private:
+    std::uint64_t session_{};
+    std::shared_ptr<const contracts::LayoutSnapshot> current_;
 };
 
 std::vector<std::uint8_t> EncodeControl(const ControlMessage &message);

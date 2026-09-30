@@ -98,6 +98,7 @@ void WaylandWindow::RegistryGlobalRemove(void *data, wl_registry *, std::uint32_
     }
     self.ReleasePointer();
     self.ReleaseKeyboard();
+    self.ReleaseTouch();
     if (self.seat_) {
         wl_seat_release(self.seat_);
     }
@@ -208,6 +209,7 @@ void WaylandWindow::SeatCapabilities(void *data, wl_seat *seat, std::uint32_t ca
     } else if (!(caps & WL_SEAT_CAPABILITY_KEYBOARD) && self.keyboard_) {
         self.ReleaseKeyboard();
     }
+    self.UpdateTouchCapability(seat, caps);
 }
 
 void WaylandWindow::SeatName(void *, wl_seat *, const char *)
@@ -240,7 +242,7 @@ void WaylandWindow::PointerMotion(void *data, wl_pointer *, std::uint32_t, wl_fi
                                             InputTimeNs(), self.PointerSource()});
 }
 
-void WaylandWindow::PointerButton(void *data, wl_pointer *, std::uint32_t, std::uint32_t,
+void WaylandWindow::PointerButton(void *data, wl_pointer *, std::uint32_t serial, std::uint32_t,
                                   std::uint32_t button, std::uint32_t state)
 {
     auto &self = *static_cast<WaylandWindow *>(data);
@@ -262,7 +264,7 @@ void WaylandWindow::PointerButton(void *data, wl_pointer *, std::uint32_t, std::
                                                 ? contracts::ButtonState::Pressed
                                                 : contracts::ButtonState::Released,
                                             mapped == contracts::PointerButton::Other ? button : 0,
-                                            InputTimeNs(), self.PointerSource()});
+                                            InputTimeNs(), self.PointerSource(), serial});
 }
 
 void WaylandWindow::PointerAxis(void *data, wl_pointer *, std::uint32_t, std::uint32_t axis,

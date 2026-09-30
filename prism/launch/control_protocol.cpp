@@ -75,12 +75,18 @@ void VerifyControlPeer(int fd, int parent_pid)
 
 std::vector<std::uint8_t> EncodeControl(const ControlMessage &m)
 {
-    Check(static_cast<unsigned>(m.type) >= 1 && static_cast<unsigned>(m.type) <= 10);
+    Check(static_cast<unsigned>(m.type) >= 1 && static_cast<unsigned>(m.type) <= 14);
     Check(m.permit.session && static_cast<unsigned>(m.permit.role) <= 3);
     std::vector<std::uint8_t> body;
     const auto &p = m.permit;
     Put(body, p.session, 8);
-    if (m.type == ControlType::InstallTheme || m.type == ControlType::ThemeApplied) {
+    if (m.type == ControlType::LayoutSubscribe) {
+        Put(body, m.layout_subscribe, 1);
+    } else if (m.type == ControlType::LayoutSnapshot) {
+        Check(m.layout_snapshot.session == p.session);
+        auto payload = contracts::EncodeLayoutSnapshot(m.layout_snapshot);
+        body.insert(body.end(), payload.begin(), payload.end());
+    } else if (m.type == ControlType::InstallTheme || m.type == ControlType::ThemeApplied) {
         if (m.type == ControlType::InstallTheme) {
             Check(m.theme.generation);
         }
@@ -96,6 +102,13 @@ std::vector<std::uint8_t> EncodeControl(const ControlMessage &m)
         body.insert(body.end(), p.token.begin(), p.token.end());
         Put(body, p.expires_ns, 8);
         Put(body, m.success, 1);
+        if (m.type == ControlType::LayoutControl || m.type == ControlType::LayoutControlResult) {
+            Check(p.instance.value && p.pid);
+            auto payload = m.type == ControlType::LayoutControl
+                               ? contracts::EncodeLayoutControl(m.control_request)
+                               : contracts::EncodeLayoutControlResult(m.control_result);
+            body.insert(body.end(), payload.begin(), payload.end());
+        }
     }
     std::vector<std::uint8_t> b;
     Put(b, 0x50574331, 4);
@@ -114,8 +127,19 @@ std::size_t ControlFrameSize(std::span<const std::uint8_t> b)
     Reader r{b.first(12)};
     Check(r.Get(4) == 0x50574331 && r.Get(2) == 1);
     auto t = r.Get(2), n = r.Get(4);
-    Check(t >= 1 && t <= 10);
-    Check(t <= 8 ? n == 70 : n >= 8 && n <= contracts::kMaxThemePayload + 8);
+    Check(t >= 1 && t <= 14);
+    if (t <= 8) {
+        Check(n == 70);
+    } else if (t <= 10) {
+        Check(n >= 8 && n <= contracts::kMaxThemePayload + 8);
+    } else if (t == 11) {
+        Check(n == 9);
+    } else if (t == 12) {
+        Check(n >= 8 && n <= contracts::kMaxLayoutSnapshotPayload + 8);
+    } else {
+        Check(n == 70 + (t == 13 ? contracts::kLayoutControlPayload
+                                 : contracts::kLayoutControlResultPayload));
+    }
     return 12 + n;
 }
 
@@ -131,6 +155,17 @@ ControlMessage DecodeControl(std::span<const std::uint8_t> b)
     auto &p = m.permit;
     p.session = h.Get(8);
     Check(p.session);
+    if (m.type == ControlType::LayoutSubscribe) {
+        const auto enabled = h.Get(1);
+        Check(enabled <= 1);
+        m.layout_subscribe = enabled;
+        return m;
+    }
+    if (m.type == ControlType::LayoutSnapshot) {
+        m.layout_snapshot = contracts::DecodeLayoutSnapshot(b.subspan(20));
+        Check(m.layout_snapshot.session == p.session);
+        return m;
+    }
     if (m.type == ControlType::InstallTheme) {
         m.theme = contracts::DecodeTheme(b.subspan(20));
         Check(m.theme.generation);
@@ -153,6 +188,46 @@ ControlMessage DecodeControl(std::span<const std::uint8_t> b)
     auto success = h.Get(1);
     Check(success <= 1);
     m.success = success;
+    if (m.type == ControlType::LayoutControl || m.type == ControlType::LayoutControlResult) {
+        Check(p.instance.value && p.pid);
+        if (m.type == ControlType::LayoutControl) {
+            m.control_request = contracts::DecodeLayoutControl(b.subspan(h.at));
+        } else {
+            m.control_result = contracts::DecodeLayoutControlResult(b.subspan(h.at));
+        }
+    }
     return m;
+}
+
+void LayoutSnapshotCache::Reset(std::uint64_t session)
+{
+    session_ = session;
+    current_.reset();
+}
+
+void LayoutSnapshotCache::Accept(contracts::LayoutSnapshot snapshot)
+{
+    Check(session_ && snapshot.session == session_);
+    contracts::ValidateLayoutSnapshot(snapshot);
+    if (current_) {
+        Check(snapshot.revision > current_->revision &&
+              snapshot.topology_revision >= current_->topology_revision &&
+              snapshot.layout_revision >= current_->layout_revision &&
+              snapshot.focus_revision >= current_->focus_revision);
+        for (const auto &workspace : snapshot.workspaces) {
+            for (const auto &previous : current_->workspaces) {
+                if (workspace.id == previous.id) {
+                    Check(workspace.mode_revision >= previous.mode_revision);
+                }
+            }
+        }
+    }
+
+    current_ = std::make_shared<const contracts::LayoutSnapshot>(std::move(snapshot));
+}
+
+std::shared_ptr<const contracts::LayoutSnapshot> LayoutSnapshotCache::Current() const noexcept
+{
+    return current_;
 }
 } // namespace prism::launch
