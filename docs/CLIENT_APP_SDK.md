@@ -147,6 +147,8 @@ Host 的业务 ABI v1 使用 `struct_size` 可选尾部提供 `on_gesture`、`su
 回调中选定来自 WM 快照的目标，Host 管理真实输入凭证、ACK、移动合并与终止顺序。
 一般应用只获得本地手势；WM 系统控制需经过 launcher/WM 的实际 Shell 身份校验。
 
-本阶段系统操作是跟踪会话，`applied=false`；组沉浸和分隔线尺寸修改尚未启用。
+第二步提供跟踪会话；第三步追加鼠标组沉浸 End 意图，WM 成功应用后返回
+`Ended/applied=true`，模块仍以随后的权威布局快照更新实际模式。None 意图只结束跟踪，
+分隔线尺寸修改仍未启用；触屏组控制延期。
 接口示例、生命周期、权限、上限与验收记录见
 [布局控制计划第 8 节](LAYOUT_CONTROL_IMPLEMENTATION_PLAN.md#8-第二步源码交付连续手势与-typed-控制会话)。

@@ -113,13 +113,11 @@ void Service::Impl::Fail(Job &job, LaunchError error, std::string detail)
     }
     if (auto pid = job.state.Pid()) {
         auto worker = workers.find(pid);
-        if (worker != workers.end()) {
+        if (worker != workers.end() && worker->second.job == job.request.request.value) {
             StopWorker(worker->second);
         }
     }
-    if (job.role != WindowRole::Toplevel && !shutting_down) {
-        control_failed = true;
-    }
+    ShellUnavailable(job);
 }
 
 void Service::Impl::BootstrapShell()

@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <source_location>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -337,8 +338,20 @@ void Release(wm::WlrServer &server, wlr_input_device *device)
 }
 
 void Check(const contracts::LayoutControlResult &result, LayoutControlStatus status,
-           LayoutControlError error = LayoutControlError::None)
+           LayoutControlError error = LayoutControlError::None,
+           std::source_location location = std::source_location::current())
 {
+    if (result.status != status || result.error != error || result.applied) {
+        std::fprintf(
+            stderr,
+            "%s:%u: request=%llu session=%llu sequence=%llu "
+            "actual status=%u error=%u applied=%u; expected status=%u error=%u applied=0\n",
+            location.file_name(), location.line(), static_cast<unsigned long long>(result.request),
+            static_cast<unsigned long long>(result.session),
+            static_cast<unsigned long long>(result.sequence), static_cast<unsigned>(result.status),
+            static_cast<unsigned>(result.error), static_cast<unsigned>(result.applied),
+            static_cast<unsigned>(status), static_cast<unsigned>(error));
+    }
     assert(result.status == status && result.error == error && !result.applied);
 }
 
@@ -409,12 +422,22 @@ void TestControl(wm::WlrServer &server, ControlPeer &peer)
     Check(peer.Apply(server, permit, requests.Begin(server, proof)), LayoutControlStatus::Rejected,
           LayoutControlError::InvalidInput);
 
+    // Boundary intent remains unsupported; use a real adjacent pair so the
+    // rejection tests capability instead of an invalid target identity.
+    ClientProcess neighbour(server.GetSocketName());
+    neighbour.Start();
+    Until(server, [&] {
+        neighbour.Collect();
+        return neighbour.ready && !server.GetLayoutSnapshot()->boundaries.empty();
+    });
     proof = Press(server, topbar, &pointer.base);
     begin = requests.Begin(server, proof);
-    const auto immersive = peer.Apply(server, permit, begin);
-    Check(immersive, LayoutControlStatus::Began);
-    end = requests.Next(begin, LayoutControlPhase::End, immersive.session);
-    end.intent = contracts::LayoutControlIntent::EnterImmersive;
+    begin.operation = contracts::LayoutControlOperation::BoundaryGesture;
+    begin.target.boundary = server.GetLayoutSnapshot()->boundaries.front().id;
+    const auto boundary = peer.Apply(server, permit, begin);
+    Check(boundary, LayoutControlStatus::Began);
+    end = requests.Next(begin, LayoutControlPhase::End, boundary.session);
+    end.intent = contracts::LayoutControlIntent::ApplyBoundary;
     Check(peer.Apply(server, permit, end), LayoutControlStatus::Rejected,
           LayoutControlError::Unsupported);
     Release(server, &pointer.base);
@@ -480,7 +503,8 @@ void TestControl(wm::WlrServer &server, ControlPeer &peer)
           LayoutControlError::Unauthorized);
     wlr_pointer_finish(&pointer);
     application.Stop();
-    Until(server, [&] { return application.Reaped(); });
+    neighbour.Stop();
+    Until(server, [&] { return application.Reaped() && neighbour.Reaped(); });
     assert(server.ControlHealthy());
 }
 
@@ -529,5 +553,5 @@ int main(int argc, char **argv)
     std::filesystem::remove_all(directory);
     assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
     std::puts("Native layout control: real Shell PID/serial authority, pointer/touch sessions, "
-              "replay, unsupported intent, layout/unplug/unmap cancellation passed");
+              "replay, unsupported boundary, layout/unplug/unmap cancellation passed");
 }

@@ -121,7 +121,7 @@ void WlrServer::HandleSurfaceCommit(wlr_surface *surface)
 void WlrServer::HandleSurfaceMapState(wlr_surface *surface)
 {
     if (!surface->mapped) {
-        CancelLayoutControlsForSurface(surface);
+        CancelLayoutControlsForSurface(surface, contracts::LayoutControlError::Disconnected);
         CancelTouchesForSurface(surface);
     }
     // Map/unmap can precede commit, and scene listeners can remove output
@@ -131,7 +131,7 @@ void WlrServer::HandleSurfaceMapState(wlr_surface *surface)
 
 void WlrServer::HandleSurfaceDestroy(wlr_surface *surface)
 {
-    CancelLayoutControlsForSurface(surface);
+    CancelLayoutControlsForSurface(surface, contracts::LayoutControlError::Disconnected);
     CancelTouchesForSurface(surface);
     if (surface_effects_) {
         surface_effects_->ForgetSurface(surface);

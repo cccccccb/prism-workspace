@@ -204,10 +204,14 @@ std::shared_ptr<const contracts::LayoutSnapshot> WlrServer::GetLayoutSnapshot()
              primary && outputs_.size() == 1 && output->wlr_output->enabled});
     }
     for (const auto &workspace : tree->workspaces) {
+        const auto state = group_modes_.find(workspace.id);
+        const auto mode =
+            state == group_modes_.end() ? contracts::LayoutGroupMode::Normal : state->second.mode;
+        const auto mode_revision = state == group_modes_.end() ? 1 : state->second.revision;
         next.workspaces.push_back(
             {workspace.id, workspace.root,
              workspace.active && !next.outputs.empty() ? next.outputs.front().id : 0,
-             contracts::LayoutDisplayName(workspace.name), workspace.active});
+             contracts::LayoutDisplayName(workspace.name), workspace.active, mode, mode_revision});
     }
     AppendNodes(next, *tree, engine, focused_xdg_view_ ? focused_xdg_view_->managed.get() : nullptr,
                 !outputs_.empty() && outputs_.front()->wlr_output->enabled);

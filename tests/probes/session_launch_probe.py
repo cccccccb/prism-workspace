@@ -56,11 +56,40 @@ def children(pid):
     file=Path(f'/proc/{pid}/task/{pid}/children')
     return [int(p) for p in file.read_text().split()] if file.exists() else []
 
+def shell_recovery(session, wm, launcher, peer, original, log_path):
+    """A failed Shell loses its grant; unrelated windows and launch remain live."""
+    initial = log_path.read_text()
+    for request, (app, role) in enumerate(
+            [('prism_topbar', 2), ('prism_dock', 3), ('prism_desktop', 1)], 20):
+        shell = int(re.search(rf'Client pid=(\d+) authorized shell role={role}', initial)[1])
+        os.kill(shell, signal.SIGKILL)
+        wait_for(lambda: not Path(f'/proc/{shell}').exists(), log_path.read_text)
+        wait_for(lambda: f'shell unavailable app={app}' in log_path.read_text(), log_path.read_text)
+
+        assert session.poll() is None, log_path.read_text()
+        assert all(Path(f'/proc/{pid}').exists() for pid in (wm, launcher, original['pid']))
+        peer.launch(request, 'demo_player')
+        peer.wait(lambda: peer.has(request, 8))
+        activated = next(e for e in peer.events if e['request'] == request and e['milestone'] == 8)
+        assert (activated['instance'], activated['pid']) == (original['instance'], original['pid'])
+
+        peer.launch(request + 10, 'demo_settings', 1)
+        peer.wait(lambda: peer.ready(request + 10))
+        peer.send(3, request + 10)
+        peer.wait(lambda: peer.has(request + 10, 7))
+        assert session.poll() is None, log_path.read_text()
+        assert len(re.findall(rf'authorized shell role={role}\b', log_path.read_text())) == 1
+
+    assert log_path.read_text().count('policy=keep-session restart=disabled') == 3
+    print('shell recovery: Topbar/Dock/Desktop crashes preserved WM, applications and new launches; no automatic restarts')
+
 probe_path=build/'tests/prism_skia_gles_wayland_probe'
 if not probe_path.exists(): probe_path=root/'build-gles/tests/prism_skia_gles_wayland_probe'
 inherit_helper='--inherited-helper' in sys.argv[2:]
 if inherit_helper: assert ctypes.CDLL(None).prctl(36,1,0,0,0)==0
-shutdowns=('normal',) if '--normal-only' in sys.argv[2:] else ('normal','wm_crash','launcher_crash','shell_crash')
+shutdowns=('normal','wm_crash','launcher_crash','shell_crash')
+if '--normal-only' in sys.argv[2:]: shutdowns=('normal',)
+if '--shell-recovery-only' in sys.argv[2:]: shutdowns=('shell_crash',)
 for shutdown in shutdowns:
     with tempfile.TemporaryDirectory(prefix='prism-session-') as directory:
         runtime=Path(directory); log_path=runtime/'session.log'
@@ -88,7 +117,6 @@ for shutdown in shutdowns:
                     for fd in Path(f'/proc/{worker}/fd').iterdir():
                         try: assert os.readlink(fd) not in private
                         except FileNotFoundError: pass
-                dock_pid=int(re.search(r'Client pid=(\d+) authorized shell role=3',content)[1])
                 peer=Peer(runtime/'prism/launcher.sock')
                 peer.send(4,100); peer.wait(lambda:any(u['change']==3 for u in peer.updates))
                 assert [u['change'] for u in peer.updates]==[0,3],peer.updates
@@ -126,14 +154,16 @@ for shutdown in shutdowns:
                     peer.send(3,1); peer.wait(lambda:peer.has(1,7))
                     peer.wait(lambda:any(u['instance']==original['instance'] and u['change']==2 for u in peer.updates))
                     assert Path(f"/proc/{second['pid']}").exists()
+                if shutdown == 'shell_crash':
+                    shell_recovery(session, wm, launcher, peer, original, log_path)
                 pids=list(set(pids+children(launcher)))
-                if shutdown=='normal': session.terminate()
-                else: os.kill(wm if shutdown=='wm_crash' else dock_pid if shutdown=='shell_crash' else launcher,signal.SIGKILL)
+                if shutdown in ('normal', 'shell_crash'): session.terminate()
+                else: os.kill(wm if shutdown=='wm_crash' else launcher,signal.SIGKILL)
                 code=session.wait(timeout=10)
                 if inherit_helper:
                     helper=int((runtime/'inherited-helper.pid').read_text()); os.waitpid(helper,0)
                     assert not Path(f'/proc/{helper}').exists()
-                assert code==(0 if shutdown=='normal' else 1),(code,log_path.read_text())
+                assert code==(0 if shutdown in ('normal', 'shell_crash') else 1),(code,log_path.read_text())
                 wait_for(lambda:all(not Path(f'/proc/{p}').exists() for p in pids),lambda: str(pids),5)
                 if shutdown!='launcher_crash': assert not (runtime/'prism/launcher.sock').exists()
                 print(f'{shutdown}: shell grants, real activation identity, instance stream and complete process cleanup passed')

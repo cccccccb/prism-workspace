@@ -45,11 +45,16 @@ typedef struct PrismLayoutOutputV1 {
     uint32_t primary, supported;
 } PrismLayoutOutputV1;
 
+enum PrismLayoutGroupModeV1 {
+    PRISM_LAYOUT_GROUP_NORMAL_V1 = 0,
+    PRISM_LAYOUT_GROUP_IMMERSIVE_V1 = 1
+};
+
 typedef struct PrismLayoutWorkspaceV1 {
     uint64_t id, root, output;
     const char *name;
     size_t name_size;
-    uint32_t active, mode; /* Normal = 0. */
+    uint32_t active, mode; /* PrismLayoutGroupModeV1. */
     uint64_t mode_revision;
 } PrismLayoutWorkspaceV1;
 

@@ -9,7 +9,7 @@ import tempfile
 import time
 
 
-def run(build, evidence):
+def run(build, evidence, gates=()):
     root = Path(__file__).resolve().parents[2]
     evidence.mkdir(parents=True, exist_ok=True)
     report = {"build": str(build), "gates": [], "wm_reclaimed": False, "passed": False}
@@ -49,6 +49,11 @@ def run(build, evidence):
                     ("sdk-input-animation", [str(build / "tests/sdk_input_animation_probe"),
                                              env["WAYLAND_DISPLAY"]]),
                 ]
+                if gates:
+                    names = {name for name, _ in commands}
+                    if not set(gates) <= names:
+                        raise ValueError("Unknown gate selection")
+                    commands = [(name, command) for name, command in commands if name in gates]
                 for name, command in commands:
                     started = time.monotonic()
                     log = evidence / (name + ".log")
@@ -80,8 +85,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("build", type=Path)
     parser.add_argument("--evidence", required=True, type=Path)
+    parser.add_argument("--gate", action="append", default=[],
+                        help="Run only this named gate; repeat to select more than one")
     args = parser.parse_args()
-    report = run(args.build.resolve(), args.evidence.resolve())
+    report = run(args.build.resolve(), args.evidence.resolve(), args.gate)
     print(json.dumps(report, indent=2))
 
 

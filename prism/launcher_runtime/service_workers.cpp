@@ -76,6 +76,21 @@ private:
 };
 } // namespace
 
+void Service::Impl::ShellUnavailable(Job &job)
+{
+    if (job.role == WindowRole::Toplevel || job.shell_unavailable || shutting_down) {
+        return;
+    }
+
+    // Shell failure revokes that endpoint, but must not remove the WM's
+    // independent recovery paths or terminate unrelated applications. This
+    // policy keeps the session alive without automatically restarting Shell.
+    job.shell_unavailable = true;
+    std::cerr << "shell unavailable app=" << job.request.app_id
+              << " instance=" << job.instance.value << " pid=" << job.state.Pid()
+              << " policy=keep-session restart=disabled" << std::endl;
+}
+
 void Service::Impl::StopWorker(Worker &worker)
 {
     if (worker.phase != Worker::Phase::Stopping) {
@@ -148,9 +163,7 @@ void Service::Impl::ReadWorker(Worker &worker)
                     if (event->milestone == LaunchMilestone::Failed) {
                         SendControl(launch::ControlType::Revoke, job);
                         FinishWorker(worker); // Blocked cleanup still reaches TERM then KILL.
-                        if (job.role != WindowRole::Toplevel) {
-                            control_failed = true;
-                        }
+                        ShellUnavailable(job);
                     }
                 }
             } else if (const auto *request = std::get_if<LaunchRequest>(&message)) {
@@ -246,6 +259,7 @@ void Service::Impl::Reap()
         }
 
         load_budget->DropProcess(worker.pid);
+        RevokeWorkerLayout(worker);
 
         if (worker.job) {
             auto &job = *jobs.at(worker.job);
@@ -255,7 +269,6 @@ void Service::Impl::Reap()
                 Event(job, LaunchMilestone::Failed, LaunchError::RuntimeFailed,
                       "Worker exited before successful completion or crashed");
             }
-            SendControl(launch::ControlType::Revoke, job);
             WindowChanged(job, false);
             Event(job, LaunchMilestone::Exited, LaunchError::None, {}, exit_code);
             for (auto &[id, alias] : jobs) {
@@ -272,9 +285,7 @@ void Service::Impl::Reap()
                     }
                 }
             }
-            if (job.role != WindowRole::Toplevel && !shutting_down) {
-                control_failed = true;
-            }
+            ShellUnavailable(job);
         } else if (worker.phase == Worker::Phase::Preparing) {
             retry_at = Now() + 1000000000ULL;
         }

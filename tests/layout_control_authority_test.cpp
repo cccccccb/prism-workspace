@@ -71,10 +71,6 @@ void AuthorizationAndSequence()
     const auto began = authority.Apply(Topbar, request, snapshot, Now);
     assert(began.status == LayoutControlStatus::Began && began.session && !began.applied);
     assert(authority.Apply(Topbar, request, snapshot, Now) == began);
-    invalid = request;
-    invalid.position.x++;
-    assert(authority.Apply(Topbar, invalid, snapshot, Now).error ==
-           LayoutControlError::InvalidSequence);
     invalid = Begin(101);
     assert(authority.Apply(Topbar, invalid, snapshot, Now).error ==
            LayoutControlError::InvalidInput);
@@ -96,21 +92,24 @@ void AuthorizationAndSequence()
 
 void InvalidContinuationTerminates()
 {
-    for (bool sequence : {false, true}) {
+    for (int invalidKind : {0, 1, 2}) {
         LayoutControlAuthority authority;
         const auto snapshot = Snapshot();
         const auto begin = Begin();
         authority.RecordInput(Topbar, begin.input, Now);
         const auto began = authority.Apply(Topbar, begin, snapshot, Now);
         auto invalid = Next(begin, began, LayoutControlPhase::Update);
-        if (sequence) {
+        if (invalidKind == 1) {
             invalid.sequence++;
+        } else if (invalidKind == 2) {
+            invalid = begin;
+            invalid.position.x++;
         } else {
             invalid.target.root++;
         }
         const auto result = authority.Apply(Topbar, invalid, snapshot, Now);
-        assert(result.error ==
-               (sequence ? LayoutControlError::InvalidSequence : LayoutControlError::StaleTarget));
+        assert(result.error == (invalidKind ? LayoutControlError::InvalidSequence
+                                            : LayoutControlError::StaleTarget));
         assert(authority.TakeNotifications().size() == 1);
         auto retry = Next(begin, began, LayoutControlPhase::Update);
         retry.request += 100;

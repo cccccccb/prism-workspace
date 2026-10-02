@@ -87,7 +87,7 @@ void CheckStateRules()
                       "state requires when, scope");
     RejectStateSource("InteractionTarget { Visual.state(when:\"hovered\",scope:\"target\") }",
                       "state requires at least one property");
-    RejectStateSource("InteractionTarget { Visual.state(when:\"dragging\",scope:\"target\","
+    RejectStateSource("InteractionTarget { Visual.state(when:\"unknownState\",scope:\"target\","
                       "scaleX:1.1) }",
                       "unknown state condition");
     RejectStateSource("InteractionTarget { Visual.state(when:$condition,scope:\"target\","

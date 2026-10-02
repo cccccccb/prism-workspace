@@ -23,7 +23,7 @@ inline constexpr std::size_t kMaxLayoutBoundaries = 512;
 enum class LayoutNodeKind : std::uint8_t { Container, View };
 enum class LayoutArrangement : std::uint8_t { None, Horizontal, Vertical, Tabbed, Stacked };
 enum class LayoutBoundaryAxis : std::uint8_t { X, Y };
-enum class LayoutGroupMode : std::uint8_t { Normal };
+enum class LayoutGroupMode : std::uint8_t { Normal, Immersive };
 
 struct LayoutOutput {
     std::uint64_t id{};

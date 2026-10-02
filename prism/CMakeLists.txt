@@ -31,6 +31,9 @@ add_library(prism_core
     src/wm/wlr_server_layout.cpp
     src/wm/layout_control.cpp
     src/wm/wlr_server_layout_control.cpp
+    src/wm/wlr_server_group.cpp
+    src/wm/wlr_server_group_input.cpp
+    src/wm/wlr_server_surface_coords.cpp
     src/wm/surface_effects.cpp
     src/wm/surface_effects_content.cpp
     src/wm/surface_effects_gpu.cpp

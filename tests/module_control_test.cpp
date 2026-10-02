@@ -105,7 +105,7 @@ int main(int argc, char **argv)
     assert(fixture.requests[2].phase == contracts::LayoutControlPhase::End);
     module.Deliver(Result(fixture.requests[2], contracts::LayoutControlStatus::Ended));
     assert(fixture.values.at("result_count") == 3);
-    assert(fixture.values.at("result_status") == PRISM_LAYOUT_ENDED_V1);
+    assert(fixture.values.at("result_status") == static_cast<double>(PRISM_LAYOUT_ENDED_V1));
     assert(fixture.values.at("result_applied") == 0);
 
     gesture.id = 11;
@@ -113,7 +113,7 @@ int main(int argc, char **argv)
     module.Gesture(gesture);
     module.Disconnected();
     assert(fixture.values.at("result_count") == 4);
-    assert(fixture.values.at("result_error") == PRISM_LAYOUT_DISCONNECTED_V1);
+    assert(fixture.values.at("result_error") == static_cast<double>(PRISM_LAYOUT_DISCONNECTED_V1));
     assert(fixture.values.at("layout_status") == 2);
     module.Disconnected();
     assert(fixture.values.at("result_count") == 4);

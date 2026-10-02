@@ -121,17 +121,23 @@ void LayoutControlAuthority::CancelInput(contracts::LayoutInputKind kind, std::i
     });
 }
 
-void LayoutControlAuthority::Revoke(contracts::InstanceId instance)
+void LayoutControlAuthority::CancelInstance(contracts::InstanceId instance,
+                                            contracts::LayoutControlError error)
 {
     for (auto it = sessions_.begin(); it != sessions_.end();) {
         if (it->second.principal.instance == instance) {
-            Cancel(it++, contracts::LayoutControlError::Disconnected);
+            Cancel(it++, error);
         } else {
             ++it;
         }
     }
     std::erase_if(inputs_,
                   [instance](const auto &input) { return input.principal.instance == instance; });
+}
+
+void LayoutControlAuthority::Revoke(contracts::InstanceId instance)
+{
+    CancelInstance(instance, contracts::LayoutControlError::Disconnected);
     std::erase_if(journal_,
                   [instance](const auto &entry) { return entry.principal.instance == instance; });
 }
@@ -146,10 +152,9 @@ void LayoutControlAuthority::Reset()
     // Never reuse a previously issued session ID while this WM process is alive.
 }
 
-contracts::LayoutControlResult
-LayoutControlAuthority::Apply(const LayoutControlPrincipal &principal,
-                              const contracts::LayoutControlRequest &request,
-                              const contracts::LayoutSnapshot &snapshot, std::uint64_t now)
+contracts::LayoutControlResult LayoutControlAuthority::Apply(
+    const LayoutControlPrincipal &principal, const contracts::LayoutControlRequest &request,
+    const contracts::LayoutSnapshot &snapshot, std::uint64_t now, LayoutControlApplier *applier)
 {
     using enum contracts::LayoutControlError;
     using enum contracts::LayoutControlStatus;
@@ -168,13 +173,19 @@ LayoutControlAuthority::Apply(const LayoutControlPrincipal &principal,
             return entry.principal == principal && entry.request.request == request.request;
         });
     if (replay != journal_.end()) {
-        return replay->request == request ? replay->result
-                                          : Result(request, snapshot, Rejected, InvalidSequence);
+        if (replay->request == request) {
+            return replay->result;
+        }
+        const auto active = sessions_.find(replay->result.session);
+        if (active != sessions_.end() && active->second.principal == principal) {
+            Cancel(active, InvalidSequence);
+        }
+        return Result(request, snapshot, Rejected, InvalidSequence);
     }
 
     auto result = request.phase == contracts::LayoutControlPhase::Begin
                       ? Begin(principal, request, snapshot, now)
-                      : Continue(principal, request, snapshot, now);
+                      : Continue(principal, request, snapshot, now, applier);
     if (journal_.size() == MaxJournal) {
         journal_.pop_front();
     }
@@ -218,10 +229,9 @@ LayoutControlAuthority::Begin(const LayoutControlPrincipal &principal,
     return result;
 }
 
-contracts::LayoutControlResult
-LayoutControlAuthority::Continue(const LayoutControlPrincipal &principal,
-                                 const contracts::LayoutControlRequest &request,
-                                 const contracts::LayoutSnapshot &snapshot, std::uint64_t now)
+contracts::LayoutControlResult LayoutControlAuthority::Continue(
+    const LayoutControlPrincipal &principal, const contracts::LayoutControlRequest &request,
+    const contracts::LayoutSnapshot &snapshot, std::uint64_t now, LayoutControlApplier *applier)
 {
     using enum contracts::LayoutControlError;
     using enum contracts::LayoutControlStatus;
@@ -252,10 +262,18 @@ LayoutControlAuthority::Continue(const LayoutControlPrincipal &principal,
     if (request.phase == contracts::LayoutControlPhase::Cancel) {
         return Result(request, snapshot, Cancelled);
     }
-    // This stage establishes tracking and authority only. No layout mutation is claimed.
-    return request.intent == contracts::LayoutControlIntent::None
-               ? Result(request, snapshot, Ended)
-               : Result(request, snapshot, Rejected, Unsupported);
+    auto result = Result(request, snapshot, Ended);
+    if (request.intent == contracts::LayoutControlIntent::None) {
+        return result;
+    }
+
+    const auto error = applier ? applier->ApplyLayoutIntent(request, result) : Unsupported;
+    if (error != None) {
+        result.status = Rejected;
+        result.error = error;
+        result.applied = false;
+    }
+    return result;
 }
 
 void LayoutControlAuthority::Cancel(std::map<std::uint64_t, Session>::iterator it,
@@ -314,6 +332,29 @@ std::vector<LayoutControlDelivery> LayoutControlAuthority::TakeNotifications()
     std::vector<LayoutControlDelivery> result;
     result.swap(notifications_);
     return result;
+}
+
+bool LayoutControlAuthority::HasPendingInput(contracts::InstanceId instance,
+                                             std::uint64_t now) const
+{
+    for (const auto &input : inputs_) {
+        if (input.principal.instance != instance || Elapsed(now, input.started, Lifetime) ||
+            (input.released && Elapsed(now, input.released, ReleaseGrace))) {
+            continue;
+        }
+        if (!input.consumed) {
+            return true;
+        }
+        const auto active =
+            std::find_if(sessions_.begin(), sessions_.end(), [&input](const auto &entry) {
+                return entry.second.principal == input.principal &&
+                       entry.second.last.input == input.proof;
+            });
+        if (active != sessions_.end()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace prism::wm

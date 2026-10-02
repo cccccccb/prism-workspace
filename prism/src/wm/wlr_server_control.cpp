@@ -90,8 +90,10 @@ void WlrServer::PumpControl()
             } else if (m.type == launch::ControlType::Revoke) {
                 auto r = registrations_.find(p.pid);
                 if (r != registrations_.end() && r->second->permit.instance == p.instance) {
+                    const auto role = static_cast<int>(r->second->permit.role);
                     layout_controls_.Revoke(p.instance);
                     registrations_.erase(r);
+                    HandleShellUnavailable(role);
                     wl_client *client = nullptr;
                     for (const auto &view : xdg_views_) {
                         if (view->instance == p.instance.value &&
@@ -159,6 +161,7 @@ contracts::ThemeApplied WlrServer::InstallTheme(const contracts::ThemeSnapshot &
     }
     theme_.layout = next->layout;
     theme_snapshot_ = std::move(next);
+    recovery_visible_ = false;
     ArrangeXdgViews();
     applied.success = true;
     applied.detail = "Installed";

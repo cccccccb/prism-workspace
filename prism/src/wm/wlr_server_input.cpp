@@ -139,7 +139,9 @@ void WlrServer::HandleKeyboardKey(WlrKeyboardBinding *binding, void *data)
                 compositor_->SetTreeLayout(tree::LayoutMode::SplitHorizontal);
                 handled = true;
             } else if (symbols[i] == XKB_KEY_f) {
-                if (focused_xdg_view_) {
+                if (mods & WLR_MODIFIER_SHIFT) {
+                    RestoreDesktopGroup();
+                } else if (focused_xdg_view_) {
                     SetXdgFullscreen(focused_xdg_view_, !focused_xdg_view_->fullscreen);
                 }
                 handled = true;
@@ -233,6 +235,7 @@ void WlrServer::HandleCursorMotion(uint32_t time_msec, double dx, double dy,
         pointer_event_age_.Record(age);
     }
     wlr_cursor_move(cursor_, device, dx, dy);
+    UpdateGroupRecovery();
     UpdateXdgPointerFocus(time_msec);
     if (compositor_) {
         compositor_->OnPointerMotion(static_cast<float>(cursor_->x), static_cast<float>(cursor_->y),
@@ -256,6 +259,7 @@ void WlrServer::HandleCursorMotionAbsolute(uint32_t time_msec, double x, double 
         pointer_event_age_.Record(age);
     }
     wlr_cursor_warp_absolute(cursor_, device, x, y);
+    UpdateGroupRecovery();
     UpdateXdgPointerFocus(time_msec);
     if (compositor_) {
         compositor_->OnPointerMotion(static_cast<float>(cursor_->x),
@@ -270,6 +274,12 @@ void WlrServer::HandleCursorMotionAbsolute(uint32_t time_msec, double x, double 
 void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t state,
                                    wlr_input_device *device)
 {
+    if (ConsumeGroupPointer(button, state, device)) {
+        return;
+    }
+    UpdateGroupRecovery();
+    UpdateXdgPointerFocus(time_msec);
+
     WlrXdgView *pointed = nullptr;
     if (seat_->pointer_state.focused_surface) {
         auto *surface = wlr_surface_get_root_surface(seat_->pointer_state.focused_surface);
@@ -335,6 +345,9 @@ void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t
         }
     }
     wlr_seat_pointer_notify_frame(seat_);
+    if (state == WLR_BUTTON_RELEASED && !seat_->pointer_state.button_count) {
+        UpdateXdgPointerFocus(time_msec);
+    }
     if (compositor_) {
         compositor_->OnPointerButton(button, state == WLR_BUTTON_PRESSED);
     }
@@ -437,6 +450,9 @@ void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t
 void WlrServer::HandleCursorAxis(uint32_t time_msec, int axis, double value, int32_t discrete,
                                  int source, int relative_direction)
 {
+    if (!recovery_buttons_.empty()) {
+        return;
+    }
     wlr_seat_pointer_notify_axis(
         seat_, time_msec, static_cast<wl_pointer_axis>(axis), value, discrete,
         static_cast<wl_pointer_axis_source>(source),
@@ -449,15 +465,32 @@ void WlrServer::UpdateXdgPointerFocus(uint32_t time_msec)
     if (!windows_tree_ || !seat_ || !cursor_) {
         return;
     }
+    if (!recovery_buttons_.empty()) {
+        wlr_seat_pointer_notify_clear_focus(seat_);
+        return;
+    }
     double sx = 0.0;
     double sy = 0.0;
+    if (seat_->pointer_state.button_count && !wlr_seat_pointer_has_grab(seat_)) {
+        // The default seat grab does not keep compositor hit testing on the
+        // Down surface. Preserve this sequence across gaps and other windows.
+        if (SurfacePosition(scene_, seat_->pointer_state.focused_surface, cursor_->x, cursor_->y,
+                            sx, sy)) {
+            wlr_seat_pointer_notify_motion(seat_, time_msec, sx, sy);
+        } else {
+            wlr_seat_pointer_notify_clear_focus(seat_);
+        }
+        wlr_seat_pointer_notify_frame(seat_);
+        return;
+    }
     struct wlr_surface *surface = nullptr;
     for (auto *tree : {chrome_tree_, windows_tree_, background_tree_}) {
         auto *node = wlr_scene_node_at(&tree->node, cursor_->x, cursor_->y, &sx, &sy);
         if (node && node->type == WLR_SCENE_NODE_BUFFER) {
             auto *scene_surface =
                 wlr_scene_surface_try_from_buffer(wlr_scene_buffer_from_node(node));
-            if (scene_surface) {
+            if (scene_surface &&
+                ConstrainRecoveryFocus(scene_surface->surface, cursor_->x, cursor_->y)) {
                 surface = scene_surface->surface;
             }
         }

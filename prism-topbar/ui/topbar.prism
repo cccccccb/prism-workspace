@@ -6,14 +6,21 @@ Card(height: "@shell_top_height", paddingX: "@topbar_inset", paddingY: "@topbar_
                      cornerRadius: "@topbar_handle_plate_radius", background: "@handleTrack", justify: "center",
                      shadowBlur: "@control_shadow_blur", shadowY: "@local_shadow_y", shadowColor: "@shadow") {
                     Visual(width: "@topbar_handle_width", height: "@topbar_handle_height", anchor: "center",
-                           cornerRadius: "@topbar_handle_radius", background: "@indicator")
+                           cornerRadius: "@topbar_handle_radius", background: "@indicator") {
+                        Visual(width: "@topbar_handle_width", height: "@topbar_handle_height", anchor: "center",
+                               cornerRadius: "@topbar_handle_radius", background: "@accent",
+                               opacity: $group_immersive_opacity)
+                            .state(when: "dragging", scope: "target", opacity: 1)
+                            .transition(property: "opacity", durationMs: 120, easing: "easeOutCubic")
+                    }
                         .state(when: "hovered", scope: "target", scaleX: 1.12)
                         .state(when: "pressed", scope: "target", scaleX: 0.96)
+                        .state(when: "dragging", scope: "target", scaleX: 1.18)
                         .state(when: "focusVisible", scope: "target", background: "@accent")
                         .transition(property: "scaleX", durationMs: 140, easing: "easeOutCubic")
                         .transition(property: "background", durationMs: 120, easing: "easeOutCubic")
                 }
-            }
+            }.gesture(action: "group:toggle-immersive", threshold: 6)
         }
         Card(height: "@topbar_height", material: "panel", shadowBlur: "@topbar_shadow_blur") {
             Card(paddingX: "@topbar_padding_x", paddingY: "@topbar_padding_y", justify: "center") {

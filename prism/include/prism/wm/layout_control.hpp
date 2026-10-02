@@ -23,6 +23,15 @@ struct LayoutControlDelivery {
     contracts::LayoutControlResult result;
 };
 
+// Invoked synchronously only after an authenticated End has terminated its
+// tracking session. The compositor supplies authoritative post-apply revisions.
+class LayoutControlApplier {
+public:
+    virtual ~LayoutControlApplier() = default;
+    virtual contracts::LayoutControlError ApplyLayoutIntent(const contracts::LayoutControlRequest &,
+                                                            contracts::LayoutControlResult &) = 0;
+};
+
 // Event-loop-owned authority. Neither Scene objects nor renderer resources cross here.
 class LayoutControlAuthority {
 public:
@@ -30,12 +39,15 @@ public:
                      std::uint64_t now);
     void ReleaseInput(contracts::LayoutInputKind, std::int32_t contact, std::uint64_t now);
     void CancelInput(contracts::LayoutInputKind, std::int32_t contact);
+    void CancelInstance(contracts::InstanceId, contracts::LayoutControlError);
     void Revoke(contracts::InstanceId);
     void Reset();
     contracts::LayoutControlResult Apply(const LayoutControlPrincipal &,
                                          const contracts::LayoutControlRequest &,
-                                         const contracts::LayoutSnapshot &, std::uint64_t now);
+                                         const contracts::LayoutSnapshot &, std::uint64_t now,
+                                         LayoutControlApplier *applier = nullptr);
     void Reconcile(const contracts::LayoutSnapshot &, std::uint64_t now);
+    bool HasPendingInput(contracts::InstanceId, std::uint64_t now) const;
     std::vector<LayoutControlDelivery> TakeNotifications();
 
 private:
@@ -63,7 +75,8 @@ private:
                                          const contracts::LayoutSnapshot &, std::uint64_t now);
     contracts::LayoutControlResult Continue(const LayoutControlPrincipal &,
                                             const contracts::LayoutControlRequest &,
-                                            const contracts::LayoutSnapshot &, std::uint64_t now);
+                                            const contracts::LayoutSnapshot &, std::uint64_t now,
+                                            LayoutControlApplier *applier);
     void Cancel(std::map<std::uint64_t, Session>::iterator, contracts::LayoutControlError);
 
     std::deque<Input> inputs_;

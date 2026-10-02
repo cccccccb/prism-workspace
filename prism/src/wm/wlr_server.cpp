@@ -349,6 +349,7 @@ void WlrServer::RunEventLoopIteration(int timeout_ms)
     wl_event_loop_dispatch(wl_event_loop_, timeout_ms);
     PumpControl();
     wl_display_flush_clients(wl_display_);
+    UpdateGroupRecovery();
     PublishLayoutSnapshot();
 }
 

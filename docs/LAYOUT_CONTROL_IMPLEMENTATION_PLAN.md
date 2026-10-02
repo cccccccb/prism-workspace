@@ -1,11 +1,15 @@
 # WM 权威布局、组沉浸与分隔线控制实施计划
 
-日期：2026-09-30。状态：**第一步已验收；第二步源码已接入、正在验证，见第 8 节；第三、四步仍为后续计划。**
+日期：2026-10-01。状态：**第一至第三步已完成自动化验收，第三步结果见第 9 节；第四步为后续计划。**
 
 本计划承接 [通用交互规范](INTERACTION_AND_PRESENTATION_SPEC.md)第 2、8、9、11 节。
 实施顺序为：稳定树与边界身份、WM 权威快照 → typed 控制会话与连续手势桥接 →
 组沉浸与可靠恢复 → 分隔线调节与尺寸约束。每步通过验收后再接下一步。
 Topbar 的 action 只分派语义动作，系统操作必须经过权限与目标验证。
+
+2026-10-01 范围修订：按用户确认，后续主体功能以**鼠标优先**推进。第三步和第四步
+暂不设计触屏操作或安排实体触屏验收；已有通用 touch 输入兼容性保留，后续在主体功能
+完成后另行设计触屏交互。键盘恢复继续作为独立兜底路径。
 
 ## 1. 第一步结束时的基础与边界
 
@@ -128,14 +132,14 @@ WM 按 output/workspace 保存 `Normal/Immersive`，与现有单窗 XDG fullscre
 
 1. WM 独立键盘命令直接恢复当前组；现有 Super+F 仍是单窗 fullscreen。
 2. WM 保留窄范围边缘入口，在 Down 时确定系统或应用归属，唤出受信任恢复控件。
-   已交给应用的触摸序列保持原归属；不在中途重放点击，也不让全屏透明输入区域长期
+   已交给应用的鼠标按键序列保持原归属；不在中途重放点击，也不让全屏透明输入区域长期
    覆盖应用。边缘尺寸与阈值留在布局控制策略中，后续用实机校准。
 3. Shell 退出/崩溃后，WM 取消该端点会话并保持可恢复状态；输出和 workspace 改变时
    清理边缘手势与临时唤出状态。
 
-当前 launcher 在 Shell worker 失败或退出后设置 `control_failed`，最终 session
-supervisor 会终止 WM。实现本步必须一起调整故障策略：撤权和取消控制、WM 恢复安全
-组状态，并通过受限重启或保持会话支持恢复。只增加快捷键不能满足 Shell 崩溃验收。
+第三步开始前 launcher 在 Shell worker 失败或退出后设置 `control_failed`，最终
+session supervisor 会终止 WM。本步一起调整故障策略：撤权和取消控制、WM 恢复安全
+组状态，并保持会话支持恢复。实际采用的无自动重启策略见第 9 节。
 
 Topbar 继续使用统一 Host/DSL；语义动作调用第二步的 typed 能力。边缘唤出可临时显示
 受信任控制视图，WM 限定其位置和输入范围。Shell 可见性动画不改变应用输入所有权。
@@ -144,8 +148,25 @@ Topbar 继续使用统一 Host/DSL；语义动作调用第二步的 typed 能力
 
 至少两个原生应用进入沉浸后均可见，拓扑与比例保持，客户端 XDG fullscreen 标志不因
 组操作改变。验证退出、主题/输出改变、workspace 切换、单窗 fullscreen 交错和较新的
-组操作。鼠标、触摸、键盘恢复分别测试，边缘输入不泄漏为应用点击；Shell 崩溃后仍能
+组操作。本轮验证鼠标和键盘恢复，触屏延期；边缘输入不泄漏为应用点击；Shell 崩溃后仍能
 恢复。一次模式变更产生明确布局目标，动画采样不反复 configure 全部窗口。
+
+### 第三步鼠标操作约定（2026-10-01）
+
+- Topbar 横线保持固定命中区；鼠标主键拖动识别阈值为 6 逻辑像素，向下位移至少
+  24 逻辑像素且纵向占优时，释放提交 EnterImmersive/ExitImmersive。短拖和反向拖动
+  只结束跟踪，取消不更改组模式。实际选中态来自 WM 快照。
+- 沉浸时平铺组使用完整输出，外边距为 0，保留主题内间距、成员和分割比例。
+  单窗 XDG fullscreen 独立保存；显式恢复组清除当前组的单窗覆盖。
+- 组沉浸或单窗 fullscreen 隐藏控制栏时，鼠标主键按下于输出顶部中央 160 × 6 逻辑像素
+  入口，WM 消费该次完整按钮序列并临时唤出原 Topbar。下一次横线拖动可以恢复。离开
+  Topbar 范围且没有按键或待完成输入时收起；已有应用拖动不因进入边缘而被接管。
+  位置与输入范围由 WM 限定；释放后的在途输入沿用第二步最多 2 秒的宽限。
+- `Super+Shift+F` 恢复当前组并清除单窗覆盖；`Super+F` 保持原单窗 fullscreen。
+- Shell worker 失败时撤权、取消控制并恢复安全组状态，WM/launcher 与普通应用保持
+  运行。本阶段不自动重启 Shell；WM/launcher 本身或私有控制通道失效仍停止整个会话。
+- workspace、输出身份/几何改变清理临时唤出状态；组模式按当前支持的输出/workspace
+  保存，输出丢失后回到 Normal，修订不可倒退。触屏不启用新的组控制意图。
 
 ## 5. 第四步：分隔线调节与尺寸约束
 
@@ -174,7 +195,7 @@ stacked 子树纳入其头部占用。父容器空间不足时明确禁用该边
 覆盖水平/垂直、三个以上兄弟、嵌套子树、tabbed/stacked 最小尺寸、极小输出、大 gap、
 客户端动态改变约束及无法满足的约束。验证拖出边界、取消恢复、多设备争用、窗口关闭
 与拓扑变化。慢客户端、configure 积压及丢弃帧情况下队列仍有界，输入坐标与实际采用
-的几何一致。分别执行鼠标、wlroots touch 协议注入及实体触屏验收。
+的几何一致。本轮以鼠标验证为准；触屏交互和实体触屏验收留待后续专项。
 
 ## 6. 文件职责与交付规则
 
@@ -387,23 +408,140 @@ workspace 切换、拓扑或布局修订变化取消会话；纯焦点变化和�
 已认证会话提交错误目标或错误序号会取消该会话，避免 Host 结束而 WM 仍占用控制权。
 
 WM 使用最多 64 个输入记录与 256 项重放记录。相同身份和 request 的完全相同请求取得
-缓存结果，篡改同 request 的内容被拒绝；取消后旧请求不能恢复会话。Host 接受 WM 异步
-Cancelled，即使它引用的最后请求已经 ACK。断线、Revoke、worker 退出与 surface unmap
+缓存结果，篡改同 request 的内容被拒绝，并取消该重放记录关联的活动会话；取消后旧请求
+不能恢复会话。Host 接受 WM 异步 Cancelled，即使它引用的最后请求已经 ACK。
+断线、Revoke、worker 退出与 surface unmap
 都会清理状态。传输有明确载荷与队列上限，布局快照仍最多 192 KiB，不保存无界历史。
 
 ### 8.4 当前交付能力与后续步骤
 
-当前实现 `GroupGesture` / `BoundaryGesture` 的跟踪会话。End intent 为 None 时返回
+第二步交付时实现 `GroupGesture` / `BoundaryGesture` 的跟踪会话。End intent 为 None 时返回
 Ended，`applied=false`。EnterImmersive、ExitImmersive、ApplyBoundary 均明确返回 Unsupported
 并终止会话；没有假装已经应用布局。传输中的位置仍是客户端局部逻辑坐标，不直接作为
 受信任的窗口几何输入。
 
-当前主题、Topbar/Dock 及应用 UI 保持现有效果；新接口没有自动把所有本地手势变成系统
-操作。下一步接入组沉浸状态机、恢复入口与 Shell 行为；随后在递归尺寸约束和 WM 几何
+第二步交付时主题、Topbar/Dock 及应用 UI 保持现有效果；新接口没有自动把所有本地手势变成系统
+操作。第三步接入组沉浸状态机、恢复入口与 Shell 行为（见第 9 节）；随后在递归尺寸约束和 WM 几何
 计算具备后接入分隔线调整。边界 `resizable` 在本阶段继续为 false。
 
 ### 8.5 验证记录
 
-本阶段验证日志保存于 `dist/validation/layout-control-v1-20260930/`；最终结果在构建和
-回归完成后记录。测试、C ABI fixture、原生 Wayland 客户端与虚拟输入 probe 均保持在
-`tests/`，不进入运行包。未部署或替换当前 Pi 桌面/VNC 会话；测试输入不等同实体触屏验收。
+Pi 完整构建通过，最终 CTest **70/70** 通过。新增六项测试覆盖 typed 协议、Scene 手势、
+WM 权威校验、Host 桥接、C 模块 ABI 和原生控制链路：
+
+- 协议拒绝非法枚举、载荷和目标；Host 保留终止顺序、合并未发送的 Update，并处理异步取消。
+- Scene 验证阈值、点击与拖动互斥、捕获、独立触点、隐藏/移除和 UI 生命周期取消。
+- WM 验证原始输入凭证、身份和修订、单次消费、Busy、重放、过期和错误续传后的清理。
+  同 request 改写载荷会终止关联的活动会话，完全相同的重放仍返回一致结果。
+- 原生 Wayland fixture 使用实际映射的 Shell 客户端和 wlroots 输入事件，验证真实 serial、
+  释放宽限、主题/布局失效、unmap，以及 pointer/touch 设备销毁后的取消。
+
+隔离 V3D 会话的六项 SDK 门槛全部通过：Prepared UI、提交、损伤、动画、输入快照、
+输入与动画。输入快照 probe 验证旧画面命中、连续手势，以及回调内替换 UI、隐藏目标和
+Close 后的终止事件唯一性。它先有界等待成功像素提交，再检查稳定状态；计数短暂不变
+不能单独证明新帧已经提交，也不等于显示端已呈现。
+
+launcher 路由 probe 用真实 launcher、测试 worker 和模拟 WM 端点，验证普通应用与 Dock
+的权限拒绝、Topbar 通道及不可变 owner 匹配。另行串行运行真实 supervisor/WM/launcher/
+Host 的 normal 会话回归，Shell 授权、实例激活、订阅和进程清理通过。两者的覆盖范围
+不同，模拟端点测试不冒充完整桌面操作验收。
+
+初轮问题与最终结果分别保留：集成重建后 Scene 取消时间断言通过；一个生成的 worker
+对象文件存在非法重定位，删除该对象并重新编译后链接通过；旧 DSL 负例仍把新增的
+`dragging` 当作非法状态，已改为真正未知的状态名。首轮 GPU probe 的固定等待窗口未
+确认新帧提交，独立复测通过后增加上述成功提交等待，最终六项全量复测通过。没有放宽
+生产执行预算或强制额外渲染来通过验证。
+
+证据位于 `dist/validation/layout-control-v1-20260930/`：`build-verified.log`、
+`ctest-verified.log`、`launcher-routing.log`、`session-launch.log`、
+`sdk-final/native-gates.json` 及各项 GPU 日志；代码规范检查记录为 `style-verified.log`。
+格式、goto/800 行门槛及 `git diff --check` 通过；当前 319 个生产文件中最大为 627 行。
+测试、C ABI fixture、原生 Wayland 客户端与虚拟输入 probe 均保持在 `tests/`，不进入运行包。
+未部署或替换当前 Pi 桌面/VNC 会话；测试输入不等同实体触屏验收。
+
+## 9. 第三步源码交付：鼠标组沉浸与恢复
+
+本节记录 2026-10-01 接入的第三步，验证结果见本节末尾；第四步分隔线
+尺寸约束仍未启用。本步优先鼠标，既有触摸协议继续兼容，新的触屏组控制不启用。
+
+### 9.1 WM 模式与应用布局
+
+`LayoutGroupMode` 增加 `Immersive=1`，C 模块获得对应具名枚举，快照字段布局保持。
+组状态绑定当前支持的输出身份与 workspace；workspace 切换保留各自模式，输出丢失或
+进入尚不支持的输出配置时恢复 Normal，mode_revision 不倒退。显式组意图推进模式修订，
+主题和尺寸变化只推进对应布局修订。
+
+Normal 使用主题 Shell 保留带与外边距；Immersive 使用完整输出、外边距 0，保留主题
+内间距、树成员和分割比例。只在最终 End 接受后修改模式，不随每个 Update 配置窗口。
+恢复使用当前主题、输出与存活窗口重新安排，不保存旧矩形用于回滚。
+
+原生单窗 XDG fullscreen 仍是独立覆盖状态。EnterImmersive 不改客户端 fullscreen
+标志，退出单窗覆盖后采用当前组模式；显式 ExitImmersive 与键盘恢复清除当前组的单窗
+覆盖。Shell 不可用时恢复所有组的 Normal 并清除覆盖，保留普通窗口与树结构。
+
+### 9.2 控制提交与幂等
+
+`LayoutControlAuthority` 完成身份、输入、目标和序号验证后，先结束跟踪会话，再同步
+调用独立 `LayoutControlApplier` 接口。WM 应用组意图并填写操作后的权威修订，返回
+`Ended/applied=true`；None 仍仅结束跟踪，BoundaryGesture/ApplyBoundary 继续 Unsupported。
+本阶段新的组意图仅接受鼠标输入证明。
+
+正常隐藏与撤权分开：隐藏通过 `CancelInstance` 撤销输入和活动会话，保留有界重放日志；
+真正 unmap、端点撤权或进程退出再执行 Revoke。已完成 End 在焦点变化、重复 Arrange、
+临时唤出和收起后仍返回缓存结果，不重复修改模式或修订。
+
+### 9.3 Shell 与鼠标恢复
+
+Topbar 通过既有 C ABI 订阅布局，复制当前 supported output、active workspace、root
+和修订。横线的鼠标下拖通过通用 DSL gesture 进入 Host 桥接；模块只在 End 选择意图。
+实际强调色来自权威快照，成功提交请求或动画本身都不能代替 WM 已应用状态。
+
+恢复入口采用第 4 节的中央顶边鼠标约定。WM 在 Down 决定输入归属，完整消费系统拥有
+的按钮序列，应用已有按键或抓取不被接管；不把系统 Up 交给下面的窗口。普通鼠标
+序列按最初 surface 计算移动坐标并交付释放，最后释放后重新命中；跨窗口或透明区域
+不转移所有权。主键设备移除先取消客户端输入，再解除 seat 按键状态，避免虚假点击。
+临时 Topbar
+使用主题给定的 ShellRect，WM 限制输入范围并裁剪显示区域，普通窗口不因唤出反复 resize。
+拖动释放并立即移出时，有效的未消费 Down 或活动会话会暂缓收起，最多沿用原有的
+2 秒释放宽限；End(None)、取消或宽限到期后解除保护。WM 事件循环检查收起条件，不要求
+用户再移动一次鼠标，也不添加固定渲染循环。
+
+`Super+Shift+F` 由 WM 直接恢复，不依赖 Shell 回调；`Super+F` 保持单窗语义。Shell
+不可用时鼠标边缘路径也可直接恢复。launcher 对故障 Shell 撤权、清理订阅和 worker，
+保持其他进程运行，无自动重启；详细规则见 [会话运行规范第 6 节](SESSION_LAUNCH_RUNTIME.md#6-会话停止与故障)。
+
+### 9.4 文件与验证
+
+WM 模式、恢复输入分别位于 `wlr_server_group.cpp`、`wlr_server_group_input.cpp`；
+Topbar 包保留独立 DSL 与业务模块。新增 `native_group_mode_test` 和
+`topbar_group_control_test`，真实会话及故障 probe 均位于 `tests/`，不安装到生产包。
+
+Pi 完整构建通过，CTest **72/72**、代码规范和 `git diff --check` 通过。生产文件最大
+627 行，测试与 probe 不参与生产行数上限，也不进入运行包。
+
+- 原生 fixture 验证两个窗口的拓扑和非等比分割、组模式与 XDG 覆盖交错、主题变化、
+  输出缩放/重建、workspace 切换，以及键盘恢复。唤出/空闲不反复 configure 普通窗。
+- 鼠标原生验证覆盖边缘按钮不泄漏、已有应用 Down 跨边缘后的移动/释放归属、临时
+  控件显示与收起、延迟 Begin/End、End(None) 解除保护、隐藏后的 End 精确重放，
+  以及 Shell unmap/revoke 后恢复安全布局。虚拟设备输入不代表实体触屏验收。
+- Topbar 模块测试验证方向/距离阈值、快照驱动模式、快速释放早于 Begin ACK、拒绝、
+  取消与断连。普通应用不可借用此系统控制能力。
+- 隔离 V3D 完整会话使用实际打包的 DSL、主题、Topbar/Host/launcher/WM 和两个 demo。
+  手柄位置由 DSL 布局计算为 `(640, 7)`，两轮鼠标进入、边缘唤出和恢复均成功。
+  1280 × 720 输出上两个应用由各 620 × 540、y=66 扩展为各 634 × 720、y=0，保留
+  12 像素内间距；实例/PID 不变，恢复后的 target 与 committed 几何完全回到基线。
+- 真实会话依次 SIGKILL Topbar、Dock、Desktop，WM/launcher 与原应用保持运行；
+  原实例可激活、新应用可启动和取消，无自动 Shell 重启，最后会话与进程清理通过。
+- 独立故障 worker probe 验证三个 Shell 主动报告 Failed 后阻塞清理仍被回收；迟到的
+  Registered/Mapped/Unmapped 不复活旧实例、不终止会话，后续普通启动仍可处理。
+
+初轮结果保留：首次构建被终止后继续构建；两个枚举的 `None` 名称冲突已改为显式
+限定意图枚举。首轮 CTest 有两项失败，分别暴露鼠标跨窗口后未保持原 surface 归属、
+真实 unmap 与临时隐藏的取消原因混用，均修复后全量复测通过。完整会话 probe 首次
+使用错误的 `prism-msg` 构建路径，修正测试路径后两轮实测通过；没有放宽行为断言。
+
+本阶段证据位于 `dist/validation/group-immersive-v1-20261001/`：`build-verified.log`、
+`ctest-verified.log`、`style-verified.log`、`group-session-final/group-session.json` 与
+对应 session/pointer 日志、`shell-recovery.log`、`shell-worker-failure.log`。
+本轮没有部署或替换正在使用的
+桌面/VNC 会话，也没有重新测量帧率或新增触屏操作。

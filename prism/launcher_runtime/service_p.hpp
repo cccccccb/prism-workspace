@@ -44,7 +44,7 @@ struct Job {
 
     std::uint64_t alias{};
     WindowRole role{WindowRole::Toplevel};
-    bool mapped{}, registered{}, activation_sent{}, bound_sent{};
+    bool mapped{}, registered{}, activation_sent{}, bound_sent{}, shell_unavailable{};
     LaunchRequest request;
     Owner owner;
     launch::InstanceState state;
@@ -114,6 +114,7 @@ struct Service::Impl {
     void WindowChanged(Job &job, bool mapped);
     void StopWorker(Worker &worker);
     void FinishWorker(Worker &worker);
+    void ShellUnavailable(Job &job);
     ThemeEvent ThemeResult(std::uint64_t request, ThemeStatus status,
                            std::string detail = {}) const;
     void DeliverTheme(Owner owner, const ThemeEvent &event);

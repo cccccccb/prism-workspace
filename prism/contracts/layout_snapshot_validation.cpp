@@ -169,7 +169,8 @@ void ValidateLayoutSnapshot(const LayoutSnapshot &snapshot)
     for (const auto &workspace : snapshot.workspaces) {
         Require(workspace.id && workspace.root && workspace.mode_revision &&
                 workspaces.emplace(workspace.id, &workspace).second && Text(workspace.name));
-        Require(workspace.mode == LayoutGroupMode::Normal);
+        Require(workspace.mode == LayoutGroupMode::Normal ||
+                workspace.mode == LayoutGroupMode::Immersive);
         Require(!workspace.output || outputs.contains(workspace.output));
         if (workspace.active) {
             Require(!active_workspace && workspace.output == primary_output);

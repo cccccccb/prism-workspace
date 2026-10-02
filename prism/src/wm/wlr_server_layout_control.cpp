@@ -24,8 +24,7 @@ LayoutControlPrincipal WlrServer::LayoutPrincipal(const launch::ShellPermit &per
         std::any_of(xdg_views_.begin(), xdg_views_.end(), [&permit](const auto &view) {
             return view->instance == permit.instance.value &&
                    view->pid == static_cast<pid_t>(permit.pid) &&
-                   view->shell_role == static_cast<int>(permit.role) && view->mapped &&
-                   view->visible;
+                   view->shell_role == static_cast<int>(permit.role) && view->mapped;
         });
     return principal;
 }
@@ -36,7 +35,7 @@ void WlrServer::HandleLayoutControl(const launch::ControlMessage &message)
     reply.type = launch::ControlType::LayoutControlResult;
     reply.control_result =
         layout_controls_.Apply(LayoutPrincipal(message.permit), message.control_request,
-                               *GetLayoutSnapshot(), launch::MonotonicNs());
+                               *GetLayoutSnapshot(), launch::MonotonicNs(), this);
     reply.control_request = {};
     reply.success = reply.control_result.error == contracts::LayoutControlError::None;
     // Send automatic invalidations before the response to the next request.
@@ -85,7 +84,8 @@ void WlrServer::RecordLayoutInput(wlr_surface *surface, contracts::LayoutInputPr
     layout_controls_.RecordInput(principal, proof, launch::MonotonicNs());
 }
 
-void WlrServer::CancelLayoutControlsForSurface(wlr_surface *surface)
+void WlrServer::CancelLayoutControlsForSurface(wlr_surface *surface,
+                                               contracts::LayoutControlError error)
 {
     if (!surface) {
         return;
@@ -93,7 +93,7 @@ void WlrServer::CancelLayoutControlsForSurface(wlr_surface *surface)
     auto *root = wlr_surface_get_root_surface(surface);
     for (const auto &view : xdg_views_) {
         if (view->toplevel->base->surface == root) {
-            layout_controls_.Revoke({view->instance});
+            layout_controls_.CancelInstance({view->instance}, error);
         }
     }
 }
@@ -119,12 +119,26 @@ void WlrPointerBinding::Destroy(wl_listener *listener, void *)
 
 void WlrServer::HandlePointerDestroy(WlrPointerBinding *binding)
 {
+    std::erase_if(recovery_buttons_,
+                  [binding](const auto &button) { return button.first == binding->device; });
     if (control_pointer_device_ == binding->device) {
         layout_controls_.CancelInput(contracts::LayoutInputKind::Pointer, 0);
+        const auto &state = seat_->pointer_state;
+        if (std::find(state.buttons, state.buttons + state.button_count, 272u) !=
+            state.buttons + state.button_count) {
+            // Device loss cancels the client sequence before releasing the
+            // seat's implicit grab; never synthesize a client activation.
+            wlr_seat_pointer_notify_clear_focus(seat_);
+            wlr_seat_pointer_notify_button(
+                seat_, static_cast<std::uint32_t>(launch::MonotonicNs() / 1000000), 272,
+                WL_POINTER_BUTTON_STATE_RELEASED);
+            wlr_seat_pointer_notify_frame(seat_);
+        }
         control_pointer_device_ = nullptr;
     }
     std::erase_if(pointers_,
                   [binding](const auto &candidate) { return candidate.get() == binding; });
+    UpdateGroupRecovery();
 }
 
 } // namespace prism::wm

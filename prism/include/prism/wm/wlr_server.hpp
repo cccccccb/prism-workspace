@@ -12,6 +12,7 @@
 #include "prism/launch/stream.hpp"
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <sys/types.h>
 #include <vector>
@@ -137,7 +138,7 @@ struct WlrServerSignals {
  *        Manages display lifecycle, multi-output DRM/KMS scanout, input seats,
  *        hardware cursors, and sub-millisecond GPU scene presentation.
  */
-class WlrServer : public core::NonCopyable {
+class WlrServer : public core::NonCopyable, private LayoutControlApplier {
 public:
     explicit WlrServer(std::shared_ptr<Compositor> compositor);
     ~WlrServer();
@@ -413,7 +414,22 @@ private:
     void HandleLayoutControl(const launch::ControlMessage &);
     void PublishLayoutControlNotifications();
     void RecordLayoutInput(wlr_surface *, contracts::LayoutInputProof);
-    void CancelLayoutControlsForSurface(wlr_surface *);
+    void CancelLayoutControlsForSurface(
+        wlr_surface *,
+        contracts::LayoutControlError error = contracts::LayoutControlError::InvalidInput);
+    contracts::LayoutControlError ApplyLayoutIntent(const contracts::LayoutControlRequest &,
+                                                    contracts::LayoutControlResult &) override;
+    void ReconcileGroupModes();
+    bool GroupImmersive() const;
+    bool GroupControlsHidden() const;
+    bool SetGroupMode(std::uint64_t workspace, contracts::LayoutGroupMode);
+    bool ClearGroupFullscreen(std::uint64_t workspace);
+    void RestoreDesktopGroup(bool all = false);
+    void HandleShellUnavailable(int role);
+    WlrXdgView *RecoveryTopbar() const;
+    bool ConsumeGroupPointer(std::uint32_t button, std::uint32_t state, wlr_input_device *device);
+    void UpdateGroupRecovery();
+    bool ConstrainRecoveryFocus(wlr_surface *surface, double x, double y) const;
     core::Rect PrimaryLogicalBounds() const;
     static void HandleOutputLayoutChange(wl_listener *, void *);
     void NotifyView(WlrXdgView *view, launch::ControlType type);
@@ -426,6 +442,19 @@ private:
     std::uint64_t layout_theme_generation_{}, layout_sent_revision_{}, next_output_id_{1};
     bool layout_snapshot_dirty_{true}, layout_subscribed_{};
     LayoutControlAuthority layout_controls_;
+
+    struct GroupState {
+        std::uint64_t output{}, revision{1};
+        contracts::LayoutGroupMode mode{contracts::LayoutGroupMode::Normal};
+    };
+
+    std::map<std::uint64_t, GroupState> group_modes_;
+    std::uint64_t recovery_workspace_{}, recovery_output_{};
+    core::Rect recovery_output_bounds_{};
+    bool recovery_visible_{};
+    // A system-owned Down keeps all subsequent chord buttons until their Up,
+    // even when the workspace/output changes while the button is held.
+    std::set<std::pair<wlr_input_device *, std::uint32_t>> recovery_buttons_;
     std::vector<std::unique_ptr<WlrPointerBinding>> pointers_;
     wlr_input_device *control_pointer_device_{};
     std::vector<std::unique_ptr<WlrKeyboardBinding>> keyboards_;

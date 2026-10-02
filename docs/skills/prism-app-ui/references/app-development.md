@@ -71,7 +71,7 @@ Wayland/EGL/Skia 前端、不运行第二个 SDK 主循环。若框架缺通用�
 | 标识 | 当前值 | 含义 |
 | --- | --- | --- |
 | 文档发布基线 | `0.1.0-13` | 原有运行时能力基线；并非当前安装版本声明 |
-| 动画/交互源码 | Paint Transition + 交互第二阶段 | `.transition`、InteractionTarget/Visual 与受限 `.state`；发布包是否包含以实际构建为准 |
+| 动画/交互源码 | Paint Transition + 连续手势 | `.transition`、InteractionTarget/Visual、受限 `.state` 与 `.gesture`；发布包是否包含以实际构建为准 |
 | manifest `format_version` | 整数 `1` | 应用目录包结构 |
 | manifest `runtime_abi` | 整数 `1` | 业务 C ABI；可选尾字段靠 struct_size 协商 |
 | Interface `version` | 数字 `2` | 多区域加载声明 |
@@ -85,8 +85,11 @@ critical/deferred、稳定 Slot、Host work、取消、one-shot tick 与平台�
 **当前能力边界：** 没有可直接使用的 Slider 拖动、TextInput、Scroll、Repeater/List
 动态列表、任意自定义向量文件控件、完整无障碍语义 API。动画源码支持 Progress.value、
 Text/Icon/IconButton/Progress/Toggle 的 foreground，以及 Visual 的背景、局部平移/缩放/
-整体 opacity 时长过渡；固定 InteractionTarget 向装饰子树提供局部状态。当前仍无触摸
-手势、交互节点整体变换、关键帧/弹簧 DSL、GPU 保留层或 WM 视觉动画。
+整体 opacity 时长过渡；固定 InteractionTarget 向装饰子树提供局部状态。通用 `.gesture`
+支持 Begin/Update/End/Cancel 与 dragging，业务通过可选 `on_gesture` 尾部消费。
+系统布局控制仍需受信任 Shell 权限，普通应用只能处理自己的本地交互。当前组沉浸及
+恢复功能优先鼠标与键盘，触屏系统操作延期。交互节点整体变换、关键帧/弹簧 DSL、
+GPU 保留层或 WM 视觉动画仍未提供。
 `0.1.0-13` 基线包不包含动画 DSL。Image 当前解码
 PNG；内建 Icon 使用框架向量图标，与任意 SVG 文件加载是不同接口。真实 Music 的
 三行曲库是应用固定行和 binding，不是通用动态列表实现。

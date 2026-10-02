@@ -223,6 +223,22 @@ void WaitForMapped(Application &app)
     }
 }
 
+void WaitForNewPixels(Application &app, std::uint64_t previous)
+{
+    const auto started = std::chrono::steady_clock::now();
+    const auto deadline = started + 5s;
+    while (app.GetRenderStats().swap_successes <= previous) {
+        Require(std::chrono::steady_clock::now() < deadline,
+                "Moved target never reached a successful pixel submission");
+        Require(app.Pump(20), "Input snapshot client stopped waiting for pixels");
+    }
+    std::cout << "pixel-confirmation-us="
+              << std::chrono::duration_cast<std::chrono::microseconds>(
+                     std::chrono::steady_clock::now() - started)
+                     .count()
+              << '\n';
+}
+
 void Stable(Application &app, std::string_view scenario)
 {
     PumpFor(app, 180ms);
@@ -416,6 +432,9 @@ int Verify(const char *socket)
     Require(app.SetBinding("targetX", 240.0), "Target move rejected");
     Require(app.SetBinding("targetWidth", 40.0), "Target shrink rejected");
     Require(observer.actions.size() == 1, "Action ran while the UI owner was paused");
+    // Quiescent counters alone cannot distinguish idle from an in-flight GPU
+    // submission. First require positive progress; then check settled state.
+    WaitForNewPixels(app, before_move.swap_successes);
     Stable(app, "snapshot-queued-old-geometry");
     Require(observer.actions == std::vector<std::string>({"activate", "activate"}),
             "Queued input used the unsubmitted candidate instead of its old submitted geometry");

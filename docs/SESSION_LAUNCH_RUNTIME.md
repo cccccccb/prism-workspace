@@ -103,7 +103,17 @@ Dock 当前仅提供已注册的 Music/Pref 两个入口，直接通过 host Lau
 
 监督器在派生前记录已经存在的直接子进程（例如 systemd PAM helper），这些进程归原启动环境管理，不发信号、不等待其退出。正常监视只 waitpid 已知 WM/launcher；停止时遍历并回收属于本会话的直接及后来接管的后代，重复检查以覆盖主进程退出时新接管的 host。不能使用 waitpid(-1) 等到 ECHILD，否则 PAM helper 等父进程退出会造成循环等待。监督器拥有 WM/launcher waitpid，启用 CHILD_SUBREAPER 接管 launcher 意外退出后的 host 回收；任一主进程退出则停止整个会话。TERM 正常停止，3 秒后未退出的主进程 KILL。launcher 内部按既有 1 秒 TERM→KILL 回收所有 workers。worker 的父死亡 SIGKILL 与父 PID 二次检查防止游离运行。
 
-Shell 任一关键实例退出/失败导致会话停止；普通业务崩溃只影响自己的实例。worker 自报 Failed 后同样进入 TERM→KILL 回收，避免业务 destroy() 阻塞时因请求已失败而跳过 watchdog。WM 控制断开终止 WM 主循环并完整清理，launcher 返回 SessionEnded 并结束；不单独重启一个 WM 留下旧授权和 workers。用户 systemd 单元的 Restart=on-failure 对整个 prism-session 生效；手动 demo 单元保持不自动重启，保留 KillMode=control-group/TimeoutStopSec=10。
+2026-10-01 故障策略修订：已启动的 Shell worker 退出或失败时，launcher 撤权、取消其控制
+与订阅并回收进程；WM 恢复安全组状态，WM/launcher 和其他应用保持运行。本阶段不自动
+重启 Shell，日志记录 `policy=keep-session restart=disabled`。三个私有 Shell job 的身份
+保留至会话结束，以验证进程回收后迟到的注册/卸载消息，终止状态不会被迟到 Mapped 复活。
+启动配置错误（例如必需 Shell 包无效）仍导致启动失败；普通业务崩溃只影响自己的实例。
+
+worker 自报 Failed 后同样进入 TERM→KILL 回收，避免业务 destroy() 阻塞时因请求已失败
+而跳过 watchdog。WM 控制断开终止 WM 主循环并完整清理，launcher 返回 SessionEnded 并
+结束；不单独重启一个 WM 留下旧授权和 workers。用户 systemd 单元的 Restart=on-failure
+对整个 prism-session 生效；手动 demo 单元保持不自动重启，保留
+KillMode=control-group/TimeoutStopSec=10。
 
 正常退出删除私有 socket；launcher SIGKILL 可留下陈旧 socket，下一会话仍通过锁和 ECONNREFUSED 检查安全清理，不能宣称异常死亡能够发送完整终态事件。
 

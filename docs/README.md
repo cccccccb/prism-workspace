@@ -60,5 +60,5 @@ Skill 与参考资料只有一份正文，统一在仓库维护。人和 AI 使�
 - [应用迁移](APPLICATION_MIGRATION.md)
 - [启动架构修订与执行计划](LAUNCH_RUNTIME_RESTORATION_PLAN.md)
 - [视觉与 BSP 细化计划](VISUAL_TILING_REFINEMENT_PLAN.md)
-- [WM 权威布局、组沉浸与分隔线控制实施计划](LAYOUT_CONTROL_IMPLEMENTATION_PLAN.md)（第一、二步：权威快照、连续手势、Host/模块 typed 控制会话；后续组恢复与分隔线约束）
+- [WM 权威布局、组沉浸与分隔线控制实施计划](LAYOUT_CONTROL_IMPLEMENTATION_PLAN.md)（权威快照、连续手势、typed 控制会话及鼠标组沉浸/恢复；后续分隔线约束，触屏交互延期）
 - [阶段报告](MILESTONE_REPORT.md)

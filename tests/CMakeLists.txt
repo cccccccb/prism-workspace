@@ -94,6 +94,14 @@ else()
     add_test(NAME client_app_templates_test COMMAND client_app_templates_test)
 endif()
 
+if(TARGET prism_topbar_module)
+    add_executable(topbar_group_control_test topbar_group_control_test.cpp)
+    target_link_libraries(topbar_group_control_test PRIVATE prism_module_session)
+    add_dependencies(topbar_group_control_test prism_topbar_module)
+    add_test(NAME topbar_group_control_test COMMAND topbar_group_control_test
+        $<TARGET_FILE:prism_topbar_module>)
+endif()
+
 if(TARGET prism_music_module)
     add_executable(demo_player_work_test demo_player_work_test.cpp)
     target_link_libraries(demo_player_work_test PRIVATE prism_module_session prism_task_scheduler
@@ -500,3 +508,15 @@ add_executable(native_layout_control_test native_layout_control_test.cpp)
 target_link_libraries(native_layout_control_test PRIVATE prism_core prism_wayland_client)
 add_test(NAME native_layout_control_test COMMAND native_layout_control_test)
 set_tests_properties(native_layout_control_test PROPERTIES TIMEOUT 45 RUN_SERIAL TRUE)
+
+add_executable(native_group_mode_test native_group_mode_test.cpp)
+target_link_libraries(native_group_mode_test PRIVATE prism_core prism_wayland_client)
+add_test(NAME native_group_mode_test COMMAND native_group_mode_test)
+set_tests_properties(native_group_mode_test PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+
+add_executable(group_pointer_probe probes/group_pointer_probe.cpp
+    "${VIRTUAL_INPUT_PROTOCOL_DIR}/wlr-virtual-pointer-unstable-v1-client-protocol.h"
+    "${VIRTUAL_INPUT_PROTOCOL_DIR}/wlr-virtual-pointer-unstable-v1-protocol.c")
+target_include_directories(group_pointer_probe PRIVATE "${VIRTUAL_INPUT_PROTOCOL_DIR}")
+target_link_libraries(group_pointer_probe PRIVATE prism_client_dsl prism_client_scene
+    prism_theme_compiler ${WAYLAND_CLIENT_LIBRARIES})

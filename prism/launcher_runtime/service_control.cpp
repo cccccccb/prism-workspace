@@ -109,6 +109,9 @@ void Service::Impl::ReadControl()
                     }
                 }
                 Require(found && found->role == p.role, "Unknown WM window");
+                if (m.type == launch::ControlType::Mapped && found->state.Terminal()) {
+                    continue; // An in-flight map must not revive a retired instance.
+                }
                 WindowChanged(*found, m.type == launch::ControlType::Mapped);
             } else {
                 throw std::runtime_error("Unexpected WM reply");

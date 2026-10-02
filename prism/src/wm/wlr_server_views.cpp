@@ -149,6 +149,7 @@ void WlrServer::HandleXdgUnmap(WlrXdgView *view)
     }
     view->mapped = false;
     view->visible = false;
+    HandleShellUnavailable(view->shell_role);
     NotifyView(view, launch::ControlType::Unmapped);
     wlr_scene_node_set_enabled(&view->scene_tree->node, false);
     if (view->managed && compositor_) {
@@ -183,7 +184,9 @@ void WlrServer::HandleXdgDestroy(WlrXdgView *view)
     auto it = std::find_if(xdg_views_.begin(), xdg_views_.end(),
                            [view](const auto &item) { return item.get() == view; });
     if (it != xdg_views_.end()) {
+        const auto role = view->shell_role;
         xdg_views_.erase(it);
+        HandleShellUnavailable(role);
     }
     ArrangeXdgViews();
     SynchronizeXdgFocus();
@@ -227,10 +230,17 @@ void WlrServer::ArrangeXdgViews()
     const int height = static_cast<int>(output.height);
     compositor_->SetScreenSize(width, height);
     auto &engine = compositor_->GetTreeEngine();
-    auto work_area = theme_.WorkArea(width, height);
+    ReconcileGroupModes();
+    const bool immersive = GroupImmersive();
+    auto work_area =
+        immersive ? core::Rect{0, 0, float(width), float(height)} : theme_.WorkArea(width, height);
     work_area.x += output.x;
     work_area.y += output.y;
-    engine.Arrange(work_area, theme_.TreeLayout());
+    auto config = theme_.TreeLayout();
+    if (immersive) {
+        config.outer_gap = 0;
+    }
+    engine.Arrange(work_area, config);
     for (const auto &item : outputs_) {
         wlr_box box{};
         wlr_output_layout_get_box(output_layout_, item->wlr_output, &box);
@@ -256,7 +266,11 @@ void WlrServer::ArrangeXdgViews()
             bounds = theme_.ShellRect(view->shell_role, width, height);
             bounds.x += output.x;
             bounds.y += output.y;
-            view->visible = view->mapped && (!fullscreen || view->shell_role == 1);
+            const bool recovery =
+                (immersive || fullscreen) && recovery_visible_ &&
+                view->shell_role == static_cast<int>(contracts::WindowRole::TopBar);
+            view->visible =
+                view->mapped && (view->shell_role == 1 || recovery || (!fullscreen && !immersive));
         } else if (view->managed) {
             auto node = engine.FindViewForWindow(view->managed);
             const bool in_workspace = node && node->GetWorkspace() == active;
@@ -291,6 +305,14 @@ void WlrServer::ArrangeXdgViews()
             view->managed->SetBounds({float(x), float(y), float(w), float(h)});
         }
         wlr_scene_node_set_position(&view->scene_tree->node, x, y);
+        if (view->shell_role == static_cast<int>(contracts::WindowRole::TopBar)) {
+            wlr_box clip{};
+            wlr_xdg_surface_get_geometry(view->toplevel->base, &clip);
+            clip.width = w;
+            clip.height = h;
+            wlr_scene_subsurface_tree_set_clip(&view->scene_tree->node,
+                                               recovery_visible_ ? &clip : nullptr);
+        }
         // Pure topology swaps can move a view without asking the client to
         // resize or commit. Keep the committed size and displayed origin current.
         UpdateCommittedGeometry(view.get());

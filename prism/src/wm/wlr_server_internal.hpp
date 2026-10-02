@@ -64,6 +64,8 @@ extern "C" {
 #include <functional>
 
 namespace prism::wm {
+bool SurfacePosition(wlr_scene *, wlr_surface *, double lx, double ly, double &sx, double &sy);
+
 // Type-safe container_of for C++
 template <typename Parent, typename Member> inline Parent *WlContainerOf(Member *ptr, size_t offset)
 {

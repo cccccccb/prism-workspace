@@ -170,7 +170,10 @@ void Service::Impl::Maintain()
         }
     }
     for (auto it = jobs.begin(); it != jobs.end();) {
-        if (it->second->state.Terminal() &&
+        // Keep the three private Shell identities until session shutdown. WM
+        // registration/unmap replies may arrive after the worker is reaped;
+        // their original identity must remain available for validation.
+        if (it->second->role == WindowRole::Toplevel && it->second->state.Terminal() &&
             (!it->second->state.Pid() || it->second->state.ExitCode()) &&
             !Find(it->second->owner)) {
             it = jobs.erase(it);

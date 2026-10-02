@@ -197,7 +197,7 @@ void InvalidGeometryAndBoundaries()
     invalid.nodes[1].kind = static_cast<LayoutNodeKind>(200);
     Reject([&] { EncodeLayoutSnapshot(invalid); });
     invalid = Fixture();
-    invalid.workspaces[0].mode = static_cast<LayoutGroupMode>(1);
+    invalid.workspaces[0].mode = static_cast<LayoutGroupMode>(2);
     Reject([&] { EncodeLayoutSnapshot(invalid); });
     invalid = Fixture();
     invalid.outputs[0].name = std::string("a\0b", 3);
