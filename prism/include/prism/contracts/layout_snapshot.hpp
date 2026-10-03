@@ -11,7 +11,7 @@
 
 namespace prism::contracts {
 
-inline constexpr std::uint16_t kLayoutSnapshotVersion = 1;
+inline constexpr std::uint16_t kLayoutSnapshotVersion = 2;
 inline constexpr std::size_t kMaxLayoutSnapshotPayload = 192 * 1024;
 inline constexpr std::size_t kMaxLayoutOutputs = 16;
 inline constexpr std::size_t kMaxLayoutWorkspaces = 64;
@@ -76,9 +76,16 @@ struct LayoutBoundary {
     LayoutBoundaryAxis axis{LayoutBoundaryAxis::X};
     LogicalRect bounds;
     bool visible{};
-    // Always false in version 1: constraints and control sessions come later.
+    // Version 2 reports whether current WM constraints permit adjustment.
     bool resizable{};
     bool operator==(const LayoutBoundary &) const = default;
+};
+
+struct LayoutControlHandle {
+    std::uint64_t boundary{};
+    LogicalRect bounds;
+    bool visible{};
+    bool operator==(const LayoutControlHandle &) const = default;
 };
 
 struct LayoutSnapshot {
@@ -92,6 +99,7 @@ struct LayoutSnapshot {
     std::vector<LayoutWorkspace> workspaces;
     std::vector<LayoutNode> nodes;
     std::vector<LayoutBoundary> boundaries;
+    LayoutControlHandle control_handle;
     bool operator==(const LayoutSnapshot &) const = default;
 };
 

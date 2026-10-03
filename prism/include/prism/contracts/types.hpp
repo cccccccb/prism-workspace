@@ -71,6 +71,7 @@ enum class WindowRole : std::uint8_t {
     Desktop,
     TopBar,
     Dock,
+    LayoutControls,
 };
 
 } // namespace prism::contracts

@@ -94,7 +94,7 @@ void RoundTrip()
     malformed[51] = 0xff;
     Reject([&] { DecodeLayoutSnapshot(malformed); });
     malformed = bytes;
-    malformed.back() = 2; // Boolean resizable must not accept arbitrary nonzero bytes.
+    malformed.back() = 2; // Handle visibility must be a canonical boolean.
     Reject([&] { DecodeLayoutSnapshot(malformed); });
     malformed.assign(kMaxLayoutSnapshotPayload + 1, 0);
     Reject([&] { DecodeLayoutSnapshot(malformed); });
@@ -103,6 +103,50 @@ void RoundTrip()
     empty.session = empty.revision = empty.topology_revision = empty.layout_revision =
         empty.focus_revision = 1;
     assert(DecodeLayoutSnapshot(EncodeLayoutSnapshot(empty)) == empty);
+}
+
+void ControlHandleAndCompatibility()
+{
+    const auto original = Fixture();
+    auto legacy = EncodeLayoutSnapshot(original);
+    legacy[1] = 1;
+    legacy.resize(legacy.size() - 41);
+    assert(DecodeLayoutSnapshot(legacy) == original);
+    legacy.back() = 1; // Version 1 never granted resize capability.
+    Reject([&] { DecodeLayoutSnapshot(legacy); });
+
+    auto snapshot = original;
+    snapshot.boundaries[0].resizable = true;
+    snapshot.control_handle = {71, {632, 480, 24, 96}, true};
+    assert(DecodeLayoutSnapshot(EncodeLayoutSnapshot(snapshot)) == snapshot);
+    auto malformed = EncodeLayoutSnapshot(snapshot);
+    malformed[malformed.size() - 42] = 2; // Boundary resizable remains a canonical boolean.
+    Reject([&] { DecodeLayoutSnapshot(malformed); });
+
+    auto invalid = snapshot;
+    invalid.control_handle.boundary = 99;
+    Reject([&] { EncodeLayoutSnapshot(invalid); });
+    invalid = snapshot;
+    invalid.control_handle.visible = false;
+    Reject([&] { EncodeLayoutSnapshot(invalid); });
+    invalid = snapshot;
+    invalid.boundaries[0].resizable = false;
+    Reject([&] { EncodeLayoutSnapshot(invalid); });
+    invalid = snapshot;
+    invalid.control_handle.bounds.width = 0;
+    Reject([&] { EncodeLayoutSnapshot(invalid); });
+    invalid = snapshot;
+    invalid.control_handle.bounds.x = -1;
+    Reject([&] { EncodeLayoutSnapshot(invalid); });
+    invalid = snapshot;
+    invalid.control_handle.bounds.y = 1080;
+    Reject([&] { EncodeLayoutSnapshot(invalid); });
+    invalid = snapshot;
+    invalid.outputs[0].supported = false;
+    Reject([&] { EncodeLayoutSnapshot(invalid); });
+    invalid = snapshot;
+    invalid.control_handle.bounds.x = std::numeric_limits<double>::quiet_NaN();
+    Reject([&] { EncodeLayoutSnapshot(invalid); });
 }
 
 void InvalidIdentitiesAndGraph()
@@ -192,6 +236,7 @@ void InvalidGeometryAndBoundaries()
     Reject([&] { EncodeLayoutSnapshot(invalid); });
     invalid = Fixture();
     invalid.boundaries[0].resizable = true;
+    invalid.boundaries[0].visible = false;
     Reject([&] { EncodeLayoutSnapshot(invalid); });
     invalid = Fixture();
     invalid.nodes[1].kind = static_cast<LayoutNodeKind>(200);
@@ -367,6 +412,7 @@ void OrderedImmutableCache()
 int main()
 {
     RoundTrip();
+    ControlHandleAndCompatibility();
     InvalidIdentitiesAndGraph();
     InvalidGeometryAndBoundaries();
     ControlTransport();

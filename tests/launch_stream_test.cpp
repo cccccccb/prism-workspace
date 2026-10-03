@@ -3,6 +3,7 @@
 #include <cassert>
 #include <fcntl.h>
 #include <poll.h>
+#include <stdexcept>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <vector>
@@ -177,6 +178,21 @@ int main()
     const WorkerBind bind{LaunchRequest{{3}, "demo_player", LaunchMode::NewInstance}, {5}};
     auto worker = EncodeWorker(bind);
     assert(std::get<WorkerBind>(DecodeWorker(worker)).instance.value == 5);
+    assert(!std::get<WorkerBind>(DecodeWorker(worker)).deferred_presentation);
+    auto hidden = bind;
+    hidden.deferred_presentation = true;
+    auto policy_frame = EncodeWorker(hidden);
+    assert(policy_frame.size() == worker.size() + 1);
+    const auto policy = std::get<WorkerBind>(DecodeWorker(policy_frame));
+    assert(policy.deferred_presentation && policy.request == bind.request);
+    policy_frame.back() = 2;
+    bool bad_policy = false;
+    try {
+        DecodeWorker(policy_frame);
+    } catch (const std::invalid_argument &) {
+        bad_policy = true;
+    }
+    assert(bad_policy);
     assert(std::get<WorkerReady>(DecodeWorker(EncodeWorker(WorkerReady{17}))).preparation_ns == 17);
     assert(std::get<WorkerReply>(DecodeWorker(EncodeWorker(WorkerReply{event}))).event == event);
     for (std::size_t n = 0; n < worker.size(); ++n) {

@@ -22,7 +22,7 @@ bool Elapsed(std::uint64_t now, std::uint64_t start, std::uint64_t limit)
 bool Authorized(const LayoutControlPrincipal &principal)
 {
     return principal.instance.value && principal.pid && principal.mapped &&
-           principal.role == WindowRole::TopBar;
+           (principal.role == WindowRole::TopBar || principal.role == WindowRole::LayoutControls);
 }
 
 LayoutControlResult Result(const LayoutControlRequest &request, const LayoutSnapshot &snapshot,
@@ -73,7 +73,7 @@ LayoutControlError ValidateTarget(const LayoutControlRequest &request,
     const auto boundary =
         std::find_if(snapshot.boundaries.begin(), snapshot.boundaries.end(),
                      [&target](const auto &b) { return b.id == target.boundary; });
-    if (boundary == snapshot.boundaries.end() || !boundary->visible ||
+    if (boundary == snapshot.boundaries.end() || !boundary->visible || !boundary->resizable ||
         boundary->workspace != target.workspace) {
         return LayoutControlError::StaleTarget;
     }
@@ -83,7 +83,7 @@ LayoutControlError ValidateTarget(const LayoutControlRequest &request,
 
 void LayoutControlAuthority::RecordInput(const LayoutControlPrincipal &principal,
                                          const contracts::LayoutInputProof &proof,
-                                         std::uint64_t now)
+                                         std::uint64_t now, std::uint64_t boundary)
 {
     CancelInput(proof.kind, proof.contact);
     if (!Authorized(principal) || !proof.serial) {
@@ -93,7 +93,7 @@ void LayoutControlAuthority::RecordInput(const LayoutControlPrincipal &principal
         const auto oldest = inputs_.front().proof;
         CancelInput(oldest.kind, oldest.contact);
     }
-    inputs_.push_back({principal, proof, now, 0, false});
+    inputs_.push_back({principal, proof, now, 0, boundary, false});
 }
 
 void LayoutControlAuthority::ReleaseInput(contracts::LayoutInputKind kind, std::int32_t contact,
@@ -159,7 +159,10 @@ contracts::LayoutControlResult LayoutControlAuthority::Apply(
     using enum contracts::LayoutControlError;
     using enum contracts::LayoutControlStatus;
     Reconcile(snapshot, now);
-    if (!Authorized(principal)) {
+    if (!Authorized(principal) ||
+        (request.operation == contracts::LayoutControlOperation::BoundaryGesture
+             ? principal.role != contracts::WindowRole::LayoutControls
+             : principal.role != contracts::WindowRole::TopBar)) {
         return Result(request, snapshot, Rejected, Unauthorized);
     }
     try {
@@ -184,7 +187,7 @@ contracts::LayoutControlResult LayoutControlAuthority::Apply(
     }
 
     auto result = request.phase == contracts::LayoutControlPhase::Begin
-                      ? Begin(principal, request, snapshot, now)
+                      ? Begin(principal, request, snapshot, now, applier)
                       : Continue(principal, request, snapshot, now, applier);
     if (journal_.size() == MaxJournal) {
         journal_.pop_front();
@@ -193,10 +196,9 @@ contracts::LayoutControlResult LayoutControlAuthority::Apply(
     return result;
 }
 
-contracts::LayoutControlResult
-LayoutControlAuthority::Begin(const LayoutControlPrincipal &principal,
-                              const contracts::LayoutControlRequest &request,
-                              const contracts::LayoutSnapshot &snapshot, std::uint64_t now)
+contracts::LayoutControlResult LayoutControlAuthority::Begin(
+    const LayoutControlPrincipal &principal, const contracts::LayoutControlRequest &request,
+    const contracts::LayoutSnapshot &snapshot, std::uint64_t now, LayoutControlApplier *applier)
 {
     using enum contracts::LayoutControlError;
     using enum contracts::LayoutControlStatus;
@@ -208,7 +210,7 @@ LayoutControlAuthority::Begin(const LayoutControlPrincipal &principal,
         std::find_if(inputs_.begin(), inputs_.end(), [&principal, &request](const auto &record) {
             return record.principal == principal && record.proof == request.input;
         });
-    if (input == inputs_.end() || input->consumed) {
+    if (input == inputs_.end() || input->consumed || input->boundary != request.target.boundary) {
         return Result(request, snapshot, Rejected, InvalidInput);
     }
     // Each Down can authorize at most one attempt, including a busy rejection.
@@ -223,9 +225,18 @@ LayoutControlAuthority::Begin(const LayoutControlPrincipal &principal,
     }
 
     const auto id = next_session_++;
-    sessions_.emplace(id, Session{principal, request, id, now, now});
     auto result = Result(request, snapshot, Began);
     result.session = id;
+    if (request.operation == contracts::LayoutControlOperation::BoundaryGesture) {
+        const auto tracking_error =
+            applier ? applier->TrackLayoutIntent(request, result) : Unsupported;
+        if (tracking_error != None) {
+            result.status = Rejected;
+            result.error = tracking_error;
+            return result;
+        }
+    }
+    sessions_.emplace(id, Session{principal, request, id, now, now, result.layout_revision});
     return result;
 }
 
@@ -256,14 +267,39 @@ contracts::LayoutControlResult LayoutControlAuthority::Continue(
     session.last = request;
     session.updated = now;
     if (request.phase == contracts::LayoutControlPhase::Update) {
-        return Result(request, snapshot, Updated);
+        auto result = Result(request, snapshot, Updated);
+        if (request.operation == contracts::LayoutControlOperation::BoundaryGesture) {
+            const auto error = applier ? applier->TrackLayoutIntent(request, result) : Unsupported;
+            // Applying scene geometry can synchronously revoke a surface.
+            // Never retain a session iterator across the compositor callback.
+            const auto active = sessions_.find(request.session);
+            if (error != None || active == sessions_.end()) {
+                if (active != sessions_.end()) {
+                    Cancel(active, error);
+                }
+                result.status = Rejected;
+                result.error = error != None ? error : InvalidInput;
+                return result;
+            }
+            active->second.layout_revision = result.layout_revision;
+        }
+        return result;
     }
     sessions_.erase(it);
     if (request.phase == contracts::LayoutControlPhase::Cancel) {
-        return Result(request, snapshot, Cancelled);
+        auto result = Result(request, snapshot, Cancelled);
+        if (applier && request.operation == contracts::LayoutControlOperation::BoundaryGesture) {
+            applier->TrackLayoutIntent(request, result);
+        }
+        return result;
     }
     auto result = Result(request, snapshot, Ended);
     if (request.intent == contracts::LayoutControlIntent::None) {
+        if (applier && request.operation == contracts::LayoutControlOperation::BoundaryGesture) {
+            auto cancel = request;
+            cancel.phase = contracts::LayoutControlPhase::Cancel;
+            applier->TrackLayoutIntent(cancel, result);
+        }
         return result;
     }
 
@@ -305,7 +341,9 @@ void LayoutControlAuthority::Reconcile(const contracts::LayoutSnapshot &snapshot
     revisions_.layout_revision = snapshot.layout_revision;
     for (auto it = sessions_.begin(); it != sessions_.end();) {
         const auto &session = it->second;
-        auto error = ValidateTarget(session.last, snapshot);
+        auto current = session.last;
+        current.target.layout_revision = session.layout_revision;
+        auto error = ValidateTarget(current, snapshot);
         const auto proof =
             std::find_if(inputs_.begin(), inputs_.end(), [&session](const auto &input) {
                 return input.principal == session.principal && input.proof == session.last.input;

@@ -62,10 +62,10 @@ with tempfile.TemporaryDirectory(prefix='prism-shell-failure-') as directory:
                     public.connect(str(runtime / 'prism/launcher.sock'))
 
                 shell = {pid: body for pid, body in grants.items() if body[28] != 0}
-                if (len(shell) == 3 and not late_sent and
+                if (len(shell) == 4 and not late_sent and
                         all(not Path(f'/proc/{pid}').exists() for pid in shell)):
                     assert set(shell).issubset(revoked)
-                    assert log_path.read_text().count('policy=keep-session restart=disabled') == 3
+                    assert log_path.read_text().count('policy=keep-session restart=disabled') == 4
                     # SIGCHLD can beat the final WM frame. Retired identities
                     # must validate these messages without reviving a worker.
                     for body in shell.values():
@@ -115,11 +115,11 @@ with tempfile.TemporaryDirectory(prefix='prism-shell-failure-') as directory:
                 if completed:
                     break
 
-            assert completed and len(grants) == 4, (events, log_path.read_text())
+            assert completed and len(grants) == 5, (events, log_path.read_text())
             assert service.poll() is None, log_path.read_text()
             service.terminate()
             assert service.wait(timeout=5) == 0, log_path.read_text()
-            print('Three Shell self-failures were revoked and reaped; late WM replies and a new ordinary launch preserved the session.')
+            print('Four Shell self-failures were revoked and reaped; late WM replies and a new ordinary launch preserved the session.')
         except Exception:
             print(log_path.read_text(), file=sys.stderr)
             raise

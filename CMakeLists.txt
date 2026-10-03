@@ -69,6 +69,7 @@ if(TARGET prism_client_app)
     add_subdirectory(prism-desktop)
     add_subdirectory(prism-topbar)
     add_subdirectory(prism-dock)
+    add_subdirectory(prism-layout-controls)
 endif()
 
 # 4. Tests and manual diagnostics are excluded from production builds.

@@ -1,0 +1,12 @@
+Card(justify: "center") {
+    InteractionTarget(width: 48, height: 48, anchor: "center", justify: "center",
+                      visible: $handle_visible) {
+        Visual(width: $handle_width, height: $handle_height, anchor: "center",
+               cornerRadius: "@indicator_radius", background: "@indicator",
+               shadowBlur: "@control_shadow_blur", shadowY: "@local_shadow_y",
+               shadowColor: "@shadow")
+            .state(when: "hovered", scope: "target", background: "@text")
+            .state(when: "pressed", scope: "target", background: "@accent")
+            .state(when: "dragging", scope: "target", background: "@accent")
+    }.gesture(action: "boundary:resize", threshold: 6)
+}

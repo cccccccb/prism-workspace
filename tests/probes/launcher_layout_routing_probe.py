@@ -54,7 +54,7 @@ with tempfile.TemporaryDirectory(prefix='prism-layout-routing-') as directory:
                 name = b'demo_player'
                 body = struct.pack('>BH', 1, len(name)) + name
                 client.sendall(struct.pack('>IHHIQQ', 0x50524c31, 1, 1, len(body), 1, 0) + body)
-            if len(list(path.glob('*.json'))) == 4:
+            if len(list(path.glob('*.json'))) == 5:
                 break
             ready, _, _ = select.select([wm], [], [], .02)
             if not ready:
@@ -78,9 +78,12 @@ with tempfile.TemporaryDirectory(prefix='prism-layout-routing-') as directory:
                 wm.sendall(control(3, reply) + control(7, reply))
             elif kind == 13:
                 session, request, instance, pid, role = struct.unpack_from('>QQQIB', body)
-                assert session == 55 and grants[pid] == (request, instance, role) and role == 2
+                assert session == 55 and grants[pid] == (request, instance, role) and role in (2, 4)
                 assert len(body) == 188
-                identifier, gesture, sequence = 101, 201, 1
+                version, identifier, gesture, _, sequence, phase, operation, intent = (
+                    struct.unpack_from('>HQQQQBBB', body, 70))
+                assert (version, phase, intent) == (1, 0, 0)
+                assert operation == (0 if role == 2 else 1)
                 result = struct.pack('>HQQQQBBQQQddB', 1, identifier, gesture, 900, sequence,
                                      0, 0, 1, 1, 1, 40., 10., 0)
                 # A correct PID with a wrong immutable instance must not deliver.
@@ -92,10 +95,10 @@ with tempfile.TemporaryDirectory(prefix='prism-layout-routing-') as directory:
             else:
                 raise AssertionError(kind)
         files = sorted(path.glob('*.json'))
-        assert len(files) == 4, [file.name for file in files]
-        assert routed == 1 and len(grants) == 4
+        assert len(files) == 5, [file.name for file in files]
+        assert routed == 2 and len(grants) == 5
         print(json.dumps({file.stem: json.loads(file.read_text()) for file in files}, indent=2))
-        print('Trusted subscriptions, ordinary/Dock denial, immutable owner routing passed.')
+        print('Trusted subscriptions, role-specific control, ordinary/Dock denial, immutable owner routing passed.')
     finally:
         if client:
             client.close()

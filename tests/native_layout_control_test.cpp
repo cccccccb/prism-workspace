@@ -422,7 +422,7 @@ void TestControl(wm::WlrServer &server, ControlPeer &peer)
     Check(peer.Apply(server, permit, requests.Begin(server, proof)), LayoutControlStatus::Rejected,
           LayoutControlError::InvalidInput);
 
-    // Boundary intent remains unsupported; use a real adjacent pair so the
+    // Topbar cannot resize boundaries; use a real adjacent pair so the
     // rejection tests capability instead of an invalid target identity.
     ClientProcess neighbour(server.GetSocketName());
     neighbour.Start();
@@ -435,11 +435,7 @@ void TestControl(wm::WlrServer &server, ControlPeer &peer)
     begin.operation = contracts::LayoutControlOperation::BoundaryGesture;
     begin.target.boundary = server.GetLayoutSnapshot()->boundaries.front().id;
     const auto boundary = peer.Apply(server, permit, begin);
-    Check(boundary, LayoutControlStatus::Began);
-    end = requests.Next(begin, LayoutControlPhase::End, boundary.session);
-    end.intent = contracts::LayoutControlIntent::ApplyBoundary;
-    Check(peer.Apply(server, permit, end), LayoutControlStatus::Rejected,
-          LayoutControlError::Unsupported);
+    Check(boundary, LayoutControlStatus::Rejected, LayoutControlError::Unauthorized);
     Release(server, &pointer.base);
 
     proof = Press(server, topbar, &pointer.base);
@@ -553,5 +549,5 @@ int main(int argc, char **argv)
     std::filesystem::remove_all(directory);
     assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
     std::puts("Native layout control: real Shell PID/serial authority, pointer/touch sessions, "
-              "replay, unsupported boundary, layout/unplug/unmap cancellation passed");
+              "replay, boundary role isolation, layout/unplug/unmap cancellation passed");
 }

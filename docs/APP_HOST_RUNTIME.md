@@ -228,3 +228,15 @@ GetStartupStats 返回 monotonic 所有者观察，不增加启动 wire 里程�
 第六步最终 CTest 51/51、直接 Host 40 组、生产 launcher 24 组及原生回归通过。
 0.1.0-13 已审计/安装并通过 DRM 启动和实例门槛，曲库/收藏及原有操作现场确认通过。小 demo
 未呈现稳定的并行提速；下一阶段优先细分 EGL 初始化与首次 Render 的同步成本。
+
+## 按需呈现控制面的启动策略（2026-10-04）
+
+`AppHost::Bind(package, deferred_presentation)` 默认 false，保持普通应用的 Master
+Presented + BackendReady 启动门槛。可信 launcher 为初始隐藏的 LayoutControls 设置
+true，此时启动超时只等 Master Submitted + BackendReady；FirstPresented 仍由真实
+presentation feedback 触发。它不是“提交等于呈现”的替代定义，也不是关闭启动超时。
+
+当前布局控制包是单个 48×48、按事件更新的 DSL 控制面。未被 WM 选择时隐藏；
+选中边界通过 snapshot v2 的 control_handle 和 C ABI `PrismLayoutStateV1` 的
+struct_size 可选尾指针传递。业务模块只发布 visible/width/height 绑定、开始和结束
+BoundaryGesture；坐标、比例夹取、捕获凭据和窗口尺寸配置由 WM 验证与执行。

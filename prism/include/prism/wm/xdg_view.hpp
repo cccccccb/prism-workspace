@@ -23,10 +23,12 @@ struct WlrXdgView {
     std::shared_ptr<Window> managed;
     int x{}, y{}, width{640}, height{400};
     bool mapped{}, visible{}, fullscreen{}, maximized{};
+    std::uint32_t size_configure{};
+    int configured_width{}, configured_height{};
     std::uint32_t tiled_edges{~std::uint32_t{0}};
     std::uint64_t instance{};
     pid_t pid{};
-    int shell_role{}; // 0 ordinary, 1 desktop, 2 topbar, 3 dock
+    int shell_role{}; // 0 ordinary, 1 desktop, 2 topbar, 3 dock, 4 layout controls
     WlrXdgView();
     ~WlrXdgView();
 };

@@ -27,6 +27,32 @@ int main()
         rejected = true;
     }
     assert(rejected);
+    for (unsigned role = 0; role <= 4; ++role) {
+        auto role_grant = grant;
+        role_grant.permit.role = static_cast<contracts::WindowRole>(role);
+        const auto frame = launch::EncodeControl(role_grant);
+        assert(frame.size() == bytes.size());
+        assert(launch::DecodeControl(frame).permit.role == role_grant.permit.role);
+    }
+    auto invalid_role = grant;
+    invalid_role.permit.role = static_cast<contracts::WindowRole>(5);
+    rejected = false;
+    try {
+        launch::EncodeControl(invalid_role);
+    } catch (...) {
+        rejected = true;
+    }
+    assert(rejected);
+    bad = bytes;
+    bad[40] = 5;
+    rejected = false;
+    try {
+        launch::DecodeControl(bad);
+    } catch (...) {
+        rejected = true;
+    }
+    assert(rejected);
+
     launch::ShellPermitGuard guard(decoded.permit);
     auto wrong = decoded.permit;
     wrong.instance = {8};

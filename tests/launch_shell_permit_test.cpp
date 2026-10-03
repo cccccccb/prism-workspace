@@ -40,6 +40,11 @@ int main()
     ShellPermitGuard revoked(permit);
     revoked.Revoke();
     assert(!revoked.Consume(permit, 1));
+    permit.role = prism::contracts::WindowRole::LayoutControls;
+    ShellPermitGuard controls(permit);
+    assert(controls.Consume(permit, 999));
+    assert(!controls.Consume(permit, 999));
+
     permit.role = prism::contracts::WindowRole::Toplevel;
     bool rejected = false;
     try {

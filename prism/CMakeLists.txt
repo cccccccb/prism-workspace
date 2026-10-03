@@ -31,6 +31,8 @@ add_library(prism_core
     src/wm/wlr_server_layout.cpp
     src/wm/layout_control.cpp
     src/wm/wlr_server_layout_control.cpp
+    src/wm/wlr_server_boundary.cpp
+    src/wm/wlr_server_resize.cpp
     src/wm/wlr_server_group.cpp
     src/wm/wlr_server_group_input.cpp
     src/wm/wlr_server_surface_coords.cpp
@@ -48,6 +50,7 @@ add_library(prism_core
     src/tree/tree_container.cpp
     src/tree/tree_workspace.cpp
     src/tree/tree_engine.cpp
+    src/tree/tree_constraints.cpp
     src/tree/tree_boundary.cpp
     src/tree/tree_snapshot.cpp
 )

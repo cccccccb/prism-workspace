@@ -101,7 +101,7 @@ def expanded(views, width, height):
             and separated)
 
 
-def run(build, evidence):
+def run(build, evidence, boundaries=False):
     evidence.mkdir(parents=True, exist_ok=True)
     report = {"build": str(build), "passed": False, "reclaimed": False, "cycles": []}
     pointer = None
@@ -132,7 +132,7 @@ def run(build, evidence):
                     content = log_path.read_text()
                     return all(f"Mapped app_id='{app}' shell role={role}" in content
                                for app, role in (("prism_desktop", 1), ("prism_topbar", 2),
-                                                 ("prism_dock", 3)))
+                                                 ("prism_dock", 3), ("prism_layout_controls", 4)))
 
                 wait_for(booted, "trusted Shells mapped", 20)
                 match = re.search(r"session wm=(\d+) launcher=(\d+)", log_path.read_text())
@@ -186,6 +186,13 @@ def run(build, evidence):
                     return current
 
                 baseline = wait_for(normal_ready, "two real demos committed their normal BSP")
+                if boundaries:
+                    # A hidden on-demand control is submitted/mapped, not presented.
+                    # It must survive both the Host (10s) and launcher (15s) watchdogs.
+                    time.sleep(16)
+                    assert session.poll() is None
+                    assert "app=prism_layout_controls" in log_path.read_text()
+                    assert not re.search(r"app=prism_layout_controls .*milestone=6", log_path.read_text())
                 report["baseline"] = [asdict(view) for view in baseline]
                 for cycle in range(2):
                     report["stage"] = f"enter-{cycle + 1}"
@@ -207,6 +214,32 @@ def run(build, evidence):
                     report["cycles"].append({"cycle": cycle + 1,
                                               "immersive": [asdict(view) for view in immersive],
                                               "restored": True})
+                if boundaries:
+                    for delta in (96, -96):
+                        current = views()
+                        left, right = sorted(current, key=lambda view: view.rect.x)
+                        x = (left.rect.x + left.rect.width + right.rect.x) / 2
+                        y = left.rect.y + left.rect.height / 2
+                        report["stage"] = f"boundary-{delta}"
+                        pointer.stdin.write(f"boundary {x} {y} {delta}\n")
+                        pointer.stdin.flush()
+                        response = line_from(pointer)
+                        pointer_log.write(response + "\n")
+                        pointer_log.flush()
+                        assert response == "DONE boundary", response
+
+                        def resized():
+                            updated = views()
+                            if len(updated) != 2:
+                                return False
+                            a, b = sorted(updated, key=lambda view: view.rect.x)
+                            return (a.rect.width == left.rect.width + delta
+                                    and b.rect.width == right.rect.width - delta
+                                    and all(view.rect == view.committed for view in updated))
+
+                        wait_for(resized, "real DSL divider resized both demos")
+                    wait_for(lambda: views() == baseline, "divider reverse restored geometry")
+                    report["boundary_passed"] = True
                 report["behavior_passed"] = True
                 report["stage"] = "complete"
             finally:
@@ -252,8 +285,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("build", type=Path)
     parser.add_argument("--evidence", type=Path, required=True)
+    parser.add_argument("--boundaries", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(run(args.build.resolve(), args.evidence.resolve()), indent=2))
+    print(json.dumps(run(args.build.resolve(), args.evidence.resolve(), args.boundaries), indent=2))
 
 
 if __name__ == "__main__":

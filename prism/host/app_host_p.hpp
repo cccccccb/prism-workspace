@@ -84,6 +84,7 @@ struct AppHost::Impl {
     HostStartupStats startup;
     std::uint64_t wait_duration_ns{};
     std::uint64_t startup_deadline{};
+    bool deferred_presentation{};
     bool configured{}, presented{}, ready{}, failed{}, bound_once{}, launch_disconnected{};
     bool window_open{}, closed{};
 

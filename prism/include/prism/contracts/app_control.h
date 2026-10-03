@@ -77,6 +77,13 @@ typedef struct PrismLayoutBoundaryV1 {
     uint32_t visible, resizable;
 } PrismLayoutBoundaryV1;
 
+typedef struct PrismLayoutControlHandleV1 {
+    uint32_t struct_size;
+    uint64_t boundary;
+    PrismLogicalRectV1 bounds;
+    uint32_t visible;
+} PrismLayoutControlHandleV1;
+
 typedef struct PrismLayoutStateV1 {
     uint32_t struct_size;
     uint32_t status; /* Current = 0, Denied = 1, Disconnected = 2. */
@@ -91,6 +98,8 @@ typedef struct PrismLayoutStateV1 {
     size_t nodes_size;
     const PrismLayoutBoundaryV1 *boundaries;
     size_t boundaries_size;
+    /* Optional tail: inspect struct_size before reading this borrowed pointer. */
+    const PrismLayoutControlHandleV1 *control_handle;
 } PrismLayoutStateV1;
 
 enum PrismLayoutOperationV1 {

@@ -1,5 +1,6 @@
 #include "prism/tree/tree_container.hpp"
 #include "prism/ipc/wm_messages.hpp"
+#include "tree_split_layout_p.hpp"
 #include <cmath>
 #include <numeric>
 
@@ -88,24 +89,15 @@ void ContainerNode::ArrangeSplitHorizontal(const core::Rect &area, int inner_gap
 {
     const auto &children = GetChildren();
     int n = static_cast<int>(children.size());
-    const float axis = std::max(0.0f, area.width);
-    const float minimum = std::min(1.0f, axis / n);
-    const float gap = n > 1 ? std::min(float(std::max(0, inner_gap)),
-                                       std::max(0.0f, std::floor((axis - n * minimum) / (n - 1))))
-                            : 0;
-    const float usable_width = std::max(0.0f, axis - (n - 1) * gap);
+    const auto metrics = SplitMetrics(area.width, n, inner_gap);
 
     float cur_x = area.x;
     for (int i = 0; i < n; ++i) {
         auto &child = children[i];
-        const float remaining = std::max(0.0f, area.x + axis - cur_x);
-        const float desired = axis >= n
-                                  ? std::round(usable_width * float(child->GetWidthFraction()))
-                                  : usable_width * float(child->GetWidthFraction());
+        const float remaining = std::max(0.0f, area.x + metrics.axis - cur_x);
         // Reserve room for every later sibling, including their gaps. Rounding
         // one tile must never make the final tile negative or collapse it.
-        const float maximum = std::max(minimum, remaining - (n - i - 1) * (minimum + gap));
-        const float w = i == n - 1 ? remaining : std::clamp(desired, minimum, maximum);
+        const float w = SplitExtent(metrics, remaining, i, child->GetWidthFraction());
 
         core::Rect child_rect{cur_x, area.y, w, area.height};
         child->SetBounds(child_rect);
@@ -114,7 +106,7 @@ void ContainerNode::ArrangeSplitHorizontal(const core::Rect &area, int inner_gap
             con->ArrangeChildren(child_rect, inner_gap, header_height);
         }
 
-        cur_x += w + gap;
+        cur_x += w + metrics.gap;
     }
 }
 
@@ -122,22 +114,13 @@ void ContainerNode::ArrangeSplitVertical(const core::Rect &area, int inner_gap, 
 {
     const auto &children = GetChildren();
     int n = static_cast<int>(children.size());
-    const float axis = std::max(0.0f, area.height);
-    const float minimum = std::min(1.0f, axis / n);
-    const float gap = n > 1 ? std::min(float(std::max(0, inner_gap)),
-                                       std::max(0.0f, std::floor((axis - n * minimum) / (n - 1))))
-                            : 0;
-    const float usable_height = std::max(0.0f, axis - (n - 1) * gap);
+    const auto metrics = SplitMetrics(area.height, n, inner_gap);
 
     float cur_y = area.y;
     for (int i = 0; i < n; ++i) {
         auto &child = children[i];
-        const float remaining = std::max(0.0f, area.y + axis - cur_y);
-        const float desired = axis >= n
-                                  ? std::round(usable_height * float(child->GetHeightFraction()))
-                                  : usable_height * float(child->GetHeightFraction());
-        const float maximum = std::max(minimum, remaining - (n - i - 1) * (minimum + gap));
-        const float h = i == n - 1 ? remaining : std::clamp(desired, minimum, maximum);
+        const float remaining = std::max(0.0f, area.y + metrics.axis - cur_y);
+        const float h = SplitExtent(metrics, remaining, i, child->GetHeightFraction());
 
         core::Rect child_rect{area.x, cur_y, area.width, h};
         child->SetBounds(child_rect);
@@ -146,7 +129,7 @@ void ContainerNode::ArrangeSplitVertical(const core::Rect &area, int inner_gap, 
             con->ArrangeChildren(child_rect, inner_gap, header_height);
         }
 
-        cur_y += h + gap;
+        cur_y += h + metrics.gap;
     }
 }
 

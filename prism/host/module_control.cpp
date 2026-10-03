@@ -48,6 +48,9 @@ public:
                                   boundary.workspace, static_cast<std::uint32_t>(boundary.axis),
                                   Rect(boundary.bounds), boundary.visible, boundary.resizable});
         }
+        const auto &selected = snapshot.control_handle;
+        handle = {sizeof(handle), selected.boundary, Rect(selected.bounds), selected.visible};
+
         state = {sizeof(state),
                  static_cast<std::uint32_t>(event.status),
                  event.subscription,
@@ -64,12 +67,14 @@ public:
                  nodes.data(),
                  nodes.size(),
                  boundaries.data(),
-                 boundaries.size()};
+                 boundaries.size(),
+                 event.status == contracts::LayoutStateStatus::Current ? &handle : nullptr};
     }
 
     PrismLayoutStateV1 state{};
 
 private:
+    PrismLayoutControlHandleV1 handle{};
     std::vector<PrismLayoutOutputV1> outputs;
     std::vector<PrismLayoutWorkspaceV1> workspaces;
     std::vector<PrismLayoutNodeV1> nodes;

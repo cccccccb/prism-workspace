@@ -127,7 +127,10 @@ void WlrServer::RestoreDesktopGroup(bool all)
 
 void WlrServer::HandleShellUnavailable(int role)
 {
-    if (role) {
+    if (role == static_cast<int>(contracts::WindowRole::LayoutControls)) {
+        CancelBoundaryPreview();
+        boundary_handle_ = {};
+    } else if (role) {
         RestoreDesktopGroup(true);
     }
 }
@@ -138,6 +141,9 @@ WlrServer::ApplyLayoutIntent(const contracts::LayoutControlRequest &request,
 {
     using enum contracts::LayoutControlError;
     using Intent = contracts::LayoutControlIntent;
+    if (request.operation == contracts::LayoutControlOperation::BoundaryGesture) {
+        return ApplyBoundaryIntent(request, result);
+    }
     if (request.operation != contracts::LayoutControlOperation::GroupGesture ||
         request.input.kind != contracts::LayoutInputKind::Pointer ||
         (request.intent != Intent::EnterImmersive && request.intent != Intent::ExitImmersive)) {

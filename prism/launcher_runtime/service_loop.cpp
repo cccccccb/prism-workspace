@@ -20,7 +20,9 @@ void Service::Impl::Maintain()
 
     for (auto &[id, job] : jobs) {
         if (!job->state.Terminal() && !job->state.Activated() &&
-            (!job->state.FirstPresented() || !job->state.BackendReady()) &&
+            ((job->role == WindowRole::LayoutControls ? !job->mapped
+                                                      : !job->state.FirstPresented()) ||
+             !job->state.BackendReady()) &&
             now - job->created >= config.startup_timeout_ms * 1000000ULL) {
             Fail(*job, LaunchError::Timeout,
                  "Worker allocation/presentation/backend watchdog expired");
@@ -64,8 +66,8 @@ void Service::Impl::Maintain()
                 continue;
             }
             job->bound_sent = true;
-            if (!worker.stream->Queue(
-                    launch::EncodeWorker(launch::WorkerBind{job->request, job->instance}))) {
+            if (!worker.stream->Queue(launch::EncodeWorker(launch::WorkerBind{
+                    job->request, job->instance, job->role == WindowRole::LayoutControls}))) {
                 Fail(*job, LaunchError::RuntimeFailed, "Worker bind failed");
             }
         }
@@ -126,8 +128,8 @@ void Service::Impl::Maintain()
                 SendControl(launch::ControlType::Grant, *job);
             } else {
                 job->bound_sent = true;
-                if (!worker.stream->Queue(
-                        launch::EncodeWorker(launch::WorkerBind{job->request, job->instance}))) {
+                if (!worker.stream->Queue(launch::EncodeWorker(launch::WorkerBind{
+                        job->request, job->instance, job->role == WindowRole::LayoutControls}))) {
                     Fail(*job, LaunchError::RuntimeFailed, "Worker assignment send failed");
                 }
             }
@@ -170,7 +172,7 @@ void Service::Impl::Maintain()
         }
     }
     for (auto it = jobs.begin(); it != jobs.end();) {
-        // Keep the three private Shell identities until session shutdown. WM
+        // Keep private Shell identities until session shutdown. WM
         // registration/unmap replies may arrive after the worker is reaped;
         // their original identity must remain available for validation.
         if (it->second->role == WindowRole::Toplevel && it->second->state.Terminal() &&
@@ -222,7 +224,9 @@ int Service::Impl::WaitTimeout() const
 
     for (const auto &[id, job] : jobs) {
         if (!job->state.Terminal() && !job->state.Activated() &&
-            (!job->state.FirstPresented() || !job->state.BackendReady())) {
+            ((job->role == WindowRole::LayoutControls ? !job->mapped
+                                                      : !job->state.FirstPresented()) ||
+             !job->state.BackendReady())) {
             host::Earlier(deadline,
                           host::After(job->created, config.startup_timeout_ms * 1000000ULL));
         }

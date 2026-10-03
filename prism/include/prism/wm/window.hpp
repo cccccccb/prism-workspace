@@ -22,6 +22,19 @@ public:
     void SetBounds(core::Rect bounds);
     void SetFocused(bool focused);
 
+    // Committed client constraints in logical coordinates; zero means unspecified.
+    bool SetMinimumSize(float width, float height);
+
+    float GetMinimumWidth() const
+    {
+        return minimum_width_;
+    }
+
+    float GetMinimumHeight() const
+    {
+        return minimum_height_;
+    }
+
     bool IsFocused() const
     {
         return is_focused_;
@@ -139,6 +152,8 @@ private:
     core::Rect bounds_;
     std::shared_ptr<ipc::Channel> channel_;
     core::Rect committed_bounds_{};
+    float minimum_width_{0};
+    float minimum_height_{0};
     int pid_{};
     std::uint64_t instance_{};
     bool native_{}, visible_{true}, fullscreen_{};

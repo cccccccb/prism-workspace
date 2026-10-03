@@ -41,13 +41,13 @@ build-gles/bin/prism-invoker demo_settings
 
 1. launcher 编译当前主题包；WM 初始化 Wayland socket、输出/backend、presentation-time，生成非零会话标识并发送 Ready。首份主题安装前 WM 使用无预留带、无窗口装饰的中性启动参数。
 2. launcher 收到私有 Ready 后，通过 PWC1 发送带 session 和非零 generation 的 InstallTheme；WM 在事件循环中校验、安装几何与装饰参数并回复 ThemeApplied。
-3. launcher 确认 WM 成功 ACK 后，才创建固定的三个 Shell 包请求。
+3. launcher 确认 WM 成功 ACK 后，才创建固定的四个 Shell 包请求。
 4. worker 完成自身公共 CPU 前端准备并发送 WorkerReady；launcher 通过 PRW1 下发当前 ThemeSnapshot，worker 安装到统一前端并 ACK 当前 generation。
 5. launcher 分配真实 instance/PID，发送 Grant；WM 打开对应 pidfd 并登记。
 6. WM Registered 成功且目标 worker 已 ACK 当前主题后，launcher 才发送 WorkerBind；切换事务期间暂停新应用绑定。
 7. host 打开包和真实 Wayland 连接；WM 按该连接的内核进程凭据消费登记，确定场景层。
 
-Shell 包 app_id → 角色只在 launcher 内部 bootstrap 中固定：prism_desktop → Desktop、prism_topbar → TopBar、prism_dock → Dock。公共 Launch API 禁止启动这些保留包，不能声明角色、任意可执行路径或授权凭证。未经登记的外部 Wayland 客户端继续作为普通窗口，即使它填写相同 app_id。
+Shell 包 app_id → 角色只在 launcher 内部 bootstrap 中固定：prism_desktop → Desktop、prism_topbar → TopBar、prism_dock → Dock、prism_layout_controls → LayoutControls。公共 Launch API 禁止启动这些保留包，不能声明角色、任意可执行路径或授权凭证。未经登记的外部 Wayland 客户端继续作为普通窗口，即使它填写相同 app_id。
 
 ### 授权与 PID 生命周期
 
@@ -160,3 +160,22 @@ python3 tests/probes/failed_worker_probe.py build-gles
 ### Preferences 监控与配色更新
 
 设置 demo 使用真实 CPU 差值、内存、可选 GPU 忙碌率/频率及 SoC 温度；Pi 的固定只读 firmware 查询通过受限设备 ioctl 完成，不每 tick 启动命令。监控暂停、采样周期和手动刷新由业务层管理。主题 ID 与明暗配色是同一 owner 事务中的独立 selector；重放身份包括两者，不能用同一 request ID 改换配色。协议默认请求/深色事件保持旧编码，非默认尾扩展以 version=1 与有界字符串编码；schema 2 快照公布实际配色，schema 1 保持 dark 兼容。八种组合必须经物理会话确认后记录验收。
+
+### 2026-10-04：按需呈现的布局控制面
+
+`LayoutControls=4` 为可信 Shell 角色，由统一 Host 加载 `prism_layout_controls` 包；
+启动登记仍使用一次性 permit 和真实 PID。Topbar 只允许 GroupGesture，
+LayoutControls 只允许 BoundaryGesture，Dock 只能订阅，普通应用无布局控制权限。
+
+该控制面初始隐藏，不能要求它在无人操作时就完成真实呈现。launcher 对此角色在
+WorkerBind 中设置 typed `deferred_presentation=true`。PRW1 的 Bind 原 payload
+（instance + 内嵌 public LaunchRequest frame）后可追加单字节 1，未追加表示原策略；
+解码器拒绝其他尾值和多余字节。该策略只从可信启动通道传递，不由公共 Launch API
+或模块 action 选择。WM、launcher、Host 需同版本配套更新。
+
+Host 仍要求十秒内 Master 已提交且业务 BackendReady；launcher 仍要求启动预算内
+真实 Mapped 与 BackendReady。两者仅允许首个 Presented 等到可见时发生，不伪造
+FirstPresented、帧反馈或性能数据。普通应用保持原来的呈现启动要求。
+
+Snapshot 内部 wire 升至 v2，追加所选控制面 metadata；decoder 支持旧 v1
+（旧版本无 resize 能力），旧端不支持新 wire，不能混合部署。

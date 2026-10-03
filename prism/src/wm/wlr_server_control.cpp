@@ -135,6 +135,7 @@ void WlrServer::PumpControl()
     }
     if (control_failed_) {
         layout_controls_.Reset();
+        CancelBoundaryPreview();
     }
 }
 

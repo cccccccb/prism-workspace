@@ -23,11 +23,18 @@ struct LayoutControlDelivery {
     contracts::LayoutControlResult result;
 };
 
-// Invoked synchronously only after an authenticated End has terminated its
-// tracking session. The compositor supplies authoritative post-apply revisions.
+// Event-loop callbacks after authentication. Tracking returns authoritative
+// post-preview revisions; only End can report an applied terminal intent.
 class LayoutControlApplier {
 public:
     virtual ~LayoutControlApplier() = default;
+
+    virtual contracts::LayoutControlError TrackLayoutIntent(const contracts::LayoutControlRequest &,
+                                                            contracts::LayoutControlResult &)
+    {
+        return contracts::LayoutControlError::Unsupported;
+    }
+
     virtual contracts::LayoutControlError ApplyLayoutIntent(const contracts::LayoutControlRequest &,
                                                             contracts::LayoutControlResult &) = 0;
 };
@@ -36,7 +43,7 @@ public:
 class LayoutControlAuthority {
 public:
     void RecordInput(const LayoutControlPrincipal &, const contracts::LayoutInputProof &,
-                     std::uint64_t now);
+                     std::uint64_t now, std::uint64_t boundary = 0);
     void ReleaseInput(contracts::LayoutInputKind, std::int32_t contact, std::uint64_t now);
     void CancelInput(contracts::LayoutInputKind, std::int32_t contact);
     void CancelInstance(contracts::InstanceId, contracts::LayoutControlError);
@@ -54,14 +61,14 @@ private:
     struct Input {
         LayoutControlPrincipal principal;
         contracts::LayoutInputProof proof;
-        std::uint64_t started{}, released{};
+        std::uint64_t started{}, released{}, boundary{};
         bool consumed{};
     };
 
     struct Session {
         LayoutControlPrincipal principal;
         contracts::LayoutControlRequest last;
-        std::uint64_t id{}, started{}, updated{};
+        std::uint64_t id{}, started{}, updated{}, layout_revision{};
     };
 
     struct Replay {
@@ -72,7 +79,8 @@ private:
 
     contracts::LayoutControlResult Begin(const LayoutControlPrincipal &,
                                          const contracts::LayoutControlRequest &,
-                                         const contracts::LayoutSnapshot &, std::uint64_t now);
+                                         const contracts::LayoutSnapshot &, std::uint64_t now,
+                                         LayoutControlApplier *applier);
     contracts::LayoutControlResult Continue(const LayoutControlPrincipal &,
                                             const contracts::LayoutControlRequest &,
                                             const contracts::LayoutSnapshot &, std::uint64_t now,

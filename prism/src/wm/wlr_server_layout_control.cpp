@@ -48,6 +48,9 @@ void WlrServer::HandleLayoutControl(const launch::ControlMessage &message)
 void WlrServer::PublishLayoutControlNotifications()
 {
     for (const auto &delivery : layout_controls_.TakeNotifications()) {
+        if (boundary_drag_ && boundary_drag_->session == delivery.result.session) {
+            CancelBoundaryPreview();
+        }
         if (!control_ || control_failed_) {
             continue;
         }
@@ -68,6 +71,8 @@ void WlrServer::PublishLayoutControlNotifications()
 void WlrServer::RecordLayoutInput(wlr_surface *surface, contracts::LayoutInputProof proof)
 {
     LayoutControlPrincipal principal;
+    std::uint64_t boundary{};
+    boundary_pointer_.reset();
     auto *root = surface ? wlr_surface_get_root_surface(surface) : nullptr;
     for (const auto &view : xdg_views_) {
         if (view->toplevel->base->surface != root) {
@@ -78,10 +83,21 @@ void WlrServer::RecordLayoutInput(wlr_surface *surface, contracts::LayoutInputPr
             view->instance == registration->second->permit.instance.value &&
             view->shell_role == static_cast<int>(registration->second->permit.role)) {
             principal = LayoutPrincipal(registration->second->permit);
+            if (principal.role == contracts::WindowRole::LayoutControls &&
+                proof.kind == contracts::LayoutInputKind::Pointer && boundary_handle_.visible) {
+                boundary = boundary_handle_.boundary;
+                const auto range =
+                    compositor_->GetTreeEngine().GetBoundaryRange(boundary, CurrentTreeLayout());
+                if (range && range->feasible) {
+                    const contracts::LogicalPoint point{cursor_->x, cursor_->y};
+                    boundary_pointer_ =
+                        BoundaryPointer{proof, boundary, point, point, range->position, false};
+                }
+            }
         }
         break;
     }
-    layout_controls_.RecordInput(principal, proof, launch::MonotonicNs());
+    layout_controls_.RecordInput(principal, proof, launch::MonotonicNs(), boundary);
 }
 
 void WlrServer::CancelLayoutControlsForSurface(wlr_surface *surface,

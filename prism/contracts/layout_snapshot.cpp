@@ -241,6 +241,10 @@ std::vector<std::uint8_t> EncodeLayoutSnapshot(const LayoutSnapshot &snapshot)
     for (const auto &boundary : snapshot.boundaries) {
         WriteBoundary(writer, boundary);
     }
+    writer.U(snapshot.control_handle.boundary, 8);
+    writer.Rect(snapshot.control_handle.bounds);
+    writer.U(snapshot.control_handle.visible, 1);
+
     Require(writer.bytes.size() <= kMaxLayoutSnapshotPayload);
     return std::move(writer.bytes);
 }
@@ -249,7 +253,8 @@ LayoutSnapshot DecodeLayoutSnapshot(std::span<const std::uint8_t> bytes)
 {
     Require(bytes.size() <= kMaxLayoutSnapshotPayload);
     Reader reader{bytes};
-    Require(reader.U(2) == kLayoutSnapshotVersion);
+    const auto version = reader.U(2);
+    Require(version == 1 || version == kLayoutSnapshotVersion);
 
     LayoutSnapshot snapshot;
     snapshot.session = reader.U(8);
@@ -273,8 +278,16 @@ LayoutSnapshot DecodeLayoutSnapshot(std::span<const std::uint8_t> bytes)
         snapshot.nodes.push_back(ReadNode(reader, total_children));
     }
     for (std::size_t i = 0; i < boundaries; ++i) {
-        snapshot.boundaries.push_back(ReadBoundary(reader));
+        auto boundary = ReadBoundary(reader);
+        Require(version >= 2 || !boundary.resizable);
+        snapshot.boundaries.push_back(boundary);
     }
+    if (version >= 2) {
+        snapshot.control_handle.boundary = reader.U(8);
+        snapshot.control_handle.bounds = reader.Rect();
+        snapshot.control_handle.visible = reader.Flag();
+    }
+
     Require(reader.at == bytes.size());
     ValidateLayoutSnapshot(snapshot);
     return snapshot;

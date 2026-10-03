@@ -36,6 +36,9 @@ std::vector<std::uint8_t> EncodeWorker(const WorkerMessage &message)
         Put(body, bind->instance.value, 8);
         auto frame = EncodeMessage(bind->request);
         body.insert(body.end(), frame.begin(), frame.end());
+        if (bind->deferred_presentation) {
+            body.push_back(1);
+        }
     } else if (const auto *event = std::get_if<contracts::LaunchEvent>(&message)) {
         body = EncodeMessage(*event);
     } else if (const auto *request = std::get_if<contracts::LaunchRequest>(&message)) {
@@ -115,8 +118,14 @@ WorkerMessage DecodeWorker(std::span<const std::uint8_t> bytes)
         if (!instance.value) {
             throw std::invalid_argument("Zero instance ID");
         }
-        return WorkerBind{std::get<contracts::LaunchRequest>(DecodeMessage(body.subspan(8))),
-                          instance};
+        const auto frame = body.subspan(8);
+        const auto length = FrameSize(frame);
+        if (!length ||
+            (frame.size() != length && (frame.size() != length + 1 || frame.back() != 1))) {
+            throw std::invalid_argument("Invalid worker presentation policy");
+        }
+        return WorkerBind{std::get<contracts::LaunchRequest>(DecodeMessage(frame.first(length))),
+                          instance, frame.size() != length};
     }
     if (type == 9) {
         auto theme = contracts::DecodeTheme(body);

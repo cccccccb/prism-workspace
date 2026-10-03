@@ -164,7 +164,7 @@ int RunWorker(int fd, const std::filesystem::path &apps, const std::string &sock
                         throw std::runtime_error("Invalid worker assignment");
                     }
                     auto package = launch::LoadRegisteredPackage(apps, bind->request.app_id);
-                    if (!host.Bind(package)) {
+                    if (!host.Bind(package, bind->deferred_presentation)) {
                         exit_code = 1;
                         break;
                     }

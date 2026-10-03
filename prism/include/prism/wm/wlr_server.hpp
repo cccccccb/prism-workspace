@@ -3,6 +3,7 @@
 #include "prism/core/noncopyable.hpp"
 #include "prism/core/types.hpp"
 #include "prism/decoration/tiling_drag_manager.hpp"
+#include "prism/tree/tree_constraints.hpp"
 #include "prism/wm/compositor.hpp"
 #include "prism/wm/layout_control.hpp"
 #include "prism/wm/performance.hpp"
@@ -12,6 +13,7 @@
 #include "prism/launch/stream.hpp"
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <sys/types.h>
@@ -224,6 +226,7 @@ public:
     void HandleNewVirtualPointer(struct wlr_virtual_pointer_v1_new_pointer_event *event);
     void HandleNewXdgToplevel(struct wlr_xdg_toplevel *toplevel);
     void HandleXdgMap(WlrXdgView *view);
+    void HandleXdgCommit(WlrXdgView *view);
     void HandleXdgUnmap(WlrXdgView *view);
     void HandleXdgDestroy(WlrXdgView *view);
     void HandleXdgMaximize(WlrXdgView *view);
@@ -419,6 +422,16 @@ private:
         contracts::LayoutControlError error = contracts::LayoutControlError::InvalidInput);
     contracts::LayoutControlError ApplyLayoutIntent(const contracts::LayoutControlRequest &,
                                                     contracts::LayoutControlResult &) override;
+    contracts::LayoutControlError TrackLayoutIntent(const contracts::LayoutControlRequest &,
+                                                    contracts::LayoutControlResult &) override;
+    contracts::LayoutControlError ApplyBoundaryIntent(const contracts::LayoutControlRequest &,
+                                                      contracts::LayoutControlResult &);
+    void CancelBoundaryPreview();
+    void UpdateBoundaryControl();
+    void SampleBoundaryPointer();
+    WlrXdgView *BoundaryControlView() const;
+    void SubmitXdgSize(WlrXdgView *);
+    tree::TreeLayoutConfig CurrentTreeLayout() const;
     void ReconcileGroupModes();
     bool GroupImmersive() const;
     bool GroupControlsHidden() const;
@@ -440,8 +453,26 @@ private:
     std::shared_ptr<const contracts::LayoutSnapshot> layout_snapshot_;
     std::shared_ptr<const tree::TreeSnapshot> layout_tree_snapshot_;
     std::uint64_t layout_theme_generation_{}, layout_sent_revision_{}, next_output_id_{1};
+    std::uint64_t layout_constraints_generation_{}, layout_observed_constraints_generation_{};
     bool layout_snapshot_dirty_{true}, layout_subscribed_{};
     LayoutControlAuthority layout_controls_;
+
+    struct BoundaryPointer {
+        contracts::LayoutInputProof proof;
+        std::uint64_t boundary{};
+        contracts::LogicalPoint start, position;
+        double divider_position{};
+        bool released{};
+    };
+
+    struct BoundaryDrag {
+        std::uint64_t session{};
+        tree::BoundaryFractions original, last;
+    };
+
+    std::optional<BoundaryPointer> boundary_pointer_;
+    std::optional<BoundaryDrag> boundary_drag_;
+    contracts::LayoutControlHandle boundary_handle_;
 
     struct GroupState {
         std::uint64_t output{}, revision{1};

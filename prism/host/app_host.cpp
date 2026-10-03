@@ -135,7 +135,7 @@ std::uint64_t AppHost::ThemeGeneration() const
     return impl_->config.initial_theme ? impl_->config.initial_theme->generation : 0;
 }
 
-bool AppHost::Bind(const launch::AppPackage &package)
+bool AppHost::Bind(const launch::AppPackage &package, bool deferred_presentation)
 {
     auto &self = *impl_;
     if (self.bound_once || self.failed || self.closed || !self.config.request.value ||
@@ -148,6 +148,7 @@ bool AppHost::Bind(const launch::AppPackage &package)
     }
 
     self.bound_once = true;
+    self.deferred_presentation = deferred_presentation;
     self.package = package;
     self.startup_deadline = MonotonicNs() + 10000000000ULL;
     try {
@@ -257,7 +258,8 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
             self.RegionsNeedWork()) {
             wait = 0;
         }
-        if (!self.ui.master_presented || !self.ready) {
+        if (!(self.deferred_presentation ? self.ui.master_submitted : self.ui.master_presented) ||
+            !self.ready) {
             wait = host::Timeout(now, self.startup_deadline, wait);
         }
 
@@ -328,7 +330,9 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
         }
         self.Observe();
 
-        if ((!self.ui.master_presented || !self.ready) && MonotonicNs() >= self.startup_deadline) {
+        if ((!(self.deferred_presentation ? self.ui.master_submitted : self.ui.master_presented) ||
+             !self.ready) &&
+            MonotonicNs() >= self.startup_deadline) {
             return self.Fail(contracts::LaunchError::Timeout,
                              "Master presentation/backend startup timeout");
         }

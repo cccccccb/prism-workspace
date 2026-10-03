@@ -102,6 +102,17 @@ if(TARGET prism_topbar_module)
         $<TARGET_FILE:prism_topbar_module>)
 endif()
 
+if(TARGET prism_layout_controls_module)
+    add_executable(layout_controls_module_test layout_controls_module_test.cpp)
+    target_link_libraries(layout_controls_module_test PRIVATE prism_module_session
+        prism_client_dsl prism_client_scene prism_theme_compiler)
+    target_compile_options(layout_controls_module_test PRIVATE -UNDEBUG)
+    target_compile_definitions(layout_controls_module_test PRIVATE PRISM_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
+    add_dependencies(layout_controls_module_test prism_layout_controls_module)
+    add_test(NAME layout_controls_module_test COMMAND layout_controls_module_test
+        $<TARGET_FILE:prism_layout_controls_module>)
+endif()
+
 if(TARGET prism_music_module)
     add_executable(demo_player_work_test demo_player_work_test.cpp)
     target_link_libraries(demo_player_work_test PRIVATE prism_module_session prism_task_scheduler
@@ -520,3 +531,12 @@ add_executable(group_pointer_probe probes/group_pointer_probe.cpp
 target_include_directories(group_pointer_probe PRIVATE "${VIRTUAL_INPUT_PROTOCOL_DIR}")
 target_link_libraries(group_pointer_probe PRIVATE prism_client_dsl prism_client_scene
     prism_theme_compiler ${WAYLAND_CLIENT_LIBRARIES})
+
+add_executable(tree_boundary_constraints_test tree_boundary_constraints_test.cpp)
+target_link_libraries(tree_boundary_constraints_test PRIVATE prism_core)
+add_test(NAME tree_boundary_constraints_test COMMAND tree_boundary_constraints_test)
+add_executable(native_boundary_control_test native_boundary_control_test.cpp)
+target_link_libraries(native_boundary_control_test PRIVATE prism_core prism_wayland_client)
+target_include_directories(native_boundary_control_test PRIVATE "${CMAKE_BINARY_DIR}/prism/platform/wayland_client")
+add_test(NAME native_boundary_control_test COMMAND native_boundary_control_test)
+set_tests_properties(native_boundary_control_test PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)

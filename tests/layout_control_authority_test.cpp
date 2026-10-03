@@ -9,6 +9,7 @@ using namespace prism::wm;
 namespace {
 constexpr std::uint64_t Now = 1'000'000'000;
 const LayoutControlPrincipal Topbar{{21}, {31}, 1234, WindowRole::TopBar, true};
+const LayoutControlPrincipal Controls{{22}, {32}, 1235, WindowRole::LayoutControls, true};
 
 LayoutSnapshot Snapshot()
 {
@@ -18,7 +19,7 @@ LayoutSnapshot Snapshot()
     value.outputs.push_back({2, "Screen", {0, 0, 800, 600}, 1, true, true});
     value.workspaces.push_back({3, 4, 2, "Main", true});
     value.boundaries.push_back(
-        {5, 4, 6, 7, 3, LayoutBoundaryAxis::X, {395, 0, 10, 600}, true, false});
+        {5, 4, 6, 7, 3, LayoutBoundaryAxis::X, {395, 0, 10, 600}, true, true});
     return value;
 }
 
@@ -43,6 +44,65 @@ LayoutControlRequest Next(LayoutControlRequest request, const LayoutControlResul
     request.phase = phase;
     return request;
 }
+
+LayoutControlRequest BoundaryBegin(std::uint64_t id = 1)
+{
+    auto request = Begin(id);
+    request.operation = LayoutControlOperation::BoundaryGesture;
+    request.target.boundary = 5;
+    return request;
+}
+
+class PreviewApplier : public LayoutControlApplier {
+public:
+    explicit PreviewApplier(LayoutSnapshot &snapshot) : snapshot_(snapshot)
+    {
+    }
+
+    LayoutControlError TrackLayoutIntent(const LayoutControlRequest &request,
+                                         LayoutControlResult &result) override
+    {
+        assert(request.operation == LayoutControlOperation::BoundaryGesture);
+        if (request.phase == LayoutControlPhase::Begin) {
+            ++begins;
+        } else if (request.phase == LayoutControlPhase::Update) {
+            ++updates;
+        } else {
+            assert(request.phase == LayoutControlPhase::Cancel);
+            ++cancels;
+        }
+        if (tracking_error != LayoutControlError::None) {
+            return tracking_error;
+        }
+
+        Advance(result);
+        return LayoutControlError::None;
+    }
+
+    LayoutControlError ApplyLayoutIntent(const LayoutControlRequest &request,
+                                         LayoutControlResult &result) override
+    {
+        assert(request.intent == LayoutControlIntent::ApplyBoundary);
+        ++ends;
+        Advance(result);
+        result.applied = true;
+        return LayoutControlError::None;
+    }
+
+    unsigned begins{}, updates{}, cancels{}, ends{};
+    LayoutControlError tracking_error{};
+
+private:
+    void Advance(LayoutControlResult &result)
+    {
+        ++snapshot_.revision;
+        ++snapshot_.layout_revision;
+        result.revision = snapshot_.revision;
+        result.layout_revision = snapshot_.layout_revision;
+    }
+
+    LayoutSnapshot &snapshot_;
+};
 
 void AuthorizationAndSequence()
 {
@@ -201,18 +261,16 @@ void ContactsBusyAndRelease()
     assert(authority.TakeNotifications().size() == 1);
 }
 
-void BoundariesUnsupportedAndReplayBound()
+void UnsupportedAndReplayBound()
 {
     LayoutControlAuthority authority;
     auto snapshot = Snapshot();
     auto begin = Begin();
-    begin.operation = LayoutControlOperation::BoundaryGesture;
-    begin.target.boundary = 5;
     authority.RecordInput(Topbar, begin.input, Now);
     const auto began = authority.Apply(Topbar, begin, snapshot, Now);
     assert(began.status == LayoutControlStatus::Began);
     auto end = Next(begin, began, LayoutControlPhase::End);
-    end.intent = LayoutControlIntent::ApplyBoundary;
+    end.intent = LayoutControlIntent::EnterImmersive;
     const auto result = authority.Apply(Topbar, end, snapshot, Now);
     assert(result.status == LayoutControlStatus::Rejected &&
            result.error == LayoutControlError::Unsupported && !result.applied);
@@ -232,6 +290,180 @@ void BoundariesUnsupportedAndReplayBound()
     snapshot.outputs[0].supported = false;
     assert(authority.Apply(Topbar, stale, snapshot, Now).error == LayoutControlError::Unsupported);
 }
+
+void BoundaryRolesAndProof()
+{
+    for (const auto role :
+         {WindowRole::Toplevel, WindowRole::Desktop, WindowRole::TopBar, WindowRole::Dock}) {
+        LayoutControlAuthority authority;
+        auto snapshot = Snapshot();
+        PreviewApplier applier(snapshot);
+        auto principal = Controls;
+        principal.role = role;
+        const auto request = BoundaryBegin();
+        authority.RecordInput(principal, request.input, Now, 5);
+        assert(authority.Apply(principal, request, snapshot, Now, &applier).error ==
+               LayoutControlError::Unauthorized);
+        assert(applier.begins == 0);
+    }
+
+    LayoutControlAuthority authority;
+    auto snapshot = Snapshot();
+    PreviewApplier applier(snapshot);
+    const auto group = Begin();
+    authority.RecordInput(Controls, group.input, Now);
+    assert(authority.Apply(Controls, group, snapshot, Now, &applier).error ==
+           LayoutControlError::Unauthorized);
+
+    auto request = BoundaryBegin(10);
+    // A serial from another handle cannot authorize this boundary, even for
+    // the same registered Shell process and the same current layout.
+    authority.RecordInput(Controls, request.input, Now, 9);
+    assert(authority.Apply(Controls, request, snapshot, Now, &applier).error ==
+           LayoutControlError::InvalidInput);
+    assert(applier.begins == 0);
+
+    request.request++;
+    authority.RecordInput(Controls, request.input, Now, 5);
+    snapshot.boundaries[0].resizable = false;
+    assert(authority.Apply(Controls, request, snapshot, Now, &applier).error ==
+           LayoutControlError::StaleTarget);
+    snapshot.boundaries[0].resizable = true;
+    request.request++;
+    assert(authority.Apply(Controls, request, snapshot, Now).error ==
+           LayoutControlError::Unsupported);
+    request.request++;
+    assert(authority.Apply(Controls, request, snapshot, Now, &applier).error ==
+           LayoutControlError::InvalidInput);
+}
+
+void BoundaryPreviewRevisions()
+{
+    LayoutControlAuthority authority;
+    auto snapshot = Snapshot();
+    PreviewApplier applier(snapshot);
+    const auto begin = BoundaryBegin();
+    authority.RecordInput(Controls, begin.input, Now, 5);
+    const auto began = authority.Apply(Controls, begin, snapshot, Now, &applier);
+    assert(began.status == LayoutControlStatus::Began && began.layout_revision == 2);
+    authority.Reconcile(snapshot, Now);
+    assert(authority.TakeNotifications().empty());
+    assert(authority.Apply(Controls, begin, snapshot, Now, &applier) == began);
+    assert(applier.begins == 1);
+
+    auto update = Next(begin, began, LayoutControlPhase::Update);
+    update.position.x = 150;
+    const auto updated = authority.Apply(Controls, update, snapshot, Now, &applier);
+    assert(updated.status == LayoutControlStatus::Updated && updated.layout_revision == 3);
+    assert(!updated.applied && update.target.layout_revision == 1);
+    assert(authority.Apply(Controls, update, snapshot, Now, &applier) == updated);
+    assert(applier.updates == 1);
+
+    ++snapshot.revision;
+    ++snapshot.focus_revision;
+    authority.Reconcile(snapshot, Now);
+    assert(authority.TakeNotifications().empty());
+    update = Next(update, updated, LayoutControlPhase::Update);
+    update.position.x = 170;
+    const auto advanced = authority.Apply(Controls, update, snapshot, Now, &applier);
+    assert(advanced.status == LayoutControlStatus::Updated && advanced.layout_revision == 4);
+
+    auto end = Next(update, advanced, LayoutControlPhase::End);
+    end.intent = LayoutControlIntent::ApplyBoundary;
+    const auto ended = authority.Apply(Controls, end, snapshot, Now, &applier);
+    assert(ended.status == LayoutControlStatus::Ended && ended.applied);
+    assert(ended.layout_revision == 5 && applier.ends == 1);
+    assert(authority.Apply(Controls, end, snapshot, Now, &applier) == ended);
+    assert(applier.ends == 1 && authority.TakeNotifications().empty());
+}
+
+void BoundaryExternalCancellation()
+{
+    for (unsigned reason = 0; reason < 6; ++reason) {
+        LayoutControlAuthority authority;
+        auto snapshot = Snapshot();
+        PreviewApplier applier(snapshot);
+        const auto begin = BoundaryBegin();
+        authority.RecordInput(Controls, begin.input, Now, 5);
+        const auto began = authority.Apply(Controls, begin, snapshot, Now, &applier);
+        auto update = Next(begin, began, LayoutControlPhase::Update);
+        const auto updated = authority.Apply(Controls, update, snapshot, Now, &applier);
+        assert(updated.status == LayoutControlStatus::Updated);
+
+        if (reason == 0) {
+            ++snapshot.layout_revision;
+        } else if (reason == 1) {
+            ++snapshot.topology_revision;
+        } else if (reason == 2) {
+            snapshot.boundaries[0].resizable = false;
+        } else if (reason == 3) {
+            snapshot.boundaries.clear();
+        } else if (reason == 4) {
+            snapshot.workspaces[0].active = false;
+        } else {
+            authority.CancelInput(LayoutInputKind::Pointer, 0);
+        }
+        authority.Reconcile(snapshot, Now);
+        const auto notifications = authority.TakeNotifications();
+        assert(notifications.size() == 1);
+        assert(notifications[0].principal == Controls);
+        assert(notifications[0].result.status == LayoutControlStatus::Cancelled);
+        assert(notifications[0].result.session == began.session);
+        assert(authority.Apply(Controls, begin, snapshot, Now, &applier).status ==
+               LayoutControlStatus::Cancelled);
+        assert(authority.Apply(Controls, update, snapshot, Now, &applier).status ==
+               LayoutControlStatus::Cancelled);
+        update = Next(update, updated, LayoutControlPhase::Update);
+        assert(authority.Apply(Controls, update, snapshot, Now, &applier).error ==
+               LayoutControlError::UnknownSession);
+        assert(applier.begins == 1 && applier.updates == 1);
+    }
+}
+
+void BoundaryTerminalAndReplayConflict()
+{
+    for (unsigned terminal = 0; terminal < 4; ++terminal) {
+        LayoutControlAuthority authority;
+        auto snapshot = Snapshot();
+        PreviewApplier applier(snapshot);
+        const auto begin = BoundaryBegin();
+        authority.RecordInput(Controls, begin.input, Now, 5);
+        const auto began = authority.Apply(Controls, begin, snapshot, Now, &applier);
+        const auto update = Next(begin, began, LayoutControlPhase::Update);
+        const auto updated = authority.Apply(Controls, update, snapshot, Now, &applier);
+        auto request = Next(update, updated, LayoutControlPhase::Cancel);
+        if (terminal == 0 || terminal == 1) {
+            if (terminal == 1) {
+                request.phase = LayoutControlPhase::End; // No ApplyBoundary commits nothing.
+            }
+            const auto result = authority.Apply(Controls, request, snapshot, Now, &applier);
+            assert(result.status ==
+                   (terminal ? LayoutControlStatus::Ended : LayoutControlStatus::Cancelled));
+            assert(!result.applied && applier.cancels == 1 && applier.ends == 0);
+            assert(authority.Apply(Controls, request, snapshot, Now, &applier) == result);
+            assert(applier.cancels == 1);
+        } else {
+            request = update;
+            if (terminal == 2) {
+                ++request.position.x; // Same request ID with altered payload.
+            } else {
+                ++request.request;
+                ++request.sequence;
+                request.target.layout_revision = snapshot.layout_revision;
+            }
+            const auto result = authority.Apply(Controls, request, snapshot, Now, &applier);
+            assert(result.error == (terminal == 2 ? LayoutControlError::InvalidSequence
+                                                  : LayoutControlError::StaleTarget));
+            assert(authority.TakeNotifications().size() == 1);
+            assert(authority.Apply(Controls, begin, snapshot, Now, &applier).status ==
+                   LayoutControlStatus::Cancelled);
+        }
+        request = Next(request, updated, LayoutControlPhase::Update);
+        request.request += 100;
+        assert(authority.Apply(Controls, request, snapshot, Now, &applier).error ==
+               LayoutControlError::UnknownSession);
+    }
+}
 } // namespace
 
 int main()
@@ -240,6 +472,10 @@ int main()
     InvalidContinuationTerminates();
     RevisionsAndCancellation();
     ContactsBusyAndRelease();
-    BoundariesUnsupportedAndReplayBound();
+    UnsupportedAndReplayBound();
+    BoundaryRolesAndProof();
+    BoundaryPreviewRevisions();
+    BoundaryExternalCancellation();
+    BoundaryTerminalAndReplayConflict();
     std::cout << "WM layout control authority passed\n";
 }

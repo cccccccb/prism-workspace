@@ -1,6 +1,6 @@
 # WM 权威布局、组沉浸与分隔线控制实施计划
 
-日期：2026-10-01。状态：**第一至第三步已完成自动化验收，第三步结果见第 9 节；第四步为后续计划。**
+日期：2026-10-04。状态：**第一至第四步已完成代码实现；第三步验收见第 9 节，第四步细则和验证见第 10、11 节。**
 
 本计划承接 [通用交互规范](INTERACTION_AND_PRESENTATION_SPEC.md)第 2、8、9、11 节。
 实施顺序为：稳定树与边界身份、WM 权威快照 → typed 控制会话与连续手势桥接 →
@@ -545,3 +545,91 @@ Pi 完整构建通过，CTest **72/72**、代码规范和 `git diff --check` 通
 对应 session/pointer 日志、`shell-recovery.log`、`shell-worker-failure.log`。
 本轮没有部署或替换正在使用的
 桌面/VNC 会话，也没有重新测量帧率或新增触屏操作。
+
+## 10. 第四步实施细则：鼠标分隔线与尺寸约束
+
+本步新增可信 `LayoutControls` Shell 角色，仍由统一 app-host 承载 DSL 与业务模块。
+WM 不链接客户端 Scene/Skia，也不绘制手柄；它只选择边界、设置控制面的几何和
+允许输入区域。首版使用一个 48×48 的小控制面，鼠标接近边界中点时呈现对应的横线或
+竖线，拖动期间保持该边界身份。首版不引入重复列表 DSL、触屏手势或装饰动画。
+
+实施与验收顺序：
+
+1. Window 记录 XDG committed min_width/min_height；树层递归汇总子树最小尺寸，
+   split 主轴相加（含 gap）、交叉轴取最大，tabbed/stacked 加入已有标题区域。
+   当前容器无法同时满足约束时禁止拖动，不通过负尺寸挤压窗口。普通 Arrange 的
+   空间不足策略保持独立，本步不承诺所有窗口初始分配已经满足 min size。
+2. 通过稳定 BoundaryId 计算可移动区间，位置夹取；只调整相邻 pair，保持 pair
+   总比例和其他 siblings。取消只恢复同一 topology 下仍匹配最后预览指纹的 pair。
+3. Begin 绑定真实鼠标 Down、所选 boundary、原始比例和尺寸约束。WM 记录 Down、
+   motion 与 Up 的输出逻辑坐标，布局计算使用 WM 的位移记录；客户端局部坐标不
+   能在控制面移动或消息延迟后被误当作全局坐标。Update 产生受约束的临时布局，
+   End ApplyBoundary 确认最终比例，Cancel/断线/失效回收预览。
+4. 会话记录自身更新后的 layout revision。自己的 preview 不使自己失效；外部
+   拓扑、主题、workspace、输出或 committed min size 改变时取消。提交几何更新
+   仍和 configure target 分开，不能把请求被接受写成客户端已经显示。
+5. 每个 XDG 客户端最多保留一个未 commit 的尺寸 configure，期间只覆盖最新目标；
+   收到对应 commit 后继续提交最新目标，避免慢客户端积压 resize 消息。
+6. Snapshot wire v2 尾部增加所选控制面，解码兼容 v1；C ABI 用 struct_size
+   可选尾指针扩展。WM、launcher 和 Host 成套更新。Topbar 仅控制组模式，
+   LayoutControls 仅控制边界；普通应用与 Dock 无布局修改权限。
+
+验证覆盖树约束与夹取、相邻 pair 和比例恢复、角色隔离、会话自身修订与外部失效、
+真实原生输入和慢客户端提交。集成测试在隔离 headless Wayland 会话运行，保持
+当前安装的桌面/VNC 服务不变。
+
+## 11. 第四步交付与验证（2026-10-04）
+
+### 11.1 已实现的行为
+
+- `tree_constraints.cpp` 递归汇总 Window 最小尺寸和容器标题/gap，计算父局部轴坐标
+  下的边界范围。ApplyBoundary 使用与真实 Arrange 一致的取整规则，只修改相邻 pair，
+  保持总比例、pair 外边缘及无关 sibling 几何。恢复时核对 topology 和最后预览比例。
+- 普通 XDG Window 采用 committed min_width/min_height。约束改变推进独立约束
+  generation，从而推进 WM layout revision，即使当时目标几何没有变化也会使旧请求失效。
+- role 4 `prism_layout_controls` 使用标准 Host、业务 C ABI 和 DSL；一个 48×48 控制面
+  根据 WM 选中的边界轴展示 4×32 或 32×4 的 pill，颜色来自主题。鼠标接近边界中点
+  24 像素范围时选择，实际输入和画面裁剪到分隔缝。小于 1 像素的 gap 不提供手柄，
+  首版不扩大点击区域覆盖应用，不支持在无 gap 的界面中直接拖动。
+- 操作使用实际 Pointer Down serial、surface/实例和选中 BoundaryId。WM 记录真实
+  Down/motion/Up 位置，按初始分隔线位置加位移求值；任意客户端局部坐标不能移动窗口。
+  Update 使用自己的新 layout revision 继续追踪，重复请求不再次应用；End 确认，
+  Cancel、设备移除、Shell 退出、外部几何或 topology 变化撤销。
+- XDG resize 只保留一个未 commit 的尺寸 configure 与最新目标。ack 本身不释放
+  配额；客户端提交该 serial 或后续 serial 后才发送最新目标。夹取后比例没有改变时
+  不重复 Arrange。快照始终分别报告目标和已提交几何，不声称已经显示最新目标。
+- Tabbed/Stacked 的非 active 分支不显示、不发布可见分隔线。
+- 初始隐藏控制面使用可信 WorkerBind 的 deferred_presentation 策略，保证提交与
+  BackendReady 超时检查仍有效；真实 FirstPresented 等它可见后再报告。
+
+### 11.2 验证范围
+
+- 全量 CTest **75/75** 通过；代码规范检查通过，327 个生产文件、100 个测试文件，
+  最大生产文件仍为 627 行。
+- 树测试覆盖水平/垂直、多兄弟、嵌套 Tabbed/Stacked、极小区域、大 gap、NaN/Inf、
+  分数尺寸、动态 min size、外部比例变更和 topology 防陈旧恢复。
+- 原生 Wayland 测试覆盖真实鼠标 serial 和隔离进程、输入区域裁剪、实时预览、确认/
+  取消、设备丢失、邻居退出、主题变化、真实 XDG 动态最小尺寸、角色权限隔离。
+  SIGSTOP 慢客户端期间连续 20 次拖动更新，恢复后最多收到两次尺寸 configure，
+  最后目标正常 commit；不以响应时间证明帧率或性能提升。
+- 真实 Pi V3D 隔离会话使用正式包、Host、launcher、WM，两次组沉浸/恢复，以及
+  水平分隔线 +96/-96 像素往返，验证相同实例/PID、目标与 committed 一致。
+  初始隐藏 16 秒跨过 Host/launcher 启动 watchdog 后仍可激活。
+- 协议 routing probe 验证 Topbar/Controls 的 operation 隔离及普通应用/Dock 拒绝；
+  四 Shell 自报失败 probe 验证撤权、限时清理、迟到 WM 回复和继续创建普通应用；
+  正式会话依次 SIGKILL 四个 Shell，WM/launcher 和原应用继续运行、普通应用可继续启动，
+  没有自动重启 Shell，退出后所有测试进程回收。
+
+证据保存在 `dist/validation/boundary-control-v1-20261003/`。初次完整会话暴露隐藏
+控制面 Master 呈现超时，已通过显式按需呈现策略修复；失败日志保留，不能作为通过
+记录。本轮未打包安装，现有 VNC 桌面保持原版本。
+
+### 11.3 仍保留的边界与下一阶段
+
+本步不把普通 Arrange 改成全局约束求解器：窗口初次分配的区域可能小于客户端声明
+的 min size；整个父区域不足时禁止边界拖动，后续需要单独定义 overflow 策略。
+当前只支持单输出活动 workspace，触屏设计仍延期；真实完整包往返测试为水平边界，
+垂直和多层嵌套由纯树算法测试覆盖，尚无多显示器或实体屏幕呈现验收。
+
+下一阶段可接入鼠标控制区的窗口级操作（单窗全屏/恢复、布局方向与分割调整），继续
+复用同一权威目标/结果接口；之后再接动画呈现，不把动画插值掺入树比例提交路径。

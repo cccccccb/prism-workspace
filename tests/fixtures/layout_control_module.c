@@ -41,6 +41,21 @@ static void layout(void *context, const PrismLayoutStateV1 *state)
     number(self, "layout_status", 13, state->status);
     number(self, "output_count", 12, state->outputs_size);
     number(self, "node_count", 10, state->nodes_size);
+    const PrismLayoutControlHandleV1 *handle = NULL;
+    if (state->struct_size >=
+            offsetof(PrismLayoutStateV1, control_handle) + sizeof(state->control_handle) &&
+        state->control_handle &&
+        state->control_handle->struct_size >= sizeof(PrismLayoutControlHandleV1)) {
+        handle = state->control_handle;
+    }
+    number(self, "handle_available", sizeof("handle_available") - 1, handle != NULL);
+    if (handle) {
+        number(self, "handle_boundary", sizeof("handle_boundary") - 1, handle->boundary);
+        number(self, "handle_visible", sizeof("handle_visible") - 1, handle->visible);
+        number(self, "handle_x", sizeof("handle_x") - 1, handle->bounds.x);
+        number(self, "handle_width", sizeof("handle_width") - 1, handle->bounds.width);
+    }
+
     if (state->workspaces_size) {
         const PrismLayoutWorkspaceV1 *workspace = state->workspaces;
         self->target = (PrismLayoutTargetV1){

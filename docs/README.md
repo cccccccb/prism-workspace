@@ -29,7 +29,7 @@ Skill 与参考资料只有一份正文，统一在仓库维护。人和 AI 使�
 | 材质与图片资源 | [SURFACE_MATERIALS](SURFACE_MATERIALS.md)、[IMAGE_RESOURCES](IMAGE_RESOURCES.md) |
 | 渲染调度与失效传播 | [RENDER_SCHEDULING_AND_INVALIDATION](RENDER_SCHEDULING_AND_INVALIDATION.md) |
 | 动画运行时与 DSL 契约 | [ANIMATION_RUNTIME_SPEC](ANIMATION_RUNTIME_SPEC.md)（Paint Transition、StateRule 与装饰呈现；保留层后续实施） |
-| 通用交互状态与桌面控制区 | [INTERACTION_AND_PRESENTATION_SPEC](INTERACTION_AND_PRESENTATION_SPEC.md)（固定 InteractionTarget、Visual、状态规则与 Shell 接入；成功提交输入快照/touch 集成中，验证待补；组控制后续实施） |
+| 通用交互状态与桌面控制区 | [INTERACTION_AND_PRESENTATION_SPEC](INTERACTION_AND_PRESENTATION_SPEC.md)（固定 InteractionTarget、Visual、状态规则与 Shell 接入；成功提交输入快照、鼠标组沉浸与恢复；分隔线控制见专项计划，触屏交互延期） |
 | 动画与渲染优化假设 | [ANIMATION_RENDERING_HYPOTHESES](ANIMATION_RENDERING_HYPOTHESES.md) |
 | 客户端渲染线程迁移 | [CLIENT_RENDER_THREAD_MIGRATION](CLIENT_RENDER_THREAD_MIGRATION.md) |
 | Wayland 生命周期 | [WAYLAND_LIFECYCLE](WAYLAND_LIFECYCLE.md) |
@@ -60,5 +60,5 @@ Skill 与参考资料只有一份正文，统一在仓库维护。人和 AI 使�
 - [应用迁移](APPLICATION_MIGRATION.md)
 - [启动架构修订与执行计划](LAUNCH_RUNTIME_RESTORATION_PLAN.md)
 - [视觉与 BSP 细化计划](VISUAL_TILING_REFINEMENT_PLAN.md)
-- [WM 权威布局、组沉浸与分隔线控制实施计划](LAYOUT_CONTROL_IMPLEMENTATION_PLAN.md)（权威快照、连续手势、typed 控制会话及鼠标组沉浸/恢复；后续分隔线约束，触屏交互延期）
+- [WM 权威布局、组沉浸与分隔线控制实施计划](LAYOUT_CONTROL_IMPLEMENTATION_PLAN.md)（权威快照、连续手势、typed 控制会话及鼠标组沉浸/恢复；鼠标分隔线调节与递归尺寸约束，触屏交互延期）
 - [阶段报告](MILESTONE_REPORT.md)

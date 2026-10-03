@@ -30,8 +30,8 @@ Job *Service::Impl::LayoutOwner(const Worker &worker, bool controls) const
         return nullptr;
     }
     auto &job = *found->second;
-    const bool allowed =
-        job.role == WindowRole::TopBar || (!controls && job.role == WindowRole::Dock);
+    const bool allowed = job.role == WindowRole::TopBar || job.role == WindowRole::LayoutControls ||
+                         (!controls && job.role == WindowRole::Dock);
     if (!allowed || job.alias || !job.registered || !job.bound_sent || job.state.Terminal() ||
         job.state.Pid() != static_cast<unsigned>(worker.pid)) {
         return nullptr;
@@ -79,6 +79,11 @@ void Service::Impl::RequestLayoutControl(Worker &worker, const LayoutControlRequ
     const auto *job = LayoutOwner(worker, true);
     LayoutControlError error = LayoutControlError::None;
     if (!job || !job->mapped) {
+        error = LayoutControlError::Unauthorized;
+    } else if ((job->role == WindowRole::TopBar &&
+                request.operation != LayoutControlOperation::GroupGesture) ||
+               (job->role == WindowRole::LayoutControls &&
+                request.operation != LayoutControlOperation::BoundaryGesture)) {
         error = LayoutControlError::Unauthorized;
     } else if (!control || control->Closed() || control_failed || !session) {
         error = LayoutControlError::Disconnected;

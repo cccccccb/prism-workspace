@@ -1,9 +1,11 @@
 #pragma once
 
+#include "prism/tree/tree_constraints.hpp"
 #include "prism/tree/tree_layout_config.hpp"
 #include "prism/tree/tree_snapshot.hpp"
 #include "prism/tree/tree_workspace.hpp"
 #include <functional>
+#include <optional>
 #include <unordered_map>
 
 namespace prism::tree {
@@ -63,6 +65,17 @@ public:
     std::vector<std::pair<std::shared_ptr<wm::Window>, core::Rect>> GetCalculatedLayout() const;
 
     std::shared_ptr<const TreeSnapshot> CaptureSnapshot() const;
+
+    TreeMinimumSize GetMinimumSize(const std::shared_ptr<TreeNode> &node,
+                                   const TreeLayoutConfig &config) const;
+    std::optional<BoundaryRange> GetBoundaryRange(std::uint64_t boundary,
+                                                  const TreeLayoutConfig &config) const;
+    std::optional<BoundaryFractions> CaptureBoundaryFractions(std::uint64_t boundary) const;
+
+    // Mutate only this adjacent pair; callers arrange and publish the new target afterwards.
+    bool ApplyBoundary(std::uint64_t boundary, double position, const TreeLayoutConfig &config);
+    bool RestoreBoundaryFractions(const BoundaryFractions &saved,
+                                  const BoundaryFractions &expected_current);
 
     // Sway / i3 JSON Tree Introspection (swaymsg -t get_tree)
     std::string DumpTreeJson() const;

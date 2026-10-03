@@ -185,7 +185,8 @@ std::shared_ptr<const contracts::LayoutSnapshot> WlrServer::GetLayoutSnapshot()
     const auto tree = engine.CaptureSnapshot();
     const auto theme_generation = theme_snapshot_ ? theme_snapshot_->generation : 0;
     if (layout_snapshot_ && !layout_snapshot_dirty_ && layout_tree_snapshot_ == tree &&
-        layout_theme_generation_ == theme_generation) {
+        layout_theme_generation_ == theme_generation &&
+        layout_observed_constraints_generation_ == layout_constraints_generation_) {
         return layout_snapshot_;
     }
 
@@ -216,10 +217,29 @@ std::shared_ptr<const contracts::LayoutSnapshot> WlrServer::GetLayoutSnapshot()
     AppendNodes(next, *tree, engine, focused_xdg_view_ ? focused_xdg_view_->managed.get() : nullptr,
                 !outputs_.empty() && outputs_.front()->wlr_output->enabled);
 
+    for (auto &boundary : next.boundaries) {
+        const auto range = engine.GetBoundaryRange(boundary.id, CurrentTreeLayout());
+        boundary.resizable = boundary.visible && range && range->feasible;
+    }
+    if (boundary_handle_.visible) {
+        const auto selected = std::find_if(
+            next.boundaries.begin(), next.boundaries.end(),
+            [this](const auto &boundary) { return boundary.id == boundary_handle_.boundary; });
+        const auto output = PrimaryLogicalBounds();
+        const auto &bounds = boundary_handle_.bounds;
+        if (selected != next.boundaries.end() && selected->resizable && next.outputs.size() == 1 &&
+            next.outputs.front().supported && bounds.x >= output.x && bounds.y >= output.y &&
+            bounds.x + bounds.width <= output.x + output.width &&
+            bounds.y + bounds.height <= output.y + output.height) {
+            next.control_handle = boundary_handle_;
+        }
+    }
+
     const auto &old_tree = layout_tree_snapshot_;
     bool topology = !old_tree || old_tree->topology_revision != tree->topology_revision;
     bool layout = !old_tree || old_tree->layout_revision != tree->layout_revision ||
-                  layout_theme_generation_ != theme_generation;
+                  layout_theme_generation_ != theme_generation ||
+                  layout_observed_constraints_generation_ != layout_constraints_generation_;
     bool focus = !old_tree || old_tree->focus_revision != tree->focus_revision ||
                  old_tree->active_workspace != tree->active_workspace;
     if (layout_snapshot_) {
@@ -246,6 +266,7 @@ std::shared_ptr<const contracts::LayoutSnapshot> WlrServer::GetLayoutSnapshot()
     }
     layout_tree_snapshot_ = tree;
     layout_theme_generation_ = theme_generation;
+    layout_observed_constraints_generation_ = layout_constraints_generation_;
     layout_snapshot_dirty_ = false;
     return layout_snapshot_;
 }
@@ -256,9 +277,10 @@ void WlrServer::PublishLayoutSnapshot()
         return;
     }
     try {
-        const auto snapshot = GetLayoutSnapshot();
+        auto snapshot = GetLayoutSnapshot();
         layout_controls_.Reconcile(*snapshot, launch::MonotonicNs());
         PublishLayoutControlNotifications();
+        snapshot = GetLayoutSnapshot();
         if (layout_subscribed_ && snapshot && snapshot->revision != layout_sent_revision_) {
             launch::ControlMessage message;
             message.type = launch::ControlType::LayoutSnapshot;
@@ -280,6 +302,7 @@ void WlrServer::PublishLayoutSnapshot()
     }
     if (control_failed_) {
         layout_controls_.Reset();
+        CancelBoundaryPreview();
     }
 }
 

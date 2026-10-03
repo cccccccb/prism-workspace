@@ -13,6 +13,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -154,6 +155,23 @@ public:
         std::cout << "DONE edge-click\n" << std::flush;
     }
 
+    void Boundary(double x, double y, double delta)
+    {
+        Require(std::isfinite(x) && std::isfinite(y) && std::isfinite(delta) && x >= 0 &&
+                    x < width_ && y >= 0 && y < height_ && x + delta >= 0 && x + delta < width_,
+                "Invalid bounded divider gesture");
+        Move({x, y});
+        Pause(500ms); // Let the selected DSL control commit its input snapshot.
+        Button(WL_POINTER_BUTTON_STATE_PRESSED);
+        Pause(100ms);
+        for (int step = 1; step <= 8; ++step) {
+            Move({x + delta * step / 8, y});
+            Pause(90ms);
+        }
+        Button(WL_POINTER_BUTTON_STATE_RELEASED);
+        std::cout << "DONE boundary\n" << std::flush;
+    }
+
 private:
     void Roundtrip()
     {
@@ -267,6 +285,11 @@ int main(int argc, char **argv)
                 pointer.Gesture();
             } else if (command == "edge-click") {
                 pointer.EdgeClick();
+            } else if (command.starts_with("boundary ")) {
+                std::istringstream input(command.substr(9));
+                double x{}, y{}, delta{};
+                Require(bool(input >> x >> y >> delta), "Invalid divider command");
+                pointer.Boundary(x, y, delta);
             } else {
                 throw std::runtime_error("Unknown bounded pointer probe command");
             }

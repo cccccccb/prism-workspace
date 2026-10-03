@@ -94,7 +94,9 @@ public:
     void DeliverLayoutControlResult(const contracts::LayoutControlResult &event);
     bool ApplyTheme(const contracts::ThemeSnapshot &, std::string *diagnostic = nullptr);
     std::uint64_t ThemeGeneration() const;
-    bool Bind(const launch::AppPackage &package);
+    // Deferred presentation still requires Master submission and backend readiness.
+    // It never emits FirstPresented until actual presentation feedback arrives.
+    bool Bind(const launch::AppPackage &package, bool deferred_presentation = false);
     // Negative timeout waits for events/deadlines. Descriptors are borrowed;
     // readiness is returned to the caller after Wayland's read lock is released.
     bool Pump(int timeout_ms, std::span<pollfd> wake_fds = {});

@@ -76,7 +76,8 @@ void VerifyControlPeer(int fd, int parent_pid)
 std::vector<std::uint8_t> EncodeControl(const ControlMessage &m)
 {
     Check(static_cast<unsigned>(m.type) >= 1 && static_cast<unsigned>(m.type) <= 14);
-    Check(m.permit.session && static_cast<unsigned>(m.permit.role) <= 3);
+    Check(m.permit.session && static_cast<unsigned>(m.permit.role) <=
+                                  static_cast<unsigned>(contracts::WindowRole::LayoutControls));
     std::vector<std::uint8_t> body;
     const auto &p = m.permit;
     Put(body, p.session, 8);
@@ -179,7 +180,7 @@ ControlMessage DecodeControl(std::span<const std::uint8_t> b)
     p.instance = {h.Get(8)};
     p.pid = h.Get(4);
     auto role = h.Get(1);
-    Check(role <= 3);
+    Check(role <= static_cast<unsigned>(contracts::WindowRole::LayoutControls));
     p.role = static_cast<contracts::WindowRole>(role);
     for (auto &v : p.token) {
         v = h.Get(1);

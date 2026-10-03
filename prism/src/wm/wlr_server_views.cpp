@@ -1,6 +1,24 @@
 #include "wlr_server_internal.hpp"
 
 namespace prism::wm {
+namespace {
+bool VisibleInLayout(std::shared_ptr<tree::TreeNode> node)
+{
+    while (node) {
+        const auto parent = node->GetParent();
+        const auto container = std::dynamic_pointer_cast<tree::ContainerNode>(parent);
+        if (container &&
+            (container->GetLayoutMode() == tree::LayoutMode::Tabbed ||
+             container->GetLayoutMode() == tree::LayoutMode::Stacked) &&
+            container->GetActiveChild() != node) {
+            return false;
+        }
+        node = parent;
+    }
+    return true;
+}
+} // namespace
+
 static void handle_xdg_set_app_id(wl_listener *listener, void *)
 {
     auto *item = WlContainerOf<WlrXdgView>(listener, offsetof(WlrXdgView, set_app_id));
@@ -24,12 +42,7 @@ static void handle_xdg_set_title(wl_listener *listener, void *)
 static void handle_xdg_commit(wl_listener *listener, void *)
 {
     auto *item = WlContainerOf<WlrXdgView>(listener, offsetof(WlrXdgView, commit));
-    if (item->toplevel->base->initial_commit) {
-        wlr_xdg_toplevel_set_size(item->toplevel, item->width, item->height);
-    }
-    UpdateCommittedGeometry(item);
-    // The all-surface observer compares the full local XDG geometry,
-    // including x/y and Shell clients without a managed Window.
+    item->server->HandleXdgCommit(item);
 }
 
 void WlrServer::HandleNewXdgToplevel(struct wlr_xdg_toplevel *toplevel)
@@ -70,7 +83,9 @@ void WlrServer::HandleNewXdgToplevel(struct wlr_xdg_toplevel *toplevel)
     view->y = 0;
     if (role) {
         const auto output = PrimaryLogicalBounds();
-        auto bounds = theme_.ShellRect(role, int(output.width), int(output.height));
+        auto bounds = role == static_cast<int>(contracts::WindowRole::LayoutControls)
+                          ? core::Rect{0, 0, 48, 48}
+                          : theme_.ShellRect(role, int(output.width), int(output.height));
         bounds.x += output.x;
         bounds.y += output.y;
         view->x = static_cast<int>(bounds.x);
@@ -127,6 +142,8 @@ void WlrServer::HandleXdgMap(WlrXdgView *view)
         view->maximized = view->toplevel->requested.maximized;
         if (view->managed) {
             view->managed->SetFullscreen(view->fullscreen);
+            view->managed->SetMinimumSize(view->toplevel->current.min_width,
+                                          view->toplevel->current.min_height);
         }
     }
     NotifyView(view, launch::ControlType::Mapped);
@@ -236,10 +253,7 @@ void WlrServer::ArrangeXdgViews()
         immersive ? core::Rect{0, 0, float(width), float(height)} : theme_.WorkArea(width, height);
     work_area.x += output.x;
     work_area.y += output.y;
-    auto config = theme_.TreeLayout();
-    if (immersive) {
-        config.outer_gap = 0;
-    }
+    const auto config = CurrentTreeLayout();
     engine.Arrange(work_area, config);
     for (const auto &item : outputs_) {
         wlr_box box{};
@@ -261,6 +275,9 @@ void WlrServer::ArrangeXdgViews()
         }
     }
     for (auto &view : xdg_views_) {
+        if (view->shell_role == static_cast<int>(contracts::WindowRole::LayoutControls)) {
+            continue;
+        }
         core::Rect bounds{};
         if (view->shell_role) {
             bounds = theme_.ShellRect(view->shell_role, width, height);
@@ -274,8 +291,8 @@ void WlrServer::ArrangeXdgViews()
         } else if (view->managed) {
             auto node = engine.FindViewForWindow(view->managed);
             const bool in_workspace = node && node->GetWorkspace() == active;
-            view->visible =
-                view->mapped && in_workspace && (!fullscreen || fullscreen == view.get());
+            view->visible = view->mapped && in_workspace && VisibleInLayout(node) &&
+                            (!fullscreen || fullscreen == view.get());
             if (fullscreen == view.get()) {
                 bounds = output;
             } else if (node) {
@@ -319,7 +336,7 @@ void WlrServer::ArrangeXdgViews()
         if (view->width != w || view->height != h) {
             view->width = w;
             view->height = h;
-            wlr_xdg_toplevel_set_size(view->toplevel, w, h);
+            SubmitXdgSize(view.get());
         }
         if (!view->shell_role) {
             const std::uint32_t edges =
@@ -331,6 +348,8 @@ void WlrServer::ArrangeXdgViews()
             }
         }
     }
+    InvalidateLayoutSnapshot();
+    UpdateBoundaryControl();
     UpdateXdgPointerFocus(static_cast<uint32_t>(core::CurrentTimeNs() / 1000000));
     InvalidateEffects();
     ScheduleFrames(FrameReason::Layout);

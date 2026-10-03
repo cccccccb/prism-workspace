@@ -10,6 +10,7 @@ struct WorkerReady {
 struct WorkerBind {
     contracts::LaunchRequest request;
     contracts::InstanceId instance;
+    bool deferred_presentation{};
 };
 
 struct WorkerReply {

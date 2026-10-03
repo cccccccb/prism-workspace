@@ -1,11 +1,34 @@
 #include "service_p.hpp"
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 #include <variant>
 
 namespace prism::launcher {
 using detail::Now;
 using detail::Require;
+
+namespace {
+struct ShellPackage {
+    const char *app;
+    WindowRole role;
+};
+
+constexpr ShellPackage kShellPackages[]{{"prism_desktop", WindowRole::Desktop},
+                                        {"prism_topbar", WindowRole::TopBar},
+                                        {"prism_dock", WindowRole::Dock},
+                                        {"prism_layout_controls", WindowRole::LayoutControls}};
+
+bool IsShellPackage(std::string_view app)
+{
+    for (const auto &package : kShellPackages) {
+        if (app == package.app) {
+            return true;
+        }
+    }
+    return false;
+}
+} // namespace
 
 void Service::Impl::Deliver(Owner owner, LaunchEvent event)
 {
@@ -122,14 +145,13 @@ void Service::Impl::Fail(Job &job, LaunchError error, std::string detail)
 
 void Service::Impl::BootstrapShell()
 {
-    unsigned role = 0;
-    for (const char *app : {"prism_desktop", "prism_topbar", "prism_dock"}) {
-        launch::LoadRegisteredPackage(config.apps_root, app);
+    for (const auto &package : kShellPackages) {
+        launch::LoadRegisteredPackage(config.apps_root, package.app);
 
         auto id = next_job++;
-        auto job =
-            std::make_unique<Job>(id, LaunchRequest{{id}, app, LaunchMode::NewInstance}, Owner{});
-        job->role = static_cast<WindowRole>(++role);
+        auto job = std::make_unique<Job>(
+            id, LaunchRequest{{id}, package.app, LaunchMode::NewInstance}, Owner{});
+        job->role = package.role;
         Event(*job, LaunchMilestone::Accepted);
         jobs.emplace(id, std::move(job));
     }
@@ -197,8 +219,7 @@ void Service::Impl::Request(Owner owner, LaunchRequest source)
 
     std::uint64_t activation_target = 0;
     try {
-        if (source.app_id == "prism_desktop" || source.app_id == "prism_topbar" ||
-            source.app_id == "prism_dock") {
+        if (IsShellPackage(source.app_id)) {
             throw launch::LaunchFailure(LaunchError::InvalidRequest,
                                         "Shell packages are private session applications");
         }

@@ -1,5 +1,6 @@
 #include "prism/wm/window.hpp"
 #include "prism/decoration/tiling_window_decorator.hpp"
+#include <cmath>
 #include <utility>
 
 namespace prism::wm {
@@ -11,6 +12,17 @@ Window::Window(std::string app_id, std::string title, core::Rect bounds,
 }
 
 Window::~Window() = default;
+
+bool Window::SetMinimumSize(float width, float height)
+{
+    if (!std::isfinite(width) || !std::isfinite(height) || width < 0 || height < 0) {
+        return false;
+    }
+
+    minimum_width_ = width;
+    minimum_height_ = height;
+    return true;
+}
 
 void Window::SetBounds(core::Rect bounds)
 {

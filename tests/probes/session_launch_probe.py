@@ -60,7 +60,8 @@ def shell_recovery(session, wm, launcher, peer, original, log_path):
     """A failed Shell loses its grant; unrelated windows and launch remain live."""
     initial = log_path.read_text()
     for request, (app, role) in enumerate(
-            [('prism_topbar', 2), ('prism_dock', 3), ('prism_desktop', 1)], 20):
+            [('prism_topbar', 2), ('prism_dock', 3), ('prism_desktop', 1),
+             ('prism_layout_controls', 4)], 20):
         shell = int(re.search(rf'Client pid=(\d+) authorized shell role={role}', initial)[1])
         os.kill(shell, signal.SIGKILL)
         wait_for(lambda: not Path(f'/proc/{shell}').exists(), log_path.read_text)
@@ -80,8 +81,8 @@ def shell_recovery(session, wm, launcher, peer, original, log_path):
         assert session.poll() is None, log_path.read_text()
         assert len(re.findall(rf'authorized shell role={role}\b', log_path.read_text())) == 1
 
-    assert log_path.read_text().count('policy=keep-session restart=disabled') == 3
-    print('shell recovery: Topbar/Dock/Desktop crashes preserved WM, applications and new launches; no automatic restarts')
+    assert log_path.read_text().count('policy=keep-session restart=disabled') == 4
+    print('shell recovery: Topbar/Dock/Desktop/LayoutControls crashes preserved WM, applications and new launches; no automatic restarts')
 
 probe_path=build/'tests/prism_skia_gles_wayland_probe'
 if not probe_path.exists(): probe_path=root/'build-gles/tests/prism_skia_gles_wayland_probe'
@@ -107,7 +108,8 @@ for shutdown in shutdowns:
                 def booted():
                     assert session.poll() is None,log_path.read_text()
                     return all(f"Mapped app_id='{app}' shell role={role}" in log_path.read_text()
-                        for app,role in [('prism_desktop',1),('prism_topbar',2),('prism_dock',3)])
+                        for app,role in [('prism_desktop',1),('prism_topbar',2),('prism_dock',3),
+                                             ('prism_layout_controls',4)])
                 wait_for(booted,log_path.read_text,20)
                 content=log_path.read_text(); match=re.search(r'session wm=(\d+) launcher=(\d+)',content); assert match,content
                 wm,launcher=map(int,match.groups()); pids=[wm,launcher]+children(launcher)
@@ -136,6 +138,8 @@ for shutdown in shutdowns:
                     assert second['pid']!=original['pid'] and second['instance']!=original['instance']
                     peer.launch(4,'prism_topbar',1); peer.wait(lambda:peer.has(4,6))
                     assert next(e for e in peer.events if e['request']==4)['error']==1
+                    peer.launch(5,'prism_layout_controls',1); peer.wait(lambda:peer.has(5,6))
+                    assert next(e for e in peer.events if e['request']==5)['error']==1
                     result=subprocess.run([str(build/'bin/prism-invoker'),'demo_settings'],env=env,cwd=directory,capture_output=True,text=True,timeout=20)
                     assert result.returncode==0,result.stdout+result.stderr
                     result=subprocess.run([str(build/'bin/prism-invoker'),'demo_settings'],env=env,cwd=directory,capture_output=True,text=True,timeout=20)

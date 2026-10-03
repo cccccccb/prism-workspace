@@ -122,7 +122,8 @@ void ValidateBoundaries(const LayoutSnapshot &snapshot, const Nodes &nodes)
 
     std::set<std::uint64_t> identities;
     for (const auto &boundary : snapshot.boundaries) {
-        Require(boundary.id && identities.insert(boundary.id).second && !boundary.resizable);
+        Require(boundary.id && identities.insert(boundary.id).second);
+        Require(!boundary.resizable || boundary.visible);
         Require(static_cast<unsigned>(boundary.axis) <= 1);
         Rect(boundary.bounds);
         const auto parent = nodes.find(boundary.parent);
@@ -135,6 +136,46 @@ void ValidateBoundaries(const LayoutSnapshot &snapshot, const Nodes &nodes)
                 (parent->second->visible && nodes.at(boundary.first)->visible &&
                  nodes.at(boundary.second)->visible));
     }
+}
+
+void ValidateControlHandle(const LayoutSnapshot &snapshot)
+{
+    const auto &handle = snapshot.control_handle;
+    if (!handle.visible) {
+        Require(handle == LayoutControlHandle{});
+        return;
+    }
+
+    Rect(handle.bounds);
+    Require(handle.bounds.width > 0 && handle.bounds.height > 0);
+    const LayoutBoundary *selected{};
+    for (const auto &boundary : snapshot.boundaries) {
+        if (boundary.id == handle.boundary) {
+            selected = &boundary;
+            break;
+        }
+    }
+    Require(selected && selected->visible && selected->resizable);
+
+    std::uint64_t output_id{};
+    for (const auto &workspace : snapshot.workspaces) {
+        if (workspace.id == selected->workspace) {
+            Require(workspace.active);
+            output_id = workspace.output;
+            break;
+        }
+    }
+    for (const auto &output : snapshot.outputs) {
+        if (output.id == output_id) {
+            const auto &bounds = output.logical_bounds;
+            Require(output.supported && handle.bounds.x >= bounds.x &&
+                    handle.bounds.y >= bounds.y &&
+                    handle.bounds.x + handle.bounds.width <= bounds.x + bounds.width &&
+                    handle.bounds.y + handle.bounds.height <= bounds.y + bounds.height);
+            return;
+        }
+    }
+    Require(false);
 }
 } // namespace
 
@@ -213,5 +254,6 @@ void ValidateLayoutSnapshot(const LayoutSnapshot &snapshot)
 
     ValidateGraph(snapshot, nodes, workspaces);
     ValidateBoundaries(snapshot, nodes);
+    ValidateControlHandle(snapshot);
 }
 } // namespace prism::contracts

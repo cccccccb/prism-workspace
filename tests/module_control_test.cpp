@@ -68,10 +68,22 @@ int main(int argc, char **argv)
     node.id = 8;
     node.workspace = 7;
     snapshot.nodes.push_back(node);
+    snapshot.control_handle = {17, {304, 180, 32, 96}, true};
     module.Deliver(layout);
     assert(fixture.values.at("layout_status") == 0);
     assert(fixture.values.at("output_count") == 1);
     assert(fixture.values.at("node_count") == 1);
+    assert(fixture.values.at("handle_available") == 1);
+    assert(fixture.values.at("handle_boundary") == 17);
+    assert(fixture.values.at("handle_visible") == 1);
+    assert(fixture.values.at("handle_x") == 304);
+    assert(fixture.values.at("handle_width") == 32);
+
+    snapshot.control_handle = {};
+    module.Deliver(layout);
+    assert(fixture.values.at("handle_available") == 1);
+    assert(fixture.values.at("handle_visible") == 0);
+    assert(fixture.values.at("handle_boundary") == 0);
 
     contracts::GestureEvent gesture;
     gesture.id = 9;
@@ -115,6 +127,7 @@ int main(int argc, char **argv)
     assert(fixture.values.at("result_count") == 4);
     assert(fixture.values.at("result_error") == static_cast<double>(PRISM_LAYOUT_DISCONNECTED_V1));
     assert(fixture.values.at("layout_status") == 2);
+    assert(fixture.values.at("handle_available") == 0);
     module.Disconnected();
     assert(fixture.values.at("result_count") == 4);
     gesture.id = 12;

@@ -235,6 +235,7 @@ void WlrServer::HandleCursorMotion(uint32_t time_msec, double dx, double dy,
         pointer_event_age_.Record(age);
     }
     wlr_cursor_move(cursor_, device, dx, dy);
+    SampleBoundaryPointer();
     UpdateGroupRecovery();
     UpdateXdgPointerFocus(time_msec);
     if (compositor_) {
@@ -259,6 +260,7 @@ void WlrServer::HandleCursorMotionAbsolute(uint32_t time_msec, double x, double 
         pointer_event_age_.Record(age);
     }
     wlr_cursor_warp_absolute(cursor_, device, x, y);
+    SampleBoundaryPointer();
     UpdateGroupRecovery();
     UpdateXdgPointerFocus(time_msec);
     if (compositor_) {
@@ -277,6 +279,7 @@ void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t
     if (ConsumeGroupPointer(button, state, device)) {
         return;
     }
+    SampleBoundaryPointer();
     UpdateGroupRecovery();
     UpdateXdgPointerFocus(time_msec);
 
@@ -340,6 +343,9 @@ void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t
             control_pointer_device_ = device;
             RecordLayoutInput(surface, {contracts::LayoutInputKind::Pointer, serial, 0});
         } else {
+            if (boundary_pointer_) {
+                boundary_pointer_->released = true;
+            }
             layout_controls_.ReleaseInput(contracts::LayoutInputKind::Pointer, 0,
                                           launch::MonotonicNs());
         }
@@ -465,6 +471,7 @@ void WlrServer::UpdateXdgPointerFocus(uint32_t time_msec)
     if (!windows_tree_ || !seat_ || !cursor_) {
         return;
     }
+    UpdateBoundaryControl();
     if (!recovery_buttons_.empty()) {
         wlr_seat_pointer_notify_clear_focus(seat_);
         return;

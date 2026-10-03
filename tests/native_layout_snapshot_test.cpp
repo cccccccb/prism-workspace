@@ -345,7 +345,7 @@ void TestSnapshotState(wm::WlrServer &server, const std::shared_ptr<wm::Composit
     const auto second_id = Focused(*two);
     assert(second_id && second_id != first_id);
     assert(two->active_instance.value == 0);
-    assert(two->boundaries.size() == 1 && !two->boundaries.front().resizable);
+    assert(two->boundaries.size() == 1 && two->boundaries.front().resizable);
     const auto boundary_id = two->boundaries.front().id;
 
     assert(Command(server, "focus left")["status"] == "ok");
