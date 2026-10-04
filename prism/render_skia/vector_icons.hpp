@@ -46,6 +46,24 @@ public:
 
         using I = contracts::VectorIcon;
         switch (icon.icon) {
+        case I::Fullscreen:
+            path({{9, 4}, {4, 4}, {4, 9}});
+            path({{15, 4}, {20, 4}, {20, 9}});
+            path({{4, 15}, {4, 20}, {9, 20}});
+            path({{15, 20}, {20, 20}, {20, 15}});
+            break;
+        case I::Restore:
+            rect(7, 4, 13, 13, 2);
+            rect(4, 7, 13, 13, 2);
+            break;
+        case I::SplitHorizontal:
+            rect(3, 4, 18, 16, 2);
+            path({{12, 4}, {12, 20}});
+            break;
+        case I::SplitVertical:
+            rect(3, 4, 18, 16, 2);
+            path({{3, 12}, {21, 12}});
+            break;
         case I::Grid:
             for (int y : {4, 13}) {
                 for (int x : {4, 13}) {

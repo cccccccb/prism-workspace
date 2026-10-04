@@ -78,6 +78,9 @@ std::uint64_t NodeBytes(const PreparedNode &node) noexcept
             bytes += text->capacity();
         }
     }
+    for (const auto &transition : node.transitions) {
+        bytes += transition.motion.capacity();
+    }
     for (const auto &binding : node.bindings) {
         bytes += binding.name.capacity();
     }

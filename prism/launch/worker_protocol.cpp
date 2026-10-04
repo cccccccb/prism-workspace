@@ -92,7 +92,8 @@ std::size_t WorkerFrameSize(std::span<const std::uint8_t> bytes)
         throw std::invalid_argument("Invalid worker header");
     }
     if ((type == 13 && length != 11) || (type == 14 && length < 11) ||
-        (type == 15 && length != contracts::kLayoutControlPayload) ||
+        (type == 15 && length != contracts::kLayoutControlPayload &&
+         length != contracts::kWindowControlPayload) ||
         (type == 16 && length != contracts::kLayoutControlResultPayload)) {
         throw std::invalid_argument("Invalid layout worker payload length");
     }

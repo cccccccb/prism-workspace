@@ -265,11 +265,16 @@ const ThemeMaterial *FindThemeMaterial(const ThemeSnapshot &t, std::string_view 
 
 void ValidateTheme(const ThemeSnapshot &t)
 {
-    Check((t.schema_version == 1 || t.schema_version == 2) && Identifier(t.id) && !t.name.empty() &&
+    Check((t.schema_version >= 1 && t.schema_version <= 3) && Identifier(t.id) && !t.name.empty() &&
               t.name.size() <= 256 && Utf8(t.name),
           "Invalid theme identity or schema");
     Check(ColorScheme(t.color_scheme) && (t.schema_version != 1 || t.color_scheme == "dark"),
           "Unsupported theme color scheme or schema");
+    if (t.schema_version >= 3) {
+        ValidateMotion(t.motion);
+    } else {
+        Check(t.motion == MotionSet{}, "Legacy themes cannot carry motion");
+    }
     Check(t.numbers.size() + t.colors.size() <= 128 && t.materials.size() <= 32,
           "Theme exceeds item limits");
     std::set<std::string> names;
@@ -362,8 +367,17 @@ std::vector<std::uint8_t> EncodeTheme(const ThemeSnapshot &t)
     w.Number(c.toggle_knob_radius);
     w.Number(c.toggle_track_radius);
     w.Number(c.inner_shadow_y);
-    if (t.schema_version == 2) {
+    if (t.schema_version >= 2) {
         w.Text(t.color_scheme);
+    }
+    if (t.schema_version >= 3) {
+        w.Text(t.motion.id);
+        w.U(t.motion.transitions.size(), 2);
+        for (const auto &entry : t.motion.transitions) {
+            w.Text(entry.name);
+            w.U(entry.duration_ms, 4);
+            w.U(static_cast<unsigned>(entry.easing), 1);
+        }
     }
     Check(w.bytes.size() <= kMaxThemePayload, "Theme payload too large");
     return w.bytes;
@@ -426,8 +440,17 @@ ThemeSnapshot DecodeTheme(std::span<const std::uint8_t> bytes)
     c.toggle_knob_radius = r.Number();
     c.toggle_track_radius = r.Number();
     c.inner_shadow_y = r.Number();
-    if (t.schema_version == 2) {
+    if (t.schema_version >= 2) {
         t.color_scheme = r.Scheme();
+    }
+    if (t.schema_version >= 3) {
+        t.motion.id = r.Text();
+        auto count = r.U(2);
+        Check(count <= 64, "Too many motion transitions");
+        while (count--) {
+            t.motion.transitions.push_back(
+                {r.Text(), static_cast<std::uint32_t>(r.U(4)), static_cast<MotionEasing>(r.U(1))});
+        }
     }
     r.Done();
     ValidateTheme(t);

@@ -244,6 +244,7 @@ std::vector<std::uint8_t> EncodeLayoutSnapshot(const LayoutSnapshot &snapshot)
     writer.U(snapshot.control_handle.boundary, 8);
     writer.Rect(snapshot.control_handle.bounds);
     writer.U(snapshot.control_handle.visible, 1);
+    writer.U(snapshot.control_handle.node, 8);
 
     Require(writer.bytes.size() <= kMaxLayoutSnapshotPayload);
     return std::move(writer.bytes);
@@ -254,7 +255,7 @@ LayoutSnapshot DecodeLayoutSnapshot(std::span<const std::uint8_t> bytes)
     Require(bytes.size() <= kMaxLayoutSnapshotPayload);
     Reader reader{bytes};
     const auto version = reader.U(2);
-    Require(version == 1 || version == kLayoutSnapshotVersion);
+    Require(version >= 1 && version <= kLayoutSnapshotVersion);
 
     LayoutSnapshot snapshot;
     snapshot.session = reader.U(8);
@@ -288,6 +289,9 @@ LayoutSnapshot DecodeLayoutSnapshot(std::span<const std::uint8_t> bytes)
         snapshot.control_handle.visible = reader.Flag();
     }
 
+    if (version >= 3) {
+        snapshot.control_handle.node = reader.U(8);
+    }
     Require(reader.at == bytes.size());
     ValidateLayoutSnapshot(snapshot);
     return snapshot;

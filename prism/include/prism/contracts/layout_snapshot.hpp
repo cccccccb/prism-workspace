@@ -11,7 +11,7 @@
 
 namespace prism::contracts {
 
-inline constexpr std::uint16_t kLayoutSnapshotVersion = 2;
+inline constexpr std::uint16_t kLayoutSnapshotVersion = 3;
 inline constexpr std::size_t kMaxLayoutSnapshotPayload = 192 * 1024;
 inline constexpr std::size_t kMaxLayoutOutputs = 16;
 inline constexpr std::size_t kMaxLayoutWorkspaces = 64;
@@ -85,6 +85,7 @@ struct LayoutControlHandle {
     std::uint64_t boundary{};
     LogicalRect bounds;
     bool visible{};
+    std::uint64_t node{};
     bool operator==(const LayoutControlHandle &) const = default;
 };
 

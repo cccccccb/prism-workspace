@@ -7,7 +7,11 @@
 | 时间核心 | 可注入单调时钟、绝对时间时长曲线与标量弹簧求值、重定向/暂停/取消 | 弹簧接入 Scene 和 DSL；WM、装饰复用同一核心 |
 | DSL 与 Scene | `.transition`、`.state` 编译为 typed 描述符；Progress.value、指定 foreground 与 Visual 的局部呈现属性在 Scene 覆盖层求值 | 交互节点整体移动、效果/输入同代协议；显式 Clip/关键帧另行设计 |
 | SDK 提交 | UI 线程采样，独立动画期限收窄 `Pump` 等待；worker 发帧机会，UI 应答后才放行像素候选；Pi V3D headless 功能门槛已通过 | 物理输出/VNC 对照、精确呈现测量、通用保留层与渲染线程合成采样 |
-| WM/BSP | 未接入新时间核心 | 通用窗口视觉几何适配及 configure/输入一致性 |
+| WM/BSP | 面板透明度及单输出单窗全屏/恢复几何接入时间核心，鼠标使用已提交矩形 | BSP 组级共同边界、多输出与触屏过渡 |
+
+> 2026-10-04 扩展：独立 MotionSet、Theme schema 3、命名 Transition 与原生面板开合见
+> [Motion 文件与呈现适配规范](MOTION_PRESENTATION_SPEC.md)。字面量 Transition 仍兼容；
+> WM 透明度适配与客户端 Paint Transition 各自由其所有者采样，均使用单调时间。
 
 ## 1. 目标与边界
 
@@ -20,7 +24,7 @@
 
 ## 2. 时间与运动的定义
 
-所有时间点与期限来自同一个 `CLOCK_MONOTONIC` 纳秒域。`AnimationClock` 提供当前时间；测试可注入虚拟时钟。Wayland frame callback 是像素提交许可和节流信号，presentation feedback 是事后呈现结果，两者均不代替动画时钟。独立的 `ScalarTimeline` 提供 `Start / Retarget / Sample / Pause / Resume / Cancel` 与请求代数；Scene 在每个 UI load 的自身生命周期中按 `(NodeId, DslProperty)` 管理呈现轨迹。WM 将来以自己的对象身份接入；时间核心不依赖 Scene、Wayland 或 Skia。
+所有时间点与期限来自同一个 `CLOCK_MONOTONIC` 纳秒域。`AnimationClock` 提供当前时间；测试可注入虚拟时钟。Wayland frame callback 是像素提交许可和节流信号，presentation feedback 是事后呈现结果，两者均不代替动画时钟。独立的 `ScalarTimeline` 提供 `Start / Retarget / Sample / Pause / Resume / Cancel` 与请求代数；Scene 在每个 UI load 的自身生命周期中按 `(NodeId, DslProperty)` 管理呈现轨迹。WM 以自身呈现对象身份接入；时间核心不依赖 Scene、Wayland 或 Skia。
 
 对时长型轨迹，在任意采样时刻 `t`：
 

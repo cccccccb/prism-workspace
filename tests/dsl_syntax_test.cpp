@@ -212,7 +212,7 @@ int main()
             "cannot have children");
     rejects([](auto s) { ParseBlueprint(s); },
             "Progress().transition(property:\"value\",durationMs:180)",
-            "transition requires property, durationMs and easing");
+            "transition requires property and either motion or durationMs/easing");
     rejects([](auto s) { ParseBlueprint(s); },
             "Progress().transition(\"value\",durationMs:180,easing:\"linear\")",
             "unknown transition argument");

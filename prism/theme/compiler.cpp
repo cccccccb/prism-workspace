@@ -1,5 +1,6 @@
 #include "prism/theme/compiler.hpp"
 #include "prism/runtime/dsl_syntax.hpp"
+#include "prism/theme/motion_compiler.hpp"
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -244,7 +245,8 @@ class Compiler {
 
 public:
     contracts::ThemeSnapshot Compile(const SyntaxNode &root, std::uint64_t generation,
-                                     std::string_view color_scheme)
+                                     std::string_view color_scheme,
+                                     const contracts::MotionSet *motion)
     {
         if (color_scheme != "dark" && color_scheme != "light") {
             Error(root.line, "unsupported color scheme");
@@ -252,7 +254,7 @@ public:
         if (root.name != "Theme") {
             Error(root.line, "root must be Theme");
         }
-        Args args(root, {"name", "schemaVersion"}, true, true);
+        Args args(root, {"name", "schemaVersion", "motion"}, true, true);
         contracts::ThemeSnapshot out;
         out.id = args.Text("$name");
         if (!PackageId(out.id)) {
@@ -261,11 +263,20 @@ public:
         out.name = args.Text("name");
         out.generation = generation;
         const auto *version = std::get_if<double>(&args.Get("schemaVersion").data);
-        if (!version || (*version != 1 && *version != 2)) {
+        if (!version || (*version != 1 && *version != 2 && *version != 3)) {
             Error(root.line, "unsupported theme schema version");
         }
         out.schema_version = static_cast<std::uint32_t>(*version);
         out.color_scheme = color_scheme;
+        if (out.schema_version >= 3) {
+            const auto id = args.Text("motion");
+            if (!motion || motion->id != id) {
+                Error(root.line, "MotionSet must be resolved before compiling schema 3");
+            }
+            out.motion = *motion;
+        } else if (args.values.contains("motion") || motion) {
+            Error(root.line, "motion requires theme schema 3");
+        }
         if (out.schema_version == 1 && color_scheme != "dark") {
             Error(root.line, "schema 1 only supports dark");
         }
@@ -294,7 +305,7 @@ public:
         std::map<std::string, std::map<std::string, Token>> palettes;
         for (const auto &node : root.children) {
             if (node.name == "Palette") {
-                if (out.schema_version != 2) {
+                if (out.schema_version < 2) {
                     Error(node.line, "Palette requires schema 2");
                 }
                 Args palette(node, {}, true, true);
@@ -455,13 +466,14 @@ public:
 } // namespace
 
 contracts::ThemeSnapshot CompileTheme(std::string_view source, std::uint64_t generation,
-                                      std::string_view color_scheme)
+                                      std::string_view color_scheme,
+                                      const contracts::MotionSet *motion)
 {
     if (source.empty() || source.size() > contracts::kMaxThemePayload ||
         source.find('\0') != std::string_view::npos) {
         throw std::invalid_argument("Theme source is empty, oversized or contains NUL");
     }
-    return Compiler{}.Compile(runtime::ParseSyntax(source), generation, color_scheme);
+    return Compiler{}.Compile(runtime::ParseSyntax(source), generation, color_scheme, motion);
 }
 
 contracts::ThemeSnapshot LoadTheme(const std::filesystem::path &root, std::string_view id,
@@ -487,7 +499,13 @@ contracts::ThemeSnapshot LoadTheme(const std::filesystem::path &root, std::strin
     if (!input.read(source.data(), source.size())) {
         throw std::invalid_argument("Cannot read theme package");
     }
-    auto snapshot = CompileTheme(source, generation, color_scheme);
+    const auto syntax = runtime::ParseSyntax(source);
+    const Args args(syntax, {"name", "schemaVersion", "motion"}, true, true);
+    std::optional<contracts::MotionSet> motion;
+    if (args.values.contains("motion")) {
+        motion = LoadMotion(base.parent_path() / "motions", args.Text("motion"));
+    }
+    auto snapshot = CompileTheme(source, generation, color_scheme, motion ? &*motion : nullptr);
     if (snapshot.id != id) {
         throw std::invalid_argument("Theme package ID does not match its directory");
     }

@@ -250,10 +250,13 @@ bool ValidPropertyValue(DslProperty id, const PropertyValue &value)
         }
         if (id == DslProperty::Icon) {
             constexpr std::string_view icons[] = {
-                "grid",     "music",  "settings",  "folder",  "terminal", "play",   "pause",
-                "previous", "next",   "volume",    "wifi",    "battery",  "search", "sun",
-                "moon",     "power",  "check",     "chevron", "refresh",  "cpu",    "memory",
-                "heart",    "layers", "rectangle", "drop",    "wifi-off", "error"};
+                "grid",          "music",   "settings",   "folder",    "terminal",
+                "play",          "pause",   "previous",   "next",      "volume",
+                "wifi",          "battery", "search",     "sun",       "moon",
+                "power",         "check",   "chevron",    "refresh",   "cpu",
+                "memory",        "heart",   "layers",     "rectangle", "drop",
+                "wifi-off",      "error",   "fullscreen", "restore",   "split-horizontal",
+                "split-vertical"};
             return std::find(std::begin(icons), std::end(icons), *text) != std::end(icons);
         }
         return true;

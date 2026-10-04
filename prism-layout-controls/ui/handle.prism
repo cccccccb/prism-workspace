@@ -8,5 +8,38 @@ Card(justify: "center") {
             .state(when: "hovered", scope: "target", background: "@text")
             .state(when: "pressed", scope: "target", background: "@accent")
             .state(when: "dragging", scope: "target", background: "@accent")
+            .transition(property: "background", motion: "control.feedback")
     }.gesture(action: "boundary:resize", threshold: 6)
+    InteractionTarget(width: 168, height: 56, visible: $window_visible) {
+        HStack(width: 168, height: 56, padding: 8, spacing: 4, material: "panel") {
+            InteractionTarget(width: 48, height: 40, justify: "center") {
+                Visual(width: 48, height: 40, background: "@controlTint", cornerRadius: "@control_radius") {
+                    Icon($fullscreen_icon, width: 22, height: 22, anchor: "center", foreground: "@text")
+                }.state(when: "hovered", scope: "target", background: "@accent")
+                    .transition(property: "background", motion: "control.feedback")
+            }.gesture(action: "window:fullscreen", threshold: 0)
+            InteractionTarget(width: 48, height: 40, justify: "center") {
+                Visual(width: 48, height: 40, background: "@controlTint", cornerRadius: "@control_radius",
+                       opacity: $split_opacity) {
+                    Icon("split-horizontal", width: 22, height: 22, anchor: "center", foreground: "@text")
+                }
+                InteractionTarget(width: 48, height: 40, visible: $split_enabled) {
+                    Visual(width: 48, height: 40, background: "@none", cornerRadius: "@control_radius")
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .transition(property: "background", motion: "control.feedback")
+                }.gesture(action: "window:horizontal", threshold: 0)
+            }
+            InteractionTarget(width: 48, height: 40, justify: "center") {
+                Visual(width: 48, height: 40, background: "@controlTint", cornerRadius: "@control_radius",
+                       opacity: $split_opacity) {
+                    Icon("split-vertical", width: 22, height: 22, anchor: "center", foreground: "@text")
+                }
+                InteractionTarget(width: 48, height: 40, visible: $split_enabled) {
+                    Visual(width: 48, height: 40, background: "@none", cornerRadius: "@control_radius")
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .transition(property: "background", motion: "control.feedback")
+                }.gesture(action: "window:vertical", threshold: 0)
+            }
+        }
+    }
 }

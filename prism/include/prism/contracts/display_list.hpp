@@ -75,7 +75,11 @@ enum class VectorIcon {
     Rectangle,
     Drop,
     WifiOff,
-    Error
+    Error,
+    Fullscreen,
+    Restore,
+    SplitHorizontal,
+    SplitVertical
 };
 
 struct DrawIcon {

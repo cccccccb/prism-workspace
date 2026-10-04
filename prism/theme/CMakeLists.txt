@@ -4,7 +4,7 @@ add_library(prism_dsl_syntax STATIC
 target_link_libraries(prism_dsl_syntax PUBLIC prism_contracts)
 target_include_directories(prism_dsl_syntax PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
 
-add_library(prism_theme_compiler STATIC compiler.cpp)
+add_library(prism_theme_compiler STATIC compiler.cpp motion_compiler.cpp)
 target_link_libraries(prism_theme_compiler PUBLIC prism_theme_contract PRIVATE prism_dsl_syntax)
 target_include_directories(prism_theme_compiler PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
 
@@ -20,4 +20,14 @@ foreach(PRISM_THEME_SOURCE IN LISTS PRISM_THEME_SOURCES)
         "${CMAKE_BINARY_DIR}/share/prism/themes/${PRISM_THEME}/theme.prism" COPYONLY)
     install(FILES "${PRISM_THEME_SOURCE}"
         DESTINATION "share/prism/themes/${PRISM_THEME}")
+endforeach()
+
+file(GLOB PRISM_MOTION_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_LIST_DIR}/../../resources/motions/*/motion.prism")
+foreach(PRISM_MOTION_SOURCE IN LISTS PRISM_MOTION_SOURCES)
+    get_filename_component(PRISM_MOTION_DIRECTORY "${PRISM_MOTION_SOURCE}" DIRECTORY)
+    get_filename_component(PRISM_MOTION "${PRISM_MOTION_DIRECTORY}" NAME)
+    configure_file("${PRISM_MOTION_SOURCE}"
+        "${CMAKE_BINARY_DIR}/share/prism/motions/${PRISM_MOTION}/motion.prism" COPYONLY)
+    install(FILES "${PRISM_MOTION_SOURCE}" DESTINATION "share/prism/motions/${PRISM_MOTION}")
 endforeach()

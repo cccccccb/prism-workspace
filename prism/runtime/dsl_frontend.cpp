@@ -2,6 +2,7 @@
 #include "load_plan_p.hpp"
 #include "prepared_component_p.hpp"
 #include "prism/compiler/error.hpp"
+#include "prism/contracts/motion.hpp"
 #include "prism/runtime/dsl_schema.hpp"
 #include "prism/runtime/dsl_syntax.hpp"
 #include <algorithm>
@@ -468,6 +469,7 @@ private:
         const SyntaxArgument *property_arg = nullptr;
         const SyntaxArgument *duration_arg = nullptr;
         const SyntaxArgument *easing_arg = nullptr;
+        const SyntaxArgument *motion_arg = nullptr;
 
         for (const auto &argument : modifier.arguments) {
             const SyntaxArgument **slot = nullptr;
@@ -475,6 +477,8 @@ private:
                 slot = &property_arg;
             } else if (argument.name == "durationMs") {
                 slot = &duration_arg;
+            } else if (argument.name == "motion") {
+                slot = &motion_arg;
             } else if (argument.name == "easing") {
                 slot = &easing_arg;
             } else {
@@ -485,8 +489,11 @@ private:
             }
             *slot = &argument;
         }
-        if (!property_arg || !duration_arg || !easing_arg || modifier.arguments.size() != 3) {
-            Error(modifier.line, "transition requires property, durationMs and easing");
+        if (!property_arg ||
+            (motion_arg ? (duration_arg || easing_arg || modifier.arguments.size() != 2)
+                        : (!duration_arg || !easing_arg || modifier.arguments.size() != 3))) {
+            Error(modifier.line,
+                  "transition requires property and either motion or durationMs/easing");
         }
 
         const auto *name = std::get_if<std::string>(&property_arg->value.data);
@@ -494,6 +501,20 @@ private:
         if (!property || !SupportsTransition(component.kind, property->id) ||
             !(component.allowed_properties & PropertyBit(property->id))) {
             Error(property_arg->line, "property cannot transition on " + node.name);
+        }
+
+        if (motion_arg) {
+            const auto *motion = std::get_if<std::string>(&motion_arg->value.data);
+            if (!motion || !contracts::ValidMotionName(*motion)) {
+                Error(motion_arg->line, "invalid motion reference");
+            }
+            for (const auto &existing : out.transitions) {
+                if (existing.property == property->id) {
+                    Error(modifier.line, "duplicate transition property: " + *name);
+                }
+            }
+            out.transitions.push_back({property->id, 0, animation::Easing::Linear, *motion});
+            return;
         }
 
         const auto *milliseconds = std::get_if<double>(&duration_arg->value.data);
@@ -514,7 +535,7 @@ private:
             }
         }
         out.transitions.push_back(
-            {property->id, static_cast<std::uint32_t>(*milliseconds), *easing});
+            {property->id, static_cast<std::uint32_t>(*milliseconds), *easing, {}});
     }
 
     void CreateLabel(PreparedNode &out)

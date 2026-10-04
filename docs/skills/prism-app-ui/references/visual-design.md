@@ -548,3 +548,35 @@ Music 当前播放状态/进度仍是业务 demo；UI 设计参考不扩大这�
 现有 demo 是实现参考，包含自己的业务动作与专用 token；复制外观片段前，应改成
 应用实际的 action/binding，并检查所依赖主题包。历史设计文档中的规划不等于当前
 schema 能力；新增能力以源代码与相应测试/发布记录为准。
+
+### 窗口控制图标补充（2026-10-04 源码）
+
+通用向量图标新增 `fullscreen`、`restore`、`split-horizontal`、`split-vertical`。
+前两者表示全屏/恢复，后两者分别表示左右/上下排列；图标本身不会获取 WM 权限。
+平台窗口控制面板用 `controlTint`、`text`、`hover` 等共享 token，禁用项保留图标，
+降低 opacity，并隐藏实际 gesture target。固定外层 InteractionTarget 保持输入区域，
+防止禁用区域的点击透传。当前 DSL 没有 `enabled` 属性；`Scene::SetEnabled` 是 typed
+运行时接口，不应凭该接口名称臆造 DSL 属性。
+
+截至本阶段，Topbar 鼠标手势已实现组沉浸/恢复；私有 LayoutControls 已实现分隔线
+拖动及窗口控制，新的触屏操作延期。参见 [布局控制计划](../../../LAYOUT_CONTROL_IMPLEMENTATION_PLAN.md)。
+
+## 独立 Motion 引用（2026-10-04）
+
+主题 schema 3 通过根参数 `motion: "prism"` 引用 `motions/prism/motion.prism`。
+视觉材料与运动参数独立；同一套界面可选 prism、subtle 或 instant 参数包。
+当前选择在主题文件中配置，Preferences 尚无独立动效选择器。
+
+```prism
+InteractionTarget(width: 48, height: 40) {
+    Visual(width: 48, height: 40, background: "@controlTint")
+        .state(when: "hovered", scope: "target", background: "@accent")
+        .transition(property: "background", motion: "control.feedback")
+}
+```
+
+命名 motion 与 `durationMs/easing` 二选一。Host 在 Scene 准备/主题安装时校验引用；
+缺失必须报告失败并保留原主题，不自行选默认曲线。业务模块仍只改 typed binding，
+不读取 motion 文件、不自建逐帧 timer。`instant` 的零时长用于立即完成反馈。
+窗口/面板整体呈现由 WM 适配层执行，应用不能借此变更 BSP 或输入权限。
+当前能力与限制详见 [Motion 规范](../../../MOTION_PRESENTATION_SPEC.md)。

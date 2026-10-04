@@ -56,9 +56,11 @@ struct Fixture {
         auto &fixture = *static_cast<Fixture *>(context);
         if (value.kind == PRISM_VALUE_BOOL_V1) {
             fixture.Binding({key.data, key.size}, value.as.boolean != 0);
-        } else {
-            assert(value.kind == PRISM_VALUE_NUMBER_V1);
+        } else if (value.kind == PRISM_VALUE_NUMBER_V1) {
             fixture.Binding({key.data, key.size}, value.as.number);
+        } else {
+            fixture.Binding({key.data, key.size},
+                            std::string(value.as.string.data, value.as.string.size));
         }
         return 0;
     }
@@ -245,6 +247,69 @@ void CheckPendingEnd(sdk::ModuleSession &module, Fixture &fixture)
     ConfirmLatest(module, fixture, contracts::LayoutControlStatus::Ended);
 }
 
+void CheckWindowModule(sdk::ModuleSession &module, Fixture &fixture)
+{
+    auto layout = Layout();
+    layout.snapshot.revision = 100;
+    layout.snapshot.control_handle = {0, {100, 100, 168, 56}, true, 41};
+    contracts::LayoutNode root;
+    root.id = 40;
+    root.workspace = 30;
+    root.children = {41, 42};
+    layout.snapshot.nodes.push_back(root);
+    contracts::LayoutNode view;
+    view.id = 41;
+    view.parent = 40;
+    view.workspace = 30;
+    view.kind = contracts::LayoutNodeKind::View;
+    view.visible = true;
+    layout.snapshot.nodes.push_back(view);
+    module.Deliver(layout);
+    assert(!fixture.Visible() && std::get<bool>(fixture.bindings.at("window_visible")));
+    assert(std::get<bool>(fixture.bindings.at("split_enabled")));
+
+    for (int slot = 0; slot < 3; ++slot) {
+        auto gesture = Begin(100 + slot);
+        gesture.action = slot == 0   ? "window:fullscreen"
+                         : slot == 1 ? "window:horizontal"
+                                     : "window:vertical";
+        gesture.start = gesture.position = {32.0 + 52 * slot, 28};
+        const auto count = fixture.requests.size();
+        module.Gesture(gesture);
+        assert(fixture.requests.size() == count + 1);
+        assert(fixture.requests.back().target.node == 41 &&
+               !fixture.requests.back().target.boundary);
+        assert(fixture.requests.back().operation ==
+               contracts::LayoutControlOperation::WindowGesture);
+        gesture.phase = contracts::GesturePhase::End;
+        module.Gesture(gesture); // Release before Begin acknowledgement must remain queued.
+        assert(fixture.requests.size() == count + 1);
+        ConfirmLatest(module, fixture, contracts::LayoutControlStatus::Began);
+        assert(fixture.requests.size() == count + 2);
+        const auto expected = slot == 0   ? contracts::LayoutControlIntent::EnterWindowFullscreen
+                              : slot == 1 ? contracts::LayoutControlIntent::SplitHorizontal
+                                          : contracts::LayoutControlIntent::SplitVertical;
+        assert(fixture.requests.back().intent == expected);
+        ConfirmLatest(module, fixture, contracts::LayoutControlStatus::Ended);
+    }
+    layout.snapshot.revision++;
+    layout.snapshot.nodes[1].fullscreen = true;
+    module.Deliver(layout);
+    assert(!std::get<bool>(fixture.bindings.at("split_enabled")));
+    assert(std::get<std::string>(fixture.bindings.at("fullscreen_icon")) == "restore");
+    auto gesture = Begin(104);
+    gesture.action = "window:fullscreen";
+    gesture.start = gesture.position = {32, 28};
+    module.Gesture(gesture);
+    ConfirmLatest(module, fixture, contracts::LayoutControlStatus::Began);
+    gesture.position = {84,
+                        28}; // Ending on a different button cancels rather than switching intent.
+    gesture.phase = contracts::GesturePhase::End;
+    module.Gesture(gesture);
+    assert(fixture.requests.back().phase == contracts::LayoutControlPhase::Cancel);
+    ConfirmLatest(module, fixture, contracts::LayoutControlStatus::Cancelled);
+}
+
 runtime::ShapedText Shape(std::string_view text, double font)
 {
     return {{}, text.size() * font * 0.5, font};
@@ -258,7 +323,7 @@ void CheckUi()
     assert(source);
     const std::string text{std::istreambuf_iterator<char>{source}, {}};
     const auto blueprint = runtime::ParseBlueprint(text);
-    assert(blueprint.children.size() == 1);
+    assert(blueprint.children.size() == 2);
     assert(blueprint.children.front().kind == runtime::Kind::InteractionTarget);
     assert(blueprint.children.front().children.size() == 1);
 
@@ -267,6 +332,10 @@ void CheckUi()
             const auto theme = theme::LoadTheme(theme::DefaultThemeRoot(), theme_id, 1, scheme);
             runtime::Scene scene(blueprint, Shape, {}, theme);
             scene.SetBinding("handle_visible", true);
+            scene.SetBinding("window_visible", false);
+            scene.SetBinding("split_enabled", false);
+            scene.SetBinding("split_opacity", 1.0);
+            scene.SetBinding("fullscreen_icon", std::string("fullscreen"));
             scene.SetBinding("handle_width", 4.0);
             scene.SetBinding("handle_height", 32.0);
             assert(scene.SetViewport({48, 48}));
@@ -287,6 +356,27 @@ void CheckUi()
             assert(scene.Build(contracts::WindowId{1}));
             assert(!scene.HitTest({24, 24}));
             assert(scene.InputRegions().empty());
+
+            scene.SetBinding("window_visible", true);
+            scene.SetBinding("split_enabled", true);
+            assert(scene.SetViewport({168, 56}));
+            assert(scene.Build(contracts::WindowId{1}));
+            for (int slot = 0; slot < 3; ++slot) {
+                const auto hit = scene.HitTest({32.0 + slot * 52, 28});
+                assert(hit);
+                const auto bounds = scene.Bounds(hit->node);
+                assert(bounds.x == 8 + slot * 52 && bounds.y == 8);
+                assert(bounds.width == 48 && bounds.height == 40);
+            }
+            const auto horizontal = scene.HitTest({84, 28})->node;
+            const auto vertical = scene.HitTest({136, 28})->node;
+            scene.SetBinding("split_enabled", false);
+            scene.SetBinding("split_opacity", 1.0);
+            assert(scene.Build(contracts::WindowId{1}));
+            assert(scene.HitTest({32, 28}));
+            // Disabled buttons fall back to the palette shield, never the app below.
+            assert(scene.HitTest({84, 28}) && scene.HitTest({84, 28})->node != horizontal);
+            assert(scene.HitTest({136, 28}) && scene.HitTest({136, 28})->node != vertical);
         }
     }
 }
@@ -349,7 +439,7 @@ void CheckOptionalAbiTail(const std::filesystem::path &module_path)
     ++state.revision;
     state.struct_size = sizeof(state);
     state.control_handle = &handle;
-    handle.struct_size = sizeof(handle) - 1;
+    handle.struct_size = offsetof(PrismLayoutControlHandleV1, node) - 1;
     api.on_layout_state(instance, &state);
     assert(!fixture.Visible());
 
@@ -401,6 +491,14 @@ int main(int argc, char **argv)
     const auto disconnected_count = fixture.requests.size();
     module.Gesture(Begin(12));
     assert(fixture.requests.size() == disconnected_count);
+
+    Fixture window;
+    sdk::ModuleSession window_module(argv[1], "prism_layout_controls", 44,
+                                     std::bind_front(&Fixture::Binding, &window), {}, {}, {}, {},
+                                     {}, {}, {}, std::bind_front(&Fixture::Subscribe, &window),
+                                     std::bind_front(&Fixture::Send, &window));
+    assert(window_module.Start());
+    CheckWindowModule(window_module, window);
 
     Fixture standalone;
     sdk::ModuleSession standalone_module(argv[1], "prism_layout_controls", 43,

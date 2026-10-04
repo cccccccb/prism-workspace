@@ -94,7 +94,7 @@ void RoundTrip()
     malformed[51] = 0xff;
     Reject([&] { DecodeLayoutSnapshot(malformed); });
     malformed = bytes;
-    malformed.back() = 2; // Handle visibility must be a canonical boolean.
+    malformed[malformed.size() - 9] = 2; // Handle visibility must be a canonical boolean.
     Reject([&] { DecodeLayoutSnapshot(malformed); });
     malformed.assign(kMaxLayoutSnapshotPayload + 1, 0);
     Reject([&] { DecodeLayoutSnapshot(malformed); });
@@ -110,7 +110,7 @@ void ControlHandleAndCompatibility()
     const auto original = Fixture();
     auto legacy = EncodeLayoutSnapshot(original);
     legacy[1] = 1;
-    legacy.resize(legacy.size() - 41);
+    legacy.resize(legacy.size() - 49);
     assert(DecodeLayoutSnapshot(legacy) == original);
     legacy.back() = 1; // Version 1 never granted resize capability.
     Reject([&] { DecodeLayoutSnapshot(legacy); });
@@ -119,8 +119,21 @@ void ControlHandleAndCompatibility()
     snapshot.boundaries[0].resizable = true;
     snapshot.control_handle = {71, {632, 480, 24, 96}, true};
     assert(DecodeLayoutSnapshot(EncodeLayoutSnapshot(snapshot)) == snapshot);
+    auto version_two = EncodeLayoutSnapshot(snapshot);
+    version_two[1] = 2;
+    version_two.resize(version_two.size() - 8);
+    assert(DecodeLayoutSnapshot(version_two) == snapshot);
+    auto window = original;
+    window.control_handle = {0, {100, 100, 168, 56}, true, 42};
+    assert(DecodeLayoutSnapshot(EncodeLayoutSnapshot(window)) == window);
+    window.control_handle.node = 41;
+    Reject([&] { EncodeLayoutSnapshot(window); });
+    window.control_handle.node = 42;
+    window.control_handle.boundary = 71;
+    Reject([&] { EncodeLayoutSnapshot(window); });
+
     auto malformed = EncodeLayoutSnapshot(snapshot);
-    malformed[malformed.size() - 42] = 2; // Boundary resizable remains a canonical boolean.
+    malformed[malformed.size() - 50] = 2; // Boundary resizable remains a canonical boolean.
     Reject([&] { DecodeLayoutSnapshot(malformed); });
 
     auto invalid = snapshot;

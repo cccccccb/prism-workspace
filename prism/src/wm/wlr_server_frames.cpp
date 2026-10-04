@@ -69,6 +69,10 @@ void WlrServer::HandleOutputCommit(const void *data)
     }
     if (event->state->committed & (WLR_OUTPUT_STATE_MODE | WLR_OUTPUT_STATE_SCALE |
                                    WLR_OUTPUT_STATE_TRANSFORM | WLR_OUTPUT_STATE_ENABLED)) {
+        surface_geometry_.reset();
+        if (control_fade_) {
+            control_fade_->Reset(surface_effects_.get());
+        }
         ArrangeXdgViews();
     }
 }
@@ -80,6 +84,9 @@ void WlrServer::HandleNewSurface(wlr_surface *surface)
 
 void WlrServer::HandleSurfaceCommit(wlr_surface *surface)
 {
+    if (surface_geometry_) {
+        surface_geometry_->Restore();
+    }
     ++frame_work_.surface_commits;
     // Damage describes this commit only. Preserve it before later commits and
     // before scene listeners update their surface buffers.
@@ -188,6 +195,7 @@ void WlrServer::HandleNewOutput(struct wlr_output *output)
                    "New output added: %s (%dx%d @ %.1fHz) -> Native wlr_scene Attached",
                    output->name, output->width, output->height, output->refresh / 1000.0f);
 
+    surface_geometry_.reset();
     outputs_.push_back(std::move(wlr_out));
     ArrangeXdgViews();
 
@@ -198,6 +206,10 @@ void WlrServer::HandleNewOutput(struct wlr_output *output)
 
 void WlrServer::RemoveOutput(WlrOutput *output)
 {
+    surface_geometry_.reset();
+    if (control_fade_) {
+        control_fade_->Reset(surface_effects_.get());
+    }
     for (auto it = outputs_.begin(); it != outputs_.end(); ++it) {
         if (it->get() == output) {
             PRISM_LOG_INFO("WLR-OUTPUT", "Output removed: %s", output->wlr_output->name);
@@ -255,7 +267,15 @@ void WlrServer::HandleOutputFrame(WlrOutput *output)
     const auto frame_start = core::CurrentTimeNs();
     // A backend event may precede the queued idle pass. Resolve pending effects
     // here once, then evaluate the output's actual damage again.
+    if (surface_geometry_ && surface_geometry_->NeedsFrame()) {
+        if (!surface_geometry_->Prepare()) {
+            surface_geometry_.reset();
+        }
+        InvalidateEffects();
+    }
     const bool effects_updated = UpdateSurfaceEffects();
+    const bool motion_active = (control_fade_ && control_fade_->Advance(surface_effects_.get())) ||
+                               (surface_geometry_ && surface_geometry_->NeedsFrame());
     // The headless backend can emit periodic frame events while idle. Damage
     // and needs_frame are the same wlroots 0.18 gates used by scene commit.
     // Callback-only commits set needs_frame through wlr_scene_surface.
@@ -263,6 +283,9 @@ void WlrServer::HandleOutputFrame(WlrOutput *output)
         output->wlr_output->needs_frame ||
         pixman_region32_not_empty(&output->scene_output->pending_commit_damage);
     if (!output_work) {
+        if (motion_active) {
+            wlr_output_schedule_frame(output->wlr_output);
+        }
         ++frame_work_.idle_skips;
         if (effects_updated) {
             frame_cpu_.Record((core::CurrentTimeNs() - frame_start) / 1e6);
@@ -314,6 +337,14 @@ void WlrServer::HandleOutputFrame(WlrOutput *output)
         if (commit_ok && commit_sequence == output->wlr_output->commit_seq) {
             ++frame_work_.scene_commit_noops;
         }
+        if (surface_geometry_) {
+            const bool submitted = commit_ok && commit_sequence != output->wlr_output->commit_seq;
+            if (surface_geometry_->SubmittedFrame(submitted)) {
+                surface_geometry_.reset();
+                InvalidateEffects();
+            }
+            UpdateXdgPointerFocus(static_cast<std::uint32_t>(core::CurrentTimeNs() / 1000000));
+        }
 
         // 3. Send frame_done to client surfaces
         struct timespec now;
@@ -335,6 +366,9 @@ void WlrServer::HandleOutputFrame(WlrOutput *output)
 
     frame_cpu_.Record((core::CurrentTimeNs() - frame_start) / 1e6);
 
+    if (motion_active || (surface_geometry_ && surface_geometry_->NeedsFrame())) {
+        wlr_output_schedule_frame(output->wlr_output);
+    }
     // The scene/backend schedule real damage and callback demand. Successful
     // presentation alone does not create a new frame request.
 }
@@ -473,7 +507,11 @@ void WlrServer::HandleEffectsIdle(void *data)
 {
     auto *server = static_cast<WlrServer *>(data);
     server->effects_idle_ = nullptr;
-    server->UpdateSurfaceEffects();
+    if (server->surface_geometry_) {
+        server->ScheduleFrames(FrameReason::Layout);
+    } else {
+        server->UpdateSurfaceEffects();
+    }
 }
 
 } // namespace prism::wm

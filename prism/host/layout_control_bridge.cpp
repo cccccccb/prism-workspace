@@ -46,13 +46,10 @@ bool LayoutControlBridge::EndIntent(std::uint64_t gesture, LayoutControlIntent i
     const auto it = controls_.find(gesture);
     if (!observed_ || observed_->id != gesture || observed_->phase != GesturePhase::End ||
         it == controls_.end() || it->second.terminal ||
-        intent > LayoutControlIntent::ApplyBoundary) {
+        intent > LayoutControlIntent::SplitVertical) {
         return false;
     }
-    const bool boundary = it->second.last.operation == LayoutControlOperation::BoundaryGesture;
-    if (intent != LayoutControlIntent::None &&
-        (boundary ? intent != LayoutControlIntent::ApplyBoundary
-                  : intent == LayoutControlIntent::ApplyBoundary)) {
+    if (!AllowsLayoutIntent(it->second.last.operation, intent)) {
         return false;
     }
 

@@ -70,6 +70,15 @@ LayoutControlError ValidateTarget(const LayoutControlRequest &request,
     if (request.operation == LayoutControlOperation::GroupGesture) {
         return target.boundary ? LayoutControlError::StaleTarget : LayoutControlError::None;
     }
+    if (request.operation == LayoutControlOperation::WindowGesture) {
+        const auto node = std::find_if(snapshot.nodes.begin(), snapshot.nodes.end(),
+                                       [&target](const auto &n) { return n.id == target.node; });
+        if (node == snapshot.nodes.end() || node->kind != LayoutNodeKind::View || !node->visible ||
+            node->workspace != target.workspace) {
+            return LayoutControlError::StaleTarget;
+        }
+        return LayoutControlError::None;
+    }
     const auto boundary =
         std::find_if(snapshot.boundaries.begin(), snapshot.boundaries.end(),
                      [&target](const auto &b) { return b.id == target.boundary; });
@@ -83,7 +92,8 @@ LayoutControlError ValidateTarget(const LayoutControlRequest &request,
 
 void LayoutControlAuthority::RecordInput(const LayoutControlPrincipal &principal,
                                          const contracts::LayoutInputProof &proof,
-                                         std::uint64_t now, std::uint64_t boundary)
+                                         std::uint64_t now, std::uint64_t boundary,
+                                         std::uint64_t node)
 {
     CancelInput(proof.kind, proof.contact);
     if (!Authorized(principal) || !proof.serial) {
@@ -93,7 +103,7 @@ void LayoutControlAuthority::RecordInput(const LayoutControlPrincipal &principal
         const auto oldest = inputs_.front().proof;
         CancelInput(oldest.kind, oldest.contact);
     }
-    inputs_.push_back({principal, proof, now, 0, boundary, false});
+    inputs_.push_back({principal, proof, now, 0, boundary, node, false});
 }
 
 void LayoutControlAuthority::ReleaseInput(contracts::LayoutInputKind kind, std::int32_t contact,
@@ -160,7 +170,7 @@ contracts::LayoutControlResult LayoutControlAuthority::Apply(
     using enum contracts::LayoutControlStatus;
     Reconcile(snapshot, now);
     if (!Authorized(principal) ||
-        (request.operation == contracts::LayoutControlOperation::BoundaryGesture
+        (request.operation != contracts::LayoutControlOperation::GroupGesture
              ? principal.role != contracts::WindowRole::LayoutControls
              : principal.role != contracts::WindowRole::TopBar)) {
         return Result(request, snapshot, Rejected, Unauthorized);
@@ -210,7 +220,8 @@ contracts::LayoutControlResult LayoutControlAuthority::Begin(
         std::find_if(inputs_.begin(), inputs_.end(), [&principal, &request](const auto &record) {
             return record.principal == principal && record.proof == request.input;
         });
-    if (input == inputs_.end() || input->consumed || input->boundary != request.target.boundary) {
+    if (input == inputs_.end() || input->consumed || input->boundary != request.target.boundary ||
+        input->node != request.target.node) {
         return Result(request, snapshot, Rejected, InvalidInput);
     }
     // Each Down can authorize at most one attempt, including a busy rejection.
@@ -227,7 +238,7 @@ contracts::LayoutControlResult LayoutControlAuthority::Begin(
     const auto id = next_session_++;
     auto result = Result(request, snapshot, Began);
     result.session = id;
-    if (request.operation == contracts::LayoutControlOperation::BoundaryGesture) {
+    if (request.operation != contracts::LayoutControlOperation::GroupGesture) {
         const auto tracking_error =
             applier ? applier->TrackLayoutIntent(request, result) : Unsupported;
         if (tracking_error != None) {

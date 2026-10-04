@@ -218,6 +218,20 @@ void SurfaceEffects::ForgetSurface(wlr_surface *surface)
     impl_->ForgetSurface(surface);
 }
 
+std::vector<wlr_scene_node *> SurfaceEffects::PresentationNodes(wlr_surface *surface) const
+{
+    std::vector<wlr_scene_node *> result;
+    const auto found = impl_->paints.find(surface);
+    if (found != impl_->paints.end()) {
+        for (const auto &paint : found->second) {
+            if (paint->tree && paint->valid) {
+                result.push_back(&paint->tree->node);
+            }
+        }
+    }
+    return result;
+}
+
 bool SurfaceEffects::NeedsUpdate() const
 {
     return impl_->needs_update;

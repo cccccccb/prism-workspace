@@ -148,6 +148,8 @@ void ValidateControlHandle(const LayoutSnapshot &snapshot)
 
     Rect(handle.bounds);
     Require(handle.bounds.width > 0 && handle.bounds.height > 0);
+    Require(bool(handle.boundary) != bool(handle.node));
+    std::uint64_t workspace_id{};
     const LayoutBoundary *selected{};
     for (const auto &boundary : snapshot.boundaries) {
         if (boundary.id == handle.boundary) {
@@ -155,11 +157,23 @@ void ValidateControlHandle(const LayoutSnapshot &snapshot)
             break;
         }
     }
-    Require(selected && selected->visible && selected->resizable);
+    if (handle.boundary) {
+        Require(selected && selected->visible && selected->resizable);
+        workspace_id = selected->workspace;
+    } else {
+        for (const auto &node : snapshot.nodes) {
+            if (node.id == handle.node) {
+                Require(node.kind == LayoutNodeKind::View && node.visible);
+                workspace_id = node.workspace;
+                break;
+            }
+        }
+        Require(workspace_id != 0);
+    }
 
     std::uint64_t output_id{};
     for (const auto &workspace : snapshot.workspaces) {
-        if (workspace.id == selected->workspace) {
+        if (workspace.id == workspace_id) {
             Require(workspace.active);
             output_id = workspace.output;
             break;

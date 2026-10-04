@@ -553,3 +553,19 @@ Topbar，`Super+Shift+F` 提供 WM 独立恢复，单窗 `Super+F` 继续独立�
 Shell worker 故障撤权并恢复安全组状态，保留 WM 与普通应用，无自动重启。当前阶段
 以鼠标和键盘验收，新的触屏操作延期；细节与验证记录见
 [布局控制计划第 9 节](LAYOUT_CONTROL_IMPLEMENTATION_PLAN.md#9-第三步源码交付鼠标组沉浸与恢复)。
+
+## 17. 鼠标窗口控制与即时手势（2026-10-04）
+
+窗口控制面板复用私有 LayoutControls Host；`Super + 右键` 在普通窗口上打开，提供
+单窗全屏/恢复、直接父容器横向/纵向排列。分隔线仍使用同一 Host 的按需横线与连续
+拖动模式。WM 管目标、几何、输入与权限，DSL 管图标、材料、布局和状态。
+
+`.gesture(action: "…", threshold: 0)` 在真实 Down 时立即生成 Begin，无需移动；在
+同一次事件批处理中快速按下/释放，仍按 Begin、End 顺序交付。默认 threshold 为 6，
+保持原来的拖动阈值。零阈值捕获会抑制普通 click activation；需要离散动作时，模块
+应在 End 校验落点，移出释放时 Cancel。Scene 只传递事件，不解释系统 intent。
+
+WindowGesture 使用明确的窗口 node ID，真实 Down proof 必须与选定 node 对应；
+释放前提交、伪造目标或过期修订都不能改变窗口。窗口级请求 wire v2 和 snapshot v3
+采用追加字段，旧组/分隔线请求继续编码为 v1。C ABI 尾部按 struct_size 检查。
+完整规则及本阶段验证见 [布局控制计划第 12 节](LAYOUT_CONTROL_IMPLEMENTATION_PLAN.md#12-第五步窗口级鼠标控制源码交付2026-10-04)。

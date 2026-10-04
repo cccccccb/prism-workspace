@@ -82,7 +82,7 @@ private:
     int fd_;
 };
 
-int RunClient(const char *socket, int channel)
+int RunClient(const char *socket, int channel, bool material = false)
 {
     char start{};
     assert(recv(channel, &start, 1, 0) == 1 && start == 'S');
@@ -91,6 +91,10 @@ int RunClient(const char *socket, int channel)
     window.SetPaintHandler(ClientEvents::Paint);
     window.SetEventHandler(std::bind_front(&ClientEvents::Event, &events));
     assert(window.Open(socket, "prism.control-fixture", "Control fixture", 480, 300));
+    if (material) {
+        const contracts::SurfaceEffectRegion region{{0, 0, 168, 56}, 8, 4};
+        window.SetSurfaceEffects(std::span(&region, 1));
+    }
     events.Send({PacketKind::Ready, {}});
 
     pollfd wake{channel, POLLIN, 0};

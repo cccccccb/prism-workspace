@@ -227,9 +227,14 @@ std::shared_ptr<const contracts::LayoutSnapshot> WlrServer::GetLayoutSnapshot()
             [this](const auto &boundary) { return boundary.id == boundary_handle_.boundary; });
         const auto output = PrimaryLogicalBounds();
         const auto &bounds = boundary_handle_.bounds;
-        if (selected != next.boundaries.end() && selected->resizable && next.outputs.size() == 1 &&
-            next.outputs.front().supported && bounds.x >= output.x && bounds.y >= output.y &&
-            bounds.x + bounds.width <= output.x + output.width &&
+        const bool window =
+            std::any_of(next.nodes.begin(), next.nodes.end(), [this](const auto &node) {
+                return node.id == boundary_handle_.node &&
+                       node.kind == contracts::LayoutNodeKind::View && node.visible;
+            });
+        if (((selected != next.boundaries.end() && selected->resizable) || window) &&
+            next.outputs.size() == 1 && next.outputs.front().supported && bounds.x >= output.x &&
+            bounds.y >= output.y && bounds.x + bounds.width <= output.x + output.width &&
             bounds.y + bounds.height <= output.y + output.height) {
             next.control_handle = boundary_handle_;
         }
@@ -301,6 +306,7 @@ void WlrServer::PublishLayoutSnapshot()
         control_->Close();
     }
     if (control_failed_) {
+        CloseWindowControl();
         layout_controls_.Reset();
         CancelBoundaryPreview();
     }

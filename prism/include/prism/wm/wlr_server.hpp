@@ -89,6 +89,8 @@ struct WlrKeyboardBinding;
 struct WlrTouchBinding;
 struct WlrPointerBinding;
 class SurfaceEffects;
+class SurfaceFade;
+class SurfaceGeometry;
 struct WlrSurfaceWatch;
 
 struct FrameWorkCounters {
@@ -429,6 +431,13 @@ private:
     void CancelBoundaryPreview();
     void UpdateBoundaryControl();
     void SampleBoundaryPointer();
+    bool ConsumeWindowPointer(std::uint32_t button, std::uint32_t state, wlr_input_device *);
+    void CloseWindowControl(bool animate = false);
+    bool UpdateWindowControl();
+    WlrXdgView *WindowControlTarget() const;
+    contracts::LayoutControlError TrackWindowIntent(const contracts::LayoutControlRequest &) const;
+    contracts::LayoutControlError ApplyWindowIntent(const contracts::LayoutControlRequest &,
+                                                    contracts::LayoutControlResult &);
     WlrXdgView *BoundaryControlView() const;
     void SubmitXdgSize(WlrXdgView *);
     tree::TreeLayoutConfig CurrentTreeLayout() const;
@@ -470,6 +479,18 @@ private:
         tree::BoundaryFractions original, last;
     };
 
+    struct WindowControl {
+        std::uint64_t node{}, topology{}, layout{}, session{}, proof_node{};
+        contracts::LogicalRect bounds;
+        wlr_input_device *device{};
+        contracts::LayoutInputProof proof;
+        contracts::LogicalPoint release;
+        bool released{};
+    };
+
+    WindowControl window_control_;
+    std::unique_ptr<SurfaceFade> control_fade_;
+    std::unique_ptr<SurfaceGeometry> surface_geometry_;
     std::optional<BoundaryPointer> boundary_pointer_;
     std::optional<BoundaryDrag> boundary_drag_;
     contracts::LayoutControlHandle boundary_handle_;

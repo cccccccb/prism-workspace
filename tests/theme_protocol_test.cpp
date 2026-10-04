@@ -23,17 +23,22 @@ int main()
     auto t = theme::LoadTheme(PRISM_SOURCE_THEMES, "glass", 41);
     const auto encoded = contracts::EncodeTheme(t);
     assert(contracts::DecodeTheme(encoded) == t);
-    assert(t.schema_version == 2 && t.color_scheme == "dark");
+    assert(t.schema_version == 3 && t.color_scheme == "dark");
     auto light = theme::LoadTheme(PRISM_SOURCE_THEMES, "glass", 42, "light");
     assert(contracts::DecodeTheme(contracts::EncodeTheme(light)) == light);
     assert(contracts::ThemeColorValue(light, "text") != contracts::ThemeColorValue(t, "text"));
     // Schema 1 has no new tail. All bytes after its schema header retain the
     // historical encoding, and a new decoder supplies the dark default.
-    auto legacy = t;
+    auto v2 = t;
+    v2.schema_version = 2;
+    v2.motion = {};
+    const auto v2_bytes = contracts::EncodeTheme(v2);
+    assert(contracts::DecodeTheme(v2_bytes) == v2);
+    auto legacy = v2;
     legacy.schema_version = 1;
     const auto legacy_bytes = contracts::EncodeTheme(legacy);
-    assert(legacy_bytes.size() + 6 == encoded.size());
-    assert(std::equal(legacy_bytes.begin() + 4, legacy_bytes.end(), encoded.begin() + 4));
+    assert(legacy_bytes.size() + 6 == v2_bytes.size());
+    assert(std::equal(legacy_bytes.begin() + 4, legacy_bytes.end(), v2_bytes.begin() + 4));
     assert(contracts::DecodeTheme(legacy_bytes) == legacy);
     auto invalid_legacy = legacy;
     invalid_legacy.color_scheme = "light";
@@ -41,10 +46,10 @@ int main()
     auto unknown_scheme = t;
     unknown_scheme.color_scheme = "auto";
     Reject([&] { contracts::EncodeTheme(unknown_scheme); });
-    auto short_scheme = encoded;
+    auto short_scheme = v2_bytes;
     short_scheme.pop_back();
     Reject([&] { contracts::DecodeTheme(short_scheme); });
-    auto bad_scheme = encoded;
+    auto bad_scheme = v2_bytes;
     bad_scheme.back() = 'x';
     Reject([&] { contracts::DecodeTheme(bad_scheme); });
     for (auto size : {0u, 1u, 12u, 64u}) {

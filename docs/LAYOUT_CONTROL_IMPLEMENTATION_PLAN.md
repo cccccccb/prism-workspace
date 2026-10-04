@@ -633,3 +633,101 @@ WM 不链接客户端 Scene/Skia，也不绘制手柄；它只选择边界、设
 
 下一阶段可接入鼠标控制区的窗口级操作（单窗全屏/恢复、布局方向与分割调整），继续
 复用同一权威目标/结果接口；之后再接动画呈现，不把动画插值掺入树比例提交路径。
+
+## 12. 第五步：窗口级鼠标控制（源码交付，2026-10-04）
+
+鼠标 `Super + 右键` 在一个可见普通窗口上打开图标控制面板，目标固定为当时的稳定
+ViewNodeId，不在点击时重新取焦点。面板提供单窗全屏/恢复、父 split 容器横向排列、
+纵向排列；“横向/纵向”明确修改所选窗口的直接父容器，影响该容器所有兄弟，不创建
+新窗口或悄悄重挂树。Tabbed/Stacked 亦可显式转为 split。只有一个子节点时禁用方向
+操作；全屏期间禁用方向操作，先恢复。此阶段不加入关闭应用等不可逆操作。
+
+仍复用唯一 LayoutControls Host surface。普通左键拖分隔线行为不变；面板是显式
+打开的临时控件，可以覆盖其有限矩形内的应用区域，点击外部或 Escape 关闭。打开
+手势及关闭点击的整条鼠标序列由 WM 消费，避免右键或释放泄漏到被覆盖的应用。
+
+协议新增 WindowGesture 和独立 target.node，禁止把 BoundaryId 当作窗口 ID。
+Begin 绑定真实 Down、面板目标和初始 topology/layout；End 在有效鼠标释放之后执行
+显式 EnterWindowFullscreen/ExitWindowFullscreen/SplitHorizontal/SplitVertical，
+不使用非幂等 Toggle。自身动作导致的会话终止必须先完成，再关闭面板并安排窗口。
+输出、workspace、目标卸载、外部 layout/topology 变化或输入设备丢失使面板和会话失效。
+
+DSL 的 `.gesture(threshold: 0)` 定义为按下立即开始捕获，可用于需要真实输入凭据的
+离散按钮；模块只有在同一个按钮内释放才选择最终 intent，移出释放为 Cancel。
+默认非零 threshold 拖动行为保持原义。普通应用不会因使用该语法获得 WM 权限。
+
+请求 wire v2 在 v1 的末尾增加 node u64，仅 WindowGesture 编码为 v2；旧操作仍用
+v1。Snapshot v3 在 v2 handle 后追加 node u64，兼容读取 v1/v2。模块 C ABI 新字段
+只放在 struct_size 可检查的尾部，既有结构前缀不变。测试覆盖兼容、权限、目标陈旧、
+取消、重复 End、比例/拓扑保留及真实 DSL 完整链路；不替换正在使用的桌面服务。
+
+### 12.1 交付与验证
+
+- 新增 `wlr_server_window_control.cpp` 独立管理面板目标、显示、输入验证和意图应用；
+  WM 不链接 DSL/Scene，不绘制按钮。LayoutControls 业务模块只订阅快照、选择 intent、
+  发布 binding，前端仍由统一 Host 管理。
+- 复用同一个 control surface，窗口面板与分隔线横线互斥。面板随主题/明暗变化，
+  提供通用向量图标；不可用方向项保留低透明度图标，隐藏 gesture target。固定外层
+  InteractionTarget 拦截空隙及不可用项，不把点击交给下面的应用。
+- Begin 绑定稳定 ViewNodeId 和真实 Down proof。End 前必须有实际鼠标 Up；跨按钮
+  释放由模块 Cancel，面板外释放由 WM 再次拒绝。身份、会话、workspace、输出和
+  修订仍由权威控制接口验证；重复 End 从日志返回，不再次改树。
+- 新快照编码为 v3，可读取 v1/v2/v3；窗口请求编码为 v2，旧组/边界请求维持 v1。
+  模块 optional tail 不改变已有前缀。新增零阈值即时手势用例覆盖无移动点击和同批
+  Begin/End；新增图标加入 Skia 损伤包围盒的全图标覆盖。
+
+构建与代码风格检查通过，完整 CTest **76/76**，最大生产 C/C++ 文件 **627 行**。
+新增 `native_window_control_test` 使用真实 Wayland surface/输入 serial 验证全屏恢复、
+方向切换、比例及节点身份保留、重复 End、提前 End 拒绝、面板外释放拒绝、角色隔离、
+关闭点击不透传、Escape、设备移除、workspace 切换和目标卸载。
+
+真实 Pi **V3D 4.2.14.0** 的独立完整会话也通过：四个 Shell + Music/Preferences，
+LayoutControls 隐藏等待 16 秒，两轮 Topbar 组沉浸/恢复、分隔线 +96/-96 往返，随后
+使用虚拟鼠标/键盘打开真实包内 DSL 面板并依次执行全屏、恢复、纵向、横向排列。
+几何验收等待 target 与 client committed 一致；所有测试进程回收，session exit=0。
+
+证据：`dist/validation/window-control-v1-20261004/`。`ctest.log`、`style.log`、
+`build.log` 为最终门槛；`session-verified/group-session.json` 中 `passed`、`reclaimed`、
+`boundary_passed`、`window_passed` 均为 true。初次 Desktop 模块触发既有 cooperative
+load entry budget 的记录，以及定位 probe 未先 flush 打开命令的 Wayland trace，均保留。
+probe 已将 Roundtrip 放在等待面板提交之前，不修改生产入口预算或加入生产测试延时。
+
+本阶段未替换已安装会话、未打 deb，未做触屏、多输出或实体显示器视觉验收。当前固定
+168×56 的面板及三个 48×40 按钮是私有 Shell 布局约定；后续改尺寸须同步调整模块的
+释放区域并通过实际 DSL 点击区测试，普通应用不依赖该约定。
+
+下一阶段可基于已确认的组/窗口目标和快照，接入呈现过渡与打断/反向恢复；动画只消费
+已确认状态，不以每帧 intent 重写 BSP 比例，也不把客户端动画值作为 WM 几何权威。
+
+## 13. 第六步：独立 Motion 与控制面板开合（2026-10-04）
+
+规范见 [Motion 文件与呈现适配](MOTION_PRESENTATION_SPEC.md)。先建立 MotionSet →
+ThemeSnapshot → 所有者适配层的通路：主题 schema 3 引用独立 motion.prism，Scene
+支持命名 Transition；WM 只消费 typed 时间曲线，不读取客户端 DSL。
+
+本阶段接入窗口控制面板透明度开合与控制图标/分隔线的背景色反馈。关闭立即撤销输入，
+退出画面通过有界 buffer 引用淡出；同位置重开可反向，主题替换和对象消失负责清理。
+提供无平台依赖的 GeometryTimeline，覆盖时间采样、矩形重定向及已提交几何的逆映射。
+
+下一步是单窗全屏/恢复的 native buffer、装饰、效果与鼠标映射一致提交，再进入 BSP
+共同边界协调。当前全屏仍是既有的立即布局操作；不通过动画逐帧修改 BSP/resize。
+
+本阶段验证：完整构建、CTest **78/78**、Pixman 和 V3D/GLES 原生窗口控制通过；
+真实 Host/launcher 隔离会话的组模式、分隔线、窗口控制与进程回收通过。没有活动
+轨迹时的实际帧提交停止增长已验证。证据为 `dist/validation/motion-v1-20261004/`。
+当前交付范围与退出玻璃冻结、逐层透明度、C0 连续等限制见 Motion 规范；未替换已安装会话。
+
+## 14. 第七步：单窗全屏/恢复几何呈现（2026-10-04）
+
+SurfaceGeometry 消费 `window.geometry`，布局一次确定目标，输出帧按单调时间映射
+当前客户端 buffer。新 buffer 可沿同一轨迹交接；装饰和玻璃区域使用呈现矩形。
+鼠标命中及隐式抓取使用最后成功提交的逆映射，途中反向从该矩形继续。
+终点等待慢客户端时停止持续重绘；生命周期或主题变更撤销临时节点参数。
+
+首版为单输出单个过渡，效果 buffer 尺寸缓存、触屏及多输出协调尚未实现。
+下一步进入组级共同时间与共享边界，避免相邻窗口独立插值产生缝隙。
+
+本阶段完整构建及 CTest **79/79** 通过；V3D/GLES 原生输入与真实 Host/launcher 隔离
+会话验证通过，代码规范检查通过。证据为
+`dist/validation/fullscreen-motion-v1-20261004/`，详细范围见 Motion 规范第 8 节。
+未部署新 deb，也未把上述正确性测试当作动画性能或实体显示器视觉验收。

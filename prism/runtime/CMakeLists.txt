@@ -40,7 +40,7 @@ target_compile_features(prism_client_scene PUBLIC cxx_std_20)
 add_library(prism_client_dsl STATIC
     dsl_frontend.cpp
     prepared_component.cpp)
-target_link_libraries(prism_client_dsl PUBLIC prism_dsl_schema prism_dsl_syntax)
+target_link_libraries(prism_client_dsl PUBLIC prism_dsl_schema prism_dsl_syntax prism_theme_contract)
 target_include_directories(prism_client_dsl PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
 
 add_library(prism_task_scheduler STATIC task_scheduler.cpp)

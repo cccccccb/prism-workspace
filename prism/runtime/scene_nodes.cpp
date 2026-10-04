@@ -49,6 +49,12 @@ std::unique_ptr<Scene::Node> Scene::MakeShallowNode(Blueprint blueprint, std::si
         default:
             throw std::invalid_argument("Invalid Blueprint transition easing");
         }
+        if (!transition.motion.empty() &&
+            (!contracts::ValidMotionName(transition.motion) || transition.duration_ms != 0 ||
+             transition.easing != animation::Easing::Linear || !theme_ ||
+             !contracts::FindMotion(theme_->motion, transition.motion))) {
+            throw std::invalid_argument("Unknown theme motion: " + transition.motion);
+        }
         node->transitions.push_back(transition);
     }
     node->region = std::move(blueprint.region);

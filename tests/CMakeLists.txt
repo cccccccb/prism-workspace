@@ -525,12 +525,10 @@ target_link_libraries(native_group_mode_test PRIVATE prism_core prism_wayland_cl
 add_test(NAME native_group_mode_test COMMAND native_group_mode_test)
 set_tests_properties(native_group_mode_test PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
 
-add_executable(group_pointer_probe probes/group_pointer_probe.cpp
-    "${VIRTUAL_INPUT_PROTOCOL_DIR}/wlr-virtual-pointer-unstable-v1-client-protocol.h"
-    "${VIRTUAL_INPUT_PROTOCOL_DIR}/wlr-virtual-pointer-unstable-v1-protocol.c")
+add_executable(group_pointer_probe probes/group_pointer_probe.cpp ${VIRTUAL_INPUT_PROTOCOL_SOURCES})
 target_include_directories(group_pointer_probe PRIVATE "${VIRTUAL_INPUT_PROTOCOL_DIR}")
 target_link_libraries(group_pointer_probe PRIVATE prism_client_dsl prism_client_scene
-    prism_theme_compiler ${WAYLAND_CLIENT_LIBRARIES})
+    prism_theme_compiler ${WAYLAND_CLIENT_LIBRARIES} ${XKBCOMMON_LIBRARIES})
 
 add_executable(tree_boundary_constraints_test tree_boundary_constraints_test.cpp)
 target_link_libraries(tree_boundary_constraints_test PRIVATE prism_core)
@@ -540,3 +538,26 @@ target_link_libraries(native_boundary_control_test PRIVATE prism_core prism_wayl
 target_include_directories(native_boundary_control_test PRIVATE "${CMAKE_BINARY_DIR}/prism/platform/wayland_client")
 add_test(NAME native_boundary_control_test COMMAND native_boundary_control_test)
 set_tests_properties(native_boundary_control_test PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+
+add_executable(native_window_control_test native_window_control_test.cpp)
+target_link_libraries(native_window_control_test PRIVATE prism_core prism_wayland_client)
+target_include_directories(native_window_control_test PRIVATE "${CMAKE_BINARY_DIR}/prism/platform/wayland_client")
+add_test(NAME native_window_control_test COMMAND native_window_control_test)
+set_tests_properties(native_window_control_test PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+
+add_executable(motion_contract_test motion_contract_test.cpp)
+target_link_libraries(motion_contract_test PRIVATE prism_theme_compiler)
+target_compile_definitions(motion_contract_test PRIVATE PRISM_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
+target_compile_options(motion_contract_test PRIVATE -UNDEBUG)
+add_test(NAME motion_contract_test COMMAND motion_contract_test)
+add_executable(animation_geometry_test animation_geometry_test.cpp)
+target_link_libraries(animation_geometry_test PRIVATE prism_animation_core)
+target_compile_options(animation_geometry_test PRIVATE -UNDEBUG)
+add_test(NAME animation_geometry_test COMMAND animation_geometry_test)
+
+add_executable(native_geometry_motion_test native_geometry_motion_test.cpp)
+target_link_libraries(native_geometry_motion_test PRIVATE prism_core prism_wayland_client)
+target_include_directories(native_geometry_motion_test PRIVATE "${CMAKE_BINARY_DIR}/prism/platform/wayland_client")
+target_compile_options(native_geometry_motion_test PRIVATE -UNDEBUG)
+add_test(NAME native_geometry_motion_test COMMAND native_geometry_motion_test)
+set_tests_properties(native_geometry_motion_test PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)

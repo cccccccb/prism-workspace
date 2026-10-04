@@ -31,6 +31,9 @@ add_library(prism_core
     src/wm/wlr_server_layout.cpp
     src/wm/layout_control.cpp
     src/wm/wlr_server_layout_control.cpp
+    src/wm/wlr_server_window_control.cpp
+    src/wm/wlr_surface_fade.cpp
+    src/wm/wlr_surface_geometry.cpp
     src/wm/wlr_server_boundary.cpp
     src/wm/wlr_server_resize.cpp
     src/wm/wlr_server_group.cpp
@@ -91,6 +94,7 @@ target_include_directories(prism_core PUBLIC
 )
 target_link_libraries(prism_core PUBLIC
     prism_contracts
+    prism_animation_core
     prism_surface_protocol
     Threads::Threads
     rt

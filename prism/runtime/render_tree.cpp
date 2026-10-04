@@ -109,10 +109,13 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot &snapshot, const RenderT
         if ((source.kind == Kind::Icon || source.kind == Kind::IconButton) &&
             !source.icon.empty()) {
             constexpr std::string_view names[] = {
-                "grid",     "music",  "settings",  "folder",  "terminal", "play",   "pause",
-                "previous", "next",   "volume",    "wifi",    "battery",  "search", "sun",
-                "moon",     "power",  "check",     "chevron", "refresh",  "cpu",    "memory",
-                "heart",    "layers", "rectangle", "drop",    "wifi-off", "error"};
+                "grid",          "music",   "settings",   "folder",    "terminal",
+                "play",          "pause",   "previous",   "next",      "volume",
+                "wifi",          "battery", "search",     "sun",       "moon",
+                "power",         "check",   "chevron",    "refresh",   "cpu",
+                "memory",        "heart",   "layers",     "rectangle", "drop",
+                "wifi-off",      "error",   "fullscreen", "restore",   "split-horizontal",
+                "split-vertical"};
             const auto it = std::find(std::begin(names), std::end(names), source.icon);
             if (it != std::end(names)) {
                 node.visuals.emplace_back(

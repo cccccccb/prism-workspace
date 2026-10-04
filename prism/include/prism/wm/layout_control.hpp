@@ -43,7 +43,7 @@ public:
 class LayoutControlAuthority {
 public:
     void RecordInput(const LayoutControlPrincipal &, const contracts::LayoutInputProof &,
-                     std::uint64_t now, std::uint64_t boundary = 0);
+                     std::uint64_t now, std::uint64_t boundary = 0, std::uint64_t node = 0);
     void ReleaseInput(contracts::LayoutInputKind, std::int32_t contact, std::uint64_t now);
     void CancelInput(contracts::LayoutInputKind, std::int32_t contact);
     void CancelInstance(contracts::InstanceId, contracts::LayoutControlError);
@@ -61,7 +61,7 @@ private:
     struct Input {
         LayoutControlPrincipal principal;
         contracts::LayoutInputProof proof;
-        std::uint64_t started{}, released{}, boundary{};
+        std::uint64_t started{}, released{}, boundary{}, node{};
         bool consumed{};
     };
 

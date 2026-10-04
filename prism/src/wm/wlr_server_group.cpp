@@ -128,6 +128,9 @@ void WlrServer::RestoreDesktopGroup(bool all)
 void WlrServer::HandleShellUnavailable(int role)
 {
     if (role == static_cast<int>(contracts::WindowRole::LayoutControls)) {
+        // The surface may already have been destroyed; Close must not retain a live pointer.
+        control_fade_.reset();
+        CloseWindowControl();
         CancelBoundaryPreview();
         boundary_handle_ = {};
     } else if (role) {
@@ -141,6 +144,9 @@ WlrServer::ApplyLayoutIntent(const contracts::LayoutControlRequest &request,
 {
     using enum contracts::LayoutControlError;
     using Intent = contracts::LayoutControlIntent;
+    if (request.operation == contracts::LayoutControlOperation::WindowGesture) {
+        return ApplyWindowIntent(request, result);
+    }
     if (request.operation == contracts::LayoutControlOperation::BoundaryGesture) {
         return ApplyBoundaryIntent(request, result);
     }

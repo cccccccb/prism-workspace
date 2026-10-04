@@ -298,10 +298,66 @@ void CheckThemeAndVisibilityBoundaries()
     assert(!concealed.AdvanceAnimations(clock.now_ns));
     assert(!concealed.Build({1}));
 }
+
+void CheckNamedMotion()
+{
+    constexpr contracts::Color fill{200, 117, 33, 255};
+    constexpr auto source = "Progress(value:$progress,width:100,height:10,foreground:#C87521FF)"
+                            ".transition(property:\"value\",motion:\"control.feedback\")";
+    auto theme = Theme(1);
+    theme.schema_version = 3;
+    theme.motion = {"fixture", {{"control.feedback", 200, contracts::MotionEasing::Linear}}};
+    FakeClock clock;
+    runtime::Scene scene(runtime::ParseBlueprint(source), Shape, {}, theme);
+    assert(scene.SetViewport({100, 10}));
+    assert(scene.SetBinding("progress", 0.2));
+    BuildAndCommit(scene);
+    scene.EnableAnimations(&clock);
+    assert(scene.SetBinding("progress", 0.8));
+    clock.now_ns += 50'000'000;
+    assert(scene.AdvanceAnimations(clock.now_ns));
+    assert(Near(ProgressWidth(BuildAndCommit(scene), fill), 35));
+
+    auto invalid = theme;
+    invalid.generation = 2;
+    invalid.motion.transitions.front().name = "missing";
+    std::string diagnostic;
+    const auto revision = scene.TransactionRevision();
+    assert(!scene.ApplyTheme(invalid, &diagnostic));
+    assert(!diagnostic.empty() && scene.TransactionRevision() == revision);
+    assert(scene.HasActiveAnimations());
+
+    theme.generation = 2;
+    theme.motion.id = "instant";
+    theme.motion.transitions.front().duration_ms = 0;
+    assert(scene.ApplyTheme(theme));
+    assert(!scene.HasActiveAnimations());
+    assert(Near(ProgressWidth(BuildAndCommit(scene), fill), 80));
+    assert(scene.SetBinding("progress", 0.3));
+    assert(Near(ProgressWidth(BuildAndCommit(scene), fill), 30));
+    assert(!scene.HasActiveAnimations());
+
+    bool rejected{};
+    try {
+        runtime::Scene absent(runtime::ParseBlueprint(source), Shape);
+    } catch (const std::invalid_argument &) {
+        rejected = true;
+    }
+    assert(rejected);
+    rejected = false;
+    try {
+        runtime::ParseBlueprint("Progress(value:0).transition(property:\"value\","
+                                "motion:\"control.feedback\",durationMs:100,easing:\"linear\")");
+    } catch (const std::exception &) {
+        rejected = true;
+    }
+    assert(rejected);
+}
 } // namespace
 
 int main()
 {
+    CheckNamedMotion();
     CheckProgressAndRetarget();
     CheckPremultipliedLinearColor();
     CheckDetachedTransitionProvenance();

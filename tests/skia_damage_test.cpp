@@ -115,7 +115,7 @@ std::vector<Frame> Frames(TextShaper &shaper)
         FillRect{{350, 186, 22, 43}, {213, 65, 155, 163}},
         PopTransform{}};
     constexpr auto first_icon = std::size_t{19};
-    const auto icon_count = static_cast<unsigned>(VectorIcon::Error) + 1;
+    const auto icon_count = static_cast<unsigned>(VectorIcon::SplitVertical) + 1;
     for (unsigned icon = 0; icon < icon_count; ++icon) {
         initial.commands.emplace_back(
             DrawIcon{static_cast<VectorIcon>(icon),

@@ -160,6 +160,14 @@ void WlrServer::HandleXdgMap(WlrXdgView *view)
 
 void WlrServer::HandleXdgUnmap(WlrXdgView *view)
 {
+    if (surface_geometry_ && surface_geometry_->View() == view) {
+        surface_geometry_.reset();
+    }
+    if (view->shell_role == static_cast<int>(contracts::WindowRole::LayoutControls) &&
+        control_fade_) {
+        control_fade_->Reset(surface_effects_.get());
+    }
+
     layout_controls_.Revoke({view->instance});
     if (dragged_xdg_view_ == view) {
         dragged_xdg_view_ = nullptr;
@@ -186,6 +194,9 @@ void WlrServer::HandleXdgUnmap(WlrXdgView *view)
 
 void WlrServer::HandleXdgDestroy(WlrXdgView *view)
 {
+    if (surface_geometry_ && surface_geometry_->View() == view) {
+        surface_geometry_.reset();
+    }
     layout_controls_.Revoke({view->instance});
     if (dragged_xdg_view_ == view) {
         dragged_xdg_view_ = nullptr;
@@ -214,6 +225,29 @@ void WlrServer::SetXdgFullscreen(WlrXdgView *view, bool enabled)
     if (!view || view->shell_role) {
         return;
     }
+    if (view->fullscreen == enabled) {
+        return;
+    }
+    auto motion = std::move(surface_geometry_);
+    if (motion && motion->View() != view) {
+        motion.reset();
+    }
+    wlr_box committed{};
+    wlr_xdg_surface_get_geometry(view->toplevel->base, &committed);
+    const auto from = motion ? motion->Submitted()
+                             : contracts::LogicalRect{double(view->x), double(view->y),
+                                                      double(std::max(1, committed.width)),
+                                                      double(std::max(1, committed.height))};
+    const auto from_style =
+        motion ? motion->Decoration()
+               : ResolveDecoration(theme_snapshot_.get(), view == focused_xdg_view_,
+                                   view->fullscreen, false)
+                     .style;
+    if (motion) {
+        motion->Restore();
+        view->presentation.reset();
+    }
+
     view->fullscreen = enabled;
     if (view->managed) {
         view->managed->SetFullscreen(enabled);
@@ -223,6 +257,25 @@ void WlrServer::SetXdgFullscreen(WlrXdgView *view, bool enabled)
         FocusXdgView(view);
     }
     ArrangeXdgViews();
+    const auto *spec = theme_snapshot_
+                           ? contracts::FindMotion(theme_snapshot_->motion, "window.geometry")
+                           : nullptr;
+    if (spec && spec->duration_ms && view->mapped && view->visible && outputs_.size() == 1) {
+        if (!motion) {
+            motion = std::make_unique<SurfaceGeometry>(view);
+        }
+        CancelTouchesForSurface(view->toplevel->base->surface);
+        motion->Start(from,
+                      {double(view->x), double(view->y), double(view->width), double(view->height)},
+                      from_style,
+                      ResolveDecoration(theme_snapshot_.get(), view == focused_xdg_view_,
+                                        view->fullscreen, false)
+                          .style,
+                      *spec);
+        surface_geometry_ = std::move(motion);
+        wlr_scene_node_raise_to_top(&view->scene_tree->node);
+        ScheduleFrames(FrameReason::Layout);
+    }
 }
 
 void WlrServer::HandleXdgMaximize(WlrXdgView *view)
@@ -239,6 +292,9 @@ void WlrServer::HandleXdgMaximize(WlrXdgView *view)
 
 void WlrServer::ArrangeXdgViews()
 {
+    if (surface_geometry_) {
+        surface_geometry_->Restore();
+    }
     if (!compositor_) {
         return;
     }
@@ -348,6 +404,9 @@ void WlrServer::ArrangeXdgViews()
             }
         }
     }
+    if (surface_geometry_ && !surface_geometry_->ValidTarget()) {
+        surface_geometry_.reset();
+    }
     InvalidateLayoutSnapshot();
     UpdateBoundaryControl();
     UpdateXdgPointerFocus(static_cast<uint32_t>(core::CurrentTimeNs() / 1000000));
@@ -382,6 +441,9 @@ void WlrServer::FocusXdgView(WlrXdgView *view)
 {
     if (!view || !view->mapped || view->shell_role || !view->managed) {
         return;
+    }
+    if (surface_geometry_ && surface_geometry_->View() != view) {
+        surface_geometry_.reset();
     }
     const auto node = compositor_->GetTreeEngine().FindViewForWindow(view->managed);
     if (!node) {

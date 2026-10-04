@@ -110,6 +110,25 @@ void CheckPointer()
     Only(scene, GesturePhase::End);
 }
 
+void CheckImmediateGesture()
+{
+    Scene scene(ParseBlueprint(R"(InteractionTarget(width:80,height:40,action:"click")
+                                   {}.gesture(action:"window",threshold:0))"),
+                Shape);
+    Layout(scene);
+    Button(scene, true);
+    const auto begin = Only(scene, GesturePhase::Begin);
+    assert(begin.serial == 731 && begin.time_ns == 1);
+    assert(!Button(scene, false).activation);
+    assert(Only(scene, GesturePhase::End).id == begin.id);
+
+    Button(scene, true);
+    Button(scene, false);
+    const auto queued = scene.TakeGestureEvents();
+    assert(queued.size() == 2 && queued[0].phase == GesturePhase::Begin &&
+           queued[1].phase == GesturePhase::End && queued[0].id == queued[1].id);
+}
+
 void CheckCancellation()
 {
     for (int reason = 0; reason < 9; ++reason) {
@@ -312,6 +331,7 @@ int main()
 {
     CheckDsl();
     CheckPointer();
+    CheckImmediateGesture();
     CheckCancellation();
     CheckTouch();
     CheckSnapshotAndFinite();

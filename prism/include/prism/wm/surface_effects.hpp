@@ -4,11 +4,13 @@
 #include <functional>
 #include <memory>
 #include <span>
+#include <vector>
 struct wl_display;
 struct wlr_renderer;
 struct wlr_allocator;
 struct wlr_scene;
 struct wlr_surface;
+struct wlr_scene_node;
 
 namespace prism::wm {
 struct WlrXdgView;
@@ -58,6 +60,8 @@ public:
     void NotifySurfaceCommit(wlr_surface *);
     void ForgetSurface(wlr_surface *);
     bool NeedsUpdate() const;
+    // Borrowed backend paint nodes, ordered below this surface. Event-thread only.
+    std::vector<wlr_scene_node *> PresentationNodes(wlr_surface *) const;
     const WorkCounters &Counters() const;
     UpdateResult Update(wlr_scene *, std::span<WlrXdgView *const>, WlrXdgView *focused,
                         const contracts::ThemeSnapshot *theme);

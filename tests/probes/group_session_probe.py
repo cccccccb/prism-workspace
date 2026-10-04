@@ -101,7 +101,7 @@ def expanded(views, width, height):
             and separated)
 
 
-def run(build, evidence, boundaries=False):
+def run(build, evidence, boundaries=False, windows=False):
     evidence.mkdir(parents=True, exist_ok=True)
     report = {"build": str(build), "passed": False, "reclaimed": False, "cycles": []}
     pointer = None
@@ -240,6 +240,37 @@ def run(build, evidence, boundaries=False):
                         wait_for(resized, "real DSL divider resized both demos")
                     wait_for(lambda: views() == baseline, "divider reverse restored geometry")
                     report["boundary_passed"] = True
+                if windows:
+                    for slot, state in ((0, "fullscreen"), (0, "restore"),
+                                        (2, "vertical"), (1, "horizontal")):
+                        target = next(view for view in views() if view.app == "demo_player")
+                        x = target.rect.x + target.rect.width / 2
+                        y = target.rect.y + target.rect.height / 2
+                        report["stage"] = f"window-{state}"
+                        pointer.stdin.write(f"window {x} {y} {slot}\n")
+                        pointer.stdin.flush()
+                        response = line_from(pointer)
+                        pointer_log.write(response + "\n")
+                        pointer_log.flush()
+                        assert response == "DONE window", response
+
+                        def changed():
+                            current = views()
+                            if len(current) != 2:
+                                return False
+                            player = next(view for view in current if view.app == "demo_player")
+                            if state == "fullscreen":
+                                return player.fullscreen and player.rect == player.committed
+                            if not all(view.visible and not view.fullscreen and
+                                       view.rect == view.committed for view in current):
+                                return False
+                            a, b = current
+                            if state == "vertical":
+                                return a.rect.x == b.rect.x and a.rect.y != b.rect.y
+                            return current == baseline
+
+                        wait_for(changed, f"real DSL window control {state}")
+                    report["window_passed"] = True
                 report["behavior_passed"] = True
                 report["stage"] = "complete"
             finally:
@@ -286,8 +317,9 @@ def main():
     parser.add_argument("build", type=Path)
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--boundaries", action="store_true")
+    parser.add_argument("--windows", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(run(args.build.resolve(), args.evidence.resolve(), args.boundaries), indent=2))
+    print(json.dumps(run(args.build.resolve(), args.evidence.resolve(), args.boundaries, args.windows), indent=2))
 
 
 if __name__ == "__main__":

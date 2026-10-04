@@ -82,6 +82,7 @@ typedef struct PrismLayoutControlHandleV1 {
     uint64_t boundary;
     PrismLogicalRectV1 bounds;
     uint32_t visible;
+    uint64_t node; /* Optional tail: stable WM ViewNodeId for a window palette. */
 } PrismLayoutControlHandleV1;
 
 typedef struct PrismLayoutStateV1 {
@@ -104,14 +105,19 @@ typedef struct PrismLayoutStateV1 {
 
 enum PrismLayoutOperationV1 {
     PRISM_LAYOUT_GROUP_GESTURE_V1 = 0,
-    PRISM_LAYOUT_BOUNDARY_GESTURE_V1 = 1
+    PRISM_LAYOUT_BOUNDARY_GESTURE_V1 = 1,
+    PRISM_LAYOUT_WINDOW_GESTURE_V1 = 2
 };
 
 enum PrismLayoutIntentV1 {
     PRISM_LAYOUT_INTENT_NONE_V1 = 0,
     PRISM_LAYOUT_ENTER_IMMERSIVE_V1 = 1,
     PRISM_LAYOUT_EXIT_IMMERSIVE_V1 = 2,
-    PRISM_LAYOUT_APPLY_BOUNDARY_V1 = 3
+    PRISM_LAYOUT_APPLY_BOUNDARY_V1 = 3,
+    PRISM_LAYOUT_ENTER_WINDOW_FULLSCREEN_V1 = 4,
+    PRISM_LAYOUT_EXIT_WINDOW_FULLSCREEN_V1 = 5,
+    PRISM_LAYOUT_SPLIT_HORIZONTAL_V1 = 6,
+    PRISM_LAYOUT_SPLIT_VERTICAL_V1 = 7
 };
 
 typedef struct PrismLayoutTargetV1 {
@@ -131,6 +137,7 @@ typedef struct PrismLayoutCommandV1 {
     uint32_t operation;
     uint32_t intent;
     PrismLayoutTargetV1 target; /* Used only by Begin. */
+    uint64_t node;              /* Optional tail for WindowGesture; not a Scene node ID. */
 } PrismLayoutCommandV1;
 
 enum PrismLayoutStatusV1 {

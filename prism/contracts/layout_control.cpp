@@ -100,15 +100,33 @@ LayoutControlTarget ReadTarget(Reader &reader)
 }
 } // namespace
 
+bool AllowsLayoutIntent(LayoutControlOperation operation, LayoutControlIntent intent)
+{
+    if (intent == LayoutControlIntent::None) {
+        return true;
+    }
+    switch (operation) {
+    case LayoutControlOperation::GroupGesture:
+        return intent == LayoutControlIntent::EnterImmersive ||
+               intent == LayoutControlIntent::ExitImmersive;
+    case LayoutControlOperation::BoundaryGesture:
+        return intent == LayoutControlIntent::ApplyBoundary;
+    case LayoutControlOperation::WindowGesture:
+        return intent >= LayoutControlIntent::EnterWindowFullscreen &&
+               intent <= LayoutControlIntent::SplitVertical;
+    }
+    return false;
+}
+
 void ValidateLayoutControl(const LayoutControlRequest &request)
 {
     Require(request.request && request.gesture && request.sequence);
     Require(
         static_cast<unsigned>(request.phase) <= static_cast<unsigned>(LayoutControlPhase::Cancel) &&
         static_cast<unsigned>(request.operation) <=
-            static_cast<unsigned>(LayoutControlOperation::BoundaryGesture) &&
+            static_cast<unsigned>(LayoutControlOperation::WindowGesture) &&
         static_cast<unsigned>(request.intent) <=
-            static_cast<unsigned>(LayoutControlIntent::ApplyBoundary) &&
+            static_cast<unsigned>(LayoutControlIntent::SplitVertical) &&
         static_cast<unsigned>(request.input.kind) <= static_cast<unsigned>(LayoutInputKind::Touch));
     if (request.phase == LayoutControlPhase::Begin) {
         Require(!request.session && request.sequence == 1);
@@ -124,9 +142,9 @@ void ValidateLayoutControl(const LayoutControlRequest &request)
             target.topology_revision && target.layout_revision);
     const bool boundary = request.operation == LayoutControlOperation::BoundaryGesture;
     Require(boundary ? target.boundary != 0 : target.boundary == 0);
-    Require(request.intent == LayoutControlIntent::None ||
-            (boundary ? request.intent == LayoutControlIntent::ApplyBoundary
-                      : request.intent != LayoutControlIntent::ApplyBoundary));
+    Require(request.operation == LayoutControlOperation::WindowGesture ? target.node != 0
+                                                                       : target.node == 0);
+    Require(AllowsLayoutIntent(request.operation, request.intent));
     Require(request.input.contact >= 0 &&
             (request.input.kind == LayoutInputKind::Touch || request.input.contact == 0));
     ValidatePoint(request.position);
@@ -137,7 +155,8 @@ std::vector<std::uint8_t> EncodeLayoutControl(const LayoutControlRequest &reques
     ValidateLayoutControl(request);
 
     Writer writer;
-    writer.U(kLayoutControlVersion, 2);
+    writer.U(request.operation == LayoutControlOperation::WindowGesture ? 2 : kLayoutControlVersion,
+             2);
     writer.U(request.request, 8);
     writer.U(request.gesture, 8);
     writer.U(request.session, 8);
@@ -150,14 +169,19 @@ std::vector<std::uint8_t> EncodeLayoutControl(const LayoutControlRequest &reques
     writer.U(request.input.serial, 4);
     writer.U(static_cast<std::uint32_t>(request.input.contact), 4);
     writer.Point(request.position);
+    if (request.operation == LayoutControlOperation::WindowGesture) {
+        writer.U(request.target.node, 8);
+    }
     return std::move(writer.bytes);
 }
 
 LayoutControlRequest DecodeLayoutControl(std::span<const std::uint8_t> bytes)
 {
-    Require(bytes.size() == kLayoutControlPayload);
+    Require(bytes.size() == kLayoutControlPayload || bytes.size() == kWindowControlPayload);
     Reader reader{bytes};
-    Require(reader.U(2) == kLayoutControlVersion);
+    const auto version = reader.U(2);
+    Require((version == 1 && bytes.size() == kLayoutControlPayload) ||
+            (version == 2 && bytes.size() == kWindowControlPayload));
 
     LayoutControlRequest request;
     request.request = reader.U(8);
@@ -172,6 +196,10 @@ LayoutControlRequest DecodeLayoutControl(std::span<const std::uint8_t> bytes)
     request.input.serial = reader.U(4);
     request.input.contact = std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(reader.U(4)));
     request.position = reader.Point();
+    if (version == 2) {
+        request.target.node = reader.U(8);
+    }
+    Require((version == 2) == (request.operation == LayoutControlOperation::WindowGesture));
     ValidateLayoutControl(request);
     return request;
 }

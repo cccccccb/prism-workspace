@@ -7,17 +7,22 @@ namespace prism::contracts {
 
 inline constexpr std::uint16_t kLayoutControlVersion = 1;
 inline constexpr std::size_t kLayoutControlPayload = 118;
+inline constexpr std::size_t kWindowControlPayload = 126;
 inline constexpr std::size_t kLayoutControlResultPayload = 77;
 inline constexpr std::size_t kMaxLayoutStatePayload = kMaxLayoutSnapshotPayload + 11;
 inline constexpr double kMaxLayoutControlCoordinate = 1000000.0;
 
 enum class LayoutControlPhase : std::uint8_t { Begin, Update, End, Cancel };
-enum class LayoutControlOperation : std::uint8_t { GroupGesture, BoundaryGesture };
+enum class LayoutControlOperation : std::uint8_t { GroupGesture, BoundaryGesture, WindowGesture };
 enum class LayoutControlIntent : std::uint8_t {
     None,
     EnterImmersive,
     ExitImmersive,
-    ApplyBoundary
+    ApplyBoundary,
+    EnterWindowFullscreen,
+    ExitWindowFullscreen,
+    SplitHorizontal,
+    SplitVertical
 };
 enum class LayoutInputKind : std::uint8_t { Pointer, Touch };
 enum class LayoutControlStatus : std::uint8_t { Began, Updated, Ended, Cancelled, Rejected };
@@ -39,6 +44,7 @@ enum class LayoutControlError : std::uint8_t {
 struct LayoutControlTarget {
     std::uint64_t wm_session{}, output{}, workspace{}, root{}, boundary{};
     std::uint64_t topology_revision{}, layout_revision{};
+    std::uint64_t node{};
     bool operator==(const LayoutControlTarget &) const = default;
 };
 
@@ -67,7 +73,7 @@ struct LayoutControlResult {
     LayoutControlError error{LayoutControlError::None};
     std::uint64_t revision{}, topology_revision{}, layout_revision{};
     LogicalPoint position;
-    // Stage 2 tracks input sessions only. Layout-changing intents are Unsupported.
+    // Only a successful terminal intent reports applied; this is not presentation.
     bool applied{};
     bool operator==(const LayoutControlResult &) const = default;
 };
@@ -86,6 +92,7 @@ struct LayoutStateEvent {
     bool operator==(const LayoutStateEvent &) const = default;
 };
 
+bool AllowsLayoutIntent(LayoutControlOperation, LayoutControlIntent);
 void ValidateLayoutControl(const LayoutControlRequest &);
 std::vector<std::uint8_t> EncodeLayoutControl(const LayoutControlRequest &);
 LayoutControlRequest DecodeLayoutControl(std::span<const std::uint8_t>);

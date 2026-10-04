@@ -49,7 +49,8 @@ public:
                                   Rect(boundary.bounds), boundary.visible, boundary.resizable});
         }
         const auto &selected = snapshot.control_handle;
-        handle = {sizeof(handle), selected.boundary, Rect(selected.bounds), selected.visible};
+        handle = {sizeof(handle), selected.boundary, Rect(selected.bounds), selected.visible,
+                  selected.node};
 
         state = {sizeof(state),
                  static_cast<std::uint32_t>(event.status),
@@ -109,7 +110,7 @@ uint64_t ModuleSession::SubscribeLayout(void *context, uint32_t enabled) noexcep
 int32_t ModuleSession::ControlGesture(void *context, const PrismLayoutCommandV1 *command) noexcept
 {
     if (!context || !command || !static_cast<ModuleSession *>(context)->OnOwnerThread() ||
-        command->struct_size < sizeof(PrismLayoutCommandV1) ||
+        command->struct_size < offsetof(PrismLayoutCommandV1, node) ||
         command->phase > PRISM_GESTURE_CANCEL_V1) {
         return -1;
     }
@@ -123,14 +124,21 @@ int32_t ModuleSession::ControlGesture(void *context, const PrismLayoutCommandV1 
         const auto phase = static_cast<contracts::GesturePhase>(command->phase);
         bool accepted = false;
         if (phase == contracts::GesturePhase::Begin && !command->intent &&
-            command->operation <= PRISM_LAYOUT_BOUNDARY_GESTURE_V1) {
+            command->operation <= PRISM_LAYOUT_WINDOW_GESTURE_V1) {
             const auto &target = command->target;
+            const auto node =
+                command->struct_size >= offsetof(PrismLayoutCommandV1, node) + sizeof(command->node)
+                    ? command->node
+                    : 0;
+            if ((command->operation == PRISM_LAYOUT_WINDOW_GESTURE_V1) != bool(node)) {
+                return -1;
+            }
             accepted = self.controls_.Begin(
                 gesture, static_cast<contracts::LayoutControlOperation>(command->operation),
                 {target.wm_session, target.output, target.workspace, target.root, target.boundary,
-                 target.topology_revision, target.layout_revision});
+                 target.topology_revision, target.layout_revision, node});
         } else if (phase == contracts::GesturePhase::End &&
-                   command->intent <= PRISM_LAYOUT_APPLY_BOUNDARY_V1) {
+                   command->intent <= PRISM_LAYOUT_SPLIT_VERTICAL_V1) {
             accepted = self.controls_.EndIntent(
                 gesture, static_cast<contracts::LayoutControlIntent>(command->intent));
         } else if (phase == contracts::GesturePhase::Cancel && !command->intent) {

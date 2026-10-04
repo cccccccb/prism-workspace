@@ -1,7 +1,11 @@
 #include "prism/runtime/dsl_frontend.hpp"
 #include "prism/runtime/scene.hpp"
 #include "prism/theme/compiler.hpp"
+#include "virtual-keyboard-unstable-v1-client-protocol.h"
 #include "wlr-virtual-pointer-unstable-v1-client-protocol.h"
+#include <sys/mman.h>
+#include <unistd.h>
+#include <xkbcommon/xkbcommon.h>
 
 #include <algorithm>
 #include <chrono>
@@ -54,6 +58,12 @@ class Pointer {
 public:
     ~Pointer()
     {
+        if (keyboard_) {
+            zwp_virtual_keyboard_v1_destroy(keyboard_);
+        }
+        if (keyboard_manager_) {
+            zwp_virtual_keyboard_manager_v1_destroy(keyboard_manager_);
+        }
         if (pointer_) {
             zwlr_virtual_pointer_v1_destroy(pointer_);
         }
@@ -95,6 +105,7 @@ public:
         pointer_ = zwlr_virtual_pointer_manager_v1_create_virtual_pointer_with_output(
             manager_, seat_, output_);
         Require(pointer_, "Could not create isolated virtual pointer");
+        PrepareKeyboard();
         Roundtrip();
     }
 
@@ -172,7 +183,64 @@ public:
         std::cout << "DONE boundary\n" << std::flush;
     }
 
+    void Window(double x, double y, int slot)
+    {
+        Require(std::isfinite(x) && std::isfinite(y) && x >= 0 && x < width_ && y >= 0 &&
+                    y < height_ && slot >= 0 && slot <= 2,
+                "Invalid window command");
+        Move({x, y});
+        zwp_virtual_keyboard_v1_modifiers(keyboard_, logo_, 0, 0, 0);
+        Roundtrip();
+        zwlr_virtual_pointer_v1_button(pointer_, TimeMs(), 273, WL_POINTER_BUTTON_STATE_PRESSED);
+        zwlr_virtual_pointer_v1_button(pointer_, TimeMs(), 273, WL_POINTER_BUTTON_STATE_RELEASED);
+        zwlr_virtual_pointer_v1_frame(pointer_);
+        zwp_virtual_keyboard_v1_modifiers(keyboard_, 0, 0, 0, 0);
+        Roundtrip(); // Flush the open chord before waiting for the resized DSL surface.
+        Pause(800ms);
+        const double left = std::round(std::clamp(x - 84, 0.0, double(width_ - 168)));
+        const double top = std::round(std::clamp(y - 28, 0.0, double(height_ - 56)));
+        Move({left + 32 + slot * 52, top + 28});
+        Pause(100ms);
+        Button(WL_POINTER_BUTTON_STATE_PRESSED);
+        Pause(100ms);
+        Button(WL_POINTER_BUTTON_STATE_RELEASED);
+        std::cout << "DONE window\n" << std::flush;
+    }
+
 private:
+    void PrepareKeyboard()
+    {
+        Require(keyboard_manager_, "No isolated virtual keyboard manager");
+        keyboard_ =
+            zwp_virtual_keyboard_manager_v1_create_virtual_keyboard(keyboard_manager_, seat_);
+        Require(keyboard_, "Could not create virtual keyboard");
+        auto *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+        Require(context, "Could not create XKB context");
+        xkb_rule_names names{};
+        names.layout = "us";
+        auto *keymap = xkb_keymap_new_from_names(context, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
+        xkb_context_unref(context);
+        Require(keymap, "Could not create XKB keymap");
+        const auto index = xkb_keymap_mod_get_index(keymap, XKB_MOD_NAME_LOGO);
+        char *text = xkb_keymap_get_as_string(keymap, XKB_KEYMAP_FORMAT_TEXT_V1);
+        xkb_keymap_unref(keymap);
+        Require(text && index < 32, "Missing Logo modifier");
+        logo_ = 1U << index;
+        const auto length = std::strlen(text) + 1;
+        const int fd = memfd_create("prism-window-probe-keymap", MFD_CLOEXEC);
+        const bool written = fd >= 0 && write(fd, text, length) == static_cast<ssize_t>(length);
+        std::free(text);
+        if (!written) {
+            if (fd >= 0) {
+                close(fd);
+            }
+            throw std::runtime_error("Could not write probe keymap");
+        }
+        zwp_virtual_keyboard_v1_keymap(keyboard_, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fd, length);
+        close(fd);
+        Roundtrip();
+    }
+
     void Roundtrip()
     {
         Require(wl_display_roundtrip(display_) >= 0, "Wayland connection closed during input");
@@ -217,6 +285,9 @@ private:
             self.output_ = static_cast<wl_output *>(
                 wl_registry_bind(registry, name, &wl_output_interface, std::min(version, 2u)));
             wl_output_add_listener(self.output_, &output_listener_, &self);
+        } else if (std::strcmp(interface, zwp_virtual_keyboard_manager_v1_interface.name) == 0) {
+            self.keyboard_manager_ = static_cast<zwp_virtual_keyboard_manager_v1 *>(
+                wl_registry_bind(registry, name, &zwp_virtual_keyboard_manager_v1_interface, 1));
         } else if (std::strcmp(interface, zwlr_virtual_pointer_manager_v1_interface.name) == 0 &&
                    version >= 2) {
             self.manager_ = static_cast<zwlr_virtual_pointer_manager_v1 *>(
@@ -262,6 +333,9 @@ private:
     wl_registry *registry_{};
     wl_seat *seat_{};
     wl_output *output_{};
+    zwp_virtual_keyboard_manager_v1 *keyboard_manager_{};
+    zwp_virtual_keyboard_v1 *keyboard_{};
+    std::uint32_t logo_{};
     zwlr_virtual_pointer_manager_v1 *manager_{};
     zwlr_virtual_pointer_v1 *pointer_{};
     std::int32_t width_{}, height_{}, scale_{1};
@@ -290,6 +364,12 @@ int main(int argc, char **argv)
                 double x{}, y{}, delta{};
                 Require(bool(input >> x >> y >> delta), "Invalid divider command");
                 pointer.Boundary(x, y, delta);
+            } else if (command.starts_with("window ")) {
+                std::istringstream input(command.substr(7));
+                double x{}, y{};
+                int slot{};
+                Require(bool(input >> x >> y >> slot), "Invalid window command");
+                pointer.Window(x, y, slot);
             } else {
                 throw std::runtime_error("Unknown bounded pointer probe command");
             }

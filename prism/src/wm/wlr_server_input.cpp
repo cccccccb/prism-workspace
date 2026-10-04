@@ -95,6 +95,12 @@ void WlrServer::HandleKeyboardKey(WlrKeyboardBinding *binding, void *data)
         handled = binding->consumed_keys[event->keycode];
         binding->consumed_keys[event->keycode] = false;
     }
+    if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED && window_control_.node &&
+        xkb_state_key_get_one_sym(binding->keyboard->xkb_state, event->keycode + 8) ==
+            XKB_KEY_Escape) {
+        CloseWindowControl(true);
+        handled = true;
+    }
     const auto mods = wlr_keyboard_get_modifiers(binding->keyboard);
     if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED && (mods & WLR_MODIFIER_LOGO)) {
         const xkb_keysym_t *symbols{};
@@ -276,7 +282,7 @@ void WlrServer::HandleCursorMotionAbsolute(uint32_t time_msec, double x, double 
 void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t state,
                                    wlr_input_device *device)
 {
-    if (ConsumeGroupPointer(button, state, device)) {
+    if (ConsumeGroupPointer(button, state, device) || ConsumeWindowPointer(button, state, device)) {
         return;
     }
     SampleBoundaryPointer();
@@ -345,6 +351,10 @@ void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t
         } else {
             if (boundary_pointer_) {
                 boundary_pointer_->released = true;
+            }
+            if (window_control_.proof_node) {
+                window_control_.released = true;
+                window_control_.release = {cursor_->x, cursor_->y};
             }
             layout_controls_.ReleaseInput(contracts::LayoutInputKind::Pointer, 0,
                                           launch::MonotonicNs());
@@ -481,8 +491,12 @@ void WlrServer::UpdateXdgPointerFocus(uint32_t time_msec)
     if (seat_->pointer_state.button_count && !wlr_seat_pointer_has_grab(seat_)) {
         // The default seat grab does not keep compositor hit testing on the
         // Down surface. Preserve this sequence across gaps and other windows.
-        if (SurfacePosition(scene_, seat_->pointer_state.focused_surface, cursor_->x, cursor_->y,
-                            sx, sy)) {
+        auto *focused = seat_->pointer_state.focused_surface;
+        const bool moving = surface_geometry_ && focused &&
+                            wlr_surface_get_root_surface(focused) ==
+                                surface_geometry_->View()->toplevel->base->surface;
+        if (moving ? surface_geometry_->Position(focused, cursor_->x, cursor_->y, sx, sy)
+                   : SurfacePosition(scene_, focused, cursor_->x, cursor_->y, sx, sy)) {
             wlr_seat_pointer_notify_motion(seat_, time_msec, sx, sy);
         } else {
             wlr_seat_pointer_notify_clear_focus(seat_);
@@ -492,7 +506,26 @@ void WlrServer::UpdateXdgPointerFocus(uint32_t time_msec)
     }
     struct wlr_surface *surface = nullptr;
     for (auto *tree : {chrome_tree_, windows_tree_, background_tree_}) {
-        auto *node = wlr_scene_node_at(&tree->node, cursor_->x, cursor_->y, &sx, &sy);
+        wlr_scene_node *node{};
+        if (tree == windows_tree_ && surface_geometry_) {
+            wlr_scene_node *child;
+            wl_list_for_each_reverse(child, &tree->children, link)
+            {
+                if (child == &surface_geometry_->View()->scene_tree->node) {
+                    surface = surface_geometry_->Hit(cursor_->x, cursor_->y, sx, sy);
+                    if (surface) {
+                        break;
+                    }
+                } else {
+                    node = wlr_scene_node_at(child, cursor_->x, cursor_->y, &sx, &sy);
+                    if (node) {
+                        break;
+                    }
+                }
+            }
+        } else {
+            node = wlr_scene_node_at(&tree->node, cursor_->x, cursor_->y, &sx, &sy);
+        }
         if (node && node->type == WLR_SCENE_NODE_BUFFER) {
             auto *scene_surface =
                 wlr_scene_surface_try_from_buffer(wlr_scene_buffer_from_node(node));

@@ -134,6 +134,7 @@ void WlrServer::PumpControl()
         control_->Close();
     }
     if (control_failed_) {
+        CloseWindowControl();
         layout_controls_.Reset();
         CancelBoundaryPreview();
     }
@@ -149,6 +150,10 @@ contracts::ThemeApplied WlrServer::InstallTheme(const contracts::ThemeSnapshot &
         }
         // Also enforce the serialized payload bound on direct trusted callers.
         contracts::EncodeTheme(snapshot);
+        if (snapshot.schema_version >= 3 &&
+            !contracts::FindMotion(snapshot.motion, "panel.visibility")) {
+            throw std::invalid_argument("Theme motion lacks panel.visibility");
+        }
         if (theme_snapshot_ && snapshot.generation <= theme_snapshot_->generation) {
             if (snapshot == *theme_snapshot_) {
                 return {snapshot.generation, true, "Already installed"};
@@ -160,6 +165,11 @@ contracts::ThemeApplied WlrServer::InstallTheme(const contracts::ThemeSnapshot &
         applied.detail = error.what();
         return applied;
     }
+    surface_geometry_.reset();
+    if (control_fade_) {
+        control_fade_->Reset(surface_effects_.get());
+    }
+
     theme_.layout = next->layout;
     theme_snapshot_ = std::move(next);
     recovery_visible_ = false;

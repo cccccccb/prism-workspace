@@ -36,6 +36,10 @@ void WlrServer::HandleLayoutControl(const launch::ControlMessage &message)
     reply.control_result =
         layout_controls_.Apply(LayoutPrincipal(message.permit), message.control_request,
                                *GetLayoutSnapshot(), launch::MonotonicNs(), this);
+    if (message.control_request.operation == contracts::LayoutControlOperation::WindowGesture &&
+        reply.control_result.status == contracts::LayoutControlStatus::Began) {
+        window_control_.session = reply.control_result.session;
+    }
     reply.control_request = {};
     reply.success = reply.control_result.error == contracts::LayoutControlError::None;
     // Send automatic invalidations before the response to the next request.
@@ -48,6 +52,10 @@ void WlrServer::HandleLayoutControl(const launch::ControlMessage &message)
 void WlrServer::PublishLayoutControlNotifications()
 {
     for (const auto &delivery : layout_controls_.TakeNotifications()) {
+        if (window_control_.session && window_control_.session == delivery.result.session &&
+            delivery.principal.role == contracts::WindowRole::LayoutControls) {
+            CloseWindowControl();
+        }
         if (boundary_drag_ && boundary_drag_->session == delivery.result.session) {
             CancelBoundaryPreview();
         }
@@ -71,7 +79,8 @@ void WlrServer::PublishLayoutControlNotifications()
 void WlrServer::RecordLayoutInput(wlr_surface *surface, contracts::LayoutInputProof proof)
 {
     LayoutControlPrincipal principal;
-    std::uint64_t boundary{};
+    std::uint64_t boundary{}, node{};
+    window_control_.proof_node = 0;
     boundary_pointer_.reset();
     auto *root = surface ? wlr_surface_get_root_surface(surface) : nullptr;
     for (const auto &view : xdg_views_) {
@@ -85,6 +94,12 @@ void WlrServer::RecordLayoutInput(wlr_surface *surface, contracts::LayoutInputPr
             principal = LayoutPrincipal(registration->second->permit);
             if (principal.role == contracts::WindowRole::LayoutControls &&
                 proof.kind == contracts::LayoutInputKind::Pointer && boundary_handle_.visible) {
+                node = boundary_handle_.node;
+                if (node) {
+                    window_control_.proof = proof;
+                    window_control_.proof_node = node;
+                    window_control_.released = false;
+                }
                 boundary = boundary_handle_.boundary;
                 const auto range =
                     compositor_->GetTreeEngine().GetBoundaryRange(boundary, CurrentTreeLayout());
@@ -97,7 +112,7 @@ void WlrServer::RecordLayoutInput(wlr_surface *surface, contracts::LayoutInputPr
         }
         break;
     }
-    layout_controls_.RecordInput(principal, proof, launch::MonotonicNs(), boundary);
+    layout_controls_.RecordInput(principal, proof, launch::MonotonicNs(), boundary, node);
 }
 
 void WlrServer::CancelLayoutControlsForSurface(wlr_surface *surface,
@@ -137,7 +152,11 @@ void WlrServer::HandlePointerDestroy(WlrPointerBinding *binding)
 {
     std::erase_if(recovery_buttons_,
                   [binding](const auto &button) { return button.first == binding->device; });
+    if (window_control_.device == binding->device) {
+        CloseWindowControl();
+    }
     if (control_pointer_device_ == binding->device) {
+        CloseWindowControl();
         layout_controls_.CancelInput(contracts::LayoutInputKind::Pointer, 0);
         const auto &state = seat_->pointer_state;
         if (std::find(state.buttons, state.buttons + state.button_count, 272u) !=

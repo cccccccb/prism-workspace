@@ -1,5 +1,6 @@
 #pragma once
 #include "prism/contracts/display_list.hpp"
+#include "prism/contracts/motion.hpp"
 #include <optional>
 #include <span>
 #include <string>
@@ -69,6 +70,7 @@ struct ThemeSnapshot {
     ThemeDecoration normal, focused, fullscreen;
     ThemeControls controls;
     std::string color_scheme{"dark"};
+    MotionSet motion;
     bool operator==(const ThemeSnapshot &) const = default;
 };
 

@@ -1,8 +1,10 @@
 #pragma once
 
+#include "prism/contracts/theme.hpp"
 #include "prism/wm/window.hpp"
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <sys/types.h>
 #include <wayland-server-core.h>
 
@@ -11,6 +13,11 @@ struct wlr_scene_tree;
 
 namespace prism::wm {
 class WlrServer;
+
+struct NativePresentation {
+    contracts::LogicalRect bounds, source;
+    contracts::ThemeDecoration decoration;
+};
 
 // One lifecycle record for a real Wayland toplevel. Geometry is a configure
 // target; the last committed size is tracked independently by the Window.
@@ -23,6 +30,7 @@ struct WlrXdgView {
     std::shared_ptr<Window> managed;
     int x{}, y{}, width{640}, height{400};
     bool mapped{}, visible{}, fullscreen{}, maximized{};
+    std::optional<NativePresentation> presentation;
     std::uint32_t size_configure{};
     int configured_width{}, configured_height{};
     std::uint32_t tiled_edges{~std::uint32_t{0}};

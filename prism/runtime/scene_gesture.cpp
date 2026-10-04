@@ -66,6 +66,12 @@ std::uint64_t Scene::StartGesture(contracts::NodeId id, contracts::InputSource s
                      snapshot ? snapshot->version : 0};
     gesture.spec = *node->gesture;
     gesture.click_action = node->action;
+    if (gesture.spec.threshold == 0) {
+        gesture.dragging = true;
+        gesture.begin_pending = true;
+        gesture.begin_position = point;
+        gesture.begin_time_ns = time_ns;
+    }
     const auto result = gesture.event.id;
     input_state_->gestures.push_back(std::move(gesture));
     return result;

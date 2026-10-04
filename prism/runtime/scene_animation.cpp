@@ -50,8 +50,16 @@ contracts::Color BlendColor(contracts::Color from, contracts::Color target, doub
             static_cast<std::uint8_t>(std::lround(std::clamp(alpha, 0.0, 1.0) * 255.0))};
 }
 
-animation::DurationSpec Duration(const TransitionSpec &spec)
+animation::DurationSpec Duration(const TransitionSpec &spec,
+                                 const std::optional<contracts::ThemeSnapshot> &theme)
 {
+    if (!spec.motion.empty() && theme) {
+        const auto *entry = contracts::FindMotion(theme->motion, spec.motion);
+        if (entry) {
+            return {static_cast<std::uint64_t>(entry->duration_ms) * 1'000'000, 0,
+                    static_cast<animation::Easing>(entry->easing)};
+        }
+    }
     return {static_cast<std::uint64_t>(spec.duration_ms) * 1'000'000, 0, spec.easing};
 }
 
@@ -131,7 +139,7 @@ bool Scene::RetargetPresentation(Node &node, DslProperty property, const Propert
     }
 
     const auto *spec = FindTransition(node.transitions, property);
-    if (!spec || !spec->duration_ms) {
+    if (!spec || !Duration(*spec, theme_).duration_ns) {
         return false;
     }
 
@@ -162,7 +170,7 @@ bool Scene::RetargetPresentation(Node &node, DslProperty property, const Propert
     if (found == animation_state_->tracks.end()) {
         auto track = std::make_unique<AnimationState::Track>(animation_state_->clock, node.id,
                                                              property, visual, target);
-        if (!track->progress.StartDurationAt(0.0, 1.0, Duration(*spec), now)) {
+        if (!track->progress.StartDurationAt(0.0, 1.0, Duration(*spec, theme_), now)) {
             return false;
         }
         animation_state_->tracks.emplace(key, std::move(track));
@@ -171,7 +179,7 @@ bool Scene::RetargetPresentation(Node &node, DslProperty property, const Propert
         track.from = visual;
         track.target = target;
         track.presented = visual;
-        track.progress.RestartDurationAt(0.0, 1.0, Duration(*spec), now);
+        track.progress.RestartDurationAt(0.0, 1.0, Duration(*spec, theme_), now);
     }
     return true;
 }

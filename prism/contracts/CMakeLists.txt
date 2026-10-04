@@ -42,7 +42,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND BUILD_TESTING)
 endif()
 
 # The binary theme transport is a backend independent value codec.
-add_library(prism_theme_contract STATIC theme.cpp)
+add_library(prism_theme_contract STATIC theme.cpp motion.cpp)
 target_link_libraries(prism_theme_contract PUBLIC prism_contracts)
 
 # Structural drawing validation has no resource registry or backend dependency.

@@ -138,7 +138,8 @@ std::size_t ControlFrameSize(std::span<const std::uint8_t> b)
     } else if (t == 12) {
         Check(n >= 8 && n <= contracts::kMaxLayoutSnapshotPayload + 8);
     } else {
-        Check(n == 70 + (t == 13 ? contracts::kLayoutControlPayload
+        Check((t == 13 && n == 70 + contracts::kWindowControlPayload) ||
+              n == 70 + (t == 13 ? contracts::kLayoutControlPayload
                                  : contracts::kLayoutControlResultPayload));
     }
     return 12 + n;

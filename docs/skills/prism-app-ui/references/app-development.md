@@ -747,3 +747,11 @@ RenderTree → DisplayList → 后端补齐通用实现和验证。控件 action
 [Host](../../../APP_HOST_RUNTIME.md)、[模块与包](../../../APP_LAUNCH_CONTRACT.md)、
 [加载](../../../MASTER_PARALLEL_LOADING.md)、[主题](../../../THEME_AUTHORING.md)、
 [SDK](../../../CLIENT_APP_SDK.md)、[代码规范](../../../CODING_STYLE.md)。
+
+### 即时输入手势补充（2026-10-04 源码）
+
+普通模块可使用 `.gesture(action: "item:hold", threshold: 0)` 在真实鼠标按下时获得
+Begin，然后接收 Update/End/Cancel；它会抑制同一目标的普通点击 activation。默认
+非零阈值适合拖动，零阈值适合需要完整按下/释放序列的控制。请在 End 检查是否仍
+落在原操作区域，移出时取消，不用客户端事件伪造系统输入凭据。WM WindowGesture
+仅授予系统 LayoutControls 身份，普通第三方包不能申请该能力。

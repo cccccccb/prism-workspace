@@ -55,6 +55,9 @@ void WlrServer::UpdateBoundaryControl()
         return;
     }
 
+    if (UpdateWindowControl()) {
+        return;
+    }
     const auto snapshot = GetLayoutSnapshot();
     const auto output = PrimaryLogicalBounds();
     const bool held =
@@ -95,6 +98,10 @@ void WlrServer::UpdateBoundaryControl()
 
     const bool changed = next != boundary_handle_;
     boundary_handle_ = next;
+    if (view->width != 48 || view->height != 48) {
+        view->width = view->height = 48;
+        SubmitXdgSize(view);
+    }
     view->visible = next.visible;
     wlr_scene_node_set_enabled(&view->scene_tree->node, view->visible);
     if (!next.visible) {
@@ -129,6 +136,9 @@ WlrServer::TrackLayoutIntent(const contracts::LayoutControlRequest &request,
 {
     using enum contracts::LayoutControlError;
     using Phase = contracts::LayoutControlPhase;
+    if (request.operation == contracts::LayoutControlOperation::WindowGesture) {
+        return TrackWindowIntent(request);
+    }
     if (request.operation != contracts::LayoutControlOperation::BoundaryGesture ||
         request.input.kind != contracts::LayoutInputKind::Pointer) {
         return Unsupported;

@@ -1,0 +1,7 @@
+MotionSet("instant", version: 1) {
+    Timing("spatial", durationMs: 0, easing: "easeInOutCubic")
+    Timing("feedback", durationMs: 0, easing: "easeOutCubic")
+    Transition("window.geometry", timing: "spatial")
+    Transition("panel.visibility", timing: "feedback")
+    Transition("control.feedback", timing: "feedback")
+}

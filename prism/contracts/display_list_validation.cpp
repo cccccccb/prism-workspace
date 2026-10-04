@@ -54,7 +54,7 @@ void ValidateDisplayList(const DisplayList &list)
                   index, "invalid shadow bounds/radius/blur/offset");
         } else if (const auto *icon = std::get_if<DrawIcon>(&command)) {
             Check(ValidRect(icon->bounds) && icon->icon >= VectorIcon::Grid &&
-                      icon->icon <= VectorIcon::Error,
+                      icon->icon <= VectorIcon::SplitVertical,
                   index, "invalid icon bounds/type");
         } else if (const auto *image = std::get_if<DrawImage>(&command)) {
             Check(ValidRect(image->destination) && image->fit >= ImageFit::Fill &&

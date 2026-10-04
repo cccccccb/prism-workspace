@@ -27,7 +27,7 @@ const PrismLayoutBoundaryV1 *SelectedBoundary(const PrismLayoutStateV1 &state)
     if (state.struct_size <
             offsetof(PrismLayoutStateV1, control_handle) + sizeof(state.control_handle) ||
         !state.control_handle ||
-        state.control_handle->struct_size < sizeof(*state.control_handle) ||
+        state.control_handle->struct_size < offsetof(PrismLayoutControlHandleV1, node) ||
         !state.control_handle->visible || !state.control_handle->boundary) {
         return nullptr;
     }
@@ -42,15 +42,16 @@ const PrismLayoutBoundaryV1 *SelectedBoundary(const PrismLayoutStateV1 &state)
     return nullptr;
 }
 
-PrismLayoutTargetV1 Target(const PrismLayoutStateV1 &state, const PrismLayoutBoundaryV1 *boundary)
+PrismLayoutTargetV1 Target(const PrismLayoutStateV1 &state, std::uint64_t workspace_id,
+                          std::uint64_t boundary_id)
 {
-    if (!boundary) {
+    if (!workspace_id) {
         return {};
     }
 
     for (std::size_t i = 0; i < state.workspaces_size; ++i) {
         const auto &workspace = state.workspaces[i];
-        if (workspace.id != boundary->workspace || !workspace.active || !workspace.root) {
+        if (workspace.id != workspace_id || !workspace.active || !workspace.root) {
             continue;
         }
 
@@ -58,7 +59,7 @@ PrismLayoutTargetV1 Target(const PrismLayoutStateV1 &state, const PrismLayoutBou
             const auto &output = state.outputs[j];
             if (output.id == workspace.output && output.supported) {
                 return {state.wm_session,     output.id,    workspace.id,
-                        workspace.root,       boundary->id, state.topology_revision,
+                        workspace.root,       boundary_id, state.topology_revision,
                         state.layout_revision};
             }
         }
@@ -75,6 +76,10 @@ struct LayoutControls {
     std::uint64_t active_gesture{};
     PrismLayoutTargetV1 gesture_target{};
     bool gesture_ended{};
+    std::uint64_t window_node{}, gesture_node{};
+    PrismLayoutIntentV1 window_intent{PRISM_LAYOUT_INTENT_NONE_V1};
+    PrismLayoutIntentV1 gesture_intent{PRISM_LAYOUT_INTENT_NONE_V1};
+    double button_x{};
 
     bool Initialize()
     {
@@ -84,6 +89,10 @@ struct LayoutControls {
             return false;
         }
 
+        prism::app::Boolean(host, "window_visible", false);
+        prism::app::Boolean(host, "split_enabled", false);
+        prism::app::Number(host, "split_opacity", 0.35);
+        prism::app::Text(host, "fullscreen_icon", "fullscreen");
         if (SupportsLayout(host)) {
             subscription = host->subscribe_layout(host->context, 1);
         }
@@ -95,6 +104,8 @@ struct LayoutControls {
         active_gesture = 0;
         gesture_target = {};
         gesture_ended = false;
+        gesture_node = 0;
+        gesture_intent = PRISM_LAYOUT_INTENT_NONE_V1;
     }
 
     void CancelGesture()
@@ -113,6 +124,8 @@ struct LayoutControls {
     {
         CancelGesture();
         target = {};
+        window_node = 0;
+        prism::app::Boolean(host, "window_visible", false);
         prism::app::Boolean(host, "handle_visible", false);
     }
 
@@ -134,41 +147,76 @@ struct LayoutControls {
         }
 
         const auto *boundary = SelectedBoundary(state);
-        const auto next = Target(state, boundary);
-        if (active_gesture && !gesture_ended && !SameIdentity(gesture_target, next)) {
+        const PrismLayoutNodeV1 *selected{};
+        if (state.struct_size >= offsetof(PrismLayoutStateV1, control_handle) + sizeof(state.control_handle) &&
+            state.control_handle && state.control_handle->struct_size >= sizeof(*state.control_handle) &&
+            state.control_handle->visible && state.control_handle->node) {
+            for (std::size_t i = 0; i < state.nodes_size; ++i) {
+                if (state.nodes[i].id == state.control_handle->node && state.nodes[i].visible && state.nodes[i].kind == 1) {
+                    selected = &state.nodes[i];
+                    break;
+                }
+            }
+        }
+        const auto next = Target(state, selected ? selected->workspace : boundary ? boundary->workspace : 0,
+                                 boundary ? boundary->id : 0);
+        const auto next_node = selected ? selected->id : 0;
+        if (active_gesture && !gesture_ended &&
+            (!SameIdentity(gesture_target, next) || gesture_node != next_node)) {
             CancelGesture();
         }
-
+        window_node = next_node;
+        window_intent = selected && selected->fullscreen ? PRISM_LAYOUT_EXIT_WINDOW_FULLSCREEN_V1
+                                                          : PRISM_LAYOUT_ENTER_WINDOW_FULLSCREEN_V1;
+        bool split = false;
+        if (selected && !selected->fullscreen) {
+            for (std::size_t i = 0; i < state.nodes_size; ++i) {
+                split |= state.nodes[i].id == selected->parent && state.nodes[i].children_size > 1;
+            }
+        }
+        prism::app::Boolean(host, "window_visible", window_node != 0);
+        prism::app::Boolean(host, "split_enabled", split);
+        prism::app::Number(host, "split_opacity", split ? 1.0 : 0.35);
+        prism::app::Text(host, "fullscreen_icon", selected && selected->fullscreen ? "restore" : "fullscreen");
         target = next;
         session = state.wm_session;
         revision = state.revision;
-        if (target.wm_session) {
+        if (target.wm_session && boundary) {
             prism::app::Number(host, "handle_width", boundary->axis == 0 ? 4 : 32);
             prism::app::Number(host, "handle_height", boundary->axis == 0 ? 32 : 4);
         }
-        prism::app::Boolean(host, "handle_visible", target.wm_session != 0);
+        prism::app::Boolean(host, "handle_visible", target.wm_session != 0 && !window_node);
     }
 
     void Gesture(const PrismGestureEventV1 &event)
     {
-        if (event.struct_size < sizeof(event) || event.touch || !event.action ||
-            std::string_view(event.action, event.action_size) != boundaryGestureAction) {
+        if (event.struct_size < sizeof(event) || event.touch || !event.action) {
             return;
         }
 
+        const std::string_view action(event.action, event.action_size);
+        const bool window = action == "window:fullscreen" || action == "window:horizontal" || action == "window:vertical";
+        if (!window && action != boundaryGestureAction) {
+            return;
+        }
         PrismLayoutCommandV1 command{};
         command.struct_size = sizeof(command);
         command.gesture_id = event.gesture_id;
         command.phase = event.phase;
-        command.operation = PRISM_LAYOUT_BOUNDARY_GESTURE_V1;
+        command.operation = window ? PRISM_LAYOUT_WINDOW_GESTURE_V1 : PRISM_LAYOUT_BOUNDARY_GESTURE_V1;
         if (event.phase == PRISM_GESTURE_BEGIN_V1) {
-            if (!target.wm_session || active_gesture) {
+            if (!target.wm_session || active_gesture || window != bool(window_node)) {
                 return;
             }
             command.target = target;
+            command.node = window_node;
             if (host->control_gesture(host->context, &command) == 0) {
                 active_gesture = event.gesture_id;
                 gesture_target = target;
+                gesture_node = window_node;
+                gesture_intent = action == "window:horizontal" ? PRISM_LAYOUT_SPLIT_HORIZONTAL_V1
+                                   : action == "window:vertical" ? PRISM_LAYOUT_SPLIT_VERTICAL_V1 : window_intent;
+                button_x = action == "window:horizontal" ? 60 : action == "window:vertical" ? 112 : 8;
                 gesture_ended = false;
             }
             return;
@@ -178,7 +226,12 @@ struct LayoutControls {
         }
 
         if (event.phase == PRISM_GESTURE_END_V1) {
-            command.intent = PRISM_LAYOUT_APPLY_BOUNDARY_V1;
+            if (window && (event.position.x < button_x || event.position.x >= button_x + 48 ||
+                           event.position.y < 8 || event.position.y >= 48)) {
+                command.phase = PRISM_GESTURE_CANCEL_V1;
+            } else {
+                command.intent = window ? gesture_intent : PRISM_LAYOUT_APPLY_BOUNDARY_V1;
+            }
             gesture_ended = true;
             if (host->control_gesture(host->context, &command) != 0) {
                 ClearGesture();

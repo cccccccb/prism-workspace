@@ -59,7 +59,7 @@ int main()
 {
     const fs::path root = fs::path(PRISM_SOURCE_ROOT) / "resources/themes";
     const auto glass = theme::LoadTheme(root, "glass", 7);
-    assert(glass.id == "glass" && glass.generation == 7 && glass.schema_version == 2 &&
+    assert(glass.id == "glass" && glass.generation == 7 && glass.schema_version == 3 &&
            glass.color_scheme == "dark");
     const auto *window = contracts::FindThemeMaterial(glass, "window");
     assert(window);
@@ -96,7 +96,8 @@ int main()
                contracts::ThemeColorValue(snapshot, "text"));
         assert(contracts::DecodeTheme(contracts::EncodeTheme(light)) == light);
     }
-    const auto source = Read(root / "glass/theme.prism");
+    const auto source = Replace(Read(root / "glass/theme.prism"),
+                                "schemaVersion: 3, motion: \"prism\"", "schemaVersion: 2");
     Reject([&] { theme::CompileTheme(Replace(source, "schemaVersion: 2", "schemaVersion: 3")); });
     Reject([&] {
         theme::CompileTheme(

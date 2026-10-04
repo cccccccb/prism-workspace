@@ -125,6 +125,54 @@ void Requests()
     assert(DecodeLayoutControl(EncodeLayoutControl(request)) == request);
 }
 
+void WindowRequests()
+{
+    auto request = Request();
+    request.operation = LayoutControlOperation::WindowGesture;
+    request.target.node = 46;
+    const auto bytes = EncodeLayoutControl(request);
+    assert(bytes.size() == kWindowControlPayload && bytes[1] == 2);
+    assert(DecodeLayoutControl(bytes) == request);
+    for (std::size_t size = 0; size < bytes.size(); ++size) {
+        Reject([&] { DecodeLayoutControl(std::span(bytes).first(size)); });
+    }
+    auto invalid = request;
+    invalid.target.node = 0;
+    Reject([&] { EncodeLayoutControl(invalid); });
+    invalid = request;
+    invalid.target.boundary = 3;
+    Reject([&] { EncodeLayoutControl(invalid); });
+    invalid = request;
+    invalid.operation = LayoutControlOperation::GroupGesture;
+    Reject([&] { EncodeLayoutControl(invalid); });
+    auto malformed = bytes;
+    malformed[1] = 1;
+    Reject([&] { DecodeLayoutControl(malformed); });
+
+    launch::ControlMessage message;
+    message.type = launch::ControlType::LayoutControl;
+    message.permit.session = request.target.wm_session;
+    message.permit.role = WindowRole::LayoutControls;
+    message.permit.instance = {15};
+    message.permit.pid = 123;
+    message.control_request = request;
+    assert(launch::DecodeControl(launch::EncodeControl(message)).control_request == request);
+    assert(std::get<LayoutControlRequest>(launch::DecodeWorker(launch::EncodeWorker(request))) ==
+           request);
+
+    request.phase = LayoutControlPhase::End;
+    request.session = 10;
+    request.sequence = 2;
+    for (const auto intent :
+         {LayoutControlIntent::EnterWindowFullscreen, LayoutControlIntent::ExitWindowFullscreen,
+          LayoutControlIntent::SplitHorizontal, LayoutControlIntent::SplitVertical}) {
+        request.intent = intent;
+        assert(DecodeLayoutControl(EncodeLayoutControl(request)) == request);
+    }
+    request.intent = LayoutControlIntent::EnterImmersive;
+    Reject([&] { EncodeLayoutControl(request); });
+}
+
 void Results()
 {
     LayoutControlResult result;
@@ -256,6 +304,7 @@ void Transports()
 int main()
 {
     Requests();
+    WindowRequests();
     Results();
     Subscriptions();
     Transports();

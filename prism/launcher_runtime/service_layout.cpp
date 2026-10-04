@@ -83,7 +83,7 @@ void Service::Impl::RequestLayoutControl(Worker &worker, const LayoutControlRequ
     } else if ((job->role == WindowRole::TopBar &&
                 request.operation != LayoutControlOperation::GroupGesture) ||
                (job->role == WindowRole::LayoutControls &&
-                request.operation != LayoutControlOperation::BoundaryGesture)) {
+                request.operation == LayoutControlOperation::GroupGesture)) {
         error = LayoutControlError::Unauthorized;
     } else if (!control || control->Closed() || control_failed || !session) {
         error = LayoutControlError::Disconnected;

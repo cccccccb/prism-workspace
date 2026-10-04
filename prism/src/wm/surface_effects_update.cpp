@@ -80,19 +80,33 @@ SurfaceEffects::UpdateResult SurfaceEffects::Impl::Update(wlr_scene *scene,
         auto *surface = view->toplevel->base->surface;
         const auto state =
             ResolveDecoration(theme, view == focused, view->fullscreen, view->shell_role != 0);
-        const auto &style = state.style;
+        const auto style = view->presentation ? view->presentation->decoration : state.style;
+        const auto bounds = view->presentation
+                                ? view->presentation->bounds
+                                : contracts::LogicalRect{double(view->x), double(view->y),
+                                                         double(view->width), double(view->height)};
         std::vector<Region> regions;
         if (auto it = states.find(surface); it != states.end()) {
             regions = it->second->current;
         }
+        if (view->presentation) {
+            const auto &source = view->presentation->source;
+            const double scale_x = bounds.width / source.width,
+                         scale_y = bounds.height / source.height;
+            for (auto &region : regions) {
+                region.bounds = {(region.bounds.x - source.x) * scale_x,
+                                 (region.bounds.y - source.y) * scale_y,
+                                 region.bounds.width * scale_x, region.bounds.height * scale_y};
+                region.corner_radius *= std::min(scale_x, scale_y);
+            }
+        }
         auto is_frame = [&](const Region &r) {
             return style.enabled && std::abs(r.bounds.x) < .01 && std::abs(r.bounds.y) < .01 &&
-                   std::abs(r.bounds.width - view->width) < .01 &&
-                   std::abs(r.bounds.height - view->height) < .01;
+                   std::abs(r.bounds.width - bounds.width) < .01 &&
+                   std::abs(r.bounds.height - bounds.height) < .01;
         };
         if (style.enabled && std::none_of(regions.begin(), regions.end(), is_frame)) {
-            regions.insert(regions.begin(),
-                           {{0, 0, double(view->width), double(view->height)}, style.radius, 0});
+            regions.insert(regions.begin(), {{0, 0, bounds.width, bounds.height}, style.radius, 0});
         }
         auto &list = paints[surface];
         while (list.size() > regions.size()) {
@@ -158,8 +172,8 @@ SurfaceEffects::UpdateResult SurfaceEffects::Impl::Update(wlr_scene *scene,
                 wlr_scene_node_set_enabled(&p.tree->node, true);
                 result.scene_changed = true;
             }
-            const int x = view->x + int(std::floor(r.bounds.x)) - padding,
-                      y = view->y + int(std::floor(r.bounds.y)) - padding;
+            const int x = int(bounds.x) + int(std::floor(r.bounds.x)) - padding,
+                      y = int(bounds.y) + int(std::floor(r.bounds.y)) - padding;
             if (p.tree->node.x != x || p.tree->node.y != y) {
                 wlr_scene_node_set_position(&p.tree->node, x, y);
                 result.scene_changed = true;

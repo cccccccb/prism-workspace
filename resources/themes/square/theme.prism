@@ -1,4 +1,4 @@
-Theme("square", name: "Prism Square", schemaVersion: 2) {
+Theme("square", name: "Prism Square", schemaVersion: 3, motion: "prism") {
     Number("topbar_height", value: 30)
     Number("shell_top_height", value: 52)
     Number("topbar_inset", value: 10)
