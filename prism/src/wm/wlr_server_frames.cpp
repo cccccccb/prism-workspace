@@ -69,6 +69,7 @@ void WlrServer::HandleOutputCommit(const void *data)
     }
     if (event->state->committed & (WLR_OUTPUT_STATE_MODE | WLR_OUTPUT_STATE_SCALE |
                                    WLR_OUTPUT_STATE_TRANSFORM | WLR_OUTPUT_STATE_ENABLED)) {
+        group_geometry_.reset();
         surface_geometry_.reset();
         if (control_fade_) {
             control_fade_->Reset(surface_effects_.get());
@@ -86,6 +87,9 @@ void WlrServer::HandleSurfaceCommit(wlr_surface *surface)
 {
     if (surface_geometry_) {
         surface_geometry_->Restore();
+    }
+    if (group_geometry_) {
+        group_geometry_->Restore();
     }
     ++frame_work_.surface_commits;
     // Damage describes this commit only. Preserve it before later commits and
@@ -195,6 +199,7 @@ void WlrServer::HandleNewOutput(struct wlr_output *output)
                    "New output added: %s (%dx%d @ %.1fHz) -> Native wlr_scene Attached",
                    output->name, output->width, output->height, output->refresh / 1000.0f);
 
+    group_geometry_.reset();
     surface_geometry_.reset();
     outputs_.push_back(std::move(wlr_out));
     ArrangeXdgViews();
@@ -206,6 +211,7 @@ void WlrServer::HandleNewOutput(struct wlr_output *output)
 
 void WlrServer::RemoveOutput(WlrOutput *output)
 {
+    group_geometry_.reset();
     surface_geometry_.reset();
     if (control_fade_) {
         control_fade_->Reset(surface_effects_.get());
@@ -273,9 +279,16 @@ void WlrServer::HandleOutputFrame(WlrOutput *output)
         }
         InvalidateEffects();
     }
+    if (group_geometry_ && group_geometry_->NeedsFrame()) {
+        if (!group_geometry_->Prepare()) {
+            group_geometry_.reset();
+        }
+        InvalidateEffects();
+    }
     const bool effects_updated = UpdateSurfaceEffects();
     const bool motion_active = (control_fade_ && control_fade_->Advance(surface_effects_.get())) ||
-                               (surface_geometry_ && surface_geometry_->NeedsFrame());
+                               (surface_geometry_ && surface_geometry_->NeedsFrame()) ||
+                               (group_geometry_ && group_geometry_->NeedsFrame());
     // The headless backend can emit periodic frame events while idle. Damage
     // and needs_frame are the same wlroots 0.18 gates used by scene commit.
     // Callback-only commits set needs_frame through wlr_scene_surface.
@@ -346,6 +359,15 @@ void WlrServer::HandleOutputFrame(WlrOutput *output)
             UpdateXdgPointerFocus(static_cast<std::uint32_t>(core::CurrentTimeNs() / 1000000));
         }
 
+        if (group_geometry_) {
+            const bool submitted = commit_ok && commit_sequence != output->wlr_output->commit_seq;
+            if (group_geometry_->SubmittedFrame(submitted)) {
+                group_geometry_.reset();
+                InvalidateEffects();
+            }
+            UpdateXdgPointerFocus(static_cast<std::uint32_t>(core::CurrentTimeNs() / 1000000));
+        }
+
         // 3. Send frame_done to client surfaces
         struct timespec now;
         clock_gettime(CLOCK_MONOTONIC, &now);
@@ -366,7 +388,8 @@ void WlrServer::HandleOutputFrame(WlrOutput *output)
 
     frame_cpu_.Record((core::CurrentTimeNs() - frame_start) / 1e6);
 
-    if (motion_active || (surface_geometry_ && surface_geometry_->NeedsFrame())) {
+    if (motion_active || (surface_geometry_ && surface_geometry_->NeedsFrame()) ||
+        (group_geometry_ && group_geometry_->NeedsFrame())) {
         wlr_output_schedule_frame(output->wlr_output);
     }
     // The scene/backend schedule real damage and callback demand. Successful
@@ -507,7 +530,7 @@ void WlrServer::HandleEffectsIdle(void *data)
 {
     auto *server = static_cast<WlrServer *>(data);
     server->effects_idle_ = nullptr;
-    if (server->surface_geometry_) {
+    if (server->surface_geometry_ || server->group_geometry_) {
         server->ScheduleFrames(FrameReason::Layout);
     } else {
         server->UpdateSurfaceEffects();

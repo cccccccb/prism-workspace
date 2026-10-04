@@ -51,6 +51,7 @@ void CheckPackages()
     const auto root = std::filesystem::path(PRISM_SOURCE_ROOT) / "resources";
     for (const auto *id : {"prism", "subtle", "instant"}) {
         const auto motion = theme::LoadMotion(root / "motions", id);
+        assert(contracts::FindMotion(motion, "group.geometry"));
         auto snapshot = theme::LoadTheme(root / "themes", "glass", 1);
         std::ifstream input(root / "themes/glass/theme.prism");
         std::string source((std::istreambuf_iterator<char>(input)), {});

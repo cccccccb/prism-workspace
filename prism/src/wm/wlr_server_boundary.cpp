@@ -62,7 +62,8 @@ void WlrServer::UpdateBoundaryControl()
     const auto output = PrimaryLogicalBounds();
     const bool held =
         boundary_drag_ || layout_controls_.HasPendingInput({view->instance}, launch::MonotonicNs());
-    const bool supported = outputs_.size() == 1 && outputs_.front()->wlr_output->enabled;
+    const bool supported =
+        !group_geometry_ && outputs_.size() == 1 && outputs_.front()->wlr_output->enabled;
     bool fullscreen = false;
     for (const auto &item : xdg_views_) {
         fullscreen |= item->mapped && item->visible && item->fullscreen && !item->shell_role;

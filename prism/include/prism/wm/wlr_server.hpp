@@ -91,6 +91,7 @@ struct WlrPointerBinding;
 class SurfaceEffects;
 class SurfaceFade;
 class SurfaceGeometry;
+class GroupSurfaceGeometry;
 struct WlrSurfaceWatch;
 
 struct FrameWorkCounters {
@@ -447,6 +448,7 @@ private:
     bool SetGroupMode(std::uint64_t workspace, contracts::LayoutGroupMode);
     bool ClearGroupFullscreen(std::uint64_t workspace);
     void RestoreDesktopGroup(bool all = false);
+    void ArrangeGroupTransition();
     void HandleShellUnavailable(int role);
     WlrXdgView *RecoveryTopbar() const;
     bool ConsumeGroupPointer(std::uint32_t button, std::uint32_t state, wlr_input_device *device);
@@ -491,6 +493,8 @@ private:
     WindowControl window_control_;
     std::unique_ptr<SurfaceFade> control_fade_;
     std::unique_ptr<SurfaceGeometry> surface_geometry_;
+    std::unique_ptr<GroupSurfaceGeometry> group_geometry_;
+    bool arranging_group_transition_{};
     std::optional<BoundaryPointer> boundary_pointer_;
     std::optional<BoundaryDrag> boundary_drag_;
     contracts::LayoutControlHandle boundary_handle_;

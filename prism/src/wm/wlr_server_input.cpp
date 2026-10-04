@@ -478,7 +478,7 @@ void WlrServer::HandleCursorAxis(uint32_t time_msec, int axis, double value, int
 
 void WlrServer::UpdateXdgPointerFocus(uint32_t time_msec)
 {
-    if (!windows_tree_ || !seat_ || !cursor_) {
+    if (arranging_group_transition_ || !windows_tree_ || !seat_ || !cursor_) {
         return;
     }
     UpdateBoundaryControl();
@@ -492,10 +492,12 @@ void WlrServer::UpdateXdgPointerFocus(uint32_t time_msec)
         // The default seat grab does not keep compositor hit testing on the
         // Down surface. Preserve this sequence across gaps and other windows.
         auto *focused = seat_->pointer_state.focused_surface;
+        auto *group_motion = group_geometry_ ? group_geometry_->ForSurface(focused) : nullptr;
         const bool moving = surface_geometry_ && focused &&
                             wlr_surface_get_root_surface(focused) ==
                                 surface_geometry_->View()->toplevel->base->surface;
-        if (moving ? surface_geometry_->Position(focused, cursor_->x, cursor_->y, sx, sy)
+        auto *motion = moving ? surface_geometry_.get() : group_motion;
+        if (motion ? motion->Position(focused, cursor_->x, cursor_->y, sx, sy)
                    : SurfacePosition(scene_, focused, cursor_->x, cursor_->y, sx, sy)) {
             wlr_seat_pointer_notify_motion(seat_, time_msec, sx, sy);
         } else {
@@ -507,12 +509,16 @@ void WlrServer::UpdateXdgPointerFocus(uint32_t time_msec)
     struct wlr_surface *surface = nullptr;
     for (auto *tree : {chrome_tree_, windows_tree_, background_tree_}) {
         wlr_scene_node *node{};
-        if (tree == windows_tree_ && surface_geometry_) {
+        if (tree == windows_tree_ && (surface_geometry_ || group_geometry_)) {
             wlr_scene_node *child;
             wl_list_for_each_reverse(child, &tree->children, link)
             {
-                if (child == &surface_geometry_->View()->scene_tree->node) {
-                    surface = surface_geometry_->Hit(cursor_->x, cursor_->y, sx, sy);
+                auto *motion = group_geometry_ ? group_geometry_->ForNode(child) : nullptr;
+                if (surface_geometry_ && child == &surface_geometry_->View()->scene_tree->node) {
+                    motion = surface_geometry_.get();
+                }
+                if (motion) {
+                    surface = motion->Hit(cursor_->x, cursor_->y, sx, sy);
                     if (surface) {
                         break;
                     }

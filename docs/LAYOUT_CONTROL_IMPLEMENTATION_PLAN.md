@@ -744,3 +744,17 @@ SurfaceGeometry 消费 `window.geometry`，布局一次确定目标，输出帧�
 
 验证：相关构建、动画核心测试 **3/3**、代码规范检查及 diff 空白检查通过。证据为
 `dist/validation/group-geometry-core-20261004/`。本步未重新打包或部署。
+
+## 16. 第八步 B：原生组沉浸往返（2026-10-04）
+
+接入 BSP 快照转换与 GroupSurfaceGeometry，普通分割布局/组沉浸共用一份候选帧，
+原生 buffer、效果和鼠标提交基线共同更新。Motion 包新增可选 `group.geometry`；
+缺少接口及不支持的拓扑使用立即布局。分隔线拖动仍保持直接跟手。
+
+首版范围、固定偏移不兼容的降级、焦点切换收束与 Shell 立即显隐见 Motion 规范第 10 节。
+后续优先在这些真实路径上评估帧成本，再扩展 Shell 呈现与布局切换；不把组过渡核心
+的数学保证当作实际 GPU 帧耗时或远程显示流畅度保证。
+
+验证：完整构建、CTest **81/81**、V3D/GLES 原生组/单窗门槛、真实 Host/launcher
+隔离会话及代码规范检查通过。证据为 `dist/validation/native-group-motion-20261004/`。
+当前安装桌面未替换，Topbar/Dock 联动滑动及动画性能量化仍属于后续工作。

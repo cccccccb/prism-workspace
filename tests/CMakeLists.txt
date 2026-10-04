@@ -566,3 +566,8 @@ add_executable(animation_group_geometry_test animation_group_geometry_test.cpp)
 target_link_libraries(animation_group_geometry_test PRIVATE prism_animation_core)
 target_compile_options(animation_group_geometry_test PRIVATE -UNDEBUG)
 add_test(NAME animation_group_geometry_test COMMAND animation_group_geometry_test)
+
+add_executable(group_geometry_layout_test group_geometry_layout_test.cpp)
+target_link_libraries(group_geometry_layout_test PRIVATE prism_core)
+target_compile_options(group_geometry_layout_test PRIVATE -UNDEBUG)
+add_test(NAME group_geometry_layout_test COMMAND group_geometry_layout_test)

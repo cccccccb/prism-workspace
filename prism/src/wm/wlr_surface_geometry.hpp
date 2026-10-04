@@ -24,6 +24,7 @@ public:
                const contracts::MotionTransition &spec);
     void Restore();
     bool Prepare();
+    bool PrepareExternal(animation::GeometrySample sample, contracts::ThemeDecoration style);
     bool SubmittedFrame(bool success);
     bool NeedsFrame() const noexcept;
     bool ValidTarget() const noexcept;

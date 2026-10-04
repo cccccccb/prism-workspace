@@ -75,6 +75,44 @@ bool WlrServer::SetGroupMode(std::uint64_t workspace, contracts::LayoutGroupMode
     return true;
 }
 
+void WlrServer::ArrangeGroupTransition()
+{
+    const auto before = GetLayoutSnapshot();
+    auto motion = std::move(group_geometry_);
+    if (motion) {
+        motion->Restore();
+    }
+    surface_geometry_.reset();
+    arranging_group_transition_ = true;
+    ArrangeXdgViews();
+    arranging_group_transition_ = false;
+    const auto after = GetLayoutSnapshot();
+
+    if (!theme_snapshot_ || boundary_drag_) {
+        UpdateXdgPointerFocus(static_cast<std::uint32_t>(core::CurrentTimeNs() / 1000000));
+        return;
+    }
+    if (!motion) {
+        motion = std::make_unique<GroupSurfaceGeometry>();
+    }
+    std::vector<WlrXdgView *> views;
+    for (const auto &view : xdg_views_) {
+        if (!view->shell_role && view->mapped && view->visible) {
+            views.push_back(view.get());
+        }
+    }
+    if (motion->Start(*before, *after, views, *theme_snapshot_)) {
+        group_geometry_ = std::move(motion);
+        for (auto *view : views) {
+            CancelTouchesForSurface(view->toplevel->base->surface);
+        }
+        CloseWindowControl();
+        UpdateBoundaryControl();
+        ScheduleFrames(FrameReason::Layout);
+    }
+    UpdateXdgPointerFocus(static_cast<std::uint32_t>(core::CurrentTimeNs() / 1000000));
+}
+
 bool WlrServer::ClearGroupFullscreen(std::uint64_t workspace)
 {
     bool changed = false;
@@ -120,7 +158,7 @@ void WlrServer::RestoreDesktopGroup(bool all)
     }
     changed = ClearGroupFullscreen(all ? 0 : workspace) || changed;
     if (changed) {
-        ArrangeXdgViews();
+        ArrangeGroupTransition();
         SynchronizeXdgFocus();
     }
 }
@@ -165,7 +203,7 @@ WlrServer::ApplyLayoutIntent(const contracts::LayoutControlRequest &request,
     if (request.intent == Intent::ExitImmersive) {
         ClearGroupFullscreen(request.target.workspace);
     }
-    ArrangeXdgViews();
+    ArrangeGroupTransition();
     SynchronizeXdgFocus();
 
     const auto snapshot = GetLayoutSnapshot();

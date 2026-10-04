@@ -258,6 +258,7 @@ void WlrServer::Stop()
         wl_event_source_remove(effects_idle_);
         effects_idle_ = nullptr;
     }
+    group_geometry_.reset();
     surface_geometry_.reset();
     if (control_fade_) {
         control_fade_->Reset(surface_effects_.get());

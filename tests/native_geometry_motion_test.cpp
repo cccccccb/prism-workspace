@@ -1,3 +1,4 @@
+#include "../prism/src/wm/wlr_group_geometry.hpp"
 #include "../prism/src/wm/wlr_surface_geometry.hpp"
 #include "fixtures/minimum_size_client.hpp"
 #include "fixtures/native_layout_fixture.hpp"
@@ -130,6 +131,66 @@ void CheckFailedCandidate(Fixture &f)
     wlr_scene_node_destroy(&scene->tree.node);
 }
 
+void TestGroupMotion(Fixture &f)
+{
+    auto &server = f.server;
+    const auto before = server.GetLayoutSnapshot();
+    const auto graph = wm::BuildGroupGeometry(*before);
+    assert(graph && graph->members.size() == 2);
+    const auto a = View(*before, f.first_permit.instance).target_bounds;
+    const auto b = View(*before, f.second_permit.instance).target_bounds;
+    Frames first(server, f.first->pid), second(server, f.second->pid);
+    f.Transition(contracts::LayoutControlIntent::EnterImmersive);
+    const auto target = View(*server.GetLayoutSnapshot(), f.first_permit.instance).target_bounds;
+    assert(target.height > a.height);
+    Until(server, [&] {
+        return !first.values.empty() && first.values.back().bounds.height > a.height + 2 &&
+               first.values.back().bounds.height < target.height - 2;
+    });
+    assert(first.values.size() == second.values.size());
+    for (std::size_t i = 0; i < first.values.size(); ++i) {
+        const auto &x = first.values[i].bounds;
+        const auto &y = second.values[i].bounds;
+        assert(x.y == y.y && x.height == y.height);
+        assert(y.x - x.x - x.width == b.x - a.x - a.width);
+    }
+    const auto sample = second.values.back();
+    f.Move(sample.bounds.x + sample.bounds.width / 2, sample.bounds.y + sample.bounds.height / 2);
+    auto *expected = Find(&server.GetScene()->tree.node, f.second->pid)->surface;
+    assert(server.GetSeat()->pointer_state.focused_surface == expected);
+    assert(std::abs(server.GetSeat()->pointer_state.sy - sample.source_height / 2.0) < 2);
+    const auto first_sample = first.values.back();
+    f.Move(first_sample.bounds.x + first_sample.bounds.width / 2,
+           first_sample.bounds.y + first_sample.bounds.height / 2);
+    f.Button(true);
+    auto *grabbed = Find(&server.GetScene()->tree.node, f.first->pid)->surface;
+    f.Move(first_sample.bounds.x + first_sample.bounds.width + 20,
+           first_sample.bounds.y + first_sample.bounds.height / 2);
+    assert(server.GetSeat()->pointer_state.focused_surface == grabbed);
+    assert(server.GetSeat()->pointer_state.sx > first_sample.source_width);
+    f.Button(false);
+    const auto count_a = f.Sync(*f.first).configures;
+    const auto count_b = f.Sync(*f.second).configures;
+    PumpFor(server, 30ms);
+    assert(f.Sync(*f.first).configures == count_a && f.Sync(*f.second).configures == count_b);
+
+    // Restore the whole group while it is still moving, without a client gesture timeout.
+    f.Key(KEY_F, true); // Super+Shift+F restores the group.
+    Until(server,
+          [&] { return first.values.back().bounds == a && second.values.back().bounds == b; });
+    PumpFor(server, 100ms);
+    const auto idle = server.GetFrameCount();
+    PumpFor(server, 100ms);
+    assert(server.GetFrameCount() == idle);
+
+    // Workspace switch cancels all member adapters together.
+    f.Transition(contracts::LayoutControlIntent::EnterImmersive);
+    f.Key(KEY_2);
+    f.Key(KEY_1);
+    f.Key(KEY_F, true);
+    f.Settle();
+}
+
 void TestMotion(wm::WlrServer &server, ControlPeer &peer)
 {
     Fixture f(server, peer);
@@ -139,8 +200,11 @@ void TestMotion(wm::WlrServer &server, ControlPeer &peer)
     theme.schema_version = 3;
     theme.motion = {"fixture",
                     {{"panel.visibility", 0, contracts::MotionEasing::Linear},
-                     {"window.geometry", 500, contracts::MotionEasing::Linear}}};
+                     {"window.geometry", 500, contracts::MotionEasing::Linear},
+                     {"group.geometry", 500, contracts::MotionEasing::Linear}}};
     assert(server.InstallTheme(theme).success);
+    TestGroupMotion(f);
+    f.FocusFirst();
     Frames frames(server, f.first->pid);
     const auto original = View(*server.GetLayoutSnapshot(), f.first_permit.instance).target_bounds;
     f.Key(KEY_F);

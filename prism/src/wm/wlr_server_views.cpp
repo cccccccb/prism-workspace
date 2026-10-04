@@ -160,6 +160,9 @@ void WlrServer::HandleXdgMap(WlrXdgView *view)
 
 void WlrServer::HandleXdgUnmap(WlrXdgView *view)
 {
+    if (group_geometry_ && group_geometry_->ForView(view)) {
+        group_geometry_.reset();
+    }
     if (surface_geometry_ && surface_geometry_->View() == view) {
         surface_geometry_.reset();
     }
@@ -194,6 +197,9 @@ void WlrServer::HandleXdgUnmap(WlrXdgView *view)
 
 void WlrServer::HandleXdgDestroy(WlrXdgView *view)
 {
+    if (group_geometry_ && group_geometry_->ForView(view)) {
+        group_geometry_.reset();
+    }
     if (surface_geometry_ && surface_geometry_->View() == view) {
         surface_geometry_.reset();
     }
@@ -228,6 +234,7 @@ void WlrServer::SetXdgFullscreen(WlrXdgView *view, bool enabled)
     if (view->fullscreen == enabled) {
         return;
     }
+    group_geometry_.reset();
     auto motion = std::move(surface_geometry_);
     if (motion && motion->View() != view) {
         motion.reset();
@@ -292,6 +299,9 @@ void WlrServer::HandleXdgMaximize(WlrXdgView *view)
 
 void WlrServer::ArrangeXdgViews()
 {
+    if (group_geometry_) {
+        group_geometry_->Restore();
+    }
     if (surface_geometry_) {
         surface_geometry_->Restore();
     }
@@ -404,6 +414,9 @@ void WlrServer::ArrangeXdgViews()
             }
         }
     }
+    if (group_geometry_ && !group_geometry_->ValidTarget()) {
+        group_geometry_.reset();
+    }
     if (surface_geometry_ && !surface_geometry_->ValidTarget()) {
         surface_geometry_.reset();
     }
@@ -441,6 +454,9 @@ void WlrServer::FocusXdgView(WlrXdgView *view)
 {
     if (!view || !view->mapped || view->shell_role || !view->managed) {
         return;
+    }
+    if (group_geometry_ && focused_xdg_view_ != view) {
+        group_geometry_.reset();
     }
     if (surface_geometry_ && surface_geometry_->View() != view) {
         surface_geometry_.reset();

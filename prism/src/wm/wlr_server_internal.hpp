@@ -10,6 +10,7 @@
 #include "prism/wm/surface_effects.hpp"
 #include "prism/wm/wlr_server.hpp"
 #include "prism/wm/xdg_view.hpp"
+#include "wlr_group_geometry.hpp"
 #include "wlr_surface_fade.hpp"
 #include "wlr_surface_geometry.hpp"
 

@@ -165,6 +165,7 @@ contracts::ThemeApplied WlrServer::InstallTheme(const contracts::ThemeSnapshot &
         applied.detail = error.what();
         return applied;
     }
+    group_geometry_.reset();
     surface_geometry_.reset();
     if (control_fade_) {
         control_fade_->Reset(surface_effects_.get());

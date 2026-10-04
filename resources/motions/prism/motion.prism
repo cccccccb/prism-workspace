@@ -1,6 +1,7 @@
 MotionSet("prism", version: 1) {
     Timing("spatial", durationMs: 240, easing: "easeInOutCubic")
     Timing("feedback", durationMs: 120, easing: "easeOutCubic")
+    Transition("group.geometry", timing: "spatial")
     Transition("window.geometry", timing: "spatial")
     Transition("panel.visibility", timing: "feedback")
     Transition("control.feedback", timing: "feedback")

@@ -156,6 +156,7 @@ void SurfaceGeometry::Start(contracts::LogicalRect from, contracts::LogicalRect 
                                            static_cast<animation::Easing>(spec.easing)};
     geometry_.Reset(from);
     geometry_.Retarget(target, duration, now);
+    geometry_.Sample(now);
     decoration_.Cancel();
     decoration_.StartDurationAt(0, 1, duration, now);
     from_style_ = submitted_style_ = from_style;
@@ -228,17 +229,23 @@ void SurfaceGeometry::Transform()
 
 bool SurfaceGeometry::Prepare()
 {
+    const auto now = clock_.NowNs();
+    return PrepareExternal(geometry_.Sample(now),
+                           Mix(from_style_, target_style_, decoration_.SampleAt(now).value));
+}
+
+bool SurfaceGeometry::PrepareExternal(animation::GeometrySample sample,
+                                      contracts::ThemeDecoration style)
+{
     Restore();
     if (!ValidTarget()) {
         return false;
     }
-    const auto now = clock_.NowNs();
-    candidate_ = geometry_.Sample(now);
+    candidate_ = sample;
     auto &r = candidate_.bounds;
     r = {std::round(r.x), std::round(r.y), std::max(1.0, std::round(r.width)),
          std::max(1.0, std::round(r.height))};
     source_ = Source(view_);
-    const auto style = Mix(from_style_, target_style_, decoration_.SampleAt(now).value);
     if (!Capture(&view_->scene_tree->node)) {
         Restore();
         return false;
@@ -258,7 +265,8 @@ bool SurfaceGeometry::SubmittedFrame(bool success)
     submitted_ = candidate_;
     submitted_source_ = source_;
     submitted_style_ = view_->presentation->decoration;
-    return !geometry_.Running() && source_.width == view_->width && source_.height == view_->height;
+    return candidate_.state != animation::MotionState::Running && source_.width == view_->width &&
+           source_.height == view_->height;
 }
 
 bool SurfaceGeometry::NeedsFrame() const noexcept

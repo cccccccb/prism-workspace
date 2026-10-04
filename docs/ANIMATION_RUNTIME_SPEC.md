@@ -7,7 +7,7 @@
 | 时间核心 | 可注入单调时钟、绝对时间时长曲线与标量弹簧求值、重定向/暂停/取消 | 弹簧接入 Scene 和 DSL；WM、装饰复用同一核心 |
 | DSL 与 Scene | `.transition`、`.state` 编译为 typed 描述符；Progress.value、指定 foreground 与 Visual 的局部呈现属性在 Scene 覆盖层求值 | 交互节点整体移动、效果/输入同代协议；显式 Clip/关键帧另行设计 |
 | SDK 提交 | UI 线程采样，独立动画期限收窄 `Pump` 等待；worker 发帧机会，UI 应答后才放行像素候选；Pi V3D headless 功能门槛已通过 | 物理输出/VNC 对照、精确呈现测量、通用保留层与渲染线程合成采样 |
-| WM/BSP | 面板透明度及单输出单窗全屏/恢复几何接入时间核心，鼠标使用已提交矩形 | BSP 组级共同边界、多输出与触屏过渡 |
+| WM/BSP | 面板透明度、单窗全屏/恢复与单输出组沉浸共享边界过渡，鼠标使用已提交矩形 | 拓扑变化、多输出与触屏过渡 |
 
 > 2026-10-04 扩展：独立 MotionSet、Theme schema 3、命名 Transition 与原生面板开合见
 > [Motion 文件与呈现适配规范](MOTION_PRESENTATION_SPEC.md)。字面量 Transition 仍兼容；

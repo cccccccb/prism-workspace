@@ -33,6 +33,8 @@ add_library(prism_core
     src/wm/wlr_server_layout_control.cpp
     src/wm/wlr_server_window_control.cpp
     src/wm/wlr_surface_fade.cpp
+    src/wm/wlr_group_geometry.cpp
+    src/wm/wlr_group_geometry_layout.cpp
     src/wm/wlr_surface_geometry.cpp
     src/wm/wlr_server_boundary.cpp
     src/wm/wlr_server_resize.cpp
