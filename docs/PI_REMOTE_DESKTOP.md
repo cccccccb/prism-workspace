@@ -198,3 +198,24 @@ VNC RFB 3.8 握手通过。外观与手感由用户连接后确认。
 FirstPresented，后改为 Ready + 可见 Host 首帧检查。该次重启恢复不代表已解决首次
 加载预算的根因。证据目录：`dist/validation/prism-v19-deploy/`，最终为
 `deployment.json`、`journal-restarted.log`、`status-final.json`、`tree-final.json`。
+
+### v20 多标签记事本部署（2026-10-04）
+
+源码提交 `44733c8`，正式包 `dist/deb/prism-wm_0.1.0-20_arm64.deb`，SHA-256：
+`7803551f04caa9bd984e2b9944f4d1dd0bdcab9e044f7f633007a6bb04bcc5d5`。
+包含通用 TextField/TextArea、业务编辑/关闭契约和 Prism Notepad；无测试、probe 或 ImGui。
+
+已安装并重启两个 remote 服务，继续 active/enabled；`dpkg -V prism-wm` 无差异。
+沿用 1280×720@90Hz、WayVNC 上限 120 FPS、loopback 5900 和 Viewer 本地箭头。
+Desktop/Topbar/Dock 和 Music/Preferences/Notepad 均完成 V3D 首帧；记事本经正式
+launcher 启动，位于工作区 1 右侧并获得焦点。七个应用实例（包含隐藏的 LayoutControls）
+之外的空闲预热 Host 不属于可见窗口。WM commit_failures 为 0，VNC RFB 3.8 握手通过。
+
+Windows 保持原 SSH 隧道与 Viewer 参数，断开后重新连接即可查看。记事本顶部新建
+图标创建标签，点击标签切换，× 关闭对应标签；有修改时可取消、放弃或保存并关闭。
+首次保存填写绝对路径。实际鼠标、键盘及最终视觉效果仍待用户通过 VNC 确认。
+
+打包初轮发现旧 `layout_control.cpp.o` 调试信息重定位损坏，保留该生成物并重新编译
+后成功；未修改生产源码绕过链接错误。构建日志、包清单、服务日志、窗口树和状态记录
+位于 `dist/validation/prism-v20-deploy/`。业务与 32 组主题/布局检查结果见
+`dist/validation/notepad-ui-20261004/`。
