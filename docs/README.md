@@ -30,7 +30,7 @@ Skill 与参考资料只有一份正文，统一在仓库维护。人和 AI 使�
 | 渲染调度与失效传播 | [RENDER_SCHEDULING_AND_INVALIDATION](RENDER_SCHEDULING_AND_INVALIDATION.md) |
 | 动画运行时与 DSL 契约 | [ANIMATION_RUNTIME_SPEC](ANIMATION_RUNTIME_SPEC.md)（Paint Transition、StateRule 与装饰呈现；保留层后续实施） |
 | 通用交互状态与桌面控制区 | [INTERACTION_AND_PRESENTATION_SPEC](INTERACTION_AND_PRESENTATION_SPEC.md)（固定 InteractionTarget、Visual、状态规则与 Shell 接入；成功提交输入快照、鼠标组沉浸与恢复；鼠标分隔线及窗口控制见专项计划，触屏交互延期） |
-| 独立动效文件与呈现适配 | [MOTION_PRESENTATION_SPEC](MOTION_PRESENTATION_SPEC.md)（MotionSet、Theme schema 3、命名 Transition、面板开合、单窗全屏/恢复及鼠标映射；组级协调后续实施） |
+| 独立动效文件与呈现适配 | [MOTION_PRESENTATION_SPEC](MOTION_PRESENTATION_SPEC.md)（MotionSet、Theme schema 3、命名 Transition、面板开合、单窗全屏/恢复及鼠标映射；共享边界协调核心；组级原生适配后续实施） |
 | 动画与渲染优化假设 | [ANIMATION_RENDERING_HYPOTHESES](ANIMATION_RENDERING_HYPOTHESES.md) |
 | 客户端渲染线程迁移 | [CLIENT_RENDER_THREAD_MIGRATION](CLIENT_RENDER_THREAD_MIGRATION.md) |
 | Wayland 生命周期 | [WAYLAND_LIFECYCLE](WAYLAND_LIFECYCLE.md) |

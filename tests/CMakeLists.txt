@@ -561,3 +561,8 @@ target_include_directories(native_geometry_motion_test PRIVATE "${CMAKE_BINARY_D
 target_compile_options(native_geometry_motion_test PRIVATE -UNDEBUG)
 add_test(NAME native_geometry_motion_test COMMAND native_geometry_motion_test)
 set_tests_properties(native_geometry_motion_test PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+
+add_executable(animation_group_geometry_test animation_group_geometry_test.cpp)
+target_link_libraries(animation_group_geometry_test PRIVATE prism_animation_core)
+target_compile_options(animation_group_geometry_test PRIVATE -UNDEBUG)
+add_test(NAME animation_group_geometry_test COMMAND animation_group_geometry_test)
