@@ -26,7 +26,7 @@ std::unique_ptr<Scene::Node> Scene::MakeShallowNode(Blueprint blueprint, std::si
     node->id = {static_cast<std::uint32_t>(nodes_.size()), 1};
     Node *raw = node.get();
     nodes_.push_back(raw);
-    if (blueprint.kind < Kind::Row || blueprint.kind > Kind::Visual) {
+    if (blueprint.kind < Kind::Row || blueprint.kind > Kind::TextArea) {
         throw std::invalid_argument("Invalid Blueprint node kind");
     }
     node->kind = blueprint.kind;
@@ -139,6 +139,11 @@ std::unique_ptr<Scene::Node> Scene::MakeShallowNode(Blueprint blueprint, std::si
     if (blueprint.gesture &&
         (blueprint.kind != Kind::InteractionTarget || !ValidGestureSpec(*blueprint.gesture))) {
         throw std::invalid_argument("Invalid Blueprint gesture");
+    }
+    if ((node->kind == Kind::TextField || node->kind == Kind::TextArea) &&
+        (node->action.empty() || !scene_detail::ValidEditorText(node->kind, node->text))) {
+        throw std::invalid_argument(
+            "Text editor requires a nonempty action and bounded UTF-8 text");
     }
     node->gesture = std::move(blueprint.gesture);
     PrepareNodeStates(*node, std::move(blueprint.state_rules));

@@ -56,6 +56,9 @@ void Scene::ApplyCachedProperty(Node &node, DslProperty id, const PropertyValue 
         node.style.clip = std::get<bool>(value);
         break;
     case DslProperty::Text:
+        if (node.kind == Kind::TextField || node.kind == Kind::TextArea) {
+            node.editor.Assign(std::get<std::string>(value));
+        }
         node.text = std::get<std::string>(value);
         break;
     case DslProperty::Action:

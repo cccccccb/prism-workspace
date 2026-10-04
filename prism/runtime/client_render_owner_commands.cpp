@@ -12,6 +12,11 @@ namespace prism::sdk {
 bool ClientRenderOwner::DrainCommands()
 {
     while (auto command = commands_.TryPop()) {
+        if (std::holds_alternative<runtime::AcceptCloseCommand>(*command)) {
+            window_.AcceptCloseRequest();
+            PublishStatus();
+            return true;
+        }
         if (auto *installed = std::get_if<runtime::InstallUiCommand>(&*command)) {
             if (!installed->ui.owner || !installed->ui.generation) {
                 throw std::runtime_error("Invalid render UI installation");

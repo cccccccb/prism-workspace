@@ -3,6 +3,7 @@
 #include "prism/runtime/dsl_schema.hpp"
 #include "prism/runtime/presentation.hpp"
 #include "prism/runtime/scene.hpp"
+#include "prism/runtime/text_buffer.hpp"
 #include <algorithm>
 #include <cmath>
 #include <set>
@@ -28,6 +29,8 @@ struct Scene::Node {
     std::set<DslProperty> explicit_properties;
     std::vector<ThemeRef> theme_refs;
     std::uint64_t allowed_properties{UINT64_MAX};
+    TextBuffer editor;
+    std::vector<std::pair<std::size_t, contracts::LogicalRect>> text_cells;
     std::string text;
     std::string action;
     std::string icon;
@@ -94,6 +97,7 @@ struct Scene::InputState {
         std::optional<contracts::GesturePhase> terminal;
     };
 
+    std::string clipboard;
     std::vector<Gesture> gestures;
     std::vector<Pointer> pointers;
     std::vector<Focus> focus;
@@ -142,6 +146,16 @@ inline bool ValidSize(contracts::LogicalSize s)
 {
     return std::isfinite(s.width) && std::isfinite(s.height) && s.width > 0 && s.height > 0 &&
            s.width <= 16384 && s.height <= 16384;
+}
+
+inline bool ValidEditorText(Kind kind, const PropertyValue &value)
+{
+    if (kind != Kind::TextField && kind != Kind::TextArea) {
+        return true;
+    }
+    const auto *text = std::get_if<std::string>(&value);
+    return text && TextBuffer::Valid(*text) &&
+           (kind != Kind::TextField || text->find_first_of("\r\n") == std::string::npos);
 }
 
 inline bool ValidPropertyValue(DslProperty id, const PropertyValue &value)

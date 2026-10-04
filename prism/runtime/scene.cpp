@@ -104,7 +104,9 @@ bool Scene::AcceptsBinding(std::string_view name, const PropertyValue &value) co
         return false;
     }
     for (const auto &target : it->second) {
-        if (!scene_detail::ValidPropertyValue(target.property, value)) {
+        if (!scene_detail::ValidPropertyValue(target.property, value) ||
+            (target.property == DslProperty::Text &&
+             !scene_detail::ValidEditorText(target.node->kind, value))) {
             return false;
         }
     }
@@ -118,7 +120,9 @@ bool Scene::SetBinding(std::string_view name, PropertyValue value)
         return false;
     }
     for (const auto &target : it->second) {
-        if (!scene_detail::ValidPropertyValue(target.property, value)) {
+        if (!scene_detail::ValidPropertyValue(target.property, value) ||
+            (target.property == DslProperty::Text &&
+             !scene_detail::ValidEditorText(target.node->kind, value))) {
             return false;
         }
     }
@@ -146,6 +150,9 @@ bool Scene::SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyVa
           property == DslProperty::InputShape)) ||
         (property >= DslProperty::TranslateX && node->kind != Kind::Visual) ||
         !scene_detail::ValidPropertyValue(property, value)) {
+        return false;
+    }
+    if (property == DslProperty::Text && !scene_detail::ValidEditorText(node->kind, value)) {
         return false;
     }
     const auto previous = CurrentProperty(*node, property);
@@ -340,6 +347,13 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
         }
     }
 
+    for (auto &item : snapshot.nodes) {
+        if (auto *node = Find(item.id);
+            node && IsVisible(*node) &&
+            (node->kind == Kind::TextField || node->kind == Kind::TextArea)) {
+            PrepareTextVisual(*node, item);
+        }
+    }
     UpdateInputSnapshot();
 
     auto next = RenderTreeBuilder::Build(snapshot, render_tree_.get());

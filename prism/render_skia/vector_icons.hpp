@@ -46,6 +46,45 @@ public:
 
         using I = contracts::VectorIcon;
         switch (icon.icon) {
+        case I::Document:
+        case I::DocumentAdd:
+            path({{14, 3}, {5, 3}, {5, 21}, {19, 21}, {19, 8}, {14, 3}});
+            path({{14, 3}, {14, 8}, {19, 8}});
+            line(8, 12, 15, 12);
+            if (icon.icon == I::DocumentAdd) {
+                line(11.5, 9, 11.5, 15);
+            } else {
+                line(8, 16, 14, 16);
+            }
+            break;
+        case I::Save:
+            path({{4, 3}, {17, 3}, {21, 7}, {21, 21}, {3, 21}, {3, 3}, {4, 3}});
+            path({{7, 3}, {7, 9}, {16, 9}, {16, 3}});
+            path({{7, 21}, {7, 14}, {17, 14}, {17, 21}});
+            line(13, 5, 13, 7);
+            break;
+        case I::Close:
+            line(6, 6, 18, 18);
+            line(18, 6, 6, 18);
+            break;
+        case I::ArrowLeft:
+            path({{14, 5}, {7, 12}, {14, 19}});
+            break;
+        case I::ArrowRight:
+            path({{10, 5}, {17, 12}, {10, 19}});
+            break;
+        case I::Trash:
+            line(4, 6, 20, 6);
+            path({{9, 6}, {9, 3}, {15, 3}, {15, 6}});
+            path({{6, 6}, {7, 21}, {17, 21}, {18, 6}});
+            line(10, 10, 10, 17);
+            line(14, 10, 14, 17);
+            break;
+        case I::Info:
+            drawOval(SkRect::MakeXYWH(3, 3, 18, 18), stroke);
+            line(12, 11, 12, 17);
+            drawOval(SkRect::MakeXYWH(11.2, 6.5, 1.6, 1.6), fill);
+            break;
         case I::Fullscreen:
             path({{9, 4}, {4, 4}, {4, 9}});
             path({{15, 4}, {20, 4}, {20, 9}});

@@ -195,6 +195,11 @@ typedef struct PrismAppModuleV1 {
     void (*on_gesture)(void *, const PrismGestureEventV1 *);
     void (*on_layout_state)(void *, const PrismLayoutStateV1 *);
     void (*on_layout_control_result)(void *, const PrismLayoutControlResultV1 *);
+    /* Optional owner-thread edit notification; UTF-8 views borrowed for this call.
+     * action identifies the editor, text is its complete current value. */
+    void (*on_text_edit)(void *, PrismStringViewV1 action, PrismStringViewV1 text);
+    /* Optional: return zero to keep the window open, nonzero to accept close. */
+    int32_t (*on_close_requested)(void *);
 } PrismAppModuleV1;
 
 typedef const PrismAppModuleV1 *(*PrismAppEntryV1)(void);

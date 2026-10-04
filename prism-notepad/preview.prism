@@ -1,0 +1,7 @@
+Card(material: "window", padding: "@window_padding", clip: true) {
+    VStack(align: "center", justify: "center", spacing: 10) {
+        Icon("document", width: 32, height: 32, foreground: "@accent")
+        Text("Notepad", font: "@font_title", foreground: "@text")
+        Text("Preparing your writing space", font: "@font_caption", foreground: "@mutedText")
+    }
+}

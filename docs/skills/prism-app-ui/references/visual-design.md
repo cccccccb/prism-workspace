@@ -1,6 +1,8 @@
 # Prism 应用视觉设计参考
 
-日期：2026-09-27。依据当前主题包、客户端 DSL schema 与真实 demo 编写。
+更新：2026-10-04。依据当前主题包和客户端 DSL 契约编写。
+设计尺度见 [字号、间距与页面配方](design-system.md)，动效与版本差异见
+[动效与坑点](motion-and-pitfalls.md)；普通设计任务无需先阅读旧应用源码。
 本文供应用作者与 AI 开发者设计界面使用，重点是视觉、布局与交互反馈；启动、模块
 ABI、异步任务及包结构请使用本 skill 的主指南和仓库对应规范。
 
@@ -36,8 +38,8 @@ Prism 的默认方向是图标为主、文字为辅的简洁桌面。参考 mac-
 现有 Shell 是普通应用的视觉参考：
 
 - Topbar 只保留 Prism 品牌和时间文字，连接、电源等状态用图标表达；不展示 Wi-Fi
-  名称或 AC 等附加文字。顶部短横线后续作为平铺组的控制入口；第二阶段源码已接入
-  固定目标中的悬停/按下反馈，当前没有全屏/组操作 action。
+  名称或 AC 等附加文字。顶部短横线已接入鼠标组沉浸/恢复和局部反馈；
+  普通应用不能复制该受信任系统控制接口。
 - Dock 分为应用中心、固定常用应用、已打开应用三段，使用分割线区分。运行应用
   下方使用清楚的短横线；固定与运行区域出现同一应用不代表创建了两个实例。
 - 横线色彩与厚度来自主题，间距让图标、分割线和运行指示各自清晰。玻璃以烟灰
@@ -47,7 +49,7 @@ Prism 的默认方向是图标为主、文字为辅的简洁桌面。参考 mac-
 Shell 角色。应用自己的选中横线表达实际页面/选项状态，运行指示由平台实例状态决定。
 控制横线的固定感应区、视觉子树、状态规则和系统权限见
 [交互与呈现规范](../../../INTERACTION_AND_PRESENTATION_SPEC.md)。InteractionTarget、Visual
-与受限 `.state` 已加入第二阶段源码，需匹配版本的 Host；触摸/组控制仍未实现。普通应用
+与受限 `.state`、鼠标组控制已进入 v19；新的触屏系统操作仍延期。普通应用
 不能凭 action 名称取得系统布局控制权限。
 
 ## 2. 会话主题与独立明暗配色
@@ -67,7 +69,7 @@ Shell 角色。应用自己的选中横线表达实际页面/选项状态，运�
 “Glass”写成“Dark”的同义词，也不应通过一个窗口自行改色来假装全局主题已切换。
 选择指示应由实际主题结果更新；请求发出时只表达处理中，拒绝时保留实际选中项。
 
-当前主题 schema v2 的根 token 是 dark 基础，`Palette("light")` 覆盖已声明的同
+当前主题 schema 3（兼容 schema 2 配色语义）的根 token 是 dark 基础，`Palette("light")` 覆盖已声明的同
 类型 token；材料及其引用随后重新解析。以下是主题文件中的**摘录**，不是完整主题包：
 
 ```prism
@@ -335,7 +337,8 @@ center 子节点按自然宽度居中；不要给中心 Text 一个大固定宽�
 
 ### 5.1 合法名称列表
 
-以下为当前 schema 的全部 27 个名字，大小写与连字符必须一致：
+v19 可用的图标名单如下，大小写与连字符必须一致。后续源码图标另外列出，不能
+因文档存在该名字就假定旧 Host 可用：
 
 ```text
 grid music settings folder terminal
@@ -343,9 +346,12 @@ play pause previous next volume
 wifi wifi-off battery search sun moon power
 check chevron refresh error
 cpu memory heart layers rectangle drop
+fullscreen restore split-horizontal split-vertical
 ```
 
-`favorites`、`close`、`spinner`、`warning`、`sliders`、`wifi_off` 等都不是现有合法名。
+工作区新增图标：`document`、`document-add`、`save`、`close`、`arrow-left`、
+`arrow-right`、`trash`、`info`，需匹配新版源码 Host，v19 不包含。
+`favorites`、`spinner`、`warning`、`sliders`、`wifi_off` 等仍不是合法名。
 需要新图标时扩展通用 schema/向量实现及其验证，不在应用中传未知字符串期待兜底。
 `Icon($playback_icon, ...)` / `IconButton($playback_icon, ...)` 可以动态更新，但绑定
 值仍须属于合法名单。不要用 emoji、Unicode 字符或平台字体 glyph 假装统一图标。
@@ -410,7 +416,8 @@ InteractionTarget，声明必须位于其 Visual 子树。规则只接受数字/
 只有 Visual 可声明 translateX/Y（−8192..8192）、scaleX/Y（0.01..8）、originX/Y（0..1）
 及 opacity（0..1）；原点默认 0.5，其余默认平移 0、缩放/opacity 1。原点不能 Transition。
 Visual.background 与子树内直接绘制节点 foreground 可响应状态；状态不能改布局、资源、
-action、材料、模糊或阴影。时长/缓动仍为字面量，没有 MotionSpec 或减弱动效 DSL。
+action、材料、模糊或阴影。推荐引用命名 motion，旧 durationMs/easing 字面量仍可用；
+两种形式互斥。instant 提供零时长参数，但不是自动读取系统减弱动效偏好的接口。
 
 Visual 不能作为组件根，其整个子树不接受输入，也不能放 InteractionTarget、Slot、action、
 material、backdropBlur 或 inputShape；零值也禁止。普通 Card 的材料可放在 Visual 外部。
@@ -506,17 +513,19 @@ Card(height: 120, material: "card", padding: 8, clip: true) {
 | 图标按钮、文字按钮、Progress、Toggle、Separator | 已有；业务状态与动作仍由 module 维护 |
 | hover/pressed/capture/focus、Tab/Shift+Tab、Enter/Space | 源码已有统一状态；主按钮与键盘释放时激活，取消不触发 action；仍非完整无障碍系统 |
 | Interface v2 critical/deferred 与稳定 Slot | 已有；声明式加载顺序不是动画/滚动布局能力 |
-| Slider 拖动、滚动容器、虚拟列表、TextInput | 当前视觉 schema 未提供，不能写伪 API |
+| Slider 拖动、通用滚动容器、虚拟列表 | 当前视觉 schema 未提供，不能写伪 API |
+| TextField / TextArea | 工作区源码已补基础编辑；需新版 Host，v19 不包含；非完整 IME/系统剪贴板 |
 | CSS gradient/box-shadow、百分比尺寸、media query | 当前 DSL 未提供；使用现有类型化属性，Visual.opacity 也不是任意 CSS 样式 |
 | 自动换行/省略号/自动缩字、任意自定义字体属性 | 未提供对应声明式属性，不作隐式假设 |
 | Paint Transition 与单调帧时间 | 已有 Progress.value、指定 foreground，并扩展 Visual 的背景、平移/缩放/opacity；见[动画规范](../../../ANIMATION_RUNTIME_SPEC.md)，不代表旧部署包已有 |
 | 固定目标与局部状态样式 | 第二阶段源码已有 InteractionTarget/Visual/.state；边界见下方示例及[规范](../../../INTERACTION_AND_PRESENTATION_SPEC.md) |
-| 触摸、交互节点整体变换、组/窗口手势、GPU 保留层 | 尚未实现；当前装饰动画走 Paint，不能以永久 loop/tick 模拟 |
+| 鼠标组/窗口手势与 WM 空间运动 | v19 已支持受信任系统控制及限定范围过渡；第三方不能借此申请布局权限 |
+| 触屏系统操作、客户端交互子树整体变换、GPU 保留层动画 | 不作为当前第三方可用能力；装饰动画走 Paint，不能以永久 loop/tick 模拟 |
 | 节点增量布局、DisplayList 分块缓存 | 延后设计；现有 render tree 复用不是这些功能已完成 |
 | 安全局部像素修复 | 已有 damage/history/buffer-age 与保守完整回退；不改变布局功能边界 |
 | 任意第三方 Wayland 客户端内部主题统一 | 未使用 Prism SDK 的客户端内部内容仍由它维护 |
 
-鼠标拖拽 BSP 比例、完整应用抽屉、真实音频等不能靠绘制对应图标就宣称实现。
+鼠标拖拽 BSP 比例已由私有 Shell 接入；完整应用抽屉、真实音频等不能靠绘制图标就宣称实现。
 Music 当前播放状态/进度仍是业务 demo；UI 设计参考不扩大这些功能的承诺。
 
 ## 9. 交付前检查与源码索引
@@ -580,3 +589,25 @@ InteractionTarget(width: 48, height: 40) {
 不读取 motion 文件、不自建逐帧 timer。`instant` 的零时长用于立即完成反馈。
 窗口/面板整体呈现由 WM 适配层执行，应用不能借此变更 BSP 或输入权限。
 当前能力与限制详见 [Motion 规范](../../../MOTION_PRESENTATION_SPEC.md)。
+
+## 文本编辑补充（2026-10-04，Notepad 源码）
+
+本次源码新增正式 `TextField` / `TextArea`，先前章节所述文本输入缺口已由此补齐基础能力。
+使用方式、typed edit/close ABI 与现有限制见 [通用文本编辑规范](../../../TEXT_EDITING.md)。
+它们提供控件内滚动，不代表通用 Scroll/List、IME 或系统剪贴板已经实现。
+新应用参考 [Notepad](../../../../prism-notepad/README.md)；必须搭配本次源码 Host。
+
+### 通用文件操作图标与 Notepad 动效（2026-10-04）
+
+新增合法图标：`document`、`document-add`、`save`、`close`、`arrow-left`、`arrow-right`、
+`trash`、`info`。这些是公共向量资源，不依赖字体，也没有应用专用绘制分支；此前列表中
+`close` 不可用的说明不再适用于当前源码。
+
+Notepad 使用固定 InteractionTarget + Visual 呈现子树：hover 轻微上移、press 缩放、
+focusVisible 独立描边，均引用 `control.feedback`。列表与确认标题的进入效果引用
+`panel.visibility`，工作指示只淡入淡出而不虚构进度。确认提示叠放在正文上方，正文
+几何不改变。关闭区域立即撤销输入，不用 opacity 代替 visible；没有新增逐帧业务 tick。
+
+`@surfaceRaised` 是四套主题共同提供的实色内容/浮层底色（dark/light 分别定义），适合
+阅读纸面与需要遮住底层文字的确认卡片。它不引入额外 backdrop 区域，也不改变其他
+材料的透明度；与 `@cardTint` 的半透明分组底色按用途区分。

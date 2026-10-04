@@ -23,6 +23,11 @@ struct TextVisual {
     contracts::Color color;
 };
 
+struct TextSelectionVisual {
+    std::vector<contracts::LogicalRect> rectangles;
+    contracts::Color color;
+};
+
 struct BorderVisual {
     double radius;
     double width;
@@ -55,8 +60,9 @@ struct ToggleVisual {
     contracts::ThemeControls controls;
 };
 
-using Visual = std::variant<RectVisual, RoundedRectVisual, ImageVisual, TextVisual, BorderVisual,
-                            ShadowVisual, IconVisual, ProgressVisual, ToggleVisual>;
+using Visual =
+    std::variant<RectVisual, RoundedRectVisual, ImageVisual, TextVisual, BorderVisual, ShadowVisual,
+                 IconVisual, ProgressVisual, ToggleVisual, TextSelectionVisual>;
 
 struct RenderNode {
     contracts::NodeId id{};

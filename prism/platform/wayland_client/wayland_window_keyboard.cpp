@@ -205,6 +205,18 @@ void WaylandWindow::KeyboardKey(void *data, wl_keyboard *, std::uint32_t, std::u
         state == WL_KEYBOARD_KEY_STATE_PRESSED ? contracts::ButtonState::Pressed
                                                : contracts::ButtonState::Released,
         false, InputTimeNs(), self.KeyboardSource(), self.CurrentKeyModifiers()});
+    const auto modifiers = self.CurrentKeyModifiers();
+    if (state == WL_KEYBOARD_KEY_STATE_PRESSED && self.keyboard_state_ && !modifiers.control &&
+        !modifiers.alt && !modifiers.meta) {
+        char text[128]{};
+        const int length =
+            xkb_state_key_get_utf8(self.keyboard_state_, key + 8, text, sizeof(text));
+        if (length > 0 && length < static_cast<int>(sizeof(text)) &&
+            static_cast<unsigned char>(text[0]) >= 32 && text[0] != 127) {
+            self.Emit(contracts::TextInputEvent{contracts::WindowId{1}, std::string(text, length),
+                                                InputTimeNs()});
+        }
+    }
 }
 
 void WaylandWindow::KeyboardModifiers(void *data, wl_keyboard *, std::uint32_t,

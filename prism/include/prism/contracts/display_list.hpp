@@ -79,7 +79,15 @@ enum class VectorIcon {
     Fullscreen,
     Restore,
     SplitHorizontal,
-    SplitVertical
+    SplitVertical,
+    Document,
+    DocumentAdd,
+    Save,
+    Close,
+    ArrowLeft,
+    ArrowRight,
+    Trash,
+    Info
 };
 
 struct DrawIcon {

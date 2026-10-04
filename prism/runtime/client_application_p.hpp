@@ -182,7 +182,9 @@ struct ClientApplication::Impl {
     bool animation_worker_active{};
     std::uint64_t last_processed_window_sequence{};
     bool force_frame_capture{};
+    std::function<bool()> on_close_requested;
     std::function<void(std::string_view)> on_action;
+    std::function<void(std::string_view, std::string_view)> on_text_edit;
     std::function<void(const contracts::GestureEvent &)> on_gesture;
 
     struct PendingGesture {

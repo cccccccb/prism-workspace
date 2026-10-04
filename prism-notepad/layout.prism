@@ -1,0 +1,7 @@
+Card(material: "window", padding: "@window_padding", clip: true) {
+    VStack(spacing: 8) {
+        Slot(component: "toolbar", height: 76, visible: $normal)
+        Slot(component: "editor", flex: 1)
+        Slot(component: "status", height: 18)
+    }
+}

@@ -99,7 +99,9 @@ Theme("square", name: "Prism Square", schemaVersion: 3, motion: "prism") {
     Number("topbar_handle_plate_height", value: 8)
     Number("topbar_handle_plate_radius", value: 0)
     Color("handleTrack", value: #1A293DDD)
+    Color("surfaceRaised", value: #172231FF)
     Palette("light") {
+        Color("surfaceRaised", value: #F8FAFCFF)
         Color("panelTint", value: #D9E1ECFF)
         Color("windowTint", value: #E3E9F1FF)
         Color("cardTint", value: #F5F7FAFF)

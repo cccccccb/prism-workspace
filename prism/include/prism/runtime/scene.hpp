@@ -94,7 +94,13 @@ struct Activation {
     std::string action;
 };
 
+struct TextEdit {
+    std::string action;
+    std::string text;
+};
+
 struct InteractionResult {
+    std::optional<TextEdit> text_edit;
     bool changed{};
     std::optional<Activation> activation;
 };
@@ -299,6 +305,9 @@ private:
                                                 const std::shared_ptr<const InputSnapshot> &, bool);
     std::optional<Activation> HandleInputKey(const contracts::KeyEvent &, const InputSnapshot *,
                                              bool);
+    bool HandleTextInput(const contracts::WindowEvent &, InteractionResult &,
+                         const std::shared_ptr<const InputSnapshot> &, bool);
+    void PrepareTextVisual(Node &, SnapshotNode &);
     void HandleTouchDown(const contracts::TouchDownEvent &,
                          const std::shared_ptr<const InputSnapshot> &, bool);
     void HandleTouchMotion(const contracts::TouchMotionEvent &,

@@ -1,0 +1,33 @@
+Card(material: "window", padding: "@window_padding", clip: true) {
+    VStack(spacing: 8) {
+        HStack(height: 32, spacing: 8, align: "center") {
+            Icon("folder", width: 24, height: 24, foreground: "@accent")
+            Text("Library", flex: 1, font: "@font_title", foreground: "@text", overflow: "clip")
+            InteractionTarget(width: 32, height: 32, action: "library:refresh",
+                              material: "control", align: "center", justify: "center") {
+                Visual(width: 18, height: 18) {
+                    Icon("refresh", foreground: "@text")
+                        .state(when: "focusVisible", scope: "target", foreground: "@accent")
+                        .transition(property: "foreground", motion: "control.feedback")
+                }
+                    .state(when: "hovered", scope: "target", scaleX: 1.04, scaleY: 1.04)
+                    .state(when: "pressed", scope: "target", scaleX: 0.96, scaleY: 0.96)
+                    .transition(property: "scaleX", motion: "control.feedback")
+                    .transition(property: "scaleY", motion: "control.feedback")
+            }
+        }
+        Card(flex: 1, material: "card", padding: 8, overflow: "clip") {
+            VStack(spacing: 4) {
+                Text("Collection", height: 18, font: "@font_body", foreground: "@text")
+                HStack(height: 36, spacing: 8, align: "center") {
+                    Icon("folder", width: 24, height: 24, foreground: "@mutedText")
+                    Text("My notes", flex: 1, font: "@font_body", foreground: "@text", overflow: "clip")
+                    IconButton("chevron", action: "library:open", width: 32, height: 32,
+                               padding: 7, material: "control", foreground: "@text")
+                }
+                Text("3 items", height: 16, font: "@font_caption", foreground: "@mutedText")
+            }
+        }
+        Text("Ready", height: 16, font: "@font_caption", foreground: "@mutedText")
+    }
+}

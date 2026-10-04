@@ -395,6 +395,16 @@ std::uint64_t ClientApplication::ThemeGeneration() const
     return impl_->theme ? impl_->theme->generation : 0;
 }
 
+void ClientApplication::OnCloseRequested(std::function<bool()> callback)
+{
+    impl_->on_close_requested = std::move(callback);
+}
+
+void ClientApplication::OnTextEdit(std::function<void(std::string_view, std::string_view)> callback)
+{
+    impl_->on_text_edit = std::move(callback);
+}
+
 void ClientApplication::OnAction(std::function<void(std::string_view)> callback)
 {
     impl_->on_action = std::move(callback);

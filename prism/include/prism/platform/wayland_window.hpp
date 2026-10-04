@@ -136,6 +136,16 @@ public:
         return mapped_;
     }
 
+    void DeferCloseRequests()
+    {
+        defer_close_requests_ = true;
+    }
+
+    void AcceptCloseRequest()
+    {
+        close_requested_ = true;
+    }
+
     bool IsCloseRequested() const
     {
         return close_requested_;
@@ -214,6 +224,7 @@ public:
     }
 
 private:
+    bool defer_close_requests_{};
     struct ShmBuffer;
     static void RegistryGlobal(void *, wl_registry *, std::uint32_t, const char *, std::uint32_t);
     static void OpenSyncDone(void *, wl_callback *, std::uint32_t);

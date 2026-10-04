@@ -370,6 +370,8 @@ void AppHost::Close()
         self.frontend->CancelUiLoad();
         self.frontend->OnUiSubmitted({});
         self.frontend->OnAction({});
+        self.frontend->OnTextEdit({});
+        self.frontend->OnCloseRequested({});
         self.frontend->OnGesture({});
     }
     if (self.business) {

@@ -123,6 +123,14 @@ constexpr std::array components{
     ComponentSpec{"HStack", Kind::Row, DslProperty::Text, false, true, false, container, 8},
     ComponentSpec{"VStack", Kind::Column, DslProperty::Text, false, true, false, container, 8},
     ComponentSpec{"Card", Kind::Box, DslProperty::Text, false, true, false, container, 8},
+    ComponentSpec{"TextField", Kind::TextField, DslProperty::Text, true, false, false,
+                  container | PropertyBit(DslProperty::Text) | PropertyBit(DslProperty::Action) |
+                      PropertyBit(DslProperty::Font) | PropertyBit(DslProperty::Foreground),
+                  0},
+    ComponentSpec{"TextArea", Kind::TextArea, DslProperty::Text, true, false, false,
+                  container | PropertyBit(DslProperty::Text) | PropertyBit(DslProperty::Action) |
+                      PropertyBit(DslProperty::Font) | PropertyBit(DslProperty::Foreground),
+                  0},
     ComponentSpec{"Text", Kind::Text, DslProperty::Text, true, false, false,
                   size | PropertyBit(DslProperty::Text) | PropertyBit(DslProperty::Font) |
                       PropertyBit(DslProperty::Foreground) | PropertyBit(DslProperty::Background) |
@@ -250,13 +258,14 @@ bool ValidPropertyValue(DslProperty id, const PropertyValue &value)
         }
         if (id == DslProperty::Icon) {
             constexpr std::string_view icons[] = {
-                "grid",          "music",   "settings",   "folder",    "terminal",
-                "play",          "pause",   "previous",   "next",      "volume",
-                "wifi",          "battery", "search",     "sun",       "moon",
-                "power",         "check",   "chevron",    "refresh",   "cpu",
-                "memory",        "heart",   "layers",     "rectangle", "drop",
-                "wifi-off",      "error",   "fullscreen", "restore",   "split-horizontal",
-                "split-vertical"};
+                "grid",           "music",       "settings",     "folder",    "terminal",
+                "play",           "pause",       "previous",     "next",      "volume",
+                "wifi",           "battery",     "search",       "sun",       "moon",
+                "power",          "check",       "chevron",      "refresh",   "cpu",
+                "memory",         "heart",       "layers",       "rectangle", "drop",
+                "wifi-off",       "error",       "fullscreen",   "restore",   "split-horizontal",
+                "split-vertical", "document",    "document-add", "save",      "close",
+                "arrow-left",     "arrow-right", "trash",        "info"};
             return std::find(std::begin(icons), std::end(icons), *text) != std::end(icons);
         }
         return true;

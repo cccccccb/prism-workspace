@@ -1,0 +1,12 @@
+add_library(prism_notepad_module MODULE module.cpp notepad.cpp files.cpp)
+target_link_libraries(prism_notepad_module PRIVATE prism_contracts prism_text_buffer nlohmann_json::nlohmann_json)
+set(package "${CMAKE_BINARY_DIR}/share/prism/apps/prism_notepad")
+set_target_properties(prism_notepad_module PROPERTIES PREFIX "" OUTPUT_NAME notepad
+    CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON LIBRARY_OUTPUT_DIRECTORY "${package}")
+file(MAKE_DIRECTORY "${package}/assets")
+foreach(resource manifest.json master.prism preview.prism layout.prism ui/toolbar.prism ui/editor.prism ui/status.prism)
+    configure_file("${resource}" "${package}/${resource}" COPYONLY)
+endforeach()
+install(TARGETS prism_notepad_module LIBRARY DESTINATION share/prism/apps/prism_notepad)
+install(FILES manifest.json master.prism preview.prism layout.prism DESTINATION share/prism/apps/prism_notepad)
+install(DIRECTORY ui assets DESTINATION share/prism/apps/prism_notepad)

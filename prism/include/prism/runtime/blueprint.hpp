@@ -24,7 +24,9 @@ enum class Kind {
     Toggle,
     Separator,
     InteractionTarget,
-    Visual
+    Visual,
+    TextField,
+    TextArea
 };
 
 struct Blueprint {

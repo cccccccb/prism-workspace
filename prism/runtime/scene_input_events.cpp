@@ -206,6 +206,10 @@ InteractionResult Scene::DispatchInput(const contracts::WindowEvent &event,
                                        bool submitted)
 {
     InteractionResult result;
+    if (HandleTextInput(event, result, snapshot, submitted)) {
+        result.changed = ReconcileInput() || result.changed;
+        return result;
+    }
     if (const auto *motion = std::get_if<contracts::PointerMotionEvent>(&event)) {
         MoveInputPointer(motion->source, motion->position, snapshot, submitted);
         for (const auto &pointer : input_state_->pointers) {

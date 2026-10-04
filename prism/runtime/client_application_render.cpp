@@ -112,6 +112,16 @@ void ClientApplication::Impl::HandleWindowEvent(
         return;
     }
 
+    if (std::holds_alternative<contracts::CloseRequestedEvent>(event)) {
+        if (!on_close_requested || on_close_requested()) {
+            runtime::RenderCommand command(runtime::AcceptCloseCommand{});
+            if (bridge->render_commands.TryPush(std::move(command)) !=
+                runtime::QueuePushResult::Accepted) {
+                bridge->terminal.Fail(runtime::TerminalReason::CommandQueueFailure);
+            }
+        }
+        return;
+    }
     const auto input_ui = installed_ui;
     const auto result = scene->HandleInput(event, input);
     if (result.changed) {
@@ -124,6 +134,9 @@ void ClientApplication::Impl::HandleWindowEvent(
         SyncAnimationSampling();
     }
     DeliverGestureEvents();
+    if (result.text_edit && on_text_edit && input_ui == installed_ui && !closed && !failed) {
+        on_text_edit(result.text_edit->action, result.text_edit->text);
+    }
     if (result.activation && on_action && input_ui == installed_ui && !closed && !failed) {
         // The Scene has finished the input sequence before business code may
         // replace a region, install a new UI, or close this application.

@@ -58,6 +58,7 @@ struct WindowEvents {
     int focus_lost_count{};
     int shift_tab_count{};
     int plain_tab_count{};
+    std::string text;
     bool sources_valid{true};
     prism::contracts::InputSource pointer_source{};
     prism::contracts::InputSource cancelled_source{};
@@ -105,6 +106,8 @@ struct WindowEvents {
         } else if (const auto *focus = std::get_if<prism::contracts::FocusEvent>(&event)) {
             CheckSource(focus->source);
             focus_lost_count += !focus->focused;
+        } else if (const auto *input = std::get_if<prism::contracts::TextInputEvent>(&event)) {
+            text += input->utf8;
         } else if (const auto *key = std::get_if<prism::contracts::KeyEvent>(&event)) {
             CheckSource(key->source);
             if (key->physical_key == 0x2b && key->state == prism::contracts::ButtonState::Pressed) {
@@ -262,8 +265,8 @@ public:
         zwlr_virtual_pointer_v1_axis_discrete(pointer_, 103, WL_POINTER_AXIS_VERTICAL_SCROLL,
                                               wl_fixed_from_double(15.0), 1);
         zwlr_virtual_pointer_v1_frame(pointer_);
-        zwp_virtual_keyboard_v1_key(keyboard_, 103, 30, WL_KEYBOARD_KEY_STATE_PRESSED);
-        zwp_virtual_keyboard_v1_key(keyboard_, 104, 30, WL_KEYBOARD_KEY_STATE_RELEASED);
+        zwp_virtual_keyboard_v1_key(keyboard_, 103, 21, WL_KEYBOARD_KEY_STATE_PRESSED);
+        zwp_virtual_keyboard_v1_key(keyboard_, 104, 21, WL_KEYBOARD_KEY_STATE_RELEASED);
         zwp_virtual_keyboard_v1_modifiers(keyboard_, shift_mask_, 0, 0, 0);
         zwp_virtual_keyboard_v1_key(keyboard_, 105, 15, WL_KEYBOARD_KEY_STATE_PRESSED);
         zwp_virtual_keyboard_v1_key(keyboard_, 106, 15, WL_KEYBOARD_KEY_STATE_RELEASED);
@@ -480,7 +483,7 @@ bool RunClient(ClientState &state)
                            window.PointerButtonCount() >= 2 && window.KeyCount() >= 6 &&
                            events.scroll_count == 1 && events.last_scroll == 15.0 &&
                            events.shift_tab_count == 1 && events.plain_tab_count == 1 &&
-                           events.sources_valid;
+                           events.text == "z" && events.sources_valid;
     if (!delivered) {
         return false;
     }
@@ -523,6 +526,7 @@ bool RunClient(ClientState &state)
     }
     const bool restored_source = events.sources_valid && events.scroll_count == 2 &&
                                  events.shift_tab_count == 2 && events.plain_tab_count == 2 &&
+                                 events.text == "zz" &&
                                  events.pointer_source.seat == original_source.seat &&
                                  events.pointer_source.device == original_source.device &&
                                  events.pointer_source.generation > original_source.generation;

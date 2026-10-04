@@ -107,6 +107,7 @@ ClientRenderOwner::Snapshot ClientRenderOwner::ReadSnapshot() const
 
 bool ClientRenderOwner::OpenWindow()
 {
+    window_.DeferCloseRequests();
     window_.SetEventHandler(std::bind_front(&ClientRenderOwner::QueueWindowEvent, this));
     window_.SetSubmitHandlers(std::bind_front(&ClientRenderOwner::PrepareSubmit, this),
                               std::bind_front(&ClientRenderOwner::CommitPixels, this),
@@ -152,7 +153,7 @@ void ClientRenderOwner::Run(runtime::RenderWorkerGeneration generation) noexcept
                     break;
                 }
                 PublishStatus();
-                if (terminal_.StopRequested() ||
+                if (window_.IsCloseRequested() || terminal_.StopRequested() ||
                     terminal_.Reason() != runtime::TerminalReason::None) {
                     break;
                 }
@@ -220,6 +221,7 @@ void ClientRenderOwner::CloseGpu() noexcept
 
 void ClientRenderOwner::CloseRenderState() noexcept
 {
+    window_.DeferCloseRequests();
     window_.SetEventHandler({});
     window_.SetSubmitHandlers({}, {}, {});
     window_.SetPresentationHandler({});

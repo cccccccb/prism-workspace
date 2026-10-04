@@ -162,7 +162,7 @@ void WaylandWindow::ToplevelConfigure(void *data, xdg_toplevel *, std::int32_t w
 void WaylandWindow::ToplevelClose(void *data, xdg_toplevel *)
 {
     auto &self = *static_cast<WaylandWindow *>(data);
-    self.close_requested_ = true;
+    self.close_requested_ = !self.defer_close_requests_;
     self.Emit(contracts::CloseRequestedEvent{contracts::WindowId{1}});
 }
 

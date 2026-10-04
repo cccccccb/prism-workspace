@@ -1,3 +1,7 @@
+add_library(prism_text_buffer STATIC text_buffer.cpp)
+set_target_properties(prism_text_buffer PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(prism_text_buffer PUBLIC prism_contracts)
+
 add_library(prism_task_budget STATIC session_task_budget.cpp session_task_budget_leases.cpp)
 target_link_libraries(prism_task_budget PUBLIC Threads::Threads)
 target_include_directories(prism_task_budget PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
@@ -9,6 +13,8 @@ target_include_directories(prism_dsl_schema PUBLIC "${CMAKE_CURRENT_LIST_DIR}/..
 target_compile_features(prism_dsl_schema PUBLIC cxx_std_20)
 
 add_library(prism_client_scene STATIC
+    scene_text.cpp
+    scene_text_layout.cpp
     scene.cpp
     scene_input.cpp
     scene_input_snapshot.cpp
@@ -31,7 +37,7 @@ add_library(prism_client_scene STATIC
     ui_load.cpp
     theme_tokens.cpp
     buffer_damage.cpp)
-target_link_libraries(prism_client_scene PUBLIC prism_animation_core prism_display_list_contract prism_dsl_schema prism_theme_contract prism_task_scheduler Threads::Threads)
+target_link_libraries(prism_client_scene PUBLIC prism_text_buffer prism_animation_core prism_display_list_contract prism_dsl_schema prism_theme_contract prism_task_scheduler Threads::Threads)
 target_include_directories(prism_client_scene PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
 target_compile_features(prism_client_scene PUBLIC cxx_std_20)
 

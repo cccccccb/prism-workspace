@@ -1,6 +1,6 @@
 # Prism 第三方应用开发指南
 
-文档原有发布基线：2026-09-27 的 `0.1.0-13`；源码能力核对至 2026-09-29。本文是
+更新：2026-10-04；已部署基线 `0.1.0-19`，工作区新增文本编辑能力单独注明。本文是
 [`prism-app-ui` SKILL](../SKILL.md) 的开发参考，也是第三方开发者和其他 AI 的交接规范。
 源码新增的动画接口需要用相应版本的 Host/SDK 构建和运行；不能假定旧版已安装包可用。
 未来扩展以更新后的契约和源码为准。
@@ -89,7 +89,7 @@ Text/Icon/IconButton/Progress/Toggle 的 foreground，以及 Visual 的背景、
 支持 Begin/Update/End/Cancel 与 dragging，业务通过可选 `on_gesture` 尾部消费。
 系统布局控制仍需受信任 Shell 权限，普通应用只能处理自己的本地交互。当前组沉浸及
 恢复功能优先鼠标与键盘，触屏系统操作延期。交互节点整体变换、关键帧/弹簧 DSL、
-GPU 保留层或 WM 视觉动画仍未提供。
+客户端 GPU 保留层动画仍未提供；WM 已接单窗全屏和限定范围的组沉浸过渡。
 `0.1.0-13` 基线包不包含动画 DSL。Image 当前解码
 PNG；内建 Icon 使用框架向量图标，与任意 SVG 文件加载是不同接口。真实 Music 的
 三行曲库是应用固定行和 binding，不是通用动态列表实现。
@@ -97,7 +97,8 @@ PNG；内建 Icon 使用框架向量图标，与任意 SVG 文件加载是不同
 节点增量布局、DisplayList 分块缓存、GPU 待命预热、业务独立后台进程也未完成。
 当前已经有按需提交、效果缓存及 buffer 修复，性能设计仍要控制实际状态更新和工作量。
 
-这些边界决定实现选择。例如表单编辑器需先补通用文本输入，长列表需先设计滚动和
+工作区新增 TextField/TextArea 的使用及 v19 差异见文末文本编辑补充和
+[能力与坑点](motion-and-pitfalls.md)。这些边界决定实现选择；长列表仍需先设计滚动和
 列表接口；不能在示例中写一个尚不存在的 DSL 节点并当作可运行能力交付。
 
 ## 3. 从需求到 UI 契约
@@ -576,6 +577,8 @@ glass/translucent/transparent/square 是材料主题 ID；light/dark 是独立�
 完全透明窗口是否接收输入由 `inputShape` 决定；透明不等于点击穿透。隐藏页面用
 visible、圆角与 clip 使用通用轮廓；效果关闭、Square 和 light 下仍应清晰可用。
 更多实际 DSL、token 和控件示例见 [视觉设计规范](visual-design.md)。
+字号、间距、页面结构与窄窗预算见 [设计尺度](design-system.md)；命名动效与
+版本/加载/输入问题见 [动效与坑点](motion-and-pitfalls.md)。
 
 ## 10. 完整 Counter 示例
 
@@ -740,8 +743,8 @@ RenderTree → DisplayList → 后端补齐通用实现和验证。控件 action
 遇到尚不存在的滚动/动态列表接口时，先提出通用接口方案，不伪造可运行语法。
 ```
 
-需求表按实际产品改写。记事本例子提示新接口需求，不是声称当前已经有编辑器和
-通用动态列表；Counter 模板才是当前完整可编译起点。
+需求表按实际产品改写。该例仍是只读应用；工作区 TextField/TextArea 的正式编辑能力
+见文末补充，通用动态列表仍未提供。Counter 是不依赖文本编辑扩展的完整起点。
 
 进一步依据：[项目文档汇总](../../../README.md)、
 [Host](../../../APP_HOST_RUNTIME.md)、[模块与包](../../../APP_LAUNCH_CONTRACT.md)、
@@ -755,3 +758,10 @@ Begin，然后接收 Update/End/Cancel；它会抑制同一目标的普通点击
 非零阈值适合拖动，零阈值适合需要完整按下/释放序列的控制。请在 End 检查是否仍
 落在原操作区域，移出时取消，不用客户端事件伪造系统输入凭据。WM WindowGesture
 仅授予系统 LayoutControls 身份，普通第三方包不能申请该能力。
+
+## 文本编辑补充（2026-10-04，Notepad 源码）
+
+本次源码新增正式 `TextField` / `TextArea`，先前章节所述文本输入缺口已由此补齐基础能力。
+使用方式、typed edit/close ABI 与现有限制见 [通用文本编辑规范](../../../TEXT_EDITING.md)。
+它们提供控件内滚动，不代表通用 Scroll/List、IME 或系统剪贴板已经实现。
+新应用参考 [Notepad](../../../../prism-notepad/README.md)；必须搭配本次源码 Host。

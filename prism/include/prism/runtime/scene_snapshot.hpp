@@ -21,6 +21,8 @@ struct SnapshotNode {
     bool image_ready{false};
     contracts::LogicalRect bounds{};
     ShapedText shaped{};
+    std::vector<contracts::LogicalRect> text_selection;
+    contracts::LogicalRect text_caret{};
     std::vector<contracts::NodeId> children;
     std::uint64_t revision{0};
 };

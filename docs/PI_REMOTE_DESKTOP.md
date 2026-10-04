@@ -171,3 +171,30 @@ TigerVNC 使用 `-AlwaysCursor=1 -CursorType=System`。Windows 用户确认箭�
 `dpkg -V prism-wm` 无差异；Prism 和 VNC 服务仍为 active，正式服务仅监听
 `127.0.0.1:5900`，Windows Viewer 已连接。用户接受正式 5900 的当前效果。
 临时 5901 服务已停止；排查时临时关闭的 Wi-Fi 省电模式也已恢复原设置。
+
+### v19 动画与布局控制部署（2026-10-04）
+
+已安装 `prism-wm 0.1.0-19 arm64`，基于 `5e3a319` 加发布版本号更新。包位于
+`dist/deb/prism-wm_0.1.0-19_arm64.deb`，SHA-256 为
+`c8efa194150001860d1c4a0f5aaa712f1bd57854802b4cf63d5bc4fa9c3619fb`。
+Release/GLES、BUILD_TESTING=OFF；包含三套 motion.prism 和 LayoutControls 模块，
+不包含测试、probe 或 ImGui。`dpkg -V prism-wm` 无差异。
+
+沿用 v18 的服务参数：1280×720、虚拟输出 90 Hz、WayVNC 上限 120 FPS，仅监听
+127.0.0.1:5900，Windows Viewer 使用本地系统箭头。两个 remote 服务继续 active/enabled。
+这些配置值不是实际网络呈现帧率保证。Windows 连接命令仍见本文件第 3 节。
+
+当前六个 Host 均 Ready；Desktop、Topbar、Dock、Music、Preferences 均完成 V3D
+首帧呈现。LayoutControls 默认隐藏，不能以未上屏误判未就绪。最终 WM 提交失败计数 0，
+VNC RFB 3.8 握手通过。外观与手感由用户连接后确认。
+
+体验入口：Topbar 中央横线向下拖动至少 24 个逻辑像素后释放，切换组沉浸；中央顶边
+可唤回恢复入口，Super+Shift+F 恢复整组。Super+F 切换单窗全屏；Super+右键打开
+窗口控制面板。Topbar/Dock 显隐仍即时，组窗口已有共享边界动画。
+
+构建初次遇到旧 wayland_window.cpp.o 的损坏重定位信息，保留该生成物并重编后打包
+成功。首次会话 Desktop 模块触发既有 cooperative entry budget，日志保留；重启后
+全部就绪，未修改预算或加入生产延时。初轮就绪检查误要求隐藏 LayoutControls 的
+FirstPresented，后改为 Ready + 可见 Host 首帧检查。该次重启恢复不代表已解决首次
+加载预算的根因。证据目录：`dist/validation/prism-v19-deploy/`，最终为
+`deployment.json`、`journal-restarted.log`、`status-final.json`、`tree-final.json`。

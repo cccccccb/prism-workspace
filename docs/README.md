@@ -9,8 +9,12 @@
 | [第三方应用设计与开发总览](THIRD_PARTY_APP_GUIDE.md) | 架构、阅读顺序、开发交付与调用 Skill |
 | [prism-app-ui Skill](skills/prism-app-ui/SKILL.md) | 给 AI 开发者复用的工作规范与按需阅读入口 |
 | [详细开发指南](skills/prism-app-ui/references/app-development.md) | 包结构、DSL、Preview/Master、并行准备、C ABI、异步业务与完整实例 |
+| [设计尺度与页面配方](skills/prism-app-ui/references/design-system.md) | 字号、间距、图标与命中尺寸、设置/内容页、BSP 空间预算和可复制组件 |
+| [动效与常见陷阱](skills/prism-app-ui/references/motion-and-pitfalls.md) | v19/源码能力边界、命名 Motion、主题适配、输入与加载陷阱、交付验收 |
 | [视觉设计规范](skills/prism-app-ui/references/visual-design.md) | 图标、排版、主题、明暗配色、材质、阴影、BSP 布局与 DSL 示例 |
 | [Counter 应用模板](skills/prism-app-ui/assets/starter/README.md) | 可复制的独立 CMake 项目、完整 DSL 文件和纯业务模块 |
+| [Notepad 真实应用](../prism-notepad/README.md) | 多文档文本编辑、异步文件读写、构建与首版边界 |
+| [通用文本编辑契约](TEXT_EDITING.md) | TextField/TextArea、typed edit 事件与窗口关闭确认 |
 
 Skill 与参考资料只有一份正文，统一在仓库维护。人和 AI 使用相同规范；详细指南区分
 当前已支持的接口与待实现能力，开发时仍需核对所使用版本的契约和 schema。

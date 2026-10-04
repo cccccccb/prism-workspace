@@ -99,6 +99,8 @@ struct AppHost::Impl {
     std::uint64_t SubscribeInstances();
     std::uint64_t SelectTheme(std::string_view id);
     std::uint64_t SelectColorScheme(std::string_view scheme);
+    bool HandleCloseRequested();
+    void HandleTextEdit(std::string_view action, std::string_view text);
     void HandleAction(std::string_view action);
     void HandleGesture(const contracts::GestureEvent &event);
     bool StartBusiness();

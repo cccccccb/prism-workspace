@@ -66,6 +66,18 @@ std::uint64_t AppHost::Impl::SelectColorScheme(std::string_view scheme)
     return launches->SelectTheme({}, std::string(scheme));
 }
 
+bool AppHost::Impl::HandleCloseRequested()
+{
+    return !business || business->RequestClose();
+}
+
+void AppHost::Impl::HandleTextEdit(std::string_view action, std::string_view text)
+{
+    if (business) {
+        business->TextEdit(action, text);
+    }
+}
+
 void AppHost::Impl::HandleAction(std::string_view action)
 {
     business->Action(action);
@@ -94,6 +106,8 @@ bool AppHost::Impl::StartBusiness()
         return Fail(contracts::LaunchError::RuntimeFailed, business->StartDiagnostic());
     }
 
+    frontend->OnCloseRequested(std::bind_front(&Impl::HandleCloseRequested, this));
+    frontend->OnTextEdit(std::bind_front(&Impl::HandleTextEdit, this));
     frontend->OnAction(std::bind_front(&Impl::HandleAction, this));
     frontend->OnGesture(std::bind_front(&Impl::HandleGesture, this));
 

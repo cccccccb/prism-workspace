@@ -1,0 +1,182 @@
+Card(material: "card", background: "@surfaceRaised", cornerRadius: 12, clip: true) {
+    TextArea($text_0, action: "edit:0", visible: $active_0, padding: 12, font: "@font_body", foreground: "@text", clip: true)
+    TextArea($text_1, action: "edit:1", visible: $active_1, padding: 12, font: "@font_body", foreground: "@text", clip: true)
+    TextArea($text_2, action: "edit:2", visible: $active_2, padding: 12, font: "@font_body", foreground: "@text", clip: true)
+    TextArea($text_3, action: "edit:3", visible: $active_3, padding: 12, font: "@font_body", foreground: "@text", clip: true)
+    TextArea($text_4, action: "edit:4", visible: $active_4, padding: 12, font: "@font_body", foreground: "@text", clip: true)
+    TextArea($text_5, action: "edit:5", visible: $active_5, padding: 12, font: "@font_body", foreground: "@text", clip: true)
+    TextArea($text_6, action: "edit:6", visible: $active_6, padding: 12, font: "@font_body", foreground: "@text", clip: true)
+    TextArea($text_7, action: "edit:7", visible: $active_7, padding: 12, font: "@font_body", foreground: "@text", clip: true)
+VStack(visible: $documents, padding: 4, spacing: 2) {
+HStack(height: 24, spacing: 4, align: "center") {
+Text("Documents", flex: 1, font: "@font_body", foreground: "@text")
+InteractionTarget(width: 24, height: 24, action: "save-as", cornerRadius: 8) {
+        Visual(background: "@none", cornerRadius: 8, align: "center", justify: "center") { Icon("save", width: 18, height: 18, foreground: "@text") }
+            .state(when: "hovered", scope: "target", background: "@hover")
+            .state(when: "pressed", scope: "target", background: "@accentSoft", scaleX: 0.95, scaleY: 0.95)
+            .transition(property: "background", motion: "control.feedback")
+            .transition(property: "scaleX", motion: "control.feedback")
+            .transition(property: "scaleY", motion: "control.feedback")
+        Visual(cornerRadius: 8, borderWidth: 1.5, borderColor: "@accent", opacity: 0)
+            .state(when: "focusVisible", scope: "target", opacity: 1)
+            .transition(property: "opacity", motion: "control.feedback")
+    }InteractionTarget(width: 24, height: 24, action: "cancel", cornerRadius: 8) {
+        Visual(background: "@none", cornerRadius: 8, align: "center", justify: "center") { Icon("close", width: 18, height: 18, foreground: "@text") }
+            .state(when: "hovered", scope: "target", background: "@hover")
+            .state(when: "pressed", scope: "target", background: "@accentSoft", scaleX: 0.95, scaleY: 0.95)
+            .transition(property: "background", motion: "control.feedback")
+            .transition(property: "scaleX", motion: "control.feedback")
+            .transition(property: "scaleY", motion: "control.feedback")
+        Visual(cornerRadius: 8, borderWidth: 1.5, borderColor: "@accent", opacity: 0)
+            .state(when: "focusVisible", scope: "target", opacity: 1)
+            .transition(property: "opacity", motion: "control.feedback")
+    }}
+HStack(height: 26, spacing: 4) {
+InteractionTarget(flex: 1, height: 26, visible: $used_0, action: "select:0") {
+Visual(background: "@controlTint", paddingX: 4, cornerRadius: 6, justify: "center") {
+Text($label_0, font: "@font_caption", foreground: "@text", overflow: "clip")
+}
+.state(when: "hovered", scope: "target", background: "@hover")
+.transition(property: "background", motion: "control.feedback")
+Visual(borderWidth: 1, borderColor: "@accent", opacity: 0, cornerRadius: 6)
+.state(when: "focusVisible", scope: "target", opacity: 1)
+}
+InteractionTarget(flex: 1, height: 26, visible: $used_1, action: "select:1") {
+Visual(background: "@controlTint", paddingX: 4, cornerRadius: 6, justify: "center") {
+Text($label_1, font: "@font_caption", foreground: "@text", overflow: "clip")
+}
+.state(when: "hovered", scope: "target", background: "@hover")
+.transition(property: "background", motion: "control.feedback")
+Visual(borderWidth: 1, borderColor: "@accent", opacity: 0, cornerRadius: 6)
+.state(when: "focusVisible", scope: "target", opacity: 1)
+}
+}
+HStack(height: 26, spacing: 4) {
+InteractionTarget(flex: 1, height: 26, visible: $used_2, action: "select:2") {
+Visual(background: "@controlTint", paddingX: 4, cornerRadius: 6, justify: "center") {
+Text($label_2, font: "@font_caption", foreground: "@text", overflow: "clip")
+}
+.state(when: "hovered", scope: "target", background: "@hover")
+.transition(property: "background", motion: "control.feedback")
+Visual(borderWidth: 1, borderColor: "@accent", opacity: 0, cornerRadius: 6)
+.state(when: "focusVisible", scope: "target", opacity: 1)
+}
+InteractionTarget(flex: 1, height: 26, visible: $used_3, action: "select:3") {
+Visual(background: "@controlTint", paddingX: 4, cornerRadius: 6, justify: "center") {
+Text($label_3, font: "@font_caption", foreground: "@text", overflow: "clip")
+}
+.state(when: "hovered", scope: "target", background: "@hover")
+.transition(property: "background", motion: "control.feedback")
+Visual(borderWidth: 1, borderColor: "@accent", opacity: 0, cornerRadius: 6)
+.state(when: "focusVisible", scope: "target", opacity: 1)
+}
+}
+HStack(height: 26, spacing: 4) {
+InteractionTarget(flex: 1, height: 26, visible: $used_4, action: "select:4") {
+Visual(background: "@controlTint", paddingX: 4, cornerRadius: 6, justify: "center") {
+Text($label_4, font: "@font_caption", foreground: "@text", overflow: "clip")
+}
+.state(when: "hovered", scope: "target", background: "@hover")
+.transition(property: "background", motion: "control.feedback")
+Visual(borderWidth: 1, borderColor: "@accent", opacity: 0, cornerRadius: 6)
+.state(when: "focusVisible", scope: "target", opacity: 1)
+}
+InteractionTarget(flex: 1, height: 26, visible: $used_5, action: "select:5") {
+Visual(background: "@controlTint", paddingX: 4, cornerRadius: 6, justify: "center") {
+Text($label_5, font: "@font_caption", foreground: "@text", overflow: "clip")
+}
+.state(when: "hovered", scope: "target", background: "@hover")
+.transition(property: "background", motion: "control.feedback")
+Visual(borderWidth: 1, borderColor: "@accent", opacity: 0, cornerRadius: 6)
+.state(when: "focusVisible", scope: "target", opacity: 1)
+}
+}
+HStack(height: 26, spacing: 4) {
+InteractionTarget(flex: 1, height: 26, visible: $used_6, action: "select:6") {
+Visual(background: "@controlTint", paddingX: 4, cornerRadius: 6, justify: "center") {
+Text($label_6, font: "@font_caption", foreground: "@text", overflow: "clip")
+}
+.state(when: "hovered", scope: "target", background: "@hover")
+.transition(property: "background", motion: "control.feedback")
+Visual(borderWidth: 1, borderColor: "@accent", opacity: 0, cornerRadius: 6)
+.state(when: "focusVisible", scope: "target", opacity: 1)
+}
+InteractionTarget(flex: 1, height: 26, visible: $used_7, action: "select:7") {
+Visual(background: "@controlTint", paddingX: 4, cornerRadius: 6, justify: "center") {
+Text($label_7, font: "@font_caption", foreground: "@text", overflow: "clip")
+}
+.state(when: "hovered", scope: "target", background: "@hover")
+.transition(property: "background", motion: "control.feedback")
+Visual(borderWidth: 1, borderColor: "@accent", opacity: 0, cornerRadius: 6)
+.state(when: "focusVisible", scope: "target", opacity: 1)
+}
+}
+}
+VStack(visible: $path_panel, padding: 8, spacing: 8) {
+    Text($path_title, height: 24, font: "@font_title", foreground: "@text")
+    TextField($path, action: "path", height: 32, padding: 6, background: "@controlTint", cornerRadius: 8, font: "@font_body", foreground: "@text", clip: true)
+    HStack(height: 32, spacing: 8) {
+InteractionTarget(flex: 1, height: 32, action: "cancel", cornerRadius: 8) {
+        Visual(background: "@none", cornerRadius: 8, align: "center", justify: "center") { HStack(spacing: 6, align: "center", justify: "center") { Icon("arrow-left", width: 18, height: 18, foreground: "@text")
+ Text("Cancel", font: "@font_caption", foreground: "@text") } }
+            .state(when: "hovered", scope: "target", background: "@hover")
+            .state(when: "pressed", scope: "target", background: "@accentSoft", scaleX: 0.95, scaleY: 0.95)
+            .transition(property: "background", motion: "control.feedback")
+            .transition(property: "scaleX", motion: "control.feedback")
+            .transition(property: "scaleY", motion: "control.feedback")
+        Visual(cornerRadius: 8, borderWidth: 1.5, borderColor: "@accent", opacity: 0)
+            .state(when: "focusVisible", scope: "target", opacity: 1)
+            .transition(property: "opacity", motion: "control.feedback")
+    }InteractionTarget(flex: 1, height: 32, action: "apply-path", cornerRadius: 8) {
+        Visual(background: "@none", cornerRadius: 8, align: "center", justify: "center") { HStack(spacing: 6, align: "center", justify: "center") { Icon("check", width: 18, height: 18, foreground: "@text")
+ Text("Confirm", font: "@font_caption", foreground: "@text") } }
+            .state(when: "hovered", scope: "target", background: "@hover")
+            .state(when: "pressed", scope: "target", background: "@accentSoft", scaleX: 0.95, scaleY: 0.95)
+            .transition(property: "background", motion: "control.feedback")
+            .transition(property: "scaleX", motion: "control.feedback")
+            .transition(property: "scaleY", motion: "control.feedback")
+        Visual(cornerRadius: 8, borderWidth: 1.5, borderColor: "@accent", opacity: 0)
+            .state(when: "focusVisible", scope: "target", opacity: 1)
+            .transition(property: "opacity", motion: "control.feedback")
+    }}
+}
+VStack(visible: $confirm, padding: 8, spacing: 8) {
+    Text("Unsaved changes", height: 24, font: "@font_title", foreground: "@text")
+    Text($confirm_title, height: 20, font: "@font_body", foreground: "@text", overflow: "clip")
+    HStack(height: 32, spacing: 4) {
+InteractionTarget(flex: 1, height: 32, action: "cancel", cornerRadius: 8) {
+        Visual(background: "@none", cornerRadius: 8, align: "center", justify: "center") { HStack(spacing: 6, align: "center", justify: "center") { Icon("arrow-left", width: 18, height: 18, foreground: "@text")
+ Text("Keep", font: "@font_caption", foreground: "@text") } }
+            .state(when: "hovered", scope: "target", background: "@hover")
+            .state(when: "pressed", scope: "target", background: "@accentSoft", scaleX: 0.95, scaleY: 0.95)
+            .transition(property: "background", motion: "control.feedback")
+            .transition(property: "scaleX", motion: "control.feedback")
+            .transition(property: "scaleY", motion: "control.feedback")
+        Visual(cornerRadius: 8, borderWidth: 1.5, borderColor: "@accent", opacity: 0)
+            .state(when: "focusVisible", scope: "target", opacity: 1)
+            .transition(property: "opacity", motion: "control.feedback")
+    }InteractionTarget(flex: 1, height: 32, action: "discard", cornerRadius: 8) {
+        Visual(background: "@none", cornerRadius: 8, align: "center", justify: "center") { HStack(spacing: 6, align: "center", justify: "center") { Icon("trash", width: 18, height: 18, foreground: "@text")
+ Text("Discard", font: "@font_caption", foreground: "@text") } }
+            .state(when: "hovered", scope: "target", background: "@hover")
+            .state(when: "pressed", scope: "target", background: "@accentSoft", scaleX: 0.95, scaleY: 0.95)
+            .transition(property: "background", motion: "control.feedback")
+            .transition(property: "scaleX", motion: "control.feedback")
+            .transition(property: "scaleY", motion: "control.feedback")
+        Visual(cornerRadius: 8, borderWidth: 1.5, borderColor: "@accent", opacity: 0)
+            .state(when: "focusVisible", scope: "target", opacity: 1)
+            .transition(property: "opacity", motion: "control.feedback")
+    }InteractionTarget(flex: 1, height: 32, action: "save-close", cornerRadius: 8) {
+        Visual(background: "@none", cornerRadius: 8, align: "center", justify: "center") { HStack(spacing: 6, align: "center", justify: "center") { Icon("save", width: 18, height: 18, foreground: "@text")
+ Text("Save", font: "@font_caption", foreground: "@text") } }
+            .state(when: "hovered", scope: "target", background: "@hover")
+            .state(when: "pressed", scope: "target", background: "@accentSoft", scaleX: 0.95, scaleY: 0.95)
+            .transition(property: "background", motion: "control.feedback")
+            .transition(property: "scaleX", motion: "control.feedback")
+            .transition(property: "scaleY", motion: "control.feedback")
+        Visual(cornerRadius: 8, borderWidth: 1.5, borderColor: "@accent", opacity: 0)
+            .state(when: "focusVisible", scope: "target", opacity: 1)
+            .transition(property: "opacity", motion: "control.feedback")
+    }}
+}
+}

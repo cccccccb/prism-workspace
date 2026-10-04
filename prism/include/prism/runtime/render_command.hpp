@@ -70,10 +70,12 @@ struct ReleaseImageCommand {
 
 // Ordered UI-to-render values. Every control is a replacement barrier;
 // only adjacent frames of the same UI load may replace each other.
+struct AcceptCloseCommand {};
+
 using RenderCommand =
     std::variant<FrameCommand, InstallUiCommand, InvalidateFrameCommand, RequestRenderCommand,
                  UiEventsProcessedCommand, RegisterImageCommand, ReleaseImageCommand,
-                 SetAnimationSamplingCommand, AnswerFrameOpportunityCommand>;
+                 SetAnimationSamplingCommand, AnswerFrameOpportunityCommand, AcceptCloseCommand>;
 
 inline bool ReplaceFrameTail(const RenderCommand &older, const RenderCommand &newer) noexcept
 {

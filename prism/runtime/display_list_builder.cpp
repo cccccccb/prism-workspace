@@ -37,7 +37,13 @@ void Emit(const RenderTree &tree, contracts::NodeId id, contracts::ResourceId fo
         }
     }
     for (const auto &visual : node.visuals) {
-        if (auto *rect = std::get_if<RectVisual>(&visual)) {
+        if (auto *selection = std::get_if<TextSelectionVisual>(&visual)) {
+            for (auto rect : selection->rectangles) {
+                rect.x += node.bounds.x;
+                rect.y += node.bounds.y;
+                list.commands.emplace_back(contracts::FillRect{rect, selection->color});
+            }
+        } else if (auto *rect = std::get_if<RectVisual>(&visual)) {
             list.commands.emplace_back(contracts::FillRect{node.bounds, rect->color});
         } else if (auto *rect = std::get_if<RoundedRectVisual>(&visual)) {
             list.commands.emplace_back(

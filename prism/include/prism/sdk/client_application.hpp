@@ -138,6 +138,8 @@ public:
     bool SetBinding(std::string_view name, runtime::PropertyValue value);
     bool ApplyTheme(const contracts::ThemeSnapshot &, std::string *diagnostic = nullptr);
     std::uint64_t ThemeGeneration() const;
+    void OnCloseRequested(std::function<bool()> callback);
+    void OnTextEdit(std::function<void(std::string_view, std::string_view)> callback);
     void OnAction(std::function<void(std::string_view)> callback);
     // Owner-thread continuous gestures; cancellation values survive UI replacement.
     void OnGesture(std::function<void(const contracts::GestureEvent &)> callback);

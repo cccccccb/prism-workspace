@@ -1,0 +1,8 @@
+HStack(spacing: 8, align: "center") {
+    Card(width: 4, height: 12) {
+        Visual(background: "@accent", cornerRadius: 2, opacity: $activity_opacity)
+            .transition(property: "opacity", motion: "panel.visibility")
+    }
+    Text($status, flex: 1, font: "@font_caption", foreground: "@text", overflow: "clip")
+    Text($summary, width: 88, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
+}

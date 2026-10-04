@@ -353,6 +353,20 @@ void ModuleSession::Action(std::string_view action)
     }
 }
 
+bool ModuleSession::RequestClose()
+{
+    return !OnOwnerThread() || closed_ || !instance_ || !module_.Api().on_close_requested ||
+           module_.Api().on_close_requested(instance_) != 0;
+}
+
+void ModuleSession::TextEdit(std::string_view action, std::string_view text)
+{
+    if (OnOwnerThread() && !closed_ && instance_ && module_.Api().on_text_edit) {
+        module_.Api().on_text_edit(instance_, {action.data(), action.size()},
+                                   {text.data(), text.size()});
+    }
+}
+
 void ModuleSession::Tick(std::uint64_t now)
 {
     if (!OnOwnerThread() || closed_) {

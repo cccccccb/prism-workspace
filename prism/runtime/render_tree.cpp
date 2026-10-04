@@ -53,7 +53,8 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot &snapshot, const RenderT
         node.id = source.id;
         node.bounds = source.bounds;
         node.visible = visible[source.id.index];
-        node.clip = source.style.clip;
+        node.clip =
+            source.style.clip || source.kind == Kind::TextField || source.kind == Kind::TextArea;
         node.clip = node.clip || source.style.overflow == "clip";
         node.clip_radius = source.style.radius;
         node.presentation_scope = source.kind == Kind::Visual;
@@ -99,7 +100,17 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot &snapshot, const RenderT
                 source.style.radius, snapshot.controls.focus_width, snapshot.controls.focus});
         }
 
-        if (source.kind == Kind::Text && !source.shaped.glyphs.empty()) {
+        const bool editor = source.kind == Kind::TextField || source.kind == Kind::TextArea;
+        if (editor) {
+            auto selection = source.style.foreground;
+            selection.a = 55;
+            node.visuals.emplace_back(TextSelectionVisual{source.text_selection, selection});
+            if (source.interaction.focused) {
+                node.visuals.emplace_back(
+                    TextSelectionVisual{{source.text_caret}, source.style.foreground});
+            }
+        }
+        if ((source.kind == Kind::Text || editor) && !source.shaped.glyphs.empty()) {
             node.visuals.emplace_back(
                 TextVisual{source.shaped, source.style.font_size, source.style.foreground});
         }
@@ -109,13 +120,14 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot &snapshot, const RenderT
         if ((source.kind == Kind::Icon || source.kind == Kind::IconButton) &&
             !source.icon.empty()) {
             constexpr std::string_view names[] = {
-                "grid",          "music",   "settings",   "folder",    "terminal",
-                "play",          "pause",   "previous",   "next",      "volume",
-                "wifi",          "battery", "search",     "sun",       "moon",
-                "power",         "check",   "chevron",    "refresh",   "cpu",
-                "memory",        "heart",   "layers",     "rectangle", "drop",
-                "wifi-off",      "error",   "fullscreen", "restore",   "split-horizontal",
-                "split-vertical"};
+                "grid",           "music",       "settings",     "folder",    "terminal",
+                "play",           "pause",       "previous",     "next",      "volume",
+                "wifi",           "battery",     "search",       "sun",       "moon",
+                "power",          "check",       "chevron",      "refresh",   "cpu",
+                "memory",         "heart",       "layers",       "rectangle", "drop",
+                "wifi-off",       "error",       "fullscreen",   "restore",   "split-horizontal",
+                "split-vertical", "document",    "document-add", "save",      "close",
+                "arrow-left",     "arrow-right", "trash",        "info"};
             const auto it = std::find(std::begin(names), std::end(names), source.icon);
             if (it != std::end(names)) {
                 node.visuals.emplace_back(

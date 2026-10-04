@@ -47,6 +47,8 @@ public:
     ModuleSession &operator=(const ModuleSession &) = delete;
     bool Start();
     void Action(std::string_view action);
+    bool RequestClose();
+    void TextEdit(std::string_view action, std::string_view text);
     void Tick(std::uint64_t now_ns);
     // Negative maximum means infinite; only an explicitly scheduled one-shot
     // tick shortens that wait. Merely defining on_tick does not create a timer.
