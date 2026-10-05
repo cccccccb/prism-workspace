@@ -1042,3 +1042,15 @@ Dock 激活与主题切换。该确认是功能与交互验收，不是鼠标延
 发布证据为同目录 `package-audit.json`、`deployment.json`、`v13-physical.json` 与
 `physical-music-settings.png`。本节记录第六步实现及 `0.1.0-13` 发布结果，未为
 第六步填写尚未产生的代码提交号。
+
+### v22 部署补充：模块准备与图片安装的顺序
+
+Master CPU 准备完成、Preview 呈现门槛满足后，Host 在所有者线程先构造
+`prepared_business`（模块 dlopen、ABI 入口校验及 Session 准备），再开始 Master
+图片安装。Master 提交完成后才转为活动 `business`，执行 create、绑定回调和 Ready；
+等待安装期间不对准备中的 Session 派发业务事件。取消/退出销毁准备中的 Session。
+
+此顺序减少模块动态加载与本 Host 图片安装/驱动工作的交叠，不改变模块 load/create
+的时间预算，也不将模块入口迁到渲染线程。v22 初次部署 Desktop 连续触发已有 load
+预算失败，调整后正式会话完成 Desktop Ready 和 V3D 首帧。单次成功不代表排除了
+其他系统负载下的预算超时；模块耗时统计仍保留原边界。

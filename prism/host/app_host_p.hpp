@@ -65,6 +65,7 @@ struct AppHost::Impl {
     HostConfig config;
     std::unique_ptr<ClientApplication> frontend;
     std::unique_ptr<ModuleSession> business;
+    std::unique_ptr<ModuleSession> prepared_business;
     std::unique_ptr<LaunchClient> launches;
     std::optional<launch::AppPackage> package;
     std::shared_ptr<runtime::TaskScheduler> scheduler;
@@ -103,6 +104,7 @@ struct AppHost::Impl {
     void HandleTextEdit(std::string_view action, std::string_view text);
     void HandleAction(std::string_view action);
     void HandleGesture(const contracts::GestureEvent &event);
+    void PrepareBusiness();
     bool StartBusiness();
     void DispatchBusinessWork();
     bool StartMasterPreparation();

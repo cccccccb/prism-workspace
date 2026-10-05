@@ -72,6 +72,10 @@ bool AppHost::Impl::InstallMaster()
 
     runtime::LoadDiagnostic diagnostic;
     if (!master_install_started) {
+        // Load the module before image installation starts render-thread driver work.
+        // Keep create/Ready and all callbacks deferred until Master is committed.
+        PrepareBusiness();
+
         ui.master_image_count = completion.prepared->Images().size();
         bindings.clear();
         if (completion.plan) {

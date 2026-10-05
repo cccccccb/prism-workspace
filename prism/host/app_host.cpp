@@ -386,6 +386,7 @@ void AppHost::Close()
     self.master_completion.reset();
     self.master_loader.reset();
     self.business.reset();
+    self.prepared_business.reset();
     self.launches.reset();
     self.frontend.reset();
     self.installed_plan.reset();

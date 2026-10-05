@@ -233,3 +233,25 @@ Windows 保持原 SSH 隧道与 Viewer 参数，断开后重新连接即可查�
 最终鼠标/键盘交互待用户确认。证据：`dist/validation/prism-v21-deploy/`。
 
 首轮打包进程以143退出且没有编译错误，续建完成正式包后才停止旧会话并安装。
+
+### v22 Concept B 视觉修订部署（2026-10-05）
+
+UI 主提交 `a87c35a`；另含本次部署的 Host 模块准备顺序修复（见
+`MASTER_PARALLEL_LOADING.md` 的 v22 补充）。正式包：
+`dist/deb/prism-wm_0.1.0-22_arm64.deb`，SHA-256：
+`0533458ff8422952b3ee8c37d485e412547addd9d398c32994faee5defa8ecce`。
+包含新版 Host、响应式 DSL、Music/Preferences 布局、向量图标及八张材质预览图。
+生产包无 tests/probes/ImGui，`dpkg -V prism-wm` 无差异。
+
+两个 remote 服务 active/enabled；继续 1280×720@90Hz、WayVNC 上限 120 FPS、
+loopback 5900 和 Viewer 本地箭头。工作区 1 为 Music + Preferences 双窗，
+工作区 2 为 Notepad。六个可见应用均完成 Ready 与 V3D 首帧；隐藏的 LayoutControls
+完成 Ready。WM commit_failures=0，RFB 3.8 握手通过，实际截图已核对。
+最终外观及 Windows 输入手感仍由用户连接后确认。
+
+初次部署遇到 Desktop 模块 load 预算失败；重启及临时 LD_BIND_NOW 配置未恢复，
+该临时配置已撤销。Host 调整为 Master 图片安装前准备模块、Master 提交后才启动
+业务，最终正式会话成功。没有放宽预算，没有增加自动重试或生产延时。
+相关模块预算测试与代码规范检查通过；更广泛负载下的启动可靠性不据此作保证。
+构建、失败日志、最终启动日志、窗口树、状态及截图位于
+`dist/validation/prism-v22-deploy/`。

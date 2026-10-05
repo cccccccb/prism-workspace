@@ -90,15 +90,19 @@ void AppHost::Impl::HandleGesture(const contracts::GestureEvent &event)
     }
 }
 
-bool AppHost::Impl::StartBusiness()
+void AppHost::Impl::PrepareBusiness()
 {
-    business = std::make_unique<ModuleSession>(
+    prepared_business = std::make_unique<ModuleSession>(
         package->module, package->manifest.app_id, config.instance.value,
         std::bind_front(&Impl::SetBinding, this), std::bind_front(&Impl::LaunchApplication, this),
         std::bind_front(&Impl::SubscribeInstances, this), std::bind_front(&Impl::SelectTheme, this),
         std::bind_front(&Impl::SelectColorScheme, this), scheduler, config.module_limits,
         package->assets, config.subscribe_layout, config.submit_layout_control);
+}
 
+bool AppHost::Impl::StartBusiness()
+{
+    business = std::move(prepared_business);
     const bool started = business->Start();
     startup.module_load_us = business->LoadDurationNs() / 1000;
     startup.module_create_us = business->CreateDurationNs() / 1000;
