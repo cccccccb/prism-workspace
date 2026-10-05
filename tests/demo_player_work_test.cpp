@@ -238,9 +238,19 @@ void PendingAndOwnerCompletion(const char *module)
     assert(bindings.Boolean("library_row_1") && bindings.Boolean("library_row_2") &&
            !bindings.Boolean("library_row_3"));
 
+    session->Action("nav:favorites");
+    assert(bindings.Boolean("favorites_selected") && !bindings.Boolean("all_library_selected"));
+    assert(bindings.Text("library_title_1") == "Second title");
+    assert(bindings.Boolean("library_cover_1_2") && !bindings.Boolean("library_cover_1_1"));
+    session->Action("nav:library");
+    session->Action("nav:library");
+    assert(bindings.Boolean("all_library_selected") && bindings.Boolean("library_visible"));
+    assert(bindings.Boolean("library_cover_1_1") && !bindings.Boolean("library_cover_1_2"));
+
     session->Action("library:track:2");
     assert(bindings.Text("track_title") == "Second title" &&
            bindings.Text("playback_duration") == "4:02");
+    assert(bindings.Boolean("library_selected_2") && !bindings.Boolean("library_selected_1"));
     session->Action("player:toggle");
     assert(bindings.Text("playback_icon") == "pause");
     assert(session->TimeoutMs(prism::sdk::MonotonicNs(), 10000) <= 500);
@@ -255,6 +265,18 @@ void PendingAndOwnerCompletion(const char *module)
     assert(bindings.Text("track_title") == "First \"quoted\" title");
     session->Action("player:previous");
     assert(bindings.Text("track_title") == "Second title");
+    session->Action("player:repeat");
+    assert(bindings.Boolean("repeat_active") && !bindings.Boolean("repeat_inactive"));
+    session->Action("player:repeat");
+    assert(!bindings.Boolean("repeat_active"));
+    const bool favorite = bindings.Boolean("favorite_active");
+    session->Action("player:favorite");
+    assert(bindings.Boolean("favorite_active") != favorite);
+    assert(bindings.Boolean("favorite_inactive") == favorite);
+    session->Action("player:volume_toggle");
+    assert(bindings.Number("volume_level") == 0 && bindings.Text("volume_icon") == "close");
+    session->Action("player:volume_toggle");
+    assert(bindings.Number("volume_level") > 0 && bindings.Text("volume_icon") == "volume");
     channel->Stop();
 }
 

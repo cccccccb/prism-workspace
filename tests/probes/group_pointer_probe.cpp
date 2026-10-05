@@ -141,6 +141,19 @@ public:
                   << std::flush;
     }
 
+    void Click(double x, double y)
+    {
+        Require(std::isfinite(x) && std::isfinite(y) && x >= 0 && y >= 0 && x < width_ &&
+                    y < height_,
+                "Click outside isolated output");
+        Move({x, y});
+        Pause(80ms);
+        Button(WL_POINTER_BUTTON_STATE_PRESSED);
+        Pause(50ms);
+        Button(WL_POINTER_BUTTON_STATE_RELEASED);
+        Pause(150ms);
+    }
+
     void Gesture()
     {
         Move(handle_);
@@ -364,6 +377,11 @@ int main(int argc, char **argv)
                 double x{}, y{}, delta{};
                 Require(bool(input >> x >> y >> delta), "Invalid divider command");
                 pointer.Boundary(x, y, delta);
+            } else if (command.starts_with("click ")) {
+                std::istringstream input(command.substr(6));
+                double x{}, y{};
+                Require(bool(input >> x >> y), "Invalid isolated click command");
+                pointer.Click(x, y);
             } else if (command.starts_with("window ")) {
                 std::istringstream input(command.substr(7));
                 double x{}, y{};

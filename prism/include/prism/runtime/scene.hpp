@@ -33,6 +33,16 @@ struct SnapshotNode;
 
 struct Style {
     bool visible{true};
+    double min_viewport_width{}, max_viewport_width{};
+    double min_viewport_height{}, max_viewport_height{};
+
+    bool FitsViewport(contracts::LogicalSize size) const
+    {
+        return size.width >= min_viewport_width && size.height >= min_viewport_height &&
+               (max_viewport_width == 0 || size.width < max_viewport_width) &&
+               (max_viewport_height == 0 || size.height < max_viewport_height);
+    }
+
     double width{0};  // automatic: intrinsic leaves, remaining-space containers
     double height{0}; // automatic; Card fills containers and measures text
     double padding{0};

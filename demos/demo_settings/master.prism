@@ -1,630 +1,981 @@
-Card(padding: 16, material: "window", clip: true) {
-    VStack(spacing: 12) {
-        // --- Global Header Bar ---
-        HStack(height: 46, spacing: 14, align: "center") {
-            HStack(width: 240, spacing: 12, align: "center") {
-                Image("badge_system.png", width: 36, height: 36, fit: "contain")
-                VStack(spacing: 2, justify: "center") {
-                    Text("System Preferences", font: "@font_title", foreground: "@text")
-                    Text("Hardware & Desktop Tuning", font: "@font_caption", foreground: "@mutedText")
+Card(material: "window", padding: "@window_padding", clip: true) {
+    VStack(spacing: 8) {
+        Card(height: 80, paddingX: 14, minViewportWidth: 600) {
+            VStack(height: 80, spacing: 12) {
+                HStack(height: 32, spacing: 12, align: "center") {
+                    Icon("settings", width: 26, height: 26, foreground: "@text")
+                    Text("Preferences", font: 24, foreground: "@text", flex: 1, overflow: "clip")
+                    IconButton("refresh", "sys:refresh", width: 32, height: 32, padding: 5, foreground: "@text")
                 }
-            }
-            Separator(width: 1, height: 26, background: "@divider")
-            
-            // Clean Segmented Navigation Tab Pill (Single Background, Zero Double Borders)
-            HStack(flex: 1, spacing: 8, align: "center", justify: "center") {
-                VStack(width: 48, height: 38, justify: "center", align: "center", spacing: 2) {
-                    IconButton("cpu", action: "page:performance", width: 38, height: 30, padding: 6,
-                               material: "control", cornerRadius: 8, foreground: "@text")
-                    Progress(value: 1, width: 22, height: 2, anchor: "center", cornerRadius: 1,
-                             foreground: "@accent", visible: $page_performance)
-                }
-                VStack(width: 48, height: 38, justify: "center", align: "center", spacing: 2) {
-                    IconButton("layers", action: "page:appearance", width: 38, height: 30, padding: 6,
-                               material: "control", cornerRadius: 8, foreground: "@text")
-                    Progress(value: 1, width: 22, height: 2, anchor: "center", cornerRadius: 1,
-                             foreground: "@accent", visible: $page_appearance)
-                }
-                VStack(width: 48, height: 38, justify: "center", align: "center", spacing: 2) {
-                    IconButton("rectangle", action: "page:display", width: 38, height: 30, padding: 6,
-                               material: "control", cornerRadius: 8, foreground: "@text")
-                    Progress(value: 1, width: 22, height: 2, anchor: "center", cornerRadius: 1,
-                             foreground: "@accent", visible: $page_display)
-                }
-                VStack(width: 48, height: 38, justify: "center", align: "center", spacing: 2) {
-                    IconButton("terminal", action: "page:system", width: 38, height: 30, padding: 6,
-                               material: "control", cornerRadius: 8, foreground: "@text")
-                    Progress(value: 1, width: 22, height: 2, anchor: "center", cornerRadius: 1,
-                             foreground: "@accent", visible: $page_system)
-                }
-            }
-            
-            IconButton("refresh", action: "sys:refresh", width: 36, height: 36, padding: 8,
-                       material: "control", cornerRadius: 8, foreground: "@text")
-        }
-
-        // ==========================================
-        // PAGE 1: REAL-TIME HARDWARE TELEMETRY
-        // ==========================================
-        VStack(flex: 1, spacing: 12, visible: $page_performance) {
-            HStack(height: 24, spacing: 8, align: "center") {
-                Icon("cpu", width: 16, height: 16, foreground: "@accent")
-                Text("Real-Time Hardware Telemetry", flex: 1, font: "@font_body", foreground: "@text")
-                Text("Telemetry Engine", font: "@font_caption", foreground: "@mutedText")
-                Toggle(checked: $monitoring_active, action: "monitor:toggle", width: 36, height: 20,
-                       foreground: "@accent", background: "@progressTrack")
-            }
-            
-            // Top Row: CPU & Memory Duo Bento Cards
-            HStack(height: 190, spacing: 12) {
-                Card(flex: 1, padding: 16, material: "card", cornerRadius: 14) {
-                    VStack(spacing: 12, justify: "spaceBetween") {
-                        HStack(spacing: 12, align: "center") {
-                            Image("badge_cpu.png", width: 44, height: 44, fit: "contain")
-                            VStack(flex: 1, spacing: 2, justify: "center") {
-                                Text("CPU Compute Cluster", font: "@font_title", foreground: "@text")
-                                Text("Intel Iris / UHD Core", font: "@font_caption", foreground: "@mutedText")
-                            }
-                            Card(height: 22, paddingX: 8, cornerRadius: 4, background: "@accentSoft", align: "center", justify: "center") {
-                                HStack(spacing: 4, align: "center") {
-                                    Icon("check", width: 12, height: 12, foreground: "@accent")
-                                    Text("Nominal", font: "@font_caption", foreground: "@accent")
+                HStack(width: 416, height: 36, spacing: 8) {
+                    VStack(flex: 1, spacing: 0) {
+                        InteractionTarget(action: "page:performance", height: 33) {
+                            Visual(cornerRadius: 6, justify: "center") {
+                                HStack(spacing: 8, align: "center", justify: "center", minViewportWidth: 360) {
+                                    Icon("monitor", width: 20, height: 20, foreground: "@text")
+                                    Text("Overview", font: "@font_body", foreground: "@text", overflow: "clip")
                                 }
+                                Text("Overview", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center", maxViewportWidth: 360)
                             }
+                            .state(when: "hovered", scope: "target", background: "@hover")
+                            .transition(property: "background", motion: "control.feedback")
+                            Visual(cornerRadius: 6, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                            .state(when: "focusVisible", scope: "target", opacity: 1)
                         }
-                        VStack(spacing: 6) {
-                            HStack(justify: "spaceBetween", align: "end") {
-                                Text("Total Core Utilization", font: "@font_caption", foreground: "@mutedText")
-                                Text($cpu_usage_text, font: 24, foreground: "@accent")
-                            }
-                            Progress(value: $cpu_usage, height: 8, cornerRadius: 4,
-                                     foreground: "@accent", background: "@progressTrack")
-                                .transition(property: "value", durationMs: 200, easing: "easeOutCubic")
-                        }
-                        HStack(spacing: 6, align: "center") {
-                            Icon("layers", width: 14, height: 14, foreground: "@mutedText")
-                            Text("Dynamic thread scheduler active · RT priority", font: "@font_caption", foreground: "@mutedText")
-                        }
+                        Card(height: 3, background: "@accent", cornerRadius: 1.5, visible: $page_performance)
                     }
-                }
-                Card(flex: 1, padding: 16, material: "card", cornerRadius: 14) {
-                    VStack(spacing: 12, justify: "spaceBetween") {
-                        HStack(spacing: 12, align: "center") {
-                            Image("badge_ram.png", width: 44, height: 44, fit: "contain")
-                            VStack(flex: 1, spacing: 2, justify: "center") {
-                                Text("Unified Memory Pool", font: "@font_title", foreground: "@text")
-                                Text("High-Speed System RAM", font: "@font_caption", foreground: "@mutedText")
-                            }
-                            Card(height: 22, paddingX: 8, cornerRadius: 4, background: "@accentSoft", align: "center", justify: "center") {
-                                HStack(spacing: 4, align: "center") {
-                                    Icon("memory", width: 12, height: 12, foreground: "@settingsAccent")
-                                    Text("Resident", font: "@font_caption", foreground: "@settingsAccent")
+                    VStack(flex: 1, spacing: 0) {
+                        InteractionTarget(action: "page:appearance", height: 33) {
+                            Visual(cornerRadius: 6, justify: "center") {
+                                HStack(spacing: 8, align: "center", justify: "center", minViewportWidth: 360) {
+                                    Icon("brush", width: 20, height: 20, foreground: "@text")
+                                    Text("Appearance", font: "@font_body", foreground: "@text", overflow: "clip")
                                 }
+                                Text("Appearance", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center", maxViewportWidth: 360)
                             }
+                            .state(when: "hovered", scope: "target", background: "@hover")
+                            .transition(property: "background", motion: "control.feedback")
+                            Visual(cornerRadius: 6, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                            .state(when: "focusVisible", scope: "target", opacity: 1)
                         }
-                        VStack(spacing: 6) {
-                            HStack(justify: "spaceBetween", align: "end") {
-                                Text("Resident Working Set", font: "@font_caption", foreground: "@mutedText")
-                                Text($mem_usage_text, font: 20, foreground: "@settingsAccent")
+                        Card(height: 3, background: "@accent", cornerRadius: 1.5, visible: $page_appearance)
+                    }
+                    VStack(flex: 1, spacing: 0) {
+                        InteractionTarget(action: "page:system", height: 33) {
+                            Visual(cornerRadius: 6, justify: "center") {
+                                HStack(spacing: 8, align: "center", justify: "center", minViewportWidth: 360) {
+                                    Icon("activity", width: 20, height: 20, foreground: "@text")
+                                    Text("Monitoring", font: "@font_body", foreground: "@text", overflow: "clip")
+                                }
+                                Text("Monitoring", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center", maxViewportWidth: 360)
                             }
-                            Progress(value: $memory_usage, height: 8, cornerRadius: 4,
-                                     foreground: "@settingsAccent", background: "@progressTrack")
-                                .transition(property: "value", durationMs: 200, easing: "easeOutCubic")
+                            .state(when: "hovered", scope: "target", background: "@hover")
+                            .transition(property: "background", motion: "control.feedback")
+                            Visual(cornerRadius: 6, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                            .state(when: "focusVisible", scope: "target", opacity: 1)
                         }
-                        HStack(spacing: 6, align: "center") {
-                            Icon("check", width: 14, height: 14, foreground: "@mutedText")
-                            Text("Zero-copy Wayland surface buffers active", font: "@font_caption", foreground: "@mutedText")
-                        }
-                    }
-                }
-            }
-
-            // Middle Row: GPU & Shader Pipeline Card
-            Card(height: 190, padding: 16, material: "card", cornerRadius: 14) {
-                VStack(spacing: 14, justify: "spaceBetween") {
-                    HStack(spacing: 14, align: "center") {
-                        Image("badge_gpu.png", width: 46, height: 46, fit: "contain")
-                        VStack(flex: 1, spacing: 2, justify: "center") {
-                            Text("GPU Rasterization Engine & Thermals", font: "@font_title", foreground: "@text")
-                            Text("Mesa Iris / OpenGL ES 3.2 · Dual-Kawase HW Pipeline", font: "@font_caption", foreground: "@mutedText")
-                        }
-                        Card(height: 22, paddingX: 8, cornerRadius: 4, background: "@accentSoft", align: "center", justify: "center") {
-                            HStack(spacing: 4, align: "center") {
-                                Icon("rectangle", width: 12, height: 12, foreground: "@accent")
-                                Text("DRM Direct", font: "@font_caption", foreground: "@accent")
-                            }
-                        }
-                    }
-                    VStack(spacing: 6) {
-                        HStack(justify: "spaceBetween", align: "end") {
-                            Text("Core Activity & Dynamic Frequency", font: "@font_caption", foreground: "@mutedText")
-                            Text($gpu_usage_text, font: 20, foreground: "@accent")
-                        }
-                        Progress(value: $gpu_busy, height: 8, cornerRadius: 4,
-                                 foreground: "@accent", background: "@progressTrack", visible: $gpu_busy_available)
-                            .transition(property: "value", durationMs: 200, easing: "easeOutCubic")
-                    }
-                    HStack(spacing: 8, align: "center") {
-                        Icon("battery", width: 16, height: 16, foreground: "@settingsAccent")
-                        Text("SoC Hardware Telemetry: ", font: "@font_caption", foreground: "@mutedText")
-                        Text($hardware_aux, flex: 1, font: "@font_caption", foreground: "@text",
-                             overflow: "clip", visible: $hardware_aux_visible)
-                    }
-                }
-            }
-
-            // Third Row: Pipeline & Architecture Bento Cards (Fills vertical void!)
-            HStack(height: 100, spacing: 12) {
-                Card(flex: 1, padding: 12, material: "card", cornerRadius: 12) {
-                    VStack(spacing: 4, justify: "center") {
-                        HStack(spacing: 6, align: "center") {
-                            Icon("layers", width: 16, height: 16, foreground: "@accent")
-                            Text("KMS Direct Scanout", font: "@font_body", foreground: "@text")
-                        }
-                        VStack(spacing: 2) {
-                            Text("Direct surface flip", font: "@font_caption", foreground: "@mutedText")
-                            Text("Zero compositor copy", font: "@font_caption", foreground: "@mutedText")
-                        }
-                    }
-                }
-                Card(flex: 1, padding: 12, material: "card", cornerRadius: 12) {
-                    VStack(spacing: 4, justify: "center") {
-                        HStack(spacing: 6, align: "center") {
-                            Icon("drop", width: 16, height: 16, foreground: "@settingsAccent")
-                            Text("Dual-Kawase Blur", font: "@font_body", foreground: "@text")
-                        }
-                        VStack(spacing: 2) {
-                            Text("4-pass ping-pong FBO", font: "@font_caption", foreground: "@mutedText")
-                            Text("Bilinear downsampling", font: "@font_caption", foreground: "@mutedText")
-                        }
-                    }
-                }
-                Card(flex: 1, padding: 12, material: "card", cornerRadius: 12) {
-                    VStack(spacing: 4, justify: "center") {
-                        HStack(spacing: 6, align: "center") {
-                            Icon("check", width: 16, height: 16, foreground: "@indicator")
-                            Text("Render Decoupling", font: "@font_body", foreground: "@text")
-                        }
-                        VStack(spacing: 2) {
-                            Text("Dedicated 60Hz worker", font: "@font_caption", foreground: "@mutedText")
-                            Text("Lock-free atomic swap", font: "@font_caption", foreground: "@mutedText")
-                        }
-                    }
-                }
-            }
-
-            // Bottom Row: Telemetry Tick & Sampling Rate (Clean Centered Buttons, Indicators Bound)
-            Card(height: 68, paddingX: 16, paddingY: 10, material: "card", cornerRadius: 12) {
-                HStack(spacing: 16, align: "center") {
-                    HStack(width: 160, spacing: 10, align: "center") {
-                        Icon("refresh", width: 20, height: 20, foreground: "@accent")
-                        VStack(spacing: 2, justify: "center") {
-                            Text("Refresh Rate", font: "@font_body", foreground: "@text")
-                            Text("Telemetry tick", font: "@font_caption", foreground: "@mutedText")
-                        }
-                    }
-                    Separator(width: 1, height: 28, background: "@divider")
-                    HStack(flex: 1, spacing: 12, align: "center", justify: "center") {
-                        VStack(flex: 1, height: 42, justify: "center", align: "center", spacing: 3) {
-                            Button("0.5s Turbo", action: "sampling:500", width: 96, height: 26, paddingX: 14,
-                                   cornerRadius: 6, font: "@font_caption", align: "center", justify: "center",
-                                   foreground: "@text", material: "control")
-                            Progress(value: 1, width: 28, height: 2, anchor: "center", cornerRadius: 1,
-                                     foreground: "@indicator", visible: $interval_500_selected)
-                        }
-                        VStack(flex: 1, height: 42, justify: "center", align: "center", spacing: 3) {
-                            Button("1.0s Balanced", action: "sampling:1000", width: 104, height: 26, paddingX: 14,
-                                   cornerRadius: 6, font: "@font_caption", align: "center", justify: "center",
-                                   foreground: "@text", material: "control")
-                            Progress(value: 1, width: 28, height: 2, anchor: "center", cornerRadius: 1,
-                                     foreground: "@indicator", visible: $interval_1000_selected)
-                        }
-                        VStack(flex: 1, height: 42, justify: "center", align: "center", spacing: 3) {
-                            Button("2.0s Eco Saver", action: "sampling:2000", width: 112, height: 26, paddingX: 14,
-                                   cornerRadius: 6, font: "@font_caption", align: "center", justify: "center",
-                                   foreground: "@text", material: "control")
-                            Progress(value: 1, width: 28, height: 2, anchor: "center", cornerRadius: 1,
-                                     foreground: "@indicator", visible: $interval_2000_selected)
-                        }
+                        Card(height: 3, background: "@accent", cornerRadius: 1.5, visible: $page_system)
                     }
                 }
             }
         }
-
-        // ==========================================
-        // PAGE 2: DESKTOP THEME & MATERIAL PERSONALIZATION
-        // ==========================================
-        VStack(flex: 1, spacing: 12, visible: $page_appearance) {
-            HStack(height: 24, spacing: 8, align: "center") {
-                Icon("layers", width: 16, height: 16, foreground: "@accent")
-                Text("Desktop Theme & Material Personalization", flex: 1, font: "@font_body", foreground: "@text")
-                Text("Unified Prism Styling", font: "@font_caption", foreground: "@mutedText")
-            }
-
-            // Top Row: 4 Theme Cards (Balanced Height, Rich Details, Perfectly Centered Apply Buttons & Indicators)
-            HStack(height: 250, spacing: 12) {
-                Card(flex: 1, padding: 14, material: "card", cornerRadius: 14) {
-                    VStack(spacing: 8, justify: "spaceBetween", align: "center") {
-                        Card(width: 60, height: 60, material: "control", cornerRadius: 12,
-                             borderWidth: 1, borderColor: "@border", justify: "center", align: "center") {
-                            Icon("layers", width: 30, height: 30, foreground: "@accent")
-                        }
-                        VStack(spacing: 2, align: "center") {
-                            Text("Glass", font: "@font_title", foreground: "@text")
-                            Text("16px Dual-Kawase blur", font: "@font_caption", foreground: "@mutedText")
-                        }
-                        Card(height: 20, paddingX: 6, cornerRadius: 4, background: "@accentSoft", align: "center", justify: "center") {
-                            Text("Frosted Glass", font: "@font_caption", foreground: "@accent")
-                        }
-                        VStack(spacing: 3, align: "center") {
-                            Button("Apply", action: "theme:glass", width: 72, height: 26, font: "@font_caption",
-                                   cornerRadius: 6, paddingX: 18, align: "center", justify: "center",
-                                   material: "control", foreground: "@text")
-                            Progress(value: 1, width: 28, height: 2, anchor: "center", cornerRadius: 1,
-                                     foreground: "@indicator", visible: $theme_glass_selected)
-                        }
-                    }
+        Card(height: 80, maxViewportWidth: 600) {
+            VStack(height: 80, spacing: 12) {
+                HStack(height: 32, spacing: 12, align: "center") {
+                    Icon("settings", width: 26, height: 26, foreground: "@text")
+                    Text("Preferences", font: 24, foreground: "@text", flex: 1, overflow: "clip")
+                    IconButton("refresh", "sys:refresh", width: 32, height: 32, padding: 5, foreground: "@text")
                 }
-                Card(flex: 1, padding: 14, material: "card", cornerRadius: 14) {
-                    VStack(spacing: 8, justify: "spaceBetween", align: "center") {
-                        Card(width: 60, height: 60, material: "control", cornerRadius: 12,
-                             borderWidth: 1, borderColor: "@border", justify: "center", align: "center") {
-                            Icon("drop", width: 30, height: 30, foreground: "@text")
-                        }
-                        VStack(spacing: 2, align: "center") {
-                            Text("Translucent", font: "@font_title", foreground: "@text")
-                            Text("Deep smoke tint overlay", font: "@font_caption", foreground: "@mutedText")
-                        }
-                        Card(height: 20, paddingX: 6, cornerRadius: 4, background: "@accentSoft", align: "center", justify: "center") {
-                            Text("OLED Low-Glare", font: "@font_caption", foreground: "@text")
-                        }
-                        VStack(spacing: 3, align: "center") {
-                            Button("Apply", action: "theme:translucent", width: 72, height: 26, font: "@font_caption",
-                                   cornerRadius: 6, paddingX: 18, align: "center", justify: "center",
-                                   material: "control", foreground: "@text")
-                            Progress(value: 1, width: 28, height: 2, anchor: "center", cornerRadius: 1,
-                                     foreground: "@indicator", visible: $theme_translucent_selected)
-                        }
-                    }
-                }
-                Card(flex: 1, padding: 14, material: "card", cornerRadius: 14) {
-                    VStack(spacing: 8, justify: "spaceBetween", align: "center") {
-                        Card(width: 60, height: 60, material: "control", cornerRadius: 12,
-                             borderWidth: 1, borderColor: "@border", justify: "center", align: "center") {
-                            Icon("rectangle", width: 30, height: 30, foreground: "@text")
-                        }
-                        VStack(spacing: 2, align: "center") {
-                            Text("Clear", font: "@font_title", foreground: "@text")
-                            Text("100% transparent root", font: "@font_caption", foreground: "@mutedText")
-                        }
-                        Card(height: 20, paddingX: 6, cornerRadius: 4, background: "@accentSoft", align: "center", justify: "center") {
-                            Text("Frameless Pure", font: "@font_caption", foreground: "@text")
-                        }
-                        VStack(spacing: 3, align: "center") {
-                            Button("Apply", action: "theme:transparent", width: 72, height: 26, font: "@font_caption",
-                                   cornerRadius: 6, paddingX: 18, align: "center", justify: "center",
-                                   material: "control", foreground: "@text")
-                            Progress(value: 1, width: 28, height: 2, anchor: "center", cornerRadius: 1,
-                                     foreground: "@indicator", visible: $theme_transparent_selected)
-                        }
-                    }
-                }
-                Card(flex: 1, padding: 14, material: "card", cornerRadius: 14) {
-                    VStack(spacing: 8, justify: "spaceBetween", align: "center") {
-                        Card(width: 60, height: 60, material: "control", cornerRadius: 0,
-                             borderWidth: 1, borderColor: "@border", justify: "center", align: "center") {
-                            Icon("grid", width: 30, height: 30, foreground: "@text")
-                        }
-                        VStack(spacing: 2, align: "center") {
-                            Text("Square", font: "@font_title", foreground: "@text")
-                            Text("0px sharp flat border", font: "@font_caption", foreground: "@mutedText")
-                        }
-                        Card(height: 20, paddingX: 6, cornerRadius: 4, background: "@accentSoft", align: "center", justify: "center") {
-                            Text("Industrial Sharp", font: "@font_caption", foreground: "@text")
-                        }
-                        VStack(spacing: 3, align: "center") {
-                            Button("Apply", action: "theme:square", width: 72, height: 26, font: "@font_caption",
-                                   cornerRadius: 0, paddingX: 18, align: "center", justify: "center",
-                                   material: "control", foreground: "@text")
-                            Progress(value: 1, width: 28, height: 2, anchor: "center", cornerRadius: 1,
-                                     foreground: "@indicator", visible: $theme_square_selected)
-                        }
-                    }
-                }
-            }
-
-            // Middle Row: Light & Dark Color Schemes (Clean Cards with Direct Touch Area)
-            HStack(height: 86, spacing: 12) {
-                Card(flex: 1, padding: 14, material: "card", cornerRadius: 12) {
-                    HStack(spacing: 14, align: "center") {
-                        IconButton("sun", action: "appearance:light", width: 44, height: 44, padding: 8,
-                                   material: "control", cornerRadius: 10, foreground: "@text")
-                        VStack(flex: 1, spacing: 2, justify: "center") {
-                            Text("Daylight Studio Mode", font: "@font_title", foreground: "@text")
-                            Text("High-contrast bright daylight palette", font: "@font_caption", foreground: "@mutedText")
-                        }
-                        Icon("check", width: 20, height: 20, foreground: "@indicator", visible: $scheme_light_selected)
-                    }
-                }
-                Card(flex: 1, padding: 14, material: "card", cornerRadius: 12) {
-                    HStack(spacing: 14, align: "center") {
-                        IconButton("moon", action: "appearance:dark", width: 44, height: 44, padding: 8,
-                                   material: "control", cornerRadius: 10, foreground: "@text")
-                        VStack(flex: 1, spacing: 2, justify: "center") {
-                            Text("Obsidian Night Mode", font: "@font_title", foreground: "@text")
-                            Text("Deep OLED low-glare twilight palette", font: "@font_caption", foreground: "@mutedText")
-                        }
-                        Icon("check", width: 20, height: 20, foreground: "@indicator", visible: $scheme_dark_selected)
-                    }
-                }
-            }
-
-            // Bottom Section: Surface Shader Pipeline & Animation Status
-            Card(height: 180, padding: 16, material: "card", cornerRadius: 14) {
-                VStack(spacing: 12, justify: "center") {
-                    HStack(spacing: 8, align: "center") {
-                        Icon("settings", width: 16, height: 16, foreground: "@accent")
-                        Text("Compositor Surface Effects & Kinetic Curves", font: "@font_body", foreground: "@text")
-                        Text("Active Pipeline", flex: 1, font: "@font_caption", foreground: "@mutedText")
-                    }
-                    Separator(height: 1, background: "@divider")
-                    HStack(spacing: 16) {
-                        Card(flex: 1, padding: 12, material: "control", cornerRadius: 10) {
-                            VStack(spacing: 4, justify: "center") {
-                                HStack(spacing: 6, align: "center") {
-                                    Icon("drop", width: 16, height: 16, foreground: "@accent")
-                                    Text("Dual-Kawase Blur Shader", font: "@font_body", foreground: "@text")
+                HStack(width: 416, height: 36, spacing: 8) {
+                    VStack(flex: 1, spacing: 0) {
+                        InteractionTarget(action: "page:performance", height: 33) {
+                            Visual(cornerRadius: 6, justify: "center") {
+                                HStack(spacing: 8, align: "center", justify: "center", minViewportWidth: 360) {
+                                    Icon("monitor", width: 20, height: 20, foreground: "@text")
+                                    Text("Overview", font: "@font_body", foreground: "@text", overflow: "clip")
                                 }
-                                Text("16.0px kernel · 2 downsample + 2 upsample hardware ping-pong passes", font: "@font_caption", foreground: "@mutedText")
+                                Text("Overview", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center", maxViewportWidth: 360)
                             }
+                            .state(when: "hovered", scope: "target", background: "@hover")
+                            .transition(property: "background", motion: "control.feedback")
+                            Visual(cornerRadius: 6, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                            .state(when: "focusVisible", scope: "target", opacity: 1)
                         }
-                        Card(flex: 1, padding: 12, material: "control", cornerRadius: 10) {
-                            VStack(spacing: 4, justify: "center") {
-                                HStack(spacing: 6, align: "center") {
-                                    Icon("layers", width: 16, height: 16, foreground: "@accent")
-                                    Text("Kinetic Spring Engine", font: "@font_body", foreground: "@text")
+                        Card(height: 3, background: "@accent", cornerRadius: 1.5, visible: $page_performance)
+                    }
+                    VStack(flex: 1, spacing: 0) {
+                        InteractionTarget(action: "page:appearance", height: 33) {
+                            Visual(cornerRadius: 6, justify: "center") {
+                                HStack(spacing: 8, align: "center", justify: "center", minViewportWidth: 360) {
+                                    Icon("brush", width: 20, height: 20, foreground: "@text")
+                                    Text("Appearance", font: "@font_body", foreground: "@text", overflow: "clip")
                                 }
-                                Text("Critically damped 60Hz physics spring curve · Zero runtime allocation", font: "@font_caption", foreground: "@mutedText")
+                                Text("Appearance", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center", maxViewportWidth: 360)
                             }
+                            .state(when: "hovered", scope: "target", background: "@hover")
+                            .transition(property: "background", motion: "control.feedback")
+                            Visual(cornerRadius: 6, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                            .state(when: "focusVisible", scope: "target", opacity: 1)
                         }
+                        Card(height: 3, background: "@accent", cornerRadius: 1.5, visible: $page_appearance)
                     }
-                }
-            }
-
-            Text($theme_status, height: 14, font: "@font_caption", foreground: "@mutedText",
-                 overflow: "clip", visible: $theme_error_visible)
-        }
-
-        // ==========================================
-        // PAGE 3: DISPLAYS & WORKSPACES
-        // ==========================================
-        VStack(flex: 1, spacing: 12, visible: $page_display) {
-            HStack(height: 24, spacing: 8, align: "center") {
-                Icon("rectangle", width: 16, height: 16, foreground: "@accent")
-                Text("Displays & Workspaces", flex: 1, font: "@font_body", foreground: "@text")
-                Text("Direct KMS Engine", font: "@font_caption", foreground: "@mutedText")
-            }
-
-            // Output Panel Card (Well Sized, Rich Specs)
-            Card(height: 180, padding: 18, material: "card", cornerRadius: 14) {
-                VStack(spacing: 12, justify: "center") {
-                    HStack(spacing: 18, align: "center") {
-                        Image("badge_display.png", width: 64, height: 64, fit: "contain")
-                        VStack(flex: 1, spacing: 4, justify: "center") {
-                            HStack(spacing: 8, align: "center") {
-                                Text("Direct Output: HDMI-A-3", font: "@font_heading", foreground: "@text")
-                                Card(height: 20, paddingX: 6, cornerRadius: 4, background: "@accentSoft", align: "center", justify: "center") {
-                                    Text("Primary KMS", font: "@font_caption", foreground: "@accent")
+                    VStack(flex: 1, spacing: 0) {
+                        InteractionTarget(action: "page:system", height: 33) {
+                            Visual(cornerRadius: 6, justify: "center") {
+                                HStack(spacing: 8, align: "center", justify: "center", minViewportWidth: 360) {
+                                    Icon("activity", width: 20, height: 20, foreground: "@text")
+                                    Text("Monitoring", font: "@font_body", foreground: "@text", overflow: "clip")
                                 }
+                                Text("Monitoring", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center", maxViewportWidth: 360)
                             }
-                            Text("1920 × 1080 @ 60.000 Hz · 32-bit ARGB8888", font: "@font_title", foreground: "@accent")
-                            Text("Direct DRM Modeset on /dev/dri/card1 (Intel UHD / Iris Graphics)", font: "@font_caption", foreground: "@mutedText")
+                            .state(when: "hovered", scope: "target", background: "@hover")
+                            .transition(property: "background", motion: "control.feedback")
+                            Visual(cornerRadius: 6, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                            .state(when: "focusVisible", scope: "target", opacity: 1)
                         }
-                    }
-                    Separator(height: 1, background: "@divider")
-                    HStack(spacing: 20, align: "center") {
-                        HStack(spacing: 6, align: "center") {
-                            Icon("check", width: 14, height: 14, foreground: "@accent")
-                            Text("Direct Scanout: Active", font: "@font_caption", foreground: "@mutedText")
-                        }
-                        HStack(spacing: 6, align: "center") {
-                            Icon("check", width: 14, height: 14, foreground: "@accent")
-                            Text("Hardware VSync Sync: 16.6ms", font: "@font_caption", foreground: "@mutedText")
-                        }
-                        HStack(spacing: 6, align: "center") {
-                            Icon("check", width: 14, height: 14, foreground: "@accent")
-                            Text("EDID Panel Validated", font: "@font_caption", foreground: "@mutedText")
-                        }
-                    }
-                }
-            }
-
-            // Display Topology & Color Management Panel
-            Card(height: 164, padding: 16, material: "card", cornerRadius: 14) {
-                VStack(spacing: 10, justify: "center") {
-                    HStack(height: 20, spacing: 8, align: "center") {
-                        Icon("settings", width: 16, height: 16, foreground: "@accent")
-                        Text("Display Topology & Color Management", font: "@font_body", foreground: "@text")
-                        Text("Standard Rec.709 sRGB", flex: 1, font: "@font_caption", foreground: "@mutedText")
-                    }
-                    Separator(height: 1, background: "@divider")
-                    HStack(height: 90, spacing: 12) {
-                        Card(flex: 1, height: 90, paddingX: 10, paddingY: 8, material: "control", cornerRadius: 10, align: "center", justify: "center") {
-                            VStack(spacing: 3, align: "center", justify: "center") {
-                                Icon("rectangle", width: 20, height: 20, foreground: "@accent")
-                                Text("Pixel-Perfect 1.0x", font: "@font_body", foreground: "@text")
-                                Text("Integer scaling engine", font: "@font_caption", foreground: "@mutedText")
-                            }
-                        }
-                        Card(flex: 1, height: 90, paddingX: 10, paddingY: 8, material: "control", cornerRadius: 10, align: "center", justify: "center") {
-                            VStack(spacing: 3, align: "center", justify: "center") {
-                                Icon("layers", width: 20, height: 20, foreground: "@accent")
-                                Text("Double-Buffered Flip", font: "@font_body", foreground: "@text")
-                                Text("Tear-free DRM presentation", font: "@font_caption", foreground: "@mutedText")
-                            }
-                        }
-                        Card(flex: 1, height: 90, paddingX: 10, paddingY: 8, material: "control", cornerRadius: 10, align: "center", justify: "center") {
-                            VStack(spacing: 3, align: "center", justify: "center") {
-                                Icon("drop", width: 20, height: 20, foreground: "@accent")
-                                Text("Gamma Curve 2.2", font: "@font_body", foreground: "@text")
-                                Text("Linear hardware LUT", font: "@font_caption", foreground: "@mutedText")
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Section 3: Workspace Window Management Layouts (Unified Bento Card, No Gap / Void)
-            Card(height: 164, padding: 16, material: "card", cornerRadius: 14) {
-                VStack(spacing: 10, justify: "center") {
-                    HStack(height: 20, spacing: 8, align: "center") {
-                        Icon("grid", width: 16, height: 16, foreground: "@accent")
-                        Text("Workspace Window Management Layouts", font: "@font_body", foreground: "@text")
-                        Text("Active: Dynamic BSP Tiling", flex: 1, font: "@font_caption", foreground: "@mutedText")
-                    }
-                    Separator(height: 1, background: "@divider")
-                    HStack(height: 90, spacing: 12) {
-                        Card(flex: 1, height: 90, material: "control", paddingX: 10, paddingY: 8, cornerRadius: 10,
-                             borderWidth: 1, borderColor: "@accent") {
-                            VStack(spacing: 4, align: "center", justify: "center") {
-                                Icon("grid", width: 22, height: 22, foreground: "@accent")
-                                Text("BSP Binary Split", font: "@font_title", foreground: "@text")
-                                Text("Dynamic proportional tiling", font: "@font_caption", foreground: "@mutedText")
-                            }
-                        }
-                        Card(flex: 1, height: 90, material: "control", paddingX: 10, paddingY: 8, cornerRadius: 10,
-                             borderWidth: 1, borderColor: "@border") {
-                            VStack(spacing: 4, align: "center", justify: "center") {
-                                Icon("layers", width: 22, height: 22, foreground: "@mutedText")
-                                Text("Tabbed Group", font: "@font_title", foreground: "@text")
-                                Text("Co-located window tabs", font: "@font_caption", foreground: "@mutedText")
-                            }
-                        }
-                        Card(flex: 1, height: 90, material: "control", paddingX: 10, paddingY: 8, cornerRadius: 10,
-                             borderWidth: 1, borderColor: "@border") {
-                            VStack(spacing: 4, align: "center", justify: "center") {
-                                Icon("rectangle", width: 22, height: 22, foreground: "@mutedText")
-                                Text("Monocle Full", font: "@font_title", foreground: "@text")
-                                Text("Focused fullscreen mode", font: "@font_caption", foreground: "@mutedText")
-                            }
-                        }
+                        Card(height: 3, background: "@accent", cornerRadius: 1.5, visible: $page_system)
                     }
                 }
             }
         }
-
-        // ==========================================
-        // PAGE 4: PLATFORM & ENGINE ARCHITECTURE
-        // ==========================================
-        VStack(flex: 1, spacing: 12, visible: $page_system) {
-            HStack(height: 24, spacing: 8, align: "center") {
-                Icon("terminal", width: 16, height: 16, foreground: "@accent")
-                Text("Platform & Engine Architecture", flex: 1, font: "@font_body", foreground: "@text")
-                Text("Native Stack", font: "@font_caption", foreground: "@mutedText")
-            }
-
-            // Top Hero Card: Engine Identity & Core
-            Card(height: 150, padding: 18, material: "card", cornerRadius: 14) {
-                HStack(spacing: 18, align: "center") {
-                    Image("badge_system.png", width: 64, height: 64, fit: "contain")
-                    VStack(flex: 1, spacing: 4, justify: "center") {
-                        HStack(spacing: 8, align: "center") {
-                            Text("Project Prism Window Manager", font: "@font_heading", foreground: "@text")
-                            Card(height: 20, paddingX: 6, cornerRadius: 4, background: "@accentSoft", align: "center", justify: "center") {
-                                Text("Production v0.1.0", font: "@font_caption", foreground: "@accent")
+        Separator(height: 1, background: "@border")
+        Card(flex: 1, visible: $theme_normal) {
+            Card(paddingX: 14, minViewportWidth: 600, minViewportHeight: 540, visible: $page_performance) {
+                VStack(spacing: 12) {
+                    VStack(height: 146, spacing: 8) {
+                        Text("Performance", font: "@font_title", foreground: "@text", overflow: "clip", height: 22)
+                        Card(height: 116, paddingX: 10, background: "@controlTint", borderColor: "@border", borderWidth: 1, cornerRadius: 8) {
+                            VStack(spacing: 0) {
+                                HStack(height: 38, spacing: 10, align: "center") {
+                                    Icon("cpu", width: 20, height: 20, foreground: "@text")
+                                    Text("CPU", font: "@font_body", foreground: "@text", overflow: "clip", width: 70)
+                                    Progress(value: $cpu_usage, flex: 1, height: 7, cornerRadius: 3.5, foreground: "@accent", background: "@progressTrack", minViewportWidth: 440)
+                                    Card(flex: 1) {
+                                        Text($cpu_usage_text, font: "@font_body", foreground: "@text", anchor: "right", overflow: "clip")
+                                    }
+                                }
+                                Separator(height: 1, background: "@border")
+                                HStack(height: 38, spacing: 10, align: "center") {
+                                    Icon("memory", width: 20, height: 20, foreground: "@text")
+                                    Text("Memory", font: "@font_body", foreground: "@text", overflow: "clip", width: 70)
+                                    Progress(value: $memory_usage, flex: 1, height: 7, cornerRadius: 3.5, foreground: "@accent", background: "@progressTrack", minViewportWidth: 440)
+                                    Card(flex: 1) {
+                                        Text($mem_usage_text, font: "@font_body", foreground: "@text", anchor: "right", overflow: "clip")
+                                    }
+                                }
+                                Separator(height: 1, background: "@border")
+                                HStack(height: 38, spacing: 10, align: "center") {
+                                    Icon("memory", width: 20, height: 20, foreground: "@text")
+                                    Text("GPU", font: "@font_body", foreground: "@text", overflow: "clip", width: 70)
+                                    Card(flex: 1) {
+                                        Text($gpu_usage_text, font: "@font_body", foreground: "@text", anchor: "right", overflow: "clip")
+                                    }
+                                }
                             }
                         }
-                        Text("wlroots 0.18 Native Wayland Compositor Engine", font: "@font_title", foreground: "@accent")
-                        Text("Skia Ganesh Hardware Rasterizer · OpenGL ES 3.2 on Direct KMS", font: "@font_caption", foreground: "@mutedText")
                     }
+                    VStack(height: 107, spacing: 8) {
+                        Text("Appearance", font: "@font_title", foreground: "@text", overflow: "clip", height: 22)
+                        HStack(height: 77, spacing: 18, align: "center", minViewportWidth: 600) {
+                            Card(width: 292, height: 77) {
+                                HStack(height: 77, spacing: 12) {
+                                    VStack(flex: 1, spacing: 5) {
+                                        InteractionTarget(action: "theme:glass", height: 48) {
+                                            Visual(cornerRadius: 7, clip: true) {
+                                                Image("material_glass_dark.png", fit: "cover", visible: $scheme_dark_selected)
+                                                Image("material_glass_light.png", fit: "cover", visible: $scheme_light_selected)
+                                            }
+                                            Visual(borderColor: "@border", borderWidth: 1, cornerRadius: 7)
+                                            Visual(borderColor: "@accent", borderWidth: 1.5, cornerRadius: 7, visible: $theme_glass_selected)
+                                            Visual(cornerRadius: 7, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                            .state(when: "focusVisible", scope: "target", opacity: 1)
+                                        }
+                                        Card(height: 16) {
+                                            Text("Glass", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center")
+                                        }
+                                        Card(height: 3, cornerRadius: 1.5, background: "@accent", visible: $theme_glass_selected)
+                                    }
+                                    VStack(flex: 1, spacing: 5) {
+                                        InteractionTarget(action: "theme:translucent", height: 48) {
+                                            Visual(cornerRadius: 7, clip: true) {
+                                                Image("material_tint_dark.png", fit: "cover", visible: $scheme_dark_selected)
+                                                Image("material_tint_light.png", fit: "cover", visible: $scheme_light_selected)
+                                            }
+                                            Visual(borderColor: "@border", borderWidth: 1, cornerRadius: 7)
+                                            Visual(borderColor: "@accent", borderWidth: 1.5, cornerRadius: 7, visible: $theme_translucent_selected)
+                                            Visual(cornerRadius: 7, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                            .state(when: "focusVisible", scope: "target", opacity: 1)
+                                        }
+                                        Card(height: 16) {
+                                            Text("Tint", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center")
+                                        }
+                                        Card(height: 3, cornerRadius: 1.5, background: "@accent", visible: $theme_translucent_selected)
+                                    }
+                                    VStack(flex: 1, spacing: 5) {
+                                        InteractionTarget(action: "theme:transparent", height: 48) {
+                                            Visual(cornerRadius: 7, clip: true) {
+                                                Image("material_clear_dark.png", fit: "cover", visible: $scheme_dark_selected)
+                                                Image("material_clear_light.png", fit: "cover", visible: $scheme_light_selected)
+                                            }
+                                            Visual(borderColor: "@border", borderWidth: 1, cornerRadius: 7)
+                                            Visual(borderColor: "@accent", borderWidth: 1.5, cornerRadius: 7, visible: $theme_transparent_selected)
+                                            Visual(cornerRadius: 7, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                            .state(when: "focusVisible", scope: "target", opacity: 1)
+                                        }
+                                        Card(height: 16) {
+                                            Text("Clear", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center")
+                                        }
+                                        Card(height: 3, cornerRadius: 1.5, background: "@accent", visible: $theme_transparent_selected)
+                                    }
+                                    VStack(flex: 1, spacing: 5) {
+                                        InteractionTarget(action: "theme:square", height: 48) {
+                                            Visual(cornerRadius: 0, clip: true) {
+                                                Image("material_square_dark.png", fit: "cover", visible: $scheme_dark_selected)
+                                                Image("material_square_light.png", fit: "cover", visible: $scheme_light_selected)
+                                            }
+                                            Visual(borderColor: "@border", borderWidth: 1, cornerRadius: 0)
+                                            Visual(borderColor: "@accent", borderWidth: 1.5, cornerRadius: 0, visible: $theme_square_selected)
+                                            Visual(cornerRadius: 0, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                            .state(when: "focusVisible", scope: "target", opacity: 1)
+                                        }
+                                        Card(height: 16) {
+                                            Text("Square", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center")
+                                        }
+                                        Card(height: 3, cornerRadius: 1.5, background: "@accent", visible: $theme_square_selected)
+                                    }
+                                }
+                            }
+                            Separator(width: 1, height: 64, background: "@border")
+                            Card(height: 36, padding: 3, cornerRadius: 7, background: "@controlTint", borderWidth: 1, borderColor: "@border", width: 184) {
+                                HStack(spacing: 2) {
+                                    InteractionTarget(action: "appearance:light", flex: 1, height: 30) {
+                                        Visual(cornerRadius: 5) {
+                                        }
+                                        .state(when: "hovered", scope: "target", background: "@hover")
+                                        .transition(property: "background", motion: "control.feedback")
+                                        Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $scheme_light_selected)
+                                        Visual(justify: "center") {
+                                            HStack(spacing: 6, align: "center", justify: "center") {
+                                                Icon("sun", width: 18, height: 18, foreground: "@text")
+                                                Text("Light", font: "@font_body", foreground: "@text", overflow: "clip")
+                                            }
+                                        }
+                                        Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                                    }
+                                    InteractionTarget(action: "appearance:dark", flex: 1, height: 30) {
+                                        Visual(cornerRadius: 5) {
+                                        }
+                                        .state(when: "hovered", scope: "target", background: "@hover")
+                                        .transition(property: "background", motion: "control.feedback")
+                                        Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $scheme_dark_selected)
+                                        Visual(justify: "center") {
+                                            HStack(spacing: 6, align: "center", justify: "center") {
+                                                Icon("moon", width: 18, height: 18, foreground: "@text")
+                                                Text("Dark", font: "@font_body", foreground: "@text", overflow: "clip")
+                                            }
+                                        }
+                                        Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                                    }
+                                }
+                            }
+                        }
+                        VStack(spacing: 10, maxViewportWidth: 600) {
+                            HStack(height: 77, spacing: 12) {
+                                VStack(flex: 1, spacing: 5) {
+                                    InteractionTarget(action: "theme:glass", height: 48) {
+                                        Visual(cornerRadius: 7, clip: true) {
+                                            Image("material_glass_dark.png", fit: "cover", visible: $scheme_dark_selected)
+                                            Image("material_glass_light.png", fit: "cover", visible: $scheme_light_selected)
+                                        }
+                                        Visual(borderColor: "@border", borderWidth: 1, cornerRadius: 7)
+                                        Visual(borderColor: "@accent", borderWidth: 1.5, cornerRadius: 7, visible: $theme_glass_selected)
+                                        Visual(cornerRadius: 7, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                                    }
+                                    Card(height: 16) {
+                                        Text("Glass", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center")
+                                    }
+                                    Card(height: 3, cornerRadius: 1.5, background: "@accent", visible: $theme_glass_selected)
+                                }
+                                VStack(flex: 1, spacing: 5) {
+                                    InteractionTarget(action: "theme:translucent", height: 48) {
+                                        Visual(cornerRadius: 7, clip: true) {
+                                            Image("material_tint_dark.png", fit: "cover", visible: $scheme_dark_selected)
+                                            Image("material_tint_light.png", fit: "cover", visible: $scheme_light_selected)
+                                        }
+                                        Visual(borderColor: "@border", borderWidth: 1, cornerRadius: 7)
+                                        Visual(borderColor: "@accent", borderWidth: 1.5, cornerRadius: 7, visible: $theme_translucent_selected)
+                                        Visual(cornerRadius: 7, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                                    }
+                                    Card(height: 16) {
+                                        Text("Tint", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center")
+                                    }
+                                    Card(height: 3, cornerRadius: 1.5, background: "@accent", visible: $theme_translucent_selected)
+                                }
+                                VStack(flex: 1, spacing: 5) {
+                                    InteractionTarget(action: "theme:transparent", height: 48) {
+                                        Visual(cornerRadius: 7, clip: true) {
+                                            Image("material_clear_dark.png", fit: "cover", visible: $scheme_dark_selected)
+                                            Image("material_clear_light.png", fit: "cover", visible: $scheme_light_selected)
+                                        }
+                                        Visual(borderColor: "@border", borderWidth: 1, cornerRadius: 7)
+                                        Visual(borderColor: "@accent", borderWidth: 1.5, cornerRadius: 7, visible: $theme_transparent_selected)
+                                        Visual(cornerRadius: 7, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                                    }
+                                    Card(height: 16) {
+                                        Text("Clear", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center")
+                                    }
+                                    Card(height: 3, cornerRadius: 1.5, background: "@accent", visible: $theme_transparent_selected)
+                                }
+                                VStack(flex: 1, spacing: 5) {
+                                    InteractionTarget(action: "theme:square", height: 48) {
+                                        Visual(cornerRadius: 0, clip: true) {
+                                            Image("material_square_dark.png", fit: "cover", visible: $scheme_dark_selected)
+                                            Image("material_square_light.png", fit: "cover", visible: $scheme_light_selected)
+                                        }
+                                        Visual(borderColor: "@border", borderWidth: 1, cornerRadius: 0)
+                                        Visual(borderColor: "@accent", borderWidth: 1.5, cornerRadius: 0, visible: $theme_square_selected)
+                                        Visual(cornerRadius: 0, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                                    }
+                                    Card(height: 16) {
+                                        Text("Square", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center")
+                                    }
+                                    Card(height: 3, cornerRadius: 1.5, background: "@accent", visible: $theme_square_selected)
+                                }
+                            }
+                            Card(height: 36, padding: 3, cornerRadius: 7, background: "@controlTint", borderWidth: 1, borderColor: "@border", width: 184) {
+                                HStack(spacing: 2) {
+                                    InteractionTarget(action: "appearance:light", flex: 1, height: 30) {
+                                        Visual(cornerRadius: 5) {
+                                        }
+                                        .state(when: "hovered", scope: "target", background: "@hover")
+                                        .transition(property: "background", motion: "control.feedback")
+                                        Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $scheme_light_selected)
+                                        Visual(justify: "center") {
+                                            HStack(spacing: 6, align: "center", justify: "center") {
+                                                Icon("sun", width: 18, height: 18, foreground: "@text")
+                                                Text("Light", font: "@font_body", foreground: "@text", overflow: "clip")
+                                            }
+                                        }
+                                        Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                                    }
+                                    InteractionTarget(action: "appearance:dark", flex: 1, height: 30) {
+                                        Visual(cornerRadius: 5) {
+                                        }
+                                        .state(when: "hovered", scope: "target", background: "@hover")
+                                        .transition(property: "background", motion: "control.feedback")
+                                        Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $scheme_dark_selected)
+                                        Visual(justify: "center") {
+                                            HStack(spacing: 6, align: "center", justify: "center") {
+                                                Icon("moon", width: 18, height: 18, foreground: "@text")
+                                                Text("Dark", font: "@font_body", foreground: "@text", overflow: "clip")
+                                            }
+                                        }
+                                        Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    VStack(height: 105, spacing: 8) {
+                        Text("Monitoring", font: "@font_title", foreground: "@text", overflow: "clip", height: 22)
+                        Card(height: 75, paddingX: 10, background: "@controlTint", borderWidth: 1, borderColor: "@border", cornerRadius: 8) {
+                            VStack(spacing: 0) {
+                                HStack(height: 36, spacing: 10, align: "center") {
+                                    Icon("activity", width: 20, height: 20, foreground: "@text")
+                                    Text("Monitor", font: "@font_body", foreground: "@text", overflow: "clip", flex: 1)
+                                    Toggle(checked: $monitoring_active, action: "monitor:toggle", width: 44, height: 24, cornerRadius: 12, foreground: "@accent", background: "@progressTrack")
+                                }
+                                Separator(height: 1, background: "@border")
+                                HStack(height: 36, spacing: 10, align: "center") {
+                                    Card(width: 20, minViewportWidth: 600) {
+                                        Icon("clock", width: 20, height: 20, foreground: "@text")
+                                    }
+                                    Text("Sample interval", font: "@font_body", foreground: "@text", overflow: "clip", width: 116, minViewportWidth: 440)
+                                    Card(height: 36, padding: 3, cornerRadius: 7, background: "@controlTint", borderWidth: 1, borderColor: "@border", flex: 1) {
+                                        HStack(spacing: 2) {
+                                            InteractionTarget(action: "sampling:500", flex: 1, height: 30) {
+                                                Visual(cornerRadius: 5) {
+                                                }
+                                                .state(when: "hovered", scope: "target", background: "@hover")
+                                                .transition(property: "background", motion: "control.feedback")
+                                                Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $interval_500_selected)
+                                                Visual(justify: "center") {
+                                                    HStack(spacing: 6, align: "center", justify: "center") {
+                                                        Text("0.5s", font: "@font_body", foreground: "@text", overflow: "clip")
+                                                    }
+                                                }
+                                                Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                                            }
+                                            InteractionTarget(action: "sampling:1000", flex: 1, height: 30) {
+                                                Visual(cornerRadius: 5) {
+                                                }
+                                                .state(when: "hovered", scope: "target", background: "@hover")
+                                                .transition(property: "background", motion: "control.feedback")
+                                                Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $interval_1000_selected)
+                                                Visual(justify: "center") {
+                                                    HStack(spacing: 6, align: "center", justify: "center") {
+                                                        Text("1s", font: "@font_body", foreground: "@text", overflow: "clip")
+                                                    }
+                                                }
+                                                Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                                            }
+                                            InteractionTarget(action: "sampling:2000", flex: 1, height: 30) {
+                                                Visual(cornerRadius: 5) {
+                                                }
+                                                .state(when: "hovered", scope: "target", background: "@hover")
+                                                .transition(property: "background", motion: "control.feedback")
+                                                Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $interval_2000_selected)
+                                                Visual(justify: "center") {
+                                                    HStack(spacing: 6, align: "center", justify: "center") {
+                                                        Text("2s", font: "@font_body", foreground: "@text", overflow: "clip")
+                                                    }
+                                                }
+                                                Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Text("Metrics unavailable are shown as —.", height: 16, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
                 }
             }
-
-            // Middle Grid: 4 Core Architecture Pillars (Rich Bento Matrix, Fills Vertical Space Beautifully)
-            HStack(height: 140, spacing: 12) {
-                Card(flex: 1, padding: 12, material: "card", cornerRadius: 12) {
-                    VStack(spacing: 6, justify: "center") {
-                        Icon("layers", width: 22, height: 22, foreground: "@accent")
-                        Text("Direct Session", font: "@font_body", foreground: "@text")
-                        VStack(spacing: 2) {
-                            Text("TTY5 seat0 KMS", font: "@font_caption", foreground: "@mutedText")
-                            Text("Native modeset", font: "@font_caption", foreground: "@mutedText")
-                        }
-                    }
-                }
-                Card(flex: 1, padding: 12, material: "card", cornerRadius: 12) {
-                    VStack(spacing: 6, justify: "center") {
-                        Icon("drop", width: 22, height: 22, foreground: "@accent")
-                        Text("Surface Effects", font: "@font_body", foreground: "@text")
-                        VStack(spacing: 2) {
-                            Text("Dual-Kawase FBO", font: "@font_caption", foreground: "@mutedText")
-                            Text("Hardware blur", font: "@font_caption", foreground: "@mutedText")
-                        }
-                    }
-                }
-                Card(flex: 1, padding: 12, material: "card", cornerRadius: 12) {
-                    VStack(spacing: 6, justify: "center") {
-                        Icon("refresh", width: 22, height: 22, foreground: "@accent")
-                        Text("Zygote Subsystem", font: "@font_body", foreground: "@text")
-                        VStack(spacing: 2) {
-                            Text("Pre-forked pool", font: "@font_caption", foreground: "@mutedText")
-                            Text("Zero-copy IPC", font: "@font_caption", foreground: "@mutedText")
-                        }
-                    }
-                }
-                Card(flex: 1, padding: 12, material: "card", cornerRadius: 12) {
-                    VStack(spacing: 6, justify: "center") {
-                        Icon("cpu", width: 22, height: 22, foreground: "@accent")
-                        Text("Render Thread", font: "@font_body", foreground: "@text")
-                        VStack(spacing: 2) {
-                            Text("60Hz decoupled", font: "@font_caption", foreground: "@mutedText")
-                            Text("Lock-free swap", font: "@font_caption", foreground: "@mutedText")
-                        }
-                    }
-                }
-            }
-
-            // Bottom Card: Detailed Host & Kernel Environment Specs (Fills bottom void!)
-            Card(height: 180, padding: 16, material: "card", cornerRadius: 14) {
-                VStack(spacing: 10, justify: "center") {
-                    HStack(spacing: 8, align: "center") {
-                        Icon("settings", width: 16, height: 16, foreground: "@accent")
-                        Text("Kernel & Operating Environment Details", font: "@font_body", foreground: "@text")
-                        Text("Linux 6.8.0 x86_64", flex: 1, font: "@font_caption", foreground: "@mutedText")
-                    }
-                    Separator(height: 1, background: "@divider")
-                    HStack(spacing: 16) {
-                        VStack(flex: 1, spacing: 8) {
-                            HStack(spacing: 8, align: "center") {
-                                Icon("check", width: 14, height: 14, foreground: "@accent")
-                                Text("Display Controller: /dev/dri/card1 (Intel UHD Modeset)", font: "@font_caption", foreground: "@mutedText")
+            VStack(spacing: 8, minViewportHeight: 270, maxViewportHeight: 540, visible: $page_performance) {
+                VStack(height: 146, spacing: 8) {
+                    Text("Performance", font: "@font_title", foreground: "@text", overflow: "clip", height: 22)
+                    Card(height: 116, paddingX: 10, background: "@controlTint", borderColor: "@border", borderWidth: 1, cornerRadius: 8) {
+                        VStack(spacing: 0) {
+                            HStack(height: 38, spacing: 10, align: "center") {
+                                Icon("cpu", width: 20, height: 20, foreground: "@text")
+                                Text("CPU", font: "@font_body", foreground: "@text", overflow: "clip", width: 70)
+                                Progress(value: $cpu_usage, flex: 1, height: 7, cornerRadius: 3.5, foreground: "@accent", background: "@progressTrack", minViewportWidth: 440)
+                                Card(flex: 1) {
+                                    Text($cpu_usage_text, font: "@font_body", foreground: "@text", anchor: "right", overflow: "clip")
+                                }
                             }
-                            HStack(spacing: 8, align: "center") {
-                                Icon("check", width: 14, height: 14, foreground: "@accent")
-                                Text("Process Execution: Root-isolated pre-forked worker pool", font: "@font_caption", foreground: "@mutedText")
+                            Separator(height: 1, background: "@border")
+                            HStack(height: 38, spacing: 10, align: "center") {
+                                Icon("memory", width: 20, height: 20, foreground: "@text")
+                                Text("Memory", font: "@font_body", foreground: "@text", overflow: "clip", width: 70)
+                                Progress(value: $memory_usage, flex: 1, height: 7, cornerRadius: 3.5, foreground: "@accent", background: "@progressTrack", minViewportWidth: 440)
+                                Card(flex: 1) {
+                                    Text($mem_usage_text, font: "@font_body", foreground: "@text", anchor: "right", overflow: "clip")
+                                }
                             }
-                            HStack(spacing: 8, align: "center") {
-                                Icon("check", width: 14, height: 14, foreground: "@accent")
-                                Text("Hardware Acceleration: Skia Ganesh ES 3.2 pipeline", font: "@font_caption", foreground: "@mutedText")
-                            }
-                        }
-                        VStack(flex: 1, spacing: 8) {
-                            HStack(spacing: 8, align: "center") {
-                                Icon("check", width: 14, height: 14, foreground: "@accent")
-                                Text("Wayland Protocols: xdg_shell, viewporter, presentation_time", font: "@font_caption", foreground: "@mutedText")
-                            }
-                            HStack(spacing: 8, align: "center") {
-                                Icon("check", width: 14, height: 14, foreground: "@accent")
-                                Text("Security Profile: logind-managed unprivileged DRM leasing", font: "@font_caption", foreground: "@mutedText")
-                            }
-                            HStack(spacing: 8, align: "center") {
-                                Icon("check", width: 14, height: 14, foreground: "@accent")
-                                Text("Compositor IPC: Low-latency Unix domain socket protocol", font: "@font_caption", foreground: "@mutedText")
+                            Separator(height: 1, background: "@border")
+                            HStack(height: 38, spacing: 10, align: "center") {
+                                Icon("memory", width: 20, height: 20, foreground: "@text")
+                                Text("GPU", font: "@font_body", foreground: "@text", overflow: "clip", width: 70)
+                                Card(flex: 1) {
+                                    Text($gpu_usage_text, font: "@font_body", foreground: "@text", anchor: "right", overflow: "clip")
+                                }
                             }
                         }
                     }
                 }
             }
+            VStack(spacing: 8, minViewportHeight: 540, maxViewportWidth: 600, visible: $page_performance) {
+                VStack(height: 146, spacing: 8) {
+                    Text("Performance", font: "@font_title", foreground: "@text", overflow: "clip", height: 22)
+                    Card(height: 116, paddingX: 10, background: "@controlTint", borderColor: "@border", borderWidth: 1, cornerRadius: 8) {
+                        VStack(spacing: 0) {
+                            HStack(height: 38, spacing: 10, align: "center") {
+                                Icon("cpu", width: 20, height: 20, foreground: "@text")
+                                Text("CPU", font: "@font_body", foreground: "@text", overflow: "clip", width: 70)
+                                Progress(value: $cpu_usage, flex: 1, height: 7, cornerRadius: 3.5, foreground: "@accent", background: "@progressTrack", minViewportWidth: 440)
+                                Card(flex: 1) {
+                                    Text($cpu_usage_text, font: "@font_body", foreground: "@text", anchor: "right", overflow: "clip")
+                                }
+                            }
+                            Separator(height: 1, background: "@border")
+                            HStack(height: 38, spacing: 10, align: "center") {
+                                Icon("memory", width: 20, height: 20, foreground: "@text")
+                                Text("Memory", font: "@font_body", foreground: "@text", overflow: "clip", width: 70)
+                                Progress(value: $memory_usage, flex: 1, height: 7, cornerRadius: 3.5, foreground: "@accent", background: "@progressTrack", minViewportWidth: 440)
+                                Card(flex: 1) {
+                                    Text($mem_usage_text, font: "@font_body", foreground: "@text", anchor: "right", overflow: "clip")
+                                }
+                            }
+                            Separator(height: 1, background: "@border")
+                            HStack(height: 38, spacing: 10, align: "center") {
+                                Icon("memory", width: 20, height: 20, foreground: "@text")
+                                Text("GPU", font: "@font_body", foreground: "@text", overflow: "clip", width: 70)
+                                Card(flex: 1) {
+                                    Text($gpu_usage_text, font: "@font_body", foreground: "@text", anchor: "right", overflow: "clip")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Card(maxViewportHeight: 270, visible: $page_performance) {
+                Card(height: 74, paddingX: 10, background: "@controlTint", borderColor: "@border", borderWidth: 1, cornerRadius: 8) {
+                    VStack(spacing: 0) {
+                        HStack(height: 24, spacing: 10, align: "center") {
+                            Icon("cpu", width: 16, height: 16, foreground: "@text")
+                            Text("CPU", font: "@font_body", foreground: "@text", overflow: "clip", width: 58)
+                            Progress(value: $cpu_usage, flex: 1, height: 7, cornerRadius: 3.5, foreground: "@accent", background: "@progressTrack", minViewportWidth: 440)
+                            Card(flex: 1) {
+                                Text($cpu_usage_text, font: "@font_body", foreground: "@text", anchor: "right", overflow: "clip")
+                            }
+                        }
+                        Separator(height: 1, background: "@border")
+                        HStack(height: 24, spacing: 10, align: "center") {
+                            Icon("memory", width: 16, height: 16, foreground: "@text")
+                            Text("Memory", font: "@font_body", foreground: "@text", overflow: "clip", width: 58)
+                            Progress(value: $memory_usage, flex: 1, height: 7, cornerRadius: 3.5, foreground: "@accent", background: "@progressTrack", minViewportWidth: 440)
+                            Card(flex: 1) {
+                                Text($mem_usage_text, font: "@font_body", foreground: "@text", anchor: "right", overflow: "clip")
+                            }
+                        }
+                        Separator(height: 1, background: "@border")
+                        HStack(height: 24, spacing: 10, align: "center") {
+                            Icon("memory", width: 16, height: 16, foreground: "@text")
+                            Text("GPU", font: "@font_body", foreground: "@text", overflow: "clip", width: 58)
+                            Card(flex: 1) {
+                                Text($gpu_usage_text, font: "@font_body", foreground: "@text", anchor: "right", overflow: "clip")
+                            }
+                        }
+                    }
+                }
+            }
+            VStack(minViewportHeight: 300, visible: $page_appearance) {
+                VStack(height: 153, spacing: 8) {
+                    Text("Appearance", font: "@font_title", foreground: "@text", overflow: "clip", height: 22)
+                    HStack(height: 77, spacing: 18, align: "center", minViewportWidth: 600) {
+                        Card(width: 292, height: 77) {
+                            HStack(height: 77, spacing: 12) {
+                                VStack(flex: 1, spacing: 5) {
+                                    InteractionTarget(action: "theme:glass", height: 48) {
+                                        Visual(cornerRadius: 7, clip: true) {
+                                            Image("material_glass_dark.png", fit: "cover", visible: $scheme_dark_selected)
+                                            Image("material_glass_light.png", fit: "cover", visible: $scheme_light_selected)
+                                        }
+                                        Visual(borderColor: "@border", borderWidth: 1, cornerRadius: 7)
+                                        Visual(borderColor: "@accent", borderWidth: 1.5, cornerRadius: 7, visible: $theme_glass_selected)
+                                        Visual(cornerRadius: 7, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                                    }
+                                    Card(height: 16) {
+                                        Text("Glass", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center")
+                                    }
+                                    Card(height: 3, cornerRadius: 1.5, background: "@accent", visible: $theme_glass_selected)
+                                }
+                                VStack(flex: 1, spacing: 5) {
+                                    InteractionTarget(action: "theme:translucent", height: 48) {
+                                        Visual(cornerRadius: 7, clip: true) {
+                                            Image("material_tint_dark.png", fit: "cover", visible: $scheme_dark_selected)
+                                            Image("material_tint_light.png", fit: "cover", visible: $scheme_light_selected)
+                                        }
+                                        Visual(borderColor: "@border", borderWidth: 1, cornerRadius: 7)
+                                        Visual(borderColor: "@accent", borderWidth: 1.5, cornerRadius: 7, visible: $theme_translucent_selected)
+                                        Visual(cornerRadius: 7, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                                    }
+                                    Card(height: 16) {
+                                        Text("Tint", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center")
+                                    }
+                                    Card(height: 3, cornerRadius: 1.5, background: "@accent", visible: $theme_translucent_selected)
+                                }
+                                VStack(flex: 1, spacing: 5) {
+                                    InteractionTarget(action: "theme:transparent", height: 48) {
+                                        Visual(cornerRadius: 7, clip: true) {
+                                            Image("material_clear_dark.png", fit: "cover", visible: $scheme_dark_selected)
+                                            Image("material_clear_light.png", fit: "cover", visible: $scheme_light_selected)
+                                        }
+                                        Visual(borderColor: "@border", borderWidth: 1, cornerRadius: 7)
+                                        Visual(borderColor: "@accent", borderWidth: 1.5, cornerRadius: 7, visible: $theme_transparent_selected)
+                                        Visual(cornerRadius: 7, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                                    }
+                                    Card(height: 16) {
+                                        Text("Clear", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center")
+                                    }
+                                    Card(height: 3, cornerRadius: 1.5, background: "@accent", visible: $theme_transparent_selected)
+                                }
+                                VStack(flex: 1, spacing: 5) {
+                                    InteractionTarget(action: "theme:square", height: 48) {
+                                        Visual(cornerRadius: 0, clip: true) {
+                                            Image("material_square_dark.png", fit: "cover", visible: $scheme_dark_selected)
+                                            Image("material_square_light.png", fit: "cover", visible: $scheme_light_selected)
+                                        }
+                                        Visual(borderColor: "@border", borderWidth: 1, cornerRadius: 0)
+                                        Visual(borderColor: "@accent", borderWidth: 1.5, cornerRadius: 0, visible: $theme_square_selected)
+                                        Visual(cornerRadius: 0, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                                    }
+                                    Card(height: 16) {
+                                        Text("Square", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center")
+                                    }
+                                    Card(height: 3, cornerRadius: 1.5, background: "@accent", visible: $theme_square_selected)
+                                }
+                            }
+                        }
+                        Separator(width: 1, height: 64, background: "@border")
+                        Card(height: 36, padding: 3, cornerRadius: 7, background: "@controlTint", borderWidth: 1, borderColor: "@border", width: 184) {
+                            HStack(spacing: 2) {
+                                InteractionTarget(action: "appearance:light", flex: 1, height: 30) {
+                                    Visual(cornerRadius: 5) {
+                                    }
+                                    .state(when: "hovered", scope: "target", background: "@hover")
+                                    .transition(property: "background", motion: "control.feedback")
+                                    Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $scheme_light_selected)
+                                    Visual(justify: "center") {
+                                        HStack(spacing: 6, align: "center", justify: "center") {
+                                            Icon("sun", width: 18, height: 18, foreground: "@text")
+                                            Text("Light", font: "@font_body", foreground: "@text", overflow: "clip")
+                                        }
+                                    }
+                                    Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                    .state(when: "focusVisible", scope: "target", opacity: 1)
+                                }
+                                InteractionTarget(action: "appearance:dark", flex: 1, height: 30) {
+                                    Visual(cornerRadius: 5) {
+                                    }
+                                    .state(when: "hovered", scope: "target", background: "@hover")
+                                    .transition(property: "background", motion: "control.feedback")
+                                    Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $scheme_dark_selected)
+                                    Visual(justify: "center") {
+                                        HStack(spacing: 6, align: "center", justify: "center") {
+                                            Icon("moon", width: 18, height: 18, foreground: "@text")
+                                            Text("Dark", font: "@font_body", foreground: "@text", overflow: "clip")
+                                        }
+                                    }
+                                    Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                    .state(when: "focusVisible", scope: "target", opacity: 1)
+                                }
+                            }
+                        }
+                    }
+                    VStack(spacing: 10, maxViewportWidth: 600) {
+                        HStack(height: 77, spacing: 12) {
+                            VStack(flex: 1, spacing: 5) {
+                                InteractionTarget(action: "theme:glass", height: 48) {
+                                    Visual(cornerRadius: 7, clip: true) {
+                                        Image("material_glass_dark.png", fit: "cover", visible: $scheme_dark_selected)
+                                        Image("material_glass_light.png", fit: "cover", visible: $scheme_light_selected)
+                                    }
+                                    Visual(borderColor: "@border", borderWidth: 1, cornerRadius: 7)
+                                    Visual(borderColor: "@accent", borderWidth: 1.5, cornerRadius: 7, visible: $theme_glass_selected)
+                                    Visual(cornerRadius: 7, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                    .state(when: "focusVisible", scope: "target", opacity: 1)
+                                }
+                                Card(height: 16) {
+                                    Text("Glass", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center")
+                                }
+                                Card(height: 3, cornerRadius: 1.5, background: "@accent", visible: $theme_glass_selected)
+                            }
+                            VStack(flex: 1, spacing: 5) {
+                                InteractionTarget(action: "theme:translucent", height: 48) {
+                                    Visual(cornerRadius: 7, clip: true) {
+                                        Image("material_tint_dark.png", fit: "cover", visible: $scheme_dark_selected)
+                                        Image("material_tint_light.png", fit: "cover", visible: $scheme_light_selected)
+                                    }
+                                    Visual(borderColor: "@border", borderWidth: 1, cornerRadius: 7)
+                                    Visual(borderColor: "@accent", borderWidth: 1.5, cornerRadius: 7, visible: $theme_translucent_selected)
+                                    Visual(cornerRadius: 7, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                    .state(when: "focusVisible", scope: "target", opacity: 1)
+                                }
+                                Card(height: 16) {
+                                    Text("Tint", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center")
+                                }
+                                Card(height: 3, cornerRadius: 1.5, background: "@accent", visible: $theme_translucent_selected)
+                            }
+                            VStack(flex: 1, spacing: 5) {
+                                InteractionTarget(action: "theme:transparent", height: 48) {
+                                    Visual(cornerRadius: 7, clip: true) {
+                                        Image("material_clear_dark.png", fit: "cover", visible: $scheme_dark_selected)
+                                        Image("material_clear_light.png", fit: "cover", visible: $scheme_light_selected)
+                                    }
+                                    Visual(borderColor: "@border", borderWidth: 1, cornerRadius: 7)
+                                    Visual(borderColor: "@accent", borderWidth: 1.5, cornerRadius: 7, visible: $theme_transparent_selected)
+                                    Visual(cornerRadius: 7, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                    .state(when: "focusVisible", scope: "target", opacity: 1)
+                                }
+                                Card(height: 16) {
+                                    Text("Clear", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center")
+                                }
+                                Card(height: 3, cornerRadius: 1.5, background: "@accent", visible: $theme_transparent_selected)
+                            }
+                            VStack(flex: 1, spacing: 5) {
+                                InteractionTarget(action: "theme:square", height: 48) {
+                                    Visual(cornerRadius: 0, clip: true) {
+                                        Image("material_square_dark.png", fit: "cover", visible: $scheme_dark_selected)
+                                        Image("material_square_light.png", fit: "cover", visible: $scheme_light_selected)
+                                    }
+                                    Visual(borderColor: "@border", borderWidth: 1, cornerRadius: 0)
+                                    Visual(borderColor: "@accent", borderWidth: 1.5, cornerRadius: 0, visible: $theme_square_selected)
+                                    Visual(cornerRadius: 0, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                    .state(when: "focusVisible", scope: "target", opacity: 1)
+                                }
+                                Card(height: 16) {
+                                    Text("Square", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center")
+                                }
+                                Card(height: 3, cornerRadius: 1.5, background: "@accent", visible: $theme_square_selected)
+                            }
+                        }
+                        Card(height: 36, padding: 3, cornerRadius: 7, background: "@controlTint", borderWidth: 1, borderColor: "@border", width: 184) {
+                            HStack(spacing: 2) {
+                                InteractionTarget(action: "appearance:light", flex: 1, height: 30) {
+                                    Visual(cornerRadius: 5) {
+                                    }
+                                    .state(when: "hovered", scope: "target", background: "@hover")
+                                    .transition(property: "background", motion: "control.feedback")
+                                    Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $scheme_light_selected)
+                                    Visual(justify: "center") {
+                                        HStack(spacing: 6, align: "center", justify: "center") {
+                                            Icon("sun", width: 18, height: 18, foreground: "@text")
+                                            Text("Light", font: "@font_body", foreground: "@text", overflow: "clip")
+                                        }
+                                    }
+                                    Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                    .state(when: "focusVisible", scope: "target", opacity: 1)
+                                }
+                                InteractionTarget(action: "appearance:dark", flex: 1, height: 30) {
+                                    Visual(cornerRadius: 5) {
+                                    }
+                                    .state(when: "hovered", scope: "target", background: "@hover")
+                                    .transition(property: "background", motion: "control.feedback")
+                                    Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $scheme_dark_selected)
+                                    Visual(justify: "center") {
+                                        HStack(spacing: 6, align: "center", justify: "center") {
+                                            Icon("moon", width: 18, height: 18, foreground: "@text")
+                                            Text("Dark", font: "@font_body", foreground: "@text", overflow: "clip")
+                                        }
+                                    }
+                                    Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                    .state(when: "focusVisible", scope: "target", opacity: 1)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            VStack(maxViewportHeight: 300, visible: $page_appearance) {
+                VStack(spacing: 6) {
+                    Card(height: 36, padding: 3, cornerRadius: 7, background: "@controlTint", borderWidth: 1, borderColor: "@border") {
+                        HStack(spacing: 2) {
+                            InteractionTarget(action: "theme:glass", flex: 1, height: 30) {
+                                Visual(cornerRadius: 5) {
+                                }
+                                .state(when: "hovered", scope: "target", background: "@hover")
+                                .transition(property: "background", motion: "control.feedback")
+                                Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $theme_glass_selected)
+                                Visual(justify: "center") {
+                                    HStack(spacing: 6, align: "center", justify: "center") {
+                                        Text("Glass", font: "@font_body", foreground: "@text", overflow: "clip")
+                                    }
+                                }
+                                Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                            }
+                            InteractionTarget(action: "theme:translucent", flex: 1, height: 30) {
+                                Visual(cornerRadius: 5) {
+                                }
+                                .state(when: "hovered", scope: "target", background: "@hover")
+                                .transition(property: "background", motion: "control.feedback")
+                                Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $theme_translucent_selected)
+                                Visual(justify: "center") {
+                                    HStack(spacing: 6, align: "center", justify: "center") {
+                                        Text("Tint", font: "@font_body", foreground: "@text", overflow: "clip")
+                                    }
+                                }
+                                Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                            }
+                            InteractionTarget(action: "theme:transparent", flex: 1, height: 30) {
+                                Visual(cornerRadius: 5) {
+                                }
+                                .state(when: "hovered", scope: "target", background: "@hover")
+                                .transition(property: "background", motion: "control.feedback")
+                                Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $theme_transparent_selected)
+                                Visual(justify: "center") {
+                                    HStack(spacing: 6, align: "center", justify: "center") {
+                                        Text("Clear", font: "@font_body", foreground: "@text", overflow: "clip")
+                                    }
+                                }
+                                Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                            }
+                            InteractionTarget(action: "theme:square", flex: 1, height: 30) {
+                                Visual(cornerRadius: 5) {
+                                }
+                                .state(when: "hovered", scope: "target", background: "@hover")
+                                .transition(property: "background", motion: "control.feedback")
+                                Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $theme_square_selected)
+                                Visual(justify: "center") {
+                                    HStack(spacing: 6, align: "center", justify: "center") {
+                                        Text("Square", font: "@font_body", foreground: "@text", overflow: "clip")
+                                    }
+                                }
+                                Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                            }
+                        }
+                    }
+                    Card(height: 36, padding: 3, cornerRadius: 7, background: "@controlTint", borderWidth: 1, borderColor: "@border", width: 184) {
+                        HStack(spacing: 2) {
+                            InteractionTarget(action: "appearance:light", flex: 1, height: 30) {
+                                Visual(cornerRadius: 5) {
+                                }
+                                .state(when: "hovered", scope: "target", background: "@hover")
+                                .transition(property: "background", motion: "control.feedback")
+                                Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $scheme_light_selected)
+                                Visual(justify: "center") {
+                                    HStack(spacing: 6, align: "center", justify: "center") {
+                                        Icon("sun", width: 18, height: 18, foreground: "@text")
+                                        Text("Light", font: "@font_body", foreground: "@text", overflow: "clip")
+                                    }
+                                }
+                                Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                            }
+                            InteractionTarget(action: "appearance:dark", flex: 1, height: 30) {
+                                Visual(cornerRadius: 5) {
+                                }
+                                .state(when: "hovered", scope: "target", background: "@hover")
+                                .transition(property: "background", motion: "control.feedback")
+                                Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $scheme_dark_selected)
+                                Visual(justify: "center") {
+                                    HStack(spacing: 6, align: "center", justify: "center") {
+                                        Icon("moon", width: 18, height: 18, foreground: "@text")
+                                        Text("Dark", font: "@font_body", foreground: "@text", overflow: "clip")
+                                    }
+                                }
+                                Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                            }
+                        }
+                    }
+                }
+            }
+            VStack(minViewportHeight: 270, visible: $page_system) {
+                VStack(height: 105, spacing: 8) {
+                    Text("Monitoring", font: "@font_title", foreground: "@text", overflow: "clip", height: 22)
+                    Card(height: 75, paddingX: 10, background: "@controlTint", borderWidth: 1, borderColor: "@border", cornerRadius: 8) {
+                        VStack(spacing: 0) {
+                            HStack(height: 36, spacing: 10, align: "center") {
+                                Icon("activity", width: 20, height: 20, foreground: "@text")
+                                Text("Monitor", font: "@font_body", foreground: "@text", overflow: "clip", flex: 1)
+                                Toggle(checked: $monitoring_active, action: "monitor:toggle", width: 44, height: 24, cornerRadius: 12, foreground: "@accent", background: "@progressTrack")
+                            }
+                            Separator(height: 1, background: "@border")
+                            HStack(height: 36, spacing: 10, align: "center") {
+                                Card(width: 20, minViewportWidth: 600) {
+                                    Icon("clock", width: 20, height: 20, foreground: "@text")
+                                }
+                                Text("Sample interval", font: "@font_body", foreground: "@text", overflow: "clip", width: 116, minViewportWidth: 440)
+                                Card(height: 36, padding: 3, cornerRadius: 7, background: "@controlTint", borderWidth: 1, borderColor: "@border", flex: 1) {
+                                    HStack(spacing: 2) {
+                                        InteractionTarget(action: "sampling:500", flex: 1, height: 30) {
+                                            Visual(cornerRadius: 5) {
+                                            }
+                                            .state(when: "hovered", scope: "target", background: "@hover")
+                                            .transition(property: "background", motion: "control.feedback")
+                                            Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $interval_500_selected)
+                                            Visual(justify: "center") {
+                                                HStack(spacing: 6, align: "center", justify: "center") {
+                                                    Text("0.5s", font: "@font_body", foreground: "@text", overflow: "clip")
+                                                }
+                                            }
+                                            Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                            .state(when: "focusVisible", scope: "target", opacity: 1)
+                                        }
+                                        InteractionTarget(action: "sampling:1000", flex: 1, height: 30) {
+                                            Visual(cornerRadius: 5) {
+                                            }
+                                            .state(when: "hovered", scope: "target", background: "@hover")
+                                            .transition(property: "background", motion: "control.feedback")
+                                            Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $interval_1000_selected)
+                                            Visual(justify: "center") {
+                                                HStack(spacing: 6, align: "center", justify: "center") {
+                                                    Text("1s", font: "@font_body", foreground: "@text", overflow: "clip")
+                                                }
+                                            }
+                                            Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                            .state(when: "focusVisible", scope: "target", opacity: 1)
+                                        }
+                                        InteractionTarget(action: "sampling:2000", flex: 1, height: 30) {
+                                            Visual(cornerRadius: 5) {
+                                            }
+                                            .state(when: "hovered", scope: "target", background: "@hover")
+                                            .transition(property: "background", motion: "control.feedback")
+                                            Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $interval_2000_selected)
+                                            Visual(justify: "center") {
+                                                HStack(spacing: 6, align: "center", justify: "center") {
+                                                    Text("2s", font: "@font_body", foreground: "@text", overflow: "clip")
+                                                }
+                                            }
+                                            Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                            .state(when: "focusVisible", scope: "target", opacity: 1)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Card(maxViewportHeight: 270, visible: $page_system) {
+                Card(height: 75, paddingX: 10, background: "@controlTint", borderWidth: 1, borderColor: "@border", cornerRadius: 8) {
+                    VStack(spacing: 0) {
+                        HStack(height: 36, spacing: 10, align: "center") {
+                            Icon("activity", width: 20, height: 20, foreground: "@text")
+                            Text("Monitor", font: "@font_body", foreground: "@text", overflow: "clip", flex: 1)
+                            Toggle(checked: $monitoring_active, action: "monitor:toggle", width: 44, height: 24, cornerRadius: 12, foreground: "@accent", background: "@progressTrack")
+                        }
+                        Separator(height: 1, background: "@border")
+                        HStack(height: 36, spacing: 10, align: "center") {
+                            Card(width: 20, minViewportWidth: 600) {
+                                Icon("clock", width: 20, height: 20, foreground: "@text")
+                            }
+                            Text("Sample interval", font: "@font_body", foreground: "@text", overflow: "clip", width: 116, minViewportWidth: 440)
+                            Card(height: 36, padding: 3, cornerRadius: 7, background: "@controlTint", borderWidth: 1, borderColor: "@border", flex: 1) {
+                                HStack(spacing: 2) {
+                                    InteractionTarget(action: "sampling:500", flex: 1, height: 30) {
+                                        Visual(cornerRadius: 5) {
+                                        }
+                                        .state(when: "hovered", scope: "target", background: "@hover")
+                                        .transition(property: "background", motion: "control.feedback")
+                                        Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $interval_500_selected)
+                                        Visual(justify: "center") {
+                                            HStack(spacing: 6, align: "center", justify: "center") {
+                                                Text("0.5s", font: "@font_body", foreground: "@text", overflow: "clip")
+                                            }
+                                        }
+                                        Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                                    }
+                                    InteractionTarget(action: "sampling:1000", flex: 1, height: 30) {
+                                        Visual(cornerRadius: 5) {
+                                        }
+                                        .state(when: "hovered", scope: "target", background: "@hover")
+                                        .transition(property: "background", motion: "control.feedback")
+                                        Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $interval_1000_selected)
+                                        Visual(justify: "center") {
+                                            HStack(spacing: 6, align: "center", justify: "center") {
+                                                Text("1s", font: "@font_body", foreground: "@text", overflow: "clip")
+                                            }
+                                        }
+                                        Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                                    }
+                                    InteractionTarget(action: "sampling:2000", flex: 1, height: 30) {
+                                        Visual(cornerRadius: 5) {
+                                        }
+                                        .state(when: "hovered", scope: "target", background: "@hover")
+                                        .transition(property: "background", motion: "control.feedback")
+                                        Visual(background: "@accentSoft", borderColor: "@accent", borderWidth: 1, cornerRadius: 5, visible: $interval_2000_selected)
+                                        Visual(justify: "center") {
+                                            HStack(spacing: 6, align: "center", justify: "center") {
+                                                Text("2s", font: "@font_body", foreground: "@text", overflow: "clip")
+                                            }
+                                        }
+                                        Visual(cornerRadius: 5, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        VStack(flex: 1, spacing: 8, visible: $theme_error_visible) {
+            Text($theme_status, height: 20, font: "@font_body", foreground: "@text", overflow: "clip")
+            Button("Back", "error:dismiss", height: 32, material: "control", foreground: "@text")
         }
     }
 }

@@ -4,6 +4,6 @@ Card(padding: "@window_padding", material: "window", clip: true) {
             Image("cover_1.png", width: 80, height: 80, fit: "cover", clip: true, cornerRadius: 16)
         }
         Text("Prism Music Studio", height: 22, font: "@font_title", foreground: "@text")
-        Text("Preparing high-fidelity catalogue", height: 14, font: "@font_caption", foreground: "@mutedText")
+        Text("Preparing catalogue", height: 14, font: "@font_caption", foreground: "@mutedText")
     }
 }

@@ -299,12 +299,13 @@ center 子节点按自然宽度居中；不要给中心 Text 一个大固定宽�
 - 宽且矮：减少标题层数，正文与装饰不能挤走底部主操作。
 - 窄且高：让标题/数据弹性变窄，缩短辅助标签，避免横排很多固定宽按钮。
 - 双页互斥：使用 `visible` 切换主体，保持页面结构和已挂载区域身份。
-- 隐藏补充说明应由业务提供 bool 状态；DSL 没有 media query 或表达式断点。
+- 业务条件用 bool binding；尺寸条件用 min/maxViewportWidth/Height，不支持 CSS 表达式。
 - 所有可见 action 的完整可操作范围应在祖先 clip 内；只看截图不足以证明命中。
 
-当前业务 C ABI 也没有 viewport/configure 回调。应用可以采用统一紧凑布局、弹性
-内容和用户切页；不能凭空读取窗口宽度来设置 compact binding。按尺寸自动切换
-布局需要先补通用 metrics/断点契约，不用屏幕分辨率代替实际窗口内容尺寸。
+当前业务 C ABI 没有 viewport/configure 回调。尺寸分支由 Scene 的
+[视口条件契约](../../../DSL_VIEWPORT_CONDITIONS.md)统一处理；例如
+`minViewportHeight: 510` 展示总览，`maxViewportHeight: 510` 展示紧凑页。
+尺寸取客户端 surface，不用屏幕分辨率或虚构的 compact binding 代替。
 
 `visible: false` 隐藏整棵子树：不参与布局/间距、绘制、命中、输入区域或背景效果；
 节点和绑定仍保留，重新显示时使用当前数据与主题。它不是 `opacity: 0`，也不是
@@ -611,3 +612,18 @@ focusVisible 独立描边，均引用 `control.feedback`。列表与确认标题
 `@surfaceRaised` 是四套主题共同提供的实色内容/浮层底色（dark/light 分别定义），适合
 阅读纸面与需要遮住底层文字的确认卡片。它不引入额外 backdrop 区域，也不改变其他
 材料的透明度；与 `@cardTint` 的半透明分组底色按用途区分。
+
+## 视觉方案确认
+
+重设计遵循[视觉方案与密度验收](visual-approval.md)。v21 的纯图标导航与拉伸监控卡片
+已被用户否定，不作为第三方应用设计示范。先确认效果稿，再映射 DSL 能力。
+
+### Concept B 新增图标
+
+本轮源码增加 `monitor`、`brush`、`activity`、`clock`、`repeat`、`heart-outline`。
+它们使用共享24单位矢量图标接口；运行时必须使用配套的新 Host。导航收藏用空心心形，
+已收藏状态可使用原 `heart` 实心图标；“刷新”和“循环播放”分别使用 refresh/repeat。
+
+进度条必须显式配置轨道高度与 cornerRadius，正常监控建议7/3.5，播放建议5/2.5；
+Toggle 的圆角轨道也应显式设置。不要把渲染器仅绘制圆形滑块误认为底轨已自动圆角。
+材质示例属于预览资产，不能用图标替代，也不等同于WM提供的真实背景模糊。

@@ -115,11 +115,11 @@ std::vector<Frame> Frames(TextShaper &shaper)
         FillRect{{350, 186, 22, 43}, {213, 65, 155, 163}},
         PopTransform{}};
     constexpr auto first_icon = std::size_t{19};
-    const auto icon_count = static_cast<unsigned>(VectorIcon::Info) + 1;
+    const auto icon_count = static_cast<unsigned>(VectorIcon::HeartOutline) + 1;
     for (unsigned icon = 0; icon < icon_count; ++icon) {
         initial.commands.emplace_back(
             DrawIcon{static_cast<VectorIcon>(icon),
-                     {10.0 + (icon % 10) * 34, 156.0 + (icon / 10) * 24, 22, 22},
+                     {10.0 + (icon % 12) * 30, 156.0 + (icon / 12) * 24, 22, 22},
                      {140, 220, 230, 170}});
     }
     const auto group = initial.commands.size();

@@ -48,7 +48,7 @@ Theme("glass", name: "Prism Glass", schemaVersion: 3, motion: "prism") {
     Number("progress_radius", value: 3)
     Number("indicator_radius", value: 2)
     Color("panelTint", value: #25314478)
-    Color("windowTint", value: #1E293BB4)
+    Color("windowTint", value: #172231E3)
     Color("cardTint", value: #111E3160)
     Color("controlTint", value: #ECF3FA18)
     Color("border", value: #FFFFFF40)
@@ -103,7 +103,7 @@ Theme("glass", name: "Prism Glass", schemaVersion: 3, motion: "prism") {
     Palette("light") {
         Color("surfaceRaised", value: #F8FAFCFF)
         Color("panelTint", value: #BFCAD69C)
-        Color("windowTint", value: #C7D1DDB8)
+        Color("windowTint", value: #DEE5EDD9)
         Color("cardTint", value: #E8EFF56C)
         Color("controlTint", value: #F8FAFC62)
         Color("border", value: #22395042)

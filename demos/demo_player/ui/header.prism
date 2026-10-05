@@ -1,23 +1,118 @@
-HStack(height: 28, spacing: 8, align: "center") {
-    Icon("music", width: 20, height: 20, foreground: "@musicAccent")
-    Text("Music Studio", width: 88, font: "@font_body", foreground: "@text")
-    Card(height: 20, paddingX: 6, cornerRadius: 4, background: "@accentSoft", align: "center", justify: "center") {
-        HStack(spacing: 4, align: "center") {
-            Icon("layers", width: 12, height: 12, foreground: "@musicAccent")
-            Text("Hi-Res · Lossless", font: "@font_caption", foreground: "@musicAccent")
+Card() {
+    Card(paddingX: 14, minViewportWidth: 600) {
+        VStack(spacing: 12) {
+            HStack(height: 32, spacing: 8, align: "center", minViewportHeight: 300) {
+                Text("Music", font: 24, foreground: "@text", flex: 1)
+                IconButton("refresh", "player:retry", width: 28, height: 28, padding: 4, foreground: "@text", visible: $catalog_error)
+            }
+            HStack(width: 416, height: 36, spacing: 8) {
+                VStack(flex: 1, spacing: 0) {
+                    InteractionTarget(action: "nav:now_playing", height: 33) {
+                        Visual(cornerRadius: 6, justify: "center") {
+                            HStack(spacing: 8, align: "center", justify: "center", minViewportWidth: 360) {
+                                Icon("music", width: 20, height: 20, foreground: "@text")
+                                Text("Playing", font: "@font_body", foreground: "@text", overflow: "clip")
+                            }
+                            Text("Playing", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center", maxViewportWidth: 360)
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: 6, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    Card(height: 3, background: "@accent", cornerRadius: 1.5, visible: $artwork_visible)
+                }
+                VStack(flex: 1, spacing: 0) {
+                    InteractionTarget(action: "nav:library", height: 33) {
+                        Visual(cornerRadius: 6, justify: "center") {
+                            HStack(spacing: 8, align: "center", justify: "center", minViewportWidth: 360) {
+                                Icon("layers", width: 20, height: 20, foreground: "@text")
+                                Text("Library", font: "@font_body", foreground: "@text", overflow: "clip")
+                            }
+                            Text("Library", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center", maxViewportWidth: 360)
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: 6, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    Card(height: 3, background: "@accent", cornerRadius: 1.5, visible: $all_library_selected)
+                }
+                VStack(flex: 1, spacing: 0) {
+                    InteractionTarget(action: "nav:favorites", height: 33) {
+                        Visual(cornerRadius: 6, justify: "center") {
+                            HStack(spacing: 8, align: "center", justify: "center", minViewportWidth: 360) {
+                                Icon("heart-outline", width: 20, height: 20, foreground: "@text")
+                                Text("Favorites", font: "@font_body", foreground: "@text", overflow: "clip")
+                            }
+                            Text("Favorites", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center", maxViewportWidth: 360)
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: 6, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    Card(height: 3, background: "@accent", cornerRadius: 1.5, visible: $favorites_selected)
+                }
+            }
         }
     }
-    Text($catalog_status, flex: 1, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
-    Card(width: 14, height: 14, align: "center", justify: "center") {
-        Icon("refresh", width: 14, height: 14, foreground: "@mutedText", visible: $catalog_pending)
-        Icon("check", width: 14, height: 14, foreground: "@musicAccent", visible: $catalog_ready)
+    Card(maxViewportWidth: 600) {
+        VStack(spacing: 12) {
+            HStack(height: 32, spacing: 8, align: "center", minViewportHeight: 300) {
+                Text("Music", font: 24, foreground: "@text", flex: 1)
+                IconButton("refresh", "player:retry", width: 28, height: 28, padding: 4, foreground: "@text", visible: $catalog_error)
+            }
+            HStack(width: 416, height: 36, spacing: 8) {
+                VStack(flex: 1, spacing: 0) {
+                    InteractionTarget(action: "nav:now_playing", height: 33) {
+                        Visual(cornerRadius: 6, justify: "center") {
+                            HStack(spacing: 8, align: "center", justify: "center", minViewportWidth: 360) {
+                                Icon("music", width: 20, height: 20, foreground: "@text")
+                                Text("Playing", font: "@font_body", foreground: "@text", overflow: "clip")
+                            }
+                            Text("Playing", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center", maxViewportWidth: 360)
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: 6, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    Card(height: 3, background: "@accent", cornerRadius: 1.5, visible: $artwork_visible)
+                }
+                VStack(flex: 1, spacing: 0) {
+                    InteractionTarget(action: "nav:library", height: 33) {
+                        Visual(cornerRadius: 6, justify: "center") {
+                            HStack(spacing: 8, align: "center", justify: "center", minViewportWidth: 360) {
+                                Icon("layers", width: 20, height: 20, foreground: "@text")
+                                Text("Library", font: "@font_body", foreground: "@text", overflow: "clip")
+                            }
+                            Text("Library", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center", maxViewportWidth: 360)
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: 6, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    Card(height: 3, background: "@accent", cornerRadius: 1.5, visible: $all_library_selected)
+                }
+                VStack(flex: 1, spacing: 0) {
+                    InteractionTarget(action: "nav:favorites", height: 33) {
+                        Visual(cornerRadius: 6, justify: "center") {
+                            HStack(spacing: 8, align: "center", justify: "center", minViewportWidth: 360) {
+                                Icon("heart-outline", width: 20, height: 20, foreground: "@text")
+                                Text("Favorites", font: "@font_body", foreground: "@text", overflow: "clip")
+                            }
+                            Text("Favorites", font: "@font_caption", foreground: "@text", overflow: "clip", anchor: "center", maxViewportWidth: 360)
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: 6, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    Card(height: 3, background: "@accent", cornerRadius: 1.5, visible: $favorites_selected)
+                }
+            }
+        }
     }
-    IconButton("refresh", "player:retry", width: 28, height: 28, padding: 6,
-               material: "control", foreground: "@musicAccent", visible: $catalog_error)
-    IconButton("music", "nav:now_playing", width: 28, height: 28, padding: 6,
-               material: "control", foreground: "@text")
-    IconButton("grid", "nav:library", width: 28, height: 28, padding: 6,
-               material: "control", foreground: "@text")
-    IconButton("heart", "nav:favorites", width: 28, height: 28, padding: 6,
-               material: "control", foreground: "@musicAccent")
 }

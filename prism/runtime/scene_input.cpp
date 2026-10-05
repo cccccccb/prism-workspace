@@ -72,7 +72,7 @@ bool Scene::SetEnabled(contracts::NodeId id, bool enabled)
 
 std::optional<HitResult> Scene::Hit(const Node &node, contracts::LogicalPoint point) const
 {
-    if (!node.style.visible || !node.enabled || node.kind == Kind::Visual) {
+    if (!IsVisible(node) || !node.enabled || node.kind == Kind::Visual) {
         return std::nullopt;
     }
     const bool inside = scene_detail::Inside(node.bounds, point);

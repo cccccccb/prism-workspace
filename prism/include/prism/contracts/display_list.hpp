@@ -87,7 +87,13 @@ enum class VectorIcon {
     ArrowLeft,
     ArrowRight,
     Trash,
-    Info
+    Info,
+    Monitor,
+    Brush,
+    Activity,
+    Clock,
+    Repeat,
+    HeartOutline
 };
 
 struct DrawIcon {

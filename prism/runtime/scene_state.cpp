@@ -102,13 +102,15 @@ void Scene::ValidateInteractionTree(const Node &node, const Node *owner, bool de
 
     for (const auto property : node.explicit_properties) {
         if ((decorative && ForbiddenDecorationProperty(property)) ||
-            (property >= DslProperty::TranslateX && node.kind != Kind::Visual)) {
+            (property >= DslProperty::TranslateX && property <= DslProperty::Opacity &&
+             node.kind != Kind::Visual)) {
             throw std::invalid_argument("Invalid decoration property scope");
         }
     }
     for (const auto &binding : node.bindings) {
         if ((decorative && ForbiddenDecorationProperty(binding.target)) ||
-            (binding.target >= DslProperty::TranslateX && node.kind != Kind::Visual)) {
+            (binding.target >= DslProperty::TranslateX && binding.target <= DslProperty::Opacity &&
+             node.kind != Kind::Visual)) {
             throw std::invalid_argument("Invalid decoration binding scope");
         }
     }

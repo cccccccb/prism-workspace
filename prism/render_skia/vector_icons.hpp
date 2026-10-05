@@ -46,6 +46,28 @@ public:
 
         using I = contracts::VectorIcon;
         switch (icon.icon) {
+        case I::Monitor:
+            rect(3, 3, 18, 13, 1);
+            line(12, 16, 12, 21);
+            line(8, 21, 16, 21);
+            break;
+        case I::Brush:
+            path({{9, 13}, {18, 3}, {21, 6}, {12, 15}}, true);
+            path({{9, 13}, {6, 14}, {5, 18}, {2, 21}, {8, 20}, {11, 17}, {9, 13}});
+            break;
+        case I::Activity:
+            path({{2, 12}, {7, 12}, {10, 3}, {14, 21}, {17, 12}, {22, 12}});
+            break;
+        case I::Clock:
+            drawCircle(12, 12, 9, stroke);
+            path({{12, 5}, {12, 12}, {16, 15}});
+            break;
+        case I::Repeat:
+            path({{3, 10}, {3, 7}, {5, 5}, {20, 5}, {17, 2}});
+            line(20, 5, 17, 8);
+            path({{21, 14}, {21, 17}, {19, 19}, {4, 19}, {7, 22}});
+            line(4, 19, 7, 16);
+            break;
         case I::Document:
         case I::DocumentAdd:
             path({{14, 3}, {5, 3}, {5, 21}, {19, 21}, {19, 8}, {14, 3}});
@@ -249,7 +271,8 @@ public:
                 line(n, 18, n, 21);
             }
             break;
-        case I::Heart: {
+        case I::Heart:
+        case I::HeartOutline: {
             SkPath p;
             p.moveTo(12, 21);
             p.cubicTo(2, 14, -1, 7, 5, 3);
@@ -257,7 +280,7 @@ public:
             p.cubicTo(13, 3, 16, 1, 19, 3);
             p.cubicTo(25, 7, 22, 14, 12, 21);
             p.close();
-            drawPath(p, fill);
+            drawPath(p, icon.icon == I::Heart ? fill : stroke);
         } break;
         case I::Layers:
             path({{12, 3}, {22, 8}, {12, 13}, {2, 8}}, true);

@@ -219,3 +219,17 @@ Windows 保持原 SSH 隧道与 Viewer 参数，断开后重新连接即可查�
 后成功；未修改生产源码绕过链接错误。构建日志、包清单、服务日志、窗口树和状态记录
 位于 `dist/validation/prism-v20-deploy/`。业务与 32 组主题/布局检查结果见
 `dist/validation/notepad-ui-20261004/`。
+
+### v21 Demo 紧凑布局部署（2026-10-05）
+
+已安装 `prism-wm 0.1.0-21 arm64`，来自 rebase 后的工作区及 Demo 布局修订（尚未提交）。
+包：`dist/deb/prism-wm_0.1.0-21_arm64.deb`，SHA-256：
+`d2b24929fc68e9688e36a877563b820205cb4fa18721dbd72b06ba6b0a71cc45`。
+包包含 Music 封面与紧凑播放区、Preferences 四页布局、Notepad；无测试/probe/ImGui。
+
+两个 remote 服务 active/enabled，保留原输出/VNC 参数。Music、Preferences、Notepad
+均通过正式 launcher 启动，Ready 与 V3D 首帧通过；三个窗口位于工作区1。
+实际远程截图确认新版已加载；WM commit_failures=0，RFB3.8 握手通过，dpkg校验无差异。
+最终鼠标/键盘交互待用户确认。证据：`dist/validation/prism-v21-deploy/`。
+
+首轮打包进程以143退出且没有编译错误，续建完成正式包后才停止旧会话并安装。

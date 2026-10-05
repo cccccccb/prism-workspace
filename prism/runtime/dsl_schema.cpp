@@ -7,6 +7,14 @@
 namespace prism::runtime {
 namespace {
 constexpr std::array properties{
+    PropertySpec{"minViewportWidth", DslProperty::MinViewportWidth, DslValueType::Number,
+                 Dirty::Layout | Dirty::Paint | Dirty::Composite, StoredValueType::Number},
+    PropertySpec{"maxViewportWidth", DslProperty::MaxViewportWidth, DslValueType::Number,
+                 Dirty::Layout | Dirty::Paint | Dirty::Composite, StoredValueType::Number},
+    PropertySpec{"minViewportHeight", DslProperty::MinViewportHeight, DslValueType::Number,
+                 Dirty::Layout | Dirty::Paint | Dirty::Composite, StoredValueType::Number},
+    PropertySpec{"maxViewportHeight", DslProperty::MaxViewportHeight, DslValueType::Number,
+                 Dirty::Layout | Dirty::Paint | Dirty::Composite, StoredValueType::Number},
     PropertySpec{"width", DslProperty::Width, DslValueType::Number, Dirty::Layout,
                  StoredValueType::Number},
     PropertySpec{"height", DslProperty::Height, DslValueType::Number, Dirty::Layout,
@@ -96,9 +104,12 @@ constexpr std::array properties{
     PropertySpec{"opacity", DslProperty::Opacity, DslValueType::Number, Dirty::Paint,
                  StoredValueType::Number, 0, 1, true, KindBit(Kind::Visual)},
 };
-constexpr auto size = PropertyBit(DslProperty::Width) | PropertyBit(DslProperty::Height) |
-                      PropertyBit(DslProperty::Flex) | PropertyBit(DslProperty::Inset) |
-                      PropertyBit(DslProperty::Anchor) | PropertyBit(DslProperty::Visible);
+constexpr auto size =
+    PropertyBit(DslProperty::Width) | PropertyBit(DslProperty::Height) |
+    PropertyBit(DslProperty::Flex) | PropertyBit(DslProperty::Inset) |
+    PropertyBit(DslProperty::Anchor) | PropertyBit(DslProperty::Visible) |
+    PropertyBit(DslProperty::MinViewportWidth) | PropertyBit(DslProperty::MaxViewportWidth) |
+    PropertyBit(DslProperty::MinViewportHeight) | PropertyBit(DslProperty::MaxViewportHeight);
 constexpr auto effects =
     PropertyBit(DslProperty::BorderWidth) | PropertyBit(DslProperty::BorderColor) |
     PropertyBit(DslProperty::ShadowBlur) | PropertyBit(DslProperty::ShadowY) |
@@ -265,7 +276,8 @@ bool ValidPropertyValue(DslProperty id, const PropertyValue &value)
                 "memory",         "heart",       "layers",       "rectangle", "drop",
                 "wifi-off",       "error",       "fullscreen",   "restore",   "split-horizontal",
                 "split-vertical", "document",    "document-add", "save",      "close",
-                "arrow-left",     "arrow-right", "trash",        "info"};
+                "arrow-left",     "arrow-right", "trash",        "info",      "monitor",
+                "brush",          "activity",    "clock",        "repeat",    "heart-outline"};
             return std::find(std::begin(icons), std::end(icons), *text) != std::end(icons);
         }
         return true;

@@ -50,13 +50,17 @@ bool Player::PublishTrack()
     Boolean("track_2_active", is2);
     Boolean("track_3_active", is3);
     Number("volume_level", volume_);
+    Text("volume_icon", volume_ > 0.05 ? "volume" : "close");
     Boolean("repeat_active", repeat_);
+    Boolean("repeat_inactive", !repeat_);
     if (catalogue_.tracks.empty()) {
         Boolean("favorite_active", false);
+        Boolean("favorite_inactive", true);
         return Text("track_title", "Preparing library") && Text("track_artist", "") && Progress();
     }
     const auto &track = catalogue_.tracks[track_];
     Boolean("favorite_active", track.favorite);
+    Boolean("favorite_inactive", !track.favorite);
     return Text("track_title", track.title) && Text("track_artist", track.artist) && Progress();
 }
 
@@ -68,10 +72,22 @@ bool Player::PublishRows()
             rows_[row_count_++] = index;
         }
     }
+    Boolean("library_empty", row_count_ == 0);
+    Text("library_heading", favorites_ ? "Favorites" : "Library");
+    Text("library_count", std::to_string(row_count_) + (row_count_ == 1 ? " track" : " tracks"));
+    if (catalogue_valid_) {
+        Text("catalog_status",
+             row_count_ == 0 ? (favorites_ ? "No favorites yet" : "No tracks") : "Library ready");
+    }
     for (std::size_t row = 0; row < MaxTracks; ++row) {
         const auto suffix = std::to_string(row + 1);
         const bool exists = row < row_count_;
         const Track *track = exists ? &catalogue_.tracks[rows_[row]] : nullptr;
+        Boolean("library_selected_" + suffix, exists && rows_[row] == track_);
+        for (std::size_t cover = 0; cover < MaxTracks; ++cover) {
+            Boolean("library_cover_" + suffix + "_" + std::to_string(cover + 1),
+                    exists && rows_[row] == cover);
+        }
         if (!Boolean("library_row_" + suffix, exists) ||
             !Text("library_title_" + suffix, track ? track->title : "") ||
             !Text("library_artist_" + suffix, track ? track->artist : "") ||
@@ -84,7 +100,9 @@ bool Player::PublishRows()
 
 bool Player::PublishPage()
 {
-    return Boolean("artwork_visible", !library_) && Boolean("library_visible", library_) &&
+    return Boolean("all_library_selected", library_ && !favorites_) &&
+           Boolean("favorites_selected", library_ && favorites_) &&
+           Boolean("artwork_visible", !library_) && Boolean("library_visible", library_) &&
            Boolean("metadata_visible", !library_) &&
            Number("transport_height", library_ ? 60 : 104) && PublishRows();
 }
@@ -189,6 +207,7 @@ void Player::Select(std::size_t index)
     track_ = index;
     progress_ = 0;
     PublishTrack();
+    PublishRows();
 }
 
 void Player::Action(std::string_view action)
@@ -197,9 +216,10 @@ void Player::Action(std::string_view action)
         Load();
     } else if (action == "nav:now_playing") {
         library_ = false;
+        favorites_ = false;
         PublishPage();
     } else if (action == "nav:library" || action == "nav:favorites") {
-        library_ = action == "nav:favorites" || !library_ || favorites_;
+        library_ = true;
         favorites_ = action == "nav:favorites";
         PublishPage();
     } else if (action == "player:favorite") {
@@ -211,9 +231,11 @@ void Player::Action(std::string_view action)
     } else if (action == "player:repeat") {
         repeat_ = !repeat_;
         Boolean("repeat_active", repeat_);
+        Boolean("repeat_inactive", !repeat_);
     } else if (action == "player:volume_toggle") {
         volume_ = volume_ > 0.05 ? 0.0 : 0.8;
         Number("volume_level", volume_);
+        Text("volume_icon", volume_ > 0.05 ? "volume" : "close");
     } else if (pending_ || !catalogue_valid_) {
         return;
     } else if (action == "player:toggle") {

@@ -1,29 +1,74 @@
-Card(padding: 8, material: "album", clip: true) {
-    HStack(spacing: 16, align: "center", justify: "center") {
-        Card(width: 156, height: 156, material: "control", cornerRadius: 14, clip: true,
-             borderWidth: 1, borderColor: "@border") {
-            Image("cover_1.png", width: 156, height: 156, fit: "cover", clip: true,
-                  cornerRadius: 14, visible: $track_1_active)
-            Image("cover_2.png", width: 156, height: 156, fit: "cover", clip: true,
-                  cornerRadius: 14, visible: $track_2_active)
-            Image("cover_3.png", width: 156, height: 156, fit: "cover", clip: true,
-                  cornerRadius: 14, visible: $track_3_active)
+Card(paddingX: 14) {
+    HStack(spacing: 20, align: "center") {
+        Card(width: 164, height: 164, cornerRadius: 8, clip: true, minViewportWidth: 560) {
+            Image("cover_1.png", fit: "cover", visible: $track_1_active)
+            Image("cover_2.png", fit: "cover", visible: $track_2_active)
+            Image("cover_3.png", fit: "cover", visible: $track_3_active)
         }
-        VStack(width: 156, height: 156, spacing: 6, align: "center", justify: "center") {
-            Card(width: 112, height: 112, justify: "center", align: "center") {
-                Image("vinyl_disc.png", width: 112, height: 112, fit: "contain")
+        VStack(flex: 1, spacing: 8, justify: "center") {
+            Text($track_title, height: 26, font: 22, foreground: "@text", overflow: "clip")
+            Text($track_artist, height: 20, font: 16, foreground: "@text", overflow: "clip")
+            Text("Playback demo", height: 16, font: "@font_caption", foreground: "@mutedText")
+            Progress(value: $playback_progress, height: 5, cornerRadius: 2.5, foreground: "@musicAccent", background: "@progressTrack")
+            HStack(height: 16, spacing: 8) {
+                Text($playback_elapsed, flex: 1, height: 16, font: "@font_caption", foreground: "@mutedText")
+                Text($playback_duration, width: 34, height: 16, font: "@font_caption", foreground: "@mutedText")
             }
-            HStack(height: 32, spacing: 4, align: "end", justify: "center") {
-                Separator(width: 3, height: 8, background: "@musicAccent")
-                Separator(width: 3, height: 16, background: "@musicAccent")
-                Separator(width: 3, height: 28, background: "@indicator")
-                Separator(width: 3, height: 22, background: "@musicAccent")
-                Separator(width: 3, height: 32, background: "@indicator")
-                Separator(width: 3, height: 18, background: "@musicAccent")
-                Separator(width: 3, height: 26, background: "@indicator")
-                Separator(width: 3, height: 12, background: "@musicAccent")
-                Separator(width: 3, height: 20, background: "@indicator")
-                Separator(width: 3, height: 10, background: "@musicAccent")
+            Card(height: 48, minViewportWidth: 360) {
+                HStack(height: 48, spacing: 8, align: "center", justify: "spaceBetween") {
+                    InteractionTarget(action: "player:repeat", width: 36, height: 36) {
+                        Visual(cornerRadius: 6, align: "center", justify: "center") {
+                            Icon("repeat", width: 26, height: 26, anchor: "center", foreground: "@text", visible: $repeat_inactive)
+                            Icon("repeat", width: 26, height: 26, anchor: "center", foreground: "@accent", visible: $repeat_active)
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: 6, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    IconButton("previous", "player:previous", width: 36, height: 36, padding: 5, foreground: "@text")
+                    IconButton($playback_icon, "player:toggle", width: 44, height: 44, padding: 6, foreground: "@onAccent", background: "@musicAccent", cornerRadius: 22)
+                    IconButton("next", "player:next", width: 36, height: 36, padding: 5, foreground: "@text")
+                    InteractionTarget(action: "player:favorite", width: 36, height: 36) {
+                        Visual(cornerRadius: 6, align: "center", justify: "center") {
+                            Icon("heart-outline", width: 26, height: 26, anchor: "center", foreground: "@text", visible: $favorite_inactive)
+                            Icon("heart", width: 26, height: 26, anchor: "center", foreground: "@musicAccent", visible: $favorite_active)
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: 6, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    IconButton($volume_icon, "player:volume_toggle", width: 36, height: 36, padding: 5, foreground: "@text")
+                }
+            }
+            Card(height: 36, maxViewportWidth: 360) {
+                HStack(height: 36, spacing: 3, align: "center", justify: "spaceBetween") {
+                    InteractionTarget(action: "player:repeat", width: 28, height: 28) {
+                        Visual(cornerRadius: 6, align: "center", justify: "center") {
+                            Icon("repeat", width: 18, height: 18, anchor: "center", foreground: "@text", visible: $repeat_inactive)
+                            Icon("repeat", width: 18, height: 18, anchor: "center", foreground: "@accent", visible: $repeat_active)
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: 6, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    IconButton("previous", "player:previous", width: 28, height: 28, padding: 5, foreground: "@text")
+                    IconButton($playback_icon, "player:toggle", width: 32, height: 32, padding: 6, foreground: "@onAccent", background: "@musicAccent", cornerRadius: 22)
+                    IconButton("next", "player:next", width: 28, height: 28, padding: 5, foreground: "@text")
+                    InteractionTarget(action: "player:favorite", width: 28, height: 28) {
+                        Visual(cornerRadius: 6, align: "center", justify: "center") {
+                            Icon("heart-outline", width: 18, height: 18, anchor: "center", foreground: "@text", visible: $favorite_inactive)
+                            Icon("heart", width: 18, height: 18, anchor: "center", foreground: "@musicAccent", visible: $favorite_active)
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: 6, borderWidth: 1, borderColor: "@accent", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    IconButton($volume_icon, "player:volume_toggle", width: 28, height: 28, padding: 5, foreground: "@text")
+                }
             }
         }
     }

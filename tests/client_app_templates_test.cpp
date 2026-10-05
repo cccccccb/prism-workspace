@@ -181,10 +181,13 @@ void CollectActions(const prism::runtime::Blueprint &blueprint, std::uint64_t &i
     }
 }
 
-void SettleShellMotion(prism::runtime::Scene &scene, TemplateClock &clock)
+void SettleShellMotion(prism::runtime::Scene &scene, TemplateClock &clock, bool required)
 {
     scene.Build(prism::contracts::WindowId{1});
-    assert(scene.HasActiveAnimations());
+    assert(!required || scene.HasActiveAnimations());
+    if (!scene.HasActiveAnimations()) {
+        return;
+    }
     clock.now += 200'000'000;
     assert(scene.AdvanceAnimations(clock.now));
     assert(scene.Build(prism::contracts::WindowId{1}));
@@ -192,7 +195,7 @@ void SettleShellMotion(prism::runtime::Scene &scene, TemplateClock &clock)
 }
 
 void CheckShellControls(prism::runtime::Scene &scene, const std::vector<ActionNode> &controls,
-                        TemplateClock &clock)
+                        TemplateClock &clock, bool required = true)
 {
     using namespace prism::contracts;
     constexpr WindowId window{1};
@@ -210,11 +213,11 @@ void CheckShellControls(prism::runtime::Scene &scene, const std::vector<ActionNo
 
         assert(scene.HandleInput(PointerMotionEvent{window, position, clock.now, pointer}).changed);
         assert(scene.State(target.node).hovered);
-        SettleShellMotion(scene, clock);
+        SettleShellMotion(scene, clock, required);
         const auto down = scene.HandleInput(PointerButtonEvent{
             window, position, PointerButton::Primary, ButtonState::Pressed, 0, clock.now, pointer});
         assert(down.changed && !down.activation);
-        SettleShellMotion(scene, clock);
+        SettleShellMotion(scene, clock, required);
 
         const auto up =
             scene.HandleInput(PointerButtonEvent{window, position, PointerButton::Primary,
@@ -226,9 +229,9 @@ void CheckShellControls(prism::runtime::Scene &scene, const std::vector<ActionNo
             assert(up.activation && up.activation->node == target.node &&
                    up.activation->action == target.action);
         }
-        SettleShellMotion(scene, clock);
+        SettleShellMotion(scene, clock, required);
         assert(scene.HandleInput(PointerLeaveEvent{window, clock.now, pointer}).changed);
-        SettleShellMotion(scene, clock);
+        SettleShellMotion(scene, clock, required);
 
         assert(scene.Bounds(target.node) == bounds);
         assert(scene.InputRegions() == regions);
@@ -287,7 +290,13 @@ int main(int argc, char **argv)
         std::vector<ActionNode> actions;
         std::vector<ActionNode> controls;
         CollectActions(content.blueprint, id, actions, controls);
-        assert(controls.size() == (n == 1 ? 1 : n == 2 ? 2 : 0));
+        if (n == 1 || n == 2) {
+            assert(controls.size() == (n == 1 ? 1 : 2));
+        } else if (n == 3 || n == 4) {
+            assert(!controls.empty()); // Labelled application navigation uses real targets.
+        } else {
+            assert(controls.empty());
+        }
         TemplateClock clock;
         prism::runtime::Scene scene(
             std::move(content.blueprint), Shape, prism::contracts::ResourceId{1},
@@ -360,7 +369,7 @@ int main(int argc, char **argv)
                 const auto check = [&] {
                     assert(scene.Build(prism::contracts::WindowId{1}));
                     CheckActions(scene, actions, item.width, item.height);
-                    CheckShellControls(scene, controls, clock);
+                    CheckShellControls(scene, controls, clock, n == 1 || n == 2);
                 };
                 // Zero, one and two running app groups must all have clickable
                 // visible entries; hiding a group must not leave stale geometry.
@@ -383,14 +392,14 @@ int main(int argc, char **argv)
         }
         assert(scene.Build(prism::contracts::WindowId{1}));
         CheckActions(scene, actions, item.width, item.height);
-        CheckShellControls(scene, controls, clock);
+        CheckShellControls(scene, controls, clock, n == 1 || n == 2);
         std::uint64_t generation = 1;
         for (const auto *theme : {"translucent", "transparent", "square", "glass"}) {
             assert(scene.ApplyTheme(
                 prism::theme::LoadTheme(prism::theme::DefaultThemeRoot(), theme, generation++)));
             SubmitTheme(scene);
             CheckActions(scene, actions, item.width, item.height);
-            CheckShellControls(scene, controls, clock);
+            CheckShellControls(scene, controls, clock, n == 1 || n == 2);
             assert(!scene.InputRegions().empty());
         }
         if (n == 3 || n == 4) {

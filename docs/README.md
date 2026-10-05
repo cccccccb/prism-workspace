@@ -67,3 +67,8 @@ Skill 与参考资料只有一份正文，统一在仓库维护。人和 AI 使�
 - [视觉与 BSP 细化计划](VISUAL_TILING_REFINEMENT_PLAN.md)
 - [WM 权威布局、组沉浸与分隔线控制实施计划](LAYOUT_CONTROL_IMPLEMENTATION_PLAN.md)（权威快照、连续手势、typed 控制会话及鼠标组沉浸/恢复；鼠标分隔线调节与递归尺寸约束、窗口图标面板和单窗全屏/父容器方向切换，触屏交互延期）
 - [阶段报告](MILESTONE_REPORT.md)
+
+- [Demo 紧凑布局修订](DEMO_LAYOUT_ADAPTATION.md)：BSP 尺寸预算、页面与真实状态绑定。
+
+- [Concept B 已确认视觉基准](design/prism-concept-b/README.md)
+- [DSL 视口条件显示](DSL_VIEWPORT_CONDITIONS.md)

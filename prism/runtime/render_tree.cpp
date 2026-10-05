@@ -127,7 +127,8 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot &snapshot, const RenderT
                 "memory",         "heart",       "layers",       "rectangle", "drop",
                 "wifi-off",       "error",       "fullscreen",   "restore",   "split-horizontal",
                 "split-vertical", "document",    "document-add", "save",      "close",
-                "arrow-left",     "arrow-right", "trash",        "info"};
+                "arrow-left",     "arrow-right", "trash",        "info",      "monitor",
+                "brush",          "activity",    "clock",        "repeat",    "heart-outline"};
             const auto it = std::find(std::begin(names), std::end(names), source.icon);
             if (it != std::end(names)) {
                 node.visuals.emplace_back(

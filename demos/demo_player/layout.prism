@@ -1,15 +1,19 @@
-Card(padding: "@window_padding", material: "window", clip: true) {
-    VStack(spacing: 6) {
-        Slot(component: "header", height: 28)
-        Slot(component: "artwork", flex: 1, visible: $artwork_visible)
-        Slot(component: "library", flex: 1, visible: $library_visible) {
-            Card(material: "card", padding: 6, overflow: "clip") {
-                HStack(spacing: 8, align: "center", justify: "center") {
-                    Icon("grid", width: 18, height: 18, foreground: "@musicAccent")
-                    Text("Preparing track list", font: "@font_caption", foreground: "@mutedText")
-                }
-            }
+Card(material: "window", padding: "@window_padding", clip: true) {
+    VStack(spacing: 8) {
+        Slot(component: "header", height: 80, minViewportHeight: 300)
+        Slot(component: "compact_header", height: 36, maxViewportHeight: 300)
+        Separator(height: 1, background: "@border")
+        Slot(component: "artwork", height: 175, minViewportHeight: 540, visible: $artwork_visible)
+        Slot(component: "compact_artwork", height: 66, minViewportHeight: 300, maxViewportHeight: 540, visible: $artwork_visible)
+        Slot(component: "mini_artwork", height: 38, maxViewportHeight: 300, visible: $artwork_visible)
+        Slot(component: "transport", height: 45, minViewportHeight: 300, maxViewportHeight: 540)
+        Slot(component: "library_transport", height: 45, minViewportHeight: 540, visible: $library_visible)
+        Slot(component: "compact_transport", height: 45, maxViewportHeight: 300, visible: $artwork_visible)
+        Card(flex: 1) {
+            Slot(component: "library", minViewportHeight: 540)
+            Slot(component: "compact_library", maxViewportHeight: 540, visible: $library_visible)
+            Slot(component: "library_summary", minViewportHeight: 300, maxViewportHeight: 540, visible: $artwork_visible)
         }
-        Slot(component: "transport", height: $transport_height)
+        Text($catalog_status, height: 16, font: "@font_caption", foreground: "@text", visible: $catalog_error, overflow: "clip")
     }
 }

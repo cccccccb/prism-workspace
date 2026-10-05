@@ -41,14 +41,14 @@ struct Settings {
     {
         return prism::app::Boolean(host, "page_performance", page == 0) &&
                prism::app::Boolean(host, "page_appearance", page == 1) &&
-               prism::app::Boolean(host, "page_display", page == 2) &&
                prism::app::Boolean(host, "page_system", page == 3);
     }
 
     bool Error(std::string_view detail = {})
     {
         return prism::app::Text(host, "theme_status", detail) &&
-               prism::app::Boolean(host, "theme_error_visible", !detail.empty());
+               prism::app::Boolean(host, "theme_error_visible", !detail.empty()) &&
+               prism::app::Boolean(host, "theme_normal", detail.empty());
     }
 
     bool Interval(std::uint64_t interval)
@@ -71,12 +71,11 @@ struct Settings {
 
         std::string memory = "—";
         std::string gpu = "—";
-        std::string aux;
         double memory_usage{};
         if (sample.memory) {
+            memory_usage = static_cast<double>(sample.memory->used_kib) / sample.memory->total_kib;
             memory = Fixed(sample.memory->used_kib / 1048576.0, 1) + " / " +
                      Fixed(sample.memory->total_kib / 1048576.0, 1) + " GiB";
-            memory_usage = static_cast<double>(sample.memory->used_kib) / sample.memory->total_kib;
         }
 
         if (sample.gpu_busy) {
@@ -99,28 +98,11 @@ struct Settings {
             gpu += Fixed(*sample.gpu_temperature_c) + "°C";
         }
 
-        if (sample.soc_temperature_c) {
-            aux = "SoC " + Fixed(*sample.soc_temperature_c) + "°C";
-        }
-        if (sample.throttled) {
-            if (!aux.empty()) {
-                aux += " · ";
-            }
-            // Low bits describe current limits; high bits record past events.
-            aux += (*sample.throttled & 0xf)       ? "limits active"
-                   : (*sample.throttled & 0xf0000) ? "limits history"
-                                                   : "limits clear";
-        }
-
-        return prism::app::Text(host, "cpu_usage_text", cpu) &&
-               prism::app::Text(host, "mem_usage_text", memory) &&
-               prism::app::Number(host, "cpu_usage", sample.cpu_usage.value_or(0)) &&
+        return prism::app::Number(host, "cpu_usage", sample.cpu_usage.value_or(0)) &&
                prism::app::Number(host, "memory_usage", memory_usage) &&
-               prism::app::Text(host, "gpu_usage_text", gpu) &&
-               prism::app::Number(host, "gpu_busy", sample.gpu_busy.value_or(0)) &&
-               prism::app::Boolean(host, "gpu_busy_available", sample.gpu_busy.has_value()) &&
-               prism::app::Text(host, "hardware_aux", aux) &&
-               prism::app::Boolean(host, "hardware_aux_visible", !aux.empty());
+               prism::app::Text(host, "cpu_usage_text", cpu) &&
+               prism::app::Text(host, "mem_usage_text", memory) &&
+               prism::app::Text(host, "gpu_usage_text", gpu);
     }
 };
 
@@ -163,14 +145,14 @@ void Action(void *instance, PrismStringViewV1 value) noexcept
         auto &settings = *static_cast<Settings *>(instance);
         const auto action = View(value);
 
-        if (action == "sys:refresh") {
+        if (action == "error:dismiss") {
+            settings.Error();
+        } else if (action == "sys:refresh") {
             settings.Metrics(); // A manual sample does not move the periodic deadline.
         } else if (action == "page:performance") {
             settings.Page(0);
         } else if (action == "page:appearance") {
             settings.Page(1);
-        } else if (action == "page:display") {
-            settings.Page(2);
         } else if (action == "page:system") {
             settings.Page(3);
         } else if (action == "monitor:toggle") {

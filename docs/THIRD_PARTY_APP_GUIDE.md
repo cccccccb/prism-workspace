@@ -120,3 +120,13 @@ deferred 挂载/隐藏恢复、初始状态和计数上下界。视觉指南六�
 及动作命中。测试通过，Skill frontmatter 校验、相对链接检查、代码规范和 diff 空白
 检查通过。该测试不包含 GPU 像素截图、真实输入设备、业务 action 执行或部署验收。
 证据为 `dist/validation/skill-ui-design-20261004/`。本轮未改正在运行的桌面或应用外观。
+
+## 视觉方向确认与密度约束
+
+v21 仅是功能验证，不是批准的视觉参考。重设计需先交付正常与紧凑尺寸效果稿，
+经用户确认后实现。设置标签与数值保持可读，不以图标替代所有文字，不把少量设置行
+均分拉伸为大卡片。详见[视觉方案与密度验收](skills/prism-app-ui/references/visual-approval.md)。
+
+2026-10-05：用户已确认 [Concept B](design/prism-concept-b/README.md)。新增的
+[视口条件显示](DSL_VIEWPORT_CONDITIONS.md)支持按客户端逻辑尺寸选择已有分支；
+不会提供业务 viewport 回调，也不等同于滚动或动态列表。

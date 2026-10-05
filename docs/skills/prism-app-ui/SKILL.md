@@ -17,6 +17,15 @@ DSL 前端、资源、纯业务模块；使用平台现有 `prism-app-host` 和 
 设计建议可以随产品调整，Host/主题/输入/ABI 边界必须保持。新增能力先形成通用契约，
 不要在应用中假造属性或在 WM 增加应用分支。
 
+## 视觉设计纠偏
+
+v21 的界面未获用户认可，不作为视觉基线。图标主导不等于隐藏文字；禁止把少量设置行
+按 flex 平均拉成巨大空卡片。用户已确认第二张 Concept B 为本轮实现基准，见
+[确认稿与落地尺度](../../design/prism-concept-b/README.md)。首版实现仍被指出偏差，
+必须按[逐项还原检查](../../design/prism-concept-b/FIDELITY_REVIEW.md)核对控件、资产、
+背景、边线和间距，不能把功能测试通过写成视觉已认可。重新确定整体风格时遵循
+[视觉方案与密度验收](references/visual-approval.md)，再进入实现与部署。
+
 ## 按任务阅读
 
 - **新建应用或连接业务**：阅读 [开发指南](references/app-development.md)，选择状态、
@@ -46,7 +55,8 @@ DSL 前端、资源、纯业务模块；使用平台现有 `prism-app-host` 和 
 4. 窗口根使用 `material: "window"`，局部层次使用共享材质与 `@token`。材质主题和
    light/dark 独立；常规窗口根轮廓与外围装饰保持一致，内外阴影按绘制责任分配。
 5. 图标承载主操作，文字提供标题、数据、分区和必要说明。采用目前可用的向量图标；
-   BSP 窄窗中先保留主要点击区，隐藏子树使用 `visible`。
+   BSP 窄窗中先保留主要点击区；业务隐藏用 `visible`，尺寸分支用
+   `minViewportWidth/maxViewportWidth/minViewportHeight/maxViewportHeight`。
 6. Interface v2 显式声明 typed binding、critical/deferred 组件和稳定 Slot。独立区域
    不添加虚假的 `after`；把有真实准备依赖的关系写入加载图。
 7. `create`、动作与完成回调快速返回；耗时业务用 Host 管理的 work。工作线程处理

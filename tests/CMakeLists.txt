@@ -589,3 +589,13 @@ target_link_libraries(skill_visual_example_test PRIVATE prism_client_dsl prism_c
 target_compile_definitions(skill_visual_example_test PRIVATE PRISM_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
 target_compile_options(skill_visual_example_test PRIVATE -UNDEBUG)
 add_test(NAME skill_visual_example_test COMMAND skill_visual_example_test)
+
+if(TARGET prism_text_shaper AND TARGET prism_settings_module)
+    add_executable(demo_layout_test demo_layout_test.cpp)
+    target_link_libraries(demo_layout_test PRIVATE prism_client_scene prism_load_plan prism_theme_compiler prism_text_shaper)
+    add_test(NAME demo_layout_test COMMAND demo_layout_test "${PROJECT_SOURCE_DIR}")
+endif()
+
+add_executable(viewport_conditions_test viewport_conditions_test.cpp)
+target_link_libraries(viewport_conditions_test PRIVATE prism_client_scene prism_client_dsl)
+add_test(NAME viewport_conditions_test COMMAND viewport_conditions_test)

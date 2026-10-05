@@ -94,7 +94,7 @@ std::pair<double, double> ShapeSpan(Shape region, double y)
 void Scene::CollectSurfaceEffects(const Node &node, std::vector<Shape> &clips,
                                   std::vector<contracts::SurfaceEffectRegion> &result) const
 {
-    if (node.kind == Kind::Visual || !node.style.visible || node.bounds.width <= 0 ||
+    if (node.kind == Kind::Visual || !IsVisible(node) || node.bounds.width <= 0 ||
         node.bounds.height <= 0) {
         return;
     }
@@ -166,7 +166,7 @@ void Scene::AddInputRegion(Shape shape, const std::vector<Shape> &clips) const
 
 void Scene::CollectInputRegions(const Node &node, std::vector<Shape> &clips) const
 {
-    if (node.kind == Kind::Visual || !node.style.visible || node.bounds.width <= 0 ||
+    if (node.kind == Kind::Visual || !IsVisible(node) || node.bounds.width <= 0 ||
         node.bounds.height <= 0) {
         return;
     }

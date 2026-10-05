@@ -1,0 +1,15 @@
+VStack(spacing: 2) {
+    HStack(height: 28, spacing: 6, align: "center", visible: $library_row_1) {
+        Text($library_title_1, flex: 1, font: "@font_body", foreground: "@text", overflow: "clip")
+        IconButton("play", "library:track:1", width: 32, height: 28, padding: 5, foreground: "@musicAccent")
+    }
+    HStack(height: 28, spacing: 6, align: "center", visible: $library_row_2) {
+        Text($library_title_2, flex: 1, font: "@font_body", foreground: "@text", overflow: "clip")
+        IconButton("play", "library:track:2", width: 32, height: 28, padding: 5, foreground: "@musicAccent")
+    }
+    HStack(height: 28, spacing: 6, align: "center", visible: $library_row_3) {
+        Text($library_title_3, flex: 1, font: "@font_body", foreground: "@text", overflow: "clip")
+        IconButton("play", "library:track:3", width: 32, height: 28, padding: 5, foreground: "@musicAccent")
+    }
+    Text($catalog_status, height: 18, font: "@font_caption", foreground: "@text", overflow: "clip", visible: $library_empty)
+}

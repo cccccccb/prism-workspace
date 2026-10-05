@@ -1,43 +1,61 @@
-Card(material: "card", padding: 6, overflow: "clip") {
-    VStack(spacing: 4, justify: "center") {
-        Card(height: 38, material: "control", paddingX: 8, paddingY: 4, cornerRadius: 8, visible: $library_row_1) {
-            HStack(spacing: 8, align: "center") {
-                IconButton("play", "library:track:1", width: 24, height: 24, padding: 5,
-                           material: "control", foreground: "@musicAccent")
-                Icon("music", width: 16, height: 16, foreground: "@mutedText")
-                VStack(flex: 1, spacing: 1, justify: "center") {
-                    Text($library_title_1, font: "@font_body", foreground: "@text", overflow: "clip")
-                    Text($library_artist_1, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
+Card(paddingX: 14) {
+    VStack(spacing: 0) {
+        Separator(height: 1, background: "@border")
+        HStack(height: 36, spacing: 8, align: "center") {
+            Text($library_heading, font: "@font_title", foreground: "@text", flex: 1)
+            Text($library_count, font: "@font_caption", foreground: "@mutedText")
+        }
+        Card(height: 56, visible: $library_row_1) {
+            Card(background: "@accentSoft", borderWidth: 1, borderColor: "@border", cornerRadius: 6, visible: $library_selected_1) {}
+            HStack(spacing: 12, paddingX: 8, align: "center") {
+                Card(width: 44, height: 44, cornerRadius: 5, clip: true, minViewportWidth: 360) {
+                    Image("cover_1.png", fit: "cover", visible: $library_cover_1_1)
+                    Image("cover_2.png", fit: "cover", visible: $library_cover_1_2)
+                    Image("cover_3.png", fit: "cover", visible: $library_cover_1_3)
                 }
-                Icon("heart", width: 14, height: 14, foreground: "@musicAccent")
-                Text($library_duration_1, width: 36, font: "@font_caption", foreground: "@mutedText")
+                VStack(flex: 1, spacing: 2, justify: "center") {
+                    Text($library_title_1, height: 20, font: "@font_body", foreground: "@text", overflow: "clip")
+                    Text($library_artist_1, height: 16, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
+                }
+                Text($library_duration_1, width: 34, font: "@font_body", foreground: "@text", minViewportWidth: 360)
+                IconButton("play", "library:track:1", width: 28, height: 28, padding: 6, foreground: "@mutedText")
             }
         }
-        Card(height: 38, material: "control", paddingX: 8, paddingY: 4, cornerRadius: 8, visible: $library_row_2) {
-            HStack(spacing: 8, align: "center") {
-                IconButton("play", "library:track:2", width: 24, height: 24, padding: 5,
-                           material: "control", foreground: "@musicAccent")
-                Icon("music", width: 16, height: 16, foreground: "@mutedText")
-                VStack(flex: 1, spacing: 1, justify: "center") {
-                    Text($library_title_2, font: "@font_body", foreground: "@text", overflow: "clip")
-                    Text($library_artist_2, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
+        Separator(height: 1, background: "@border", visible: $library_row_1)
+        Card(height: 56, visible: $library_row_2) {
+            Card(background: "@accentSoft", borderWidth: 1, borderColor: "@border", cornerRadius: 6, visible: $library_selected_2) {}
+            HStack(spacing: 12, paddingX: 8, align: "center") {
+                Card(width: 44, height: 44, cornerRadius: 5, clip: true, minViewportWidth: 360) {
+                    Image("cover_1.png", fit: "cover", visible: $library_cover_2_1)
+                    Image("cover_2.png", fit: "cover", visible: $library_cover_2_2)
+                    Image("cover_3.png", fit: "cover", visible: $library_cover_2_3)
                 }
-                Icon("heart", width: 14, height: 14, foreground: "@musicAccent")
-                Text($library_duration_2, width: 36, font: "@font_caption", foreground: "@mutedText")
+                VStack(flex: 1, spacing: 2, justify: "center") {
+                    Text($library_title_2, height: 20, font: "@font_body", foreground: "@text", overflow: "clip")
+                    Text($library_artist_2, height: 16, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
+                }
+                Text($library_duration_2, width: 34, font: "@font_body", foreground: "@text", minViewportWidth: 360)
+                IconButton("play", "library:track:2", width: 28, height: 28, padding: 6, foreground: "@mutedText")
             }
         }
-        Card(height: 38, material: "control", paddingX: 8, paddingY: 4, cornerRadius: 8, visible: $library_row_3) {
-            HStack(spacing: 8, align: "center") {
-                IconButton("play", "library:track:3", width: 24, height: 24, padding: 5,
-                           material: "control", foreground: "@musicAccent")
-                Icon("music", width: 16, height: 16, foreground: "@mutedText")
-                VStack(flex: 1, spacing: 1, justify: "center") {
-                    Text($library_title_3, font: "@font_body", foreground: "@text", overflow: "clip")
-                    Text($library_artist_3, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
+        Separator(height: 1, background: "@border", visible: $library_row_2)
+        Card(height: 56, visible: $library_row_3) {
+            Card(background: "@accentSoft", borderWidth: 1, borderColor: "@border", cornerRadius: 6, visible: $library_selected_3) {}
+            HStack(spacing: 12, paddingX: 8, align: "center") {
+                Card(width: 44, height: 44, cornerRadius: 5, clip: true, minViewportWidth: 360) {
+                    Image("cover_1.png", fit: "cover", visible: $library_cover_3_1)
+                    Image("cover_2.png", fit: "cover", visible: $library_cover_3_2)
+                    Image("cover_3.png", fit: "cover", visible: $library_cover_3_3)
                 }
-                Icon("heart", width: 14, height: 14, foreground: "@musicAccent")
-                Text($library_duration_3, width: 36, font: "@font_caption", foreground: "@mutedText")
+                VStack(flex: 1, spacing: 2, justify: "center") {
+                    Text($library_title_3, height: 20, font: "@font_body", foreground: "@text", overflow: "clip")
+                    Text($library_artist_3, height: 16, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
+                }
+                Text($library_duration_3, width: 34, font: "@font_body", foreground: "@text", minViewportWidth: 360)
+                IconButton("play", "library:track:3", width: 28, height: 28, padding: 6, foreground: "@mutedText")
             }
         }
+        Separator(height: 1, background: "@border", visible: $library_row_3)
+        Text($catalog_status, height: 18, font: "@font_caption", foreground: "@text", visible: $library_empty, overflow: "clip")
     }
 }

@@ -1,0 +1,4 @@
+VStack(spacing: 2) {
+    Text($track_title, height: 20, font: "@font_body", foreground: "@text", overflow: "clip")
+    Text($track_artist, height: 16, font: "@font_caption", foreground: "@mutedText", overflow: "clip")
+}

@@ -1,0 +1,11 @@
+HStack(spacing: 8, align: "center") {
+    Card(width: 60, height: 60, clip: true) {
+        Image("cover_1.png", fit: "contain", visible: $track_1_active)
+        Image("cover_2.png", fit: "contain", visible: $track_2_active)
+        Image("cover_3.png", fit: "contain", visible: $track_3_active)
+    }
+    VStack(flex: 1, spacing: 4, justify: "center") {
+        Text($track_title, height: 20, font: "@font_body", foreground: "@text", overflow: "clip")
+        Text($track_artist, height: 16, font: "@font_caption", foreground: "@text", overflow: "clip")
+    }
+}

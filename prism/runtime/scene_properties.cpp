@@ -25,6 +25,18 @@ void Scene::ApplyCachedProperty(Node &node, DslProperty id, const PropertyValue 
     case DslProperty::Opacity:
         node.presentation.opacity = std::get<double>(value);
         break;
+    case DslProperty::MinViewportWidth:
+        node.style.min_viewport_width = std::get<double>(value);
+        break;
+    case DslProperty::MaxViewportWidth:
+        node.style.max_viewport_width = std::get<double>(value);
+        break;
+    case DslProperty::MinViewportHeight:
+        node.style.min_viewport_height = std::get<double>(value);
+        break;
+    case DslProperty::MaxViewportHeight:
+        node.style.max_viewport_height = std::get<double>(value);
+        break;
     case DslProperty::Visible:
         node.style.visible = std::get<bool>(value);
         break;
@@ -162,6 +174,14 @@ PropertyValue Scene::CurrentProperty(const Node &node, DslProperty id) const
         return node.presentation.origin_y;
     case DslProperty::Opacity:
         return node.presentation.opacity;
+    case DslProperty::MinViewportWidth:
+        return node.style.min_viewport_width;
+    case DslProperty::MaxViewportWidth:
+        return node.style.max_viewport_width;
+    case DslProperty::MinViewportHeight:
+        return node.style.min_viewport_height;
+    case DslProperty::MaxViewportHeight:
+        return node.style.max_viewport_height;
     case DslProperty::Visible:
         return node.style.visible;
     case DslProperty::Width:

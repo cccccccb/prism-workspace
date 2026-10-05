@@ -68,7 +68,7 @@ Scene::Node *Scene::Find(contracts::NodeId id) const
 bool Scene::IsVisible(const Node &node) const
 {
     for (const Node *current = &node; current; current = current->parent) {
-        if (!current->style.visible) {
+        if (!current->style.visible || !current->style.FitsViewport(viewport_)) {
             return false;
         }
     }
@@ -148,7 +148,8 @@ bool Scene::SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyVa
         (node->decorative &&
          (property == DslProperty::Action || property == DslProperty::BackdropBlur ||
           property == DslProperty::InputShape)) ||
-        (property >= DslProperty::TranslateX && node->kind != Kind::Visual) ||
+        (property >= DslProperty::TranslateX && property <= DslProperty::Opacity &&
+         node->kind != Kind::Visual) ||
         !scene_detail::ValidPropertyValue(property, value)) {
         return false;
     }
@@ -187,7 +188,7 @@ bool Scene::SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyVa
         ++node->revision;
         return true;
     }
-    if (property == DslProperty::Visible && !node->style.visible) {
+    if (was_visible && !IsVisible(*node)) {
         CancelHiddenAnimations();
     }
     if (property == DslProperty::Visible) {
@@ -230,9 +231,10 @@ bool Scene::SetViewport(contracts::LogicalSize size)
     }
     if (viewport_.width != size.width || viewport_.height != size.height) {
         viewport_ = size;
+        CancelHiddenAnimations();
         ++transaction_revision_;
         input_dirty_ = true;
-        Invalidate(Dirty::Layout | Dirty::Paint);
+        Invalidate(Dirty::Layout | Dirty::Paint | Dirty::Composite);
     }
     return true;
 }
@@ -302,6 +304,7 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
         item.id = node->id;
         item.kind = node->kind;
         item.style = node->style;
+        item.style.visible = IsVisible(*node);
         item.text = node->text;
         item.icon = node->icon;
         item.value = node->value;

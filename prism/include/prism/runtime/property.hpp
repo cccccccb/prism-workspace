@@ -60,7 +60,11 @@ enum class DslProperty {
     OriginX,
     OriginY,
     Opacity,
-    Last = Opacity
+    MinViewportWidth,
+    MaxViewportWidth,
+    MinViewportHeight,
+    MaxViewportHeight,
+    Last = MaxViewportHeight
 };
 using PropertyValue =
     std::variant<double, bool, std::string, contracts::Color, contracts::ResourceId>;

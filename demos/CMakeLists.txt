@@ -7,7 +7,7 @@ set_target_properties(prism_music_module PROPERTIES PREFIX "" OUTPUT_NAME player
 set_target_properties(prism-app-host PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(PLAYER_PACKAGE "${CMAKE_BINARY_DIR}/share/prism/apps/demo_player")
 file(MAKE_DIRECTORY "${PLAYER_PACKAGE}/assets")
-foreach(resource manifest.json master.prism preview.prism layout.prism ui/header.prism ui/artwork.prism ui/transport.prism ui/library.prism assets/catalog.json assets/README.md assets/cover_1.png assets/cover_2.png assets/cover_3.png assets/vinyl_disc.png)
+foreach(resource manifest.json master.prism preview.prism layout.prism ui/header.prism ui/artwork.prism ui/transport.prism ui/library.prism ui/compact_artwork.prism ui/mini_artwork.prism ui/compact_library.prism assets/catalog.json assets/README.md assets/cover_1.png assets/cover_2.png assets/cover_3.png assets/vinyl_disc.png)
     configure_file("demo_player/${resource}" "${PLAYER_PACKAGE}/${resource}" COPYONLY)
 endforeach()
 install(TARGETS prism_music_module LIBRARY DESTINATION share/prism/apps/demo_player)
