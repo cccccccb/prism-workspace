@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iostream>
 #include <iterator>
 #include <map>
 #include <poll.h>
@@ -350,15 +351,25 @@ int main(int argc, char **argv)
             // including typed progress, color and icon properties.
             ModuleRequests requests;
             auto &theme_request = requests.theme_request;
+            // This is a template/schema fixture, not a cold-start timing gate.
+            // Dedicated module_work_test entry-budget checks keep their strict limits.
+            prism::sdk::ModuleSessionLimits template_limits;
+            template_limits.entry_budget = std::chrono::seconds(5);
             prism::sdk::ModuleSession module(
                 argv[n + 1], "template_test", 42,
                 std::bind_front(&TemplateBindings::Set, &bindings),
                 std::bind_front(&ModuleRequests::Launch, &requests),
                 std::bind_front(&ModuleRequests::Subscribe, &requests),
                 std::bind_front(&ModuleRequests::Theme, &requests),
-                std::bind_front(&ModuleRequests::Theme, &requests), {}, {},
+                std::bind_front(&ModuleRequests::Theme, &requests), {}, template_limits,
                 n == 3 ? std::filesystem::path(argv[6]) : std::filesystem::path{});
-            assert(module.Start());
+            const bool started = module.Start();
+            if (!started) {
+                std::cerr << item.path << ": " << module.StartDiagnostic()
+                          << " load_ns=" << module.LoadDurationNs()
+                          << " create_ns=" << module.CreateDurationNs() << '\n';
+            }
+            assert(started);
             AwaitReady(module);
             module.Action(n == 3 ? "player:toggle" : n == 4 ? "theme:transparent" : "ignored");
             if (n == 4) {

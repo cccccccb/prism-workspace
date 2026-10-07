@@ -1,4 +1,6 @@
 #include "app_host_p.hpp"
+#include "prism/runtime/owner_feedback_panel.hpp"
+#include "prism/runtime/owner_task_panel.hpp"
 
 namespace prism::sdk {
 using namespace host_detail;
@@ -80,7 +82,21 @@ bool AppHost::Impl::InstallMaster()
         bindings.clear();
         if (completion.plan) {
             for (const auto &binding : completion.plan->bindings) {
+                if (runtime::IsOwnerTaskReservedName(binding.name) ||
+                    runtime::IsOwnerFeedbackReservedName(binding.name)) {
+                    return Fail(contracts::LaunchError::InvalidPackage,
+                                "Reserved framework binding in application Interface");
+                }
                 bindings.emplace(binding.name, binding.initial);
+            }
+        }
+        if (completion.plan) {
+            for (const auto &component : completion.plan->components) {
+                if (runtime::IsOwnerTaskReservedName(component.id) ||
+                    runtime::IsOwnerFeedbackReservedName(component.id)) {
+                    return Fail(contracts::LaunchError::InvalidPackage,
+                                "Reserved framework component in application Interface");
+                }
             }
         }
         if (!frontend->StartPreparedInstall(completion.load, *completion.prepared, &diagnostic)) {

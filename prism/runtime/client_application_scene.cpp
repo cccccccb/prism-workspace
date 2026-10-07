@@ -1,4 +1,5 @@
 #include "client_application_p.hpp"
+#include "prism/runtime/owner_task_panel.hpp"
 
 namespace prism::sdk {
 contracts::ResourceId ClientApplication::Impl::RequestImage(std::set<std::uint64_t> &images,
@@ -84,10 +85,17 @@ bool ClientApplication::Impl::InstallScene(runtime::UiLoadId load,
 
     std::set<std::uint64_t> images;
     try {
-        auto next = std::make_unique<runtime::Scene>(
-            runtime::LinkComponent(prepared,
-                                   std::bind_front(&Impl::RequestImage, this, std::ref(images))),
-            std::bind_front(&Impl::ShapeText, this), app.shaper.FontId(), app.theme);
+        auto blueprint = runtime::LinkComponent(
+            prepared, std::bind_front(&Impl::RequestImage, this, std::ref(images)));
+        runtime::ValidateOwnerTaskApplication(blueprint);
+        runtime::ValidateOwnerFeedbackApplication(blueprint);
+        if (app.owner_task_panel_template || app.owner_file_panel_template ||
+            app.owner_feedback_panel_template) {
+            blueprint = app.ComposeOwnerPanels(std::move(blueprint));
+        }
+        auto next = std::make_unique<runtime::Scene>(std::move(blueprint),
+                                                     std::bind_front(&Impl::ShapeText, this),
+                                                     app.shaper.FontId(), app.theme);
 
         next->SetViewport(app.ui_configure_count
                               ? app.ui_metrics.logical_size
@@ -108,8 +116,17 @@ bool ClientApplication::Impl::InstallScene(runtime::UiLoadId load,
             }
         }
 
+        auto bindings = app.binding_values;
+        if ((app.owner_task_panel_template || app.owner_file_panel_template ||
+             app.owner_feedback_panel_template) &&
+            (runtime::HasOwnerTaskPanel(*next) || runtime::HasOwnerFeedbackPanel(*next))) {
+            for (const auto &[key, value] : app.OwnerPanelDefaults()) {
+                bindings.insert_or_assign(key, value);
+            }
+        }
+
         std::string failure;
-        if (!next->PrepareDetached(app.binding_values, &failure)) {
+        if (!next->PrepareDetached(bindings, &failure)) {
             throw std::runtime_error(failure);
         }
         app.CommitScene(load, std::move(next), std::move(images));

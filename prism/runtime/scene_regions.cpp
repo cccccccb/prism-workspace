@@ -179,11 +179,11 @@ void Scene::CollectInputRegions(const Node &node, std::vector<Shape> &clips,
         clips.push_back(RegionShape(node, placement));
     }
     const bool popup_open = (!placement || !placement->close_popup) && PopupToken();
-    const bool material = (&node == root_.get() && popup_open) || IsPopupKind(node.kind) ||
-                          node.kind == Kind::ScrollView || IsInteractionOwner(node.kind) ||
-                          node.style.input_shape == "bounds" || node.style.background.a ||
-                          node.style.backdrop_blur > 0 || !node.action.empty() ||
-                          node.kind == Kind::Image;
+    const bool material = (&node == root_.get() && (popup_open || OwnerModalToken())) ||
+                          IsPopupKind(node.kind) || node.kind == Kind::ScrollView ||
+                          IsInteractionOwner(node.kind) || node.style.input_shape == "bounds" ||
+                          node.style.background.a || node.style.backdrop_blur > 0 ||
+                          !node.action.empty() || node.kind == Kind::Image;
     if (material) {
         AddInputRegion(RegionShape(node, placement), clips, output);
     }

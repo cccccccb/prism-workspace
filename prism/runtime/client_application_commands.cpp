@@ -23,6 +23,32 @@ bool PushControl(runtime::PollableQueue<runtime::RenderCommand> &queue,
 
 } // namespace
 
+bool ClientApplication::Impl::AcceptClose()
+{
+    if (std::this_thread::get_id() != owner_thread || closed || failed || !opened_once ||
+        bridge->terminal.Reason() != runtime::TerminalReason::None) {
+        return false;
+    }
+    if (close_accept_queued) {
+        return true;
+    }
+
+    RetireOwnerTasks(runtime::TaskCancelReason::OwnerClosed);
+    RetireOwnerFeedback();
+    if (!PushControl(bridge->render_commands, bridge->terminal,
+                     runtime::RenderCommand(runtime::AcceptCloseCommand{}))) {
+        return false;
+    }
+
+    close_accept_queued = true;
+    return true;
+}
+
+bool ClientApplication::AcceptClose()
+{
+    return impl_->AcceptClose();
+}
+
 bool ClientApplication::Impl::OpenRenderWorker(std::string *failure, std::string *detail)
 {
     if (render_owner || worker_generation || failed || closed) {

@@ -49,6 +49,9 @@ AppModule::AppModule(const std::filesystem::path &file)
         COPY_FIELD(on_text_edit);
         COPY_FIELD(on_close_requested);
         COPY_FIELD(on_control_value);
+        COPY_FIELD(on_task_completed);
+        COPY_FIELD(on_close_request);
+        COPY_FIELD(on_feedback_action);
 #undef COPY_FIELD
         if (!api_.create || !api_.destroy) {
             throw LaunchFailure(contracts::LaunchError::UnsupportedAbi,

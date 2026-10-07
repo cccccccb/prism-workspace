@@ -1,7 +1,10 @@
 #ifndef PRISM_CONTRACTS_APP_MODULE_H
 #define PRISM_CONTRACTS_APP_MODULE_H
 
+#include "prism/contracts/app_close.h"
 #include "prism/contracts/app_control.h"
+#include "prism/contracts/app_feedback.h"
+#include "prism/contracts/app_task.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -126,6 +129,28 @@ typedef struct PrismHostApiV1 {
      * result reports WM authorization. Ordinary applications receive Denied. */
     uint64_t (*subscribe_layout)(void *, uint32_t enabled);
     int32_t (*control_gesture)(void *, const PrismLayoutCommandV1 *);
+    /* Optional owner-task tail. Inspect struct_size before reading each pointer.
+     * Capabilities require on_task_completed. Requests copy all input and return
+     * a nonzero Host-issued correlation ID only when accepted. Completion never
+     * runs before request_task returns. One request is allowed at a time; create
+     * cannot submit. cancel_task returns zero when cancellation is accepted. */
+    uint32_t (*task_capabilities)(void *);
+    uint64_t (*request_task)(void *, const PrismTaskRequestV1 *);
+    int32_t (*cancel_task)(void *, uint64_t request_id);
+    /* Optional close continuation tail. Owner-thread calls only, after a close
+     * request has begun; create cannot complete it. Resolve exactly once using
+     * REJECT or ACCEPT, never DEFER. A completion is staged until the callback
+     * returns and the Host pump consumes it. Synchronous completion from the
+     * close callback requires that callback to return DEFER. */
+    int32_t (*complete_close)(void *, uint64_t request_id, uint32_t decision);
+    /* Optional nonmodal owner feedback tail. Inspect struct_size before access.
+     * Capability queries do not require an action callback. show_feedback copies
+     * input and returns a nonzero Host correlation only when accepted. create
+     * cannot submit. No action callback runs before show_feedback returns.
+     * Dismissal, expiry and replacement do not notify the business module. */
+    uint32_t (*feedback_capabilities)(void *);
+    uint64_t (*show_feedback)(void *, const PrismFeedbackRequestV1 *);
+    int32_t (*dismiss_feedback)(void *, uint64_t request_id);
 } PrismHostApiV1;
 
 typedef struct PrismAppInitV1 {
@@ -232,6 +257,18 @@ typedef struct PrismAppModuleV1 {
     int32_t (*on_close_requested)(void *);
     /* Optional typed value proposal; only set_binding accepts business state. */
     void (*on_control_value)(void *, const PrismControlValueEventV1 *);
+    /* Optional owner-thread terminal notification. The matching request is
+     * retired before this callback, so a callback can start another task.
+     * All views are borrowed; no completion follows owner teardown. */
+    void (*on_task_completed)(void *, const PrismTaskResultV1 *);
+    /* Optional close continuation; preferred over on_close_requested when
+     * present. Return REJECT, ACCEPT, or DEFER. DEFER keeps the owner alive until
+     * complete_close resolves its matching ID. Invalid/throwing callbacks reject
+     * the request. A synchronous completion is honored only with DEFER. */
+    int32_t (*on_close_request)(void *, const PrismCloseRequestV1 *);
+    /* Optional explicit feedback action only; the matching request is retired
+     * before this owner-thread callback. No file/session authority is granted. */
+    void (*on_feedback_action)(void *, const PrismFeedbackActionEventV1 *);
 } PrismAppModuleV1;
 
 typedef const PrismAppModuleV1 *(*PrismAppEntryV1)(void);

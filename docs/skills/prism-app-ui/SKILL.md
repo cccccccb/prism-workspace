@@ -30,9 +30,23 @@ v21 的界面未获用户认可，不作为视觉基线。图标主导不等于�
 
 控件、浮层、文件任务和反馈设计参考 [界面系统执行计划](../../INTERFACE_SYSTEM_PLAN.md)。
 该设计补充 Concept B；能力表明确区分已有接口与提案。`enabled` 已接入本轮源码的
-Boolean 属性/绑定，旧 v22 不支持；系统文件服务和透视翻转仍待实现。
+Boolean 属性/绑定，旧 v22 不支持；5c文件provider已接入本轮源码，透视翻转仍待实现。
 不要把截图尺寸当逻辑尺寸，不要把图中的文案或外观当成系统权限。
 Popup 与 Menu 已接入本轮输入；MenuItem/MenuBack 支持替换面板式子菜单。
+文件/确认任务先核对 [Owner任务与局部模态](../../OWNER_TASK_AND_MODAL_SCOPE.md)。
+5b源码接入标准Confirmation、业务C ABI与共享DSL面板，使用前读
+[Provider与ABI契约](../../OWNER_TASK_PROVIDER_CONTRACT.md)：完整struct_size尾字段检查、
+capability查询、typed request/cancel与on_task_completed。1—2个业务choice之外系统
+始终提供Cancel，Success只表示用户选择；提交返回后再完成回调，先退休pending再重入。
+不要复制自定义确认UI或持有Scene。面板由Host在Preview之后组合Master，Box/Card
+非region根及至少240×180逻辑viewport才具备能力；长label无法完整显示时明确失败。
+`__prism_task_`前缀包括未使用Interface binding/component ID在内均由框架保留，
+应用声明和业务set_binding不得覆盖。已安装v26不包含5a/5b/5c，需匹配新版Host/SDK；
+5d源码已将Notepad接入共享文件/确认任务与异步关闭，读取
+[文件业务与Close契约](../../NOTEPAD_TASK_AND_CLOSE_CONTRACT.md)再接入保存和退出。
+不能用action字符串假造文件服务。
+任务逻辑、输入作用域与主题运动分开；输入作用域不自动隐藏UI，标准provider负责
+面板收回。Preparing按真实输入快照采用推进Ready；模态期间拒绝全部Popup及嵌套任务。
 子菜单声明置于 Scene 根末尾，必须有明确返回入口。Host 按能力选择 native 子层或
 原窗口呈现，侧向级联仍未接入；应用不自行选择 target 或创建前端进程。
 含浮层的窗口将普通内容 clip 与根末尾 Popup/Menu 分开，根保持 window 材质；
@@ -50,11 +64,57 @@ RadioGroup/Radio 与 SegmentGroup/Segment 使用组级 `selectedKey` 和选项�
 value 绑定；三个 sliderPart Visual 分别定义轨道、填充与滑块，业务区分 Preview/Commit/Cancel。
 不要用 on_action 接收值，也不要把 Preview 当作已确认状态写回 value。示例和限制见契约第 11 节。
 
+## 文件任务接入（5c源码）
+
+打开、另存为或目录选择先读[文件provider契约](../../FILE_TASK_PROVIDER_CONTRACT.md)，
+其中有完整C ABI请求示例。业务查询对应OpenFile/SaveFile/SelectDirectory capability，
+检查Host尾字段和回调长度，提交无choices的typed文件options并处理`on_task_completed`。
+当前文件面板显示title与provider状态，业务message不会显示；必要业务说明留在应用正文。
+
+Host提供共享DSL、异步目录、筛选、单项选择和同任务覆盖确认。Box/Card无region根及
+至少320×240逻辑viewport才广告文件能力；宽长窗为600×360最大面板，短窗为216高，
+窄窗收起侧栏并保留滚动列表、完整路径详情和固定操作。应用无需复制选择器或设置保留
+binding；源码能力不代表v26正式会话已经部署，也不代表图03视觉已获验收。
+尺寸变化仅在受支持的可读布局内保留任务；低于最小尺寸或应用padding/clip使固定主操作
+无法完整显示与命中时，准备失败并收回面板，不能裁切按钮或缩小字号绕过。
+
+文件名编辑可暂时非法，Host提示修正并禁用Save；合法filename仍限255字节，筛选后缀
+不会自动补齐。文件Success只交付规范绝对路径与Save覆盖意图，业务仍需复制回调值并
+执行、核对真正的读写。provider仅枚举和验证metadata，不创建、截断或保存文件；5d源码的Notepad示范
+真正的work读写、保存快照和关闭续接。UI替换、退出和取消撤销当前任务，迟到结果
+不能更新下一任务。
+
+## 文件业务与关闭接入（5d源码）
+
+文件选择成功后由业务提交work，真正完成才发布Saved；提交前准备文本快照，期间
+的新编辑保持Unsaved。已加载文档保存复查版本；另存覆盖意图不能跳过实际写入校验。
+不复制Notepad的八标签限额作为所有应用约束，按自身文档模型设计。
+
+退出使用可选`on_close_request`与Host `complete_close`，先检查完整尾字段。新回调
+返回REJECT/ACCEPT/DEFER，不按旧bool解释DEFER；pending ID只能完成一次，重复
+平台请求不重复询问。保存/确认后续接原关闭，中途取消或失败保留草稿；owner退出
+撤销结果。同步complete仅在回调返回DEFER时生效，Host在回调之后消费。
+旧Host缺少能力时明确保留未保存内容，不用binding/action伪造关闭。详见上述契约。
+
+## 轻量业务反馈（6a源码）
+
+成功、信息和可恢复错误使用Host的typed feedback尾字段，先读
+[反馈契约](../../OWNER_FEEDBACK_CONTRACT.md)。一条owner反馈由共享DSL和主题呈现；
+不抢焦点，成功默认4秒，Error持续保留。声明操作须实现on_feedback_action；完整
+struct_size与capability检查后提交，ID非零只表示接受。期限从实际采用开始，悬停或
+聚焦暂停；替换、到期、关闭静默撤销，只有业务操作回调。__prism_feedback_是保留前缀。
+
+实际IO完成才报Saved；保存快照后仍有新修改必须说明Unsaved。恢复操作仍执行业务
+校验，不能从error字符串推断文件尚未提交或重用覆盖许可。旧Host保留正文/状态摘要；
+反馈能力不提供Tooltip、会话权限或系统确认，图05任务运动仍待独立接入。
 
 ## 按任务阅读
 
 - **新建应用或连接业务**：阅读 [开发指南](references/app-development.md)，选择状态、
   动作、加载区域与包结构；可复制 [Counter 模板](assets/starter/)。
+- **打开/保存/目录选择**：阅读 [文件provider契约](../../FILE_TASK_PROVIDER_CONTRACT.md)，
+  使用Host文件任务ABI；读写、保存快照及退出参考
+  [Notepad与Close契约](../../NOTEPAD_TASK_AND_CLOSE_CONTRACT.md)。
 - **设计布局或调整外观**：先读 [设计尺度与页面配方](references/design-system.md)，
   再读 [视觉设计规范](references/visual-design.md)，核实主题
   token、材质、图标和窄窗布局；业务接入时再读开发指南对应章节。

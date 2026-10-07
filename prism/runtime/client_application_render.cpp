@@ -31,6 +31,12 @@ void ClientApplication::Impl::ProcessRenderEvents(bool deliver)
             ApplyRenderStatus(*status);
             continue;
         }
+        if (close_accept_queued) {
+            // A queued acceptance has already revoked frontend input. Continue
+            // observing worker status, but never edit a document after its
+            // final save/close decision from another event in this batch.
+            continue;
+        }
         if (const auto *uploaded = std::get_if<runtime::ImageUploadedEvent>(&*event)) {
             const auto version = uploaded->version;
             if (resources.Generation(version.id) == version.generation &&
@@ -151,26 +157,31 @@ void ClientApplication::Impl::HandleWindowEvent(
         ui_metrics = configure->metrics;
         ui_configure_count = configure->configure_count;
         scene->SetViewport(configure->metrics.logical_size);
+        ReconcileOwnerTask();
+        UpdateOwnerConfirmationText();
+        UpdateOwnerFilePanelText();
+        UpdateOwnerFeedbackText();
         queued_frame.reset();
         return;
     }
 
     if (std::holds_alternative<contracts::CloseRequestedEvent>(event)) {
-        if (!on_close_requested || on_close_requested()) {
-            runtime::RenderCommand command(runtime::AcceptCloseCommand{});
-            if (bridge->render_commands.TryPush(std::move(command)) !=
-                runtime::QueuePushResult::Accepted) {
-                bridge->terminal.Fail(runtime::TerminalReason::CommandQueueFailure);
-            }
+        if (!close_accept_queued && (!on_close_requested || on_close_requested())) {
+            AcceptClose();
         }
         return;
     }
+    ObserveOwnerFeedbackEvent(event);
     const auto input_ui = installed_ui;
     const bool popup_key =
         std::holds_alternative<contracts::KeyEvent>(event) && scene->HasPopupSurfaceAdoption() &&
         ui_popup_submitted_frame && ui_popup_submitted_frame->ui == installed_ui &&
         ui_popup_submitted_frame->plan && input &&
         input->scene == ui_popup_submitted_frame->plan->request.scene &&
+        input->owner_modal_epoch == scene->OwnerModalEpoch() &&
+        ui_popup_submitted_frame->plan->input_snapshot &&
+        ui_popup_submitted_frame->plan->input_snapshot->owner_modal_epoch ==
+            scene->OwnerModalEpoch() &&
         input->popup_token == scene->PopupToken() &&
         ui_popup_submitted_frame->plan->request.popup_token == scene->PopupToken();
     const auto result =
@@ -183,6 +194,8 @@ void ClientApplication::Impl::HandleWindowEvent(
 void ClientApplication::Impl::CompleteInteractionResult(const runtime::InteractionResult &result,
                                                         runtime::UiLoadId input_ui)
 {
+    ReconcileOwnerTask();
+    ReconcileOwnerFeedback();
     if (result.changed) {
         queued_frame.reset();
         QueueRenderUpdate(true);
@@ -199,10 +212,12 @@ void ClientApplication::Impl::CompleteInteractionResult(const runtime::Interacti
     if (result.text_edit && on_text_edit && input_ui == installed_ui && !closed && !failed) {
         on_text_edit(result.text_edit->action, result.text_edit->text);
     }
-    if (result.activation && on_action && input_ui == installed_ui && !closed && !failed) {
+    if (result.activation && input_ui == installed_ui && !closed && !failed) {
         // The Scene has finished the input sequence before business code may
         // replace a region, install a new UI, or close this application.
-        on_action(result.activation->action);
+        if (!HandleOwnerFeedbackAction(*result.activation) && on_action) {
+            on_action(result.activation->action);
+        }
     }
 }
 
@@ -239,19 +254,24 @@ void ClientApplication::Impl::HandleSubmitted(const runtime::SubmittedFrameEvent
         ui_submitted_frame = event.frame;
     }
 
-    if (event.metadata_prepared && scene && event.ui == installed_ui &&
-        scene->ApplyInputSnapshot(event.frame->input_snapshot)) {
-        // A stationary pointer is rehit only after the worker adopted geometry.
-        // Its new state may start an animation independently of business bindings.
-        InvalidateQueuedFrame();
-        QueueRenderUpdate(true);
-        if (scene->HasActiveAnimations()) {
-            SyncAnimationSampling();
+    if (event.metadata_prepared && scene && event.ui == installed_ui) {
+        const bool changed = scene->ApplyInputSnapshot(event.frame->input_snapshot);
+        // Adoption may be valid without changing pixels. The task readiness
+        // gate checks the accepted identity rather than the visual-change result.
+        AdoptOwnerTaskInput(event.frame->input_snapshot, event.ui);
+        if (changed) {
+            // A stationary pointer is rehit only after the worker adopted geometry.
+            InvalidateQueuedFrame();
+            QueueRenderUpdate(true);
+            if (scene->HasActiveAnimations()) {
+                SyncAnimationSampling();
+            }
         }
     }
 
     if (event.metadata_prepared && event.ui == installed_ui) {
         ui_root_metadata_frame = event.frame;
+        AdoptOwnerFeedbackInput(event.frame->input_snapshot, event.ui);
     }
 
     // A later Scene, theme or pixel update must not be acknowledged by an

@@ -125,6 +125,8 @@ Theme("glass", name: "Prism Glass", schemaVersion: 3, motion: "prism") {
     Color("controlSecondary", value: #25384EFF)
     Color("controlOutline", value: #50647AFF)
     Color("controlFocus", value: #B2D3FFFF)
+    Color("feedbackSuccess", value: #80CEAEFF)
+    Color("feedbackError", value: #EE9B94FF)
     Color("controlError", value: #EE9B94FF)
     Color("controlField", value: #172231FF)
     Palette("light") {
@@ -137,6 +139,8 @@ Theme("glass", name: "Prism Glass", schemaVersion: 3, motion: "prism") {
         Color("controlSecondary", value: #E8EFF5FF)
         Color("controlOutline", value: #91A5BCFF)
         Color("controlFocus", value: #2467CDFF)
+        Color("feedbackSuccess", value: #24704EFF)
+        Color("feedbackError", value: #AF3434FF)
         Color("controlError", value: #AF3434FF)
         Color("controlField", value: #FFFFFFFF)
 

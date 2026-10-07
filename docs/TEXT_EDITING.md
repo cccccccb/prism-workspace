@@ -26,6 +26,12 @@ DisplayList 通道负责裁剪/提交。无光标常驻 timer 或固定刷新循
 没有回调的应用默认接受关闭，直接使用 WaylandWindow 的旧原生客户端保留原行为。
 它不拦截强制终止、会话退出或系统故障，不等价于自动恢复。
 
+5d源码追加typed `on_close_request`，存在时优先于旧回调。REJECT/ACCEPT/DEFER
+配合Host `complete_close`，让确认和保存完成后续接原关闭请求；ID只能完成一次，
+Host在回调栈之后接受平台关闭。业务提交前准备保存快照，新编辑不受旧保存完成
+覆盖；多文档中途取消保留全部草稿。完整契约见
+[Notepad文件业务与Close](NOTEPAD_TASK_AND_CLOSE_CONTRACT.md)。正式v26尚未包含此扩展。
+
 完整的界面契约、操作和当前 Unicode/输入法/剪贴板边界见
 [记事本说明](../prism-notepad/README.md)。应用模块仅链接纯契约、纯文本值逻辑及
 nlohmann JSON 的 typed CBOR 编解码，Host 管理文件 work 的取消和 join。

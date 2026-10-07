@@ -218,6 +218,8 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
     self.install_advanced = false;
     self.business_work_dispatched = false;
     self.business_progress = false;
+    self.owner_task_delivered = false;
+    self.owner_feedback_delivered = false;
     for (auto &fd : wake_fds) {
         fd.revents = 0;
     }
@@ -251,11 +253,17 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
         if (self.business) {
             self.business->Tick(MonotonicNs());
         }
+        self.AdvanceOwnerTask();
+        self.AdvanceOwnerFeedback();
+        self.AdvanceCloseDecision();
+        if (self.failed) {
+            return false;
+        }
 
         const auto now = MonotonicNs();
         int wait = self.business ? self.business->TimeoutMs(now, timeout) : timeout;
         if (self.business_progress || self.frontend->UiInstallNeedsWork() ||
-            self.RegionsNeedWork()) {
+            self.RegionsNeedWork() || self.OwnerTaskNeedsWork()) {
             wait = 0;
         }
         if (!(self.deferred_presentation ? self.ui.master_submitted : self.ui.master_presented) ||
@@ -268,6 +276,9 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
             fd.revents = 0;
         }
         descriptors.push_back({self.master_loader->Fd(), POLLIN, 0});
+        if (self.file_model && self.file_model->Fd() >= 0) {
+            descriptors.push_back({self.file_model->Fd(), POLLIN, 0});
+        }
         if (self.business && self.business->WorkCompletionFd() >= 0) {
             descriptors.push_back({self.business->WorkCompletionFd(), POLLIN, 0});
         }
@@ -328,6 +339,12 @@ bool AppHost::Pump(int timeout, std::span<pollfd> wake_fds)
         if (self.business) {
             self.business->Tick(MonotonicNs());
         }
+        self.AdvanceOwnerTask();
+        self.AdvanceOwnerFeedback();
+        self.AdvanceCloseDecision();
+        if (self.failed) {
+            return false;
+        }
         self.Observe();
 
         if ((!(self.deferred_presentation ? self.ui.master_submitted : self.ui.master_presented) ||
@@ -374,7 +391,10 @@ void AppHost::Close()
         self.frontend->OnControlValue({});
         self.frontend->OnCloseRequested({});
         self.frontend->OnGesture({});
+        self.frontend->RetireOwnerTasks();
+        self.frontend->RetireOwnerFeedback();
     }
+    self.RetireOwnerTaskController();
     if (self.business) {
         self.business->Disconnected();
         self.business->StopWork();

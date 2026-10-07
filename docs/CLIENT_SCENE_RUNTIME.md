@@ -279,3 +279,79 @@ InputSnapshot 保存成功提交的 slider_track，视觉快照投影 track/fill
 父布局失效。角色外观仍由 Visual 与主题定义，完整约束见值控件契约第 11 节。
 
 纵向内容视口、裁剪、嵌套滚轮与焦点显露参见 [ScrollView 契约](SCROLL_VIEW_CONTRACT.md)。
+
+## Owner局部模态作用域（2026-10-07，5a）
+
+`BeginOwnerModal(root, seat)`与`EndOwnerModal(expectedToken)`只管理当前Scene的输入
+作用域。根必须是布局已解析的普通可见可用子树；所有seat受到门禁，打开时取消
+正文捕获、撤销已有Popup采用并将焦点移入。外点保留任务，Esc只终结一次；失焦
+取消捕获并保留作用域。关闭时恢复有效焦点；隐藏、禁用或成功替换作用域区域使其
+失效。主题和resize不改变仍有效的任务身份。
+
+`InputSnapshot::owner_modal_epoch`在打开/关闭/失效时单调推进，独立于几何version
+和popup_token。实时/提交命中、输入dispatch、root/child采用共同检查；作用域结束
+后仍拒绝旧epoch，不能让旧按下的释放穿透正文。纯取消和Focus/Close生命周期清理
+不因旧、空或外来Scene快照被跳过。
+`scene == 0`原生局部描述符仍禁止进入根接口，包括纯清理；它经已采用child身份
+走专用入口，不拥有普通Scene快照的生命周期语义。
+
+`ApplyInputSnapshot`的bool仍表示输入重投影是否改变像素；
+`IsInputSnapshotAdopted(snapshot)`另行检查实际采用的精确身份。SDK用后者推进
+Preparing，不能把无像素变化当作未采用，也不能把排队当作采用。第一版拒绝模态内
+全部OpenPopup，不提供嵌套作用域。输入作用域不负责显示/隐藏DSL面板，也不增加
+Timer或渲染循环。完整边界见 [Owner任务契约](OWNER_TASK_AND_MODAL_SCOPE.md)。
+
+## 任务面板测量与布局准备（2026-10-07，5b源码）
+
+`Scene::ResolveLayout()`供owner线程先解析测量几何。它校验有效viewport，协调
+现有作用域/Popup与控件状态；若有Layout失效，使用相同LayoutEngine及shaper计算
+当前bounds、文本整形和滚动范围，再清Layout并保留Paint。后续正式Build仍须
+生成当前绘制内容，不能把测量后的几何当成新的DisplayList或已提交输入。
+无Layout失效时不重复计算布局。
+
+`TextLayoutInRegion(region)`返回`optional<TextLayoutInfo>`，包含命名普通Box的
+逻辑`width/height`和其唯一Text子节点的`font_size`。region必须存在、可见且符合
+该结构，否则nullopt；宽高是标签容器可用空间，不是文字ink范围。调用者先
+ResolveLayout，再使用当前font/shaper度量所需内容，不能从旧bounds猜测新文字。
+
+共享Confirmation用该接口取得标题、正文及选择label的实际空间，保留Unicode
+scalar边界与显式LF，将title/body准备成现有Text支持的显式多行内容。每一行再按
+真实shaper复测宽度及有效度量，选择标签检查实际宽高；无法完整表达时由provider
+返回PreparationFailed。高度溢出的正文/标题使用现有ScrollView，动作区保持稳定。
+该准备不代表新增通用Text.wrap属性、字体fallback或文件任务控件。
+
+ResolveLayout、TextLayoutInRegion和文字投影更新均不执行输入adoption、Wayland
+Submit、GPU Render或Swap，不产生任务Ready。测量可使input_dirty以便后续捕获，
+但必须继续经过正式Build/不可变帧包与实际输入采用身份；Preparing→Ready仍按5a。
+正式v26没有5b，验证及呈现范围见[Provider契约](OWNER_TASK_PROVIDER_CONTRACT.md)
+与执行计划，不能由纯测量结果推断实机显示已验收。
+
+## 同任务输入投影刷新（2026-10-07，5c）
+
+`RefreshOwnerModal(expectedToken)`要求当前token精确匹配、布局已解析，且epoch仍有
+终结空间。它取消鼠标、按键、gesture、slider和触点流，保留面板内文本焦点及最初
+owner焦点恢复记录，然后推进单调epoch并返回新token。没有中途关闭再打开作用域，
+不会产生closure或允许正文在两个scope之间接收输入。
+
+旧列表快照、旧键盘释放、null及foreign快照无法作用于新投影。Refresh不改变任务
+request身份，也不代表业务或GPU完成；SDK将同一TaskSession回到Preparing，只有
+真实采用匹配新epoch的输入才能重新Ready。原token随后不能结束新scope。
+文件名和普通状态文本更新不需要Refresh；目录、分页及覆盖界面变更由provider
+主动使用该接口。文件面板与异步模型规范见[文件任务契约](FILE_TASK_PROVIDER_CONTRACT.md)。
+
+## 文本输入来源与多seat（2026-10-07，5c修复）
+
+`TextInputEvent`在既有window、utf8和timestamp之后尾追加`InputSource source{}`。
+Wayland生成UTF-8文字时携带与同次KeyEvent相同的KeyboardSource；Scene按事件的
+source.seat查询键盘焦点，不按focus记录的先后顺序选择编辑器。任务面板可同时保留
+默认seat0焦点和原生seat焦点，按键与文字必须进入同一seat的目标。
+
+已有合成事件省略source时仍明确使用seat0；不会回退到其他seat的编辑器。文字输入
+继续检查当前交互可用性、输入快照与owner_modal_epoch，旧任务快照不能向新任务写字。
+来源标识只用于进程内输入关联，不改变业务on_text_edit接口或作为文件权限凭证。
+
+
+## 6a：可重复区域事务
+
+反馈内容替换使用独立ReplaceRegions，保持MountRegions只能首次安装的规则。事务先准备与验证再提交，保留正文节点与输入状态；复用空节点槽位并推进generation，旧输入不能激活新节点。
+细节与版本边界见[Owner轻量反馈契约](OWNER_FEEDBACK_CONTRACT.md)。

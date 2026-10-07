@@ -152,6 +152,13 @@ struct Scene::PopupSurfaceAdoption {
     std::map<std::uint32_t, double> scroll_offsets;
 };
 
+struct Scene::OwnerModalState {
+    contracts::NodeId root;
+    contracts::NodeId return_region;
+    std::uint64_t token{}, seat{};
+    std::vector<InputState::Focus> focus;
+};
+
 struct Scene::AnimationState {
     using Key = std::pair<std::uint32_t, DslProperty>;
 

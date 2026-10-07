@@ -16,12 +16,26 @@ add_library(prism_popup_core STATIC popup_placement.cpp popup_session.cpp)
 target_link_libraries(prism_popup_core PUBLIC prism_contracts)
 target_compile_features(prism_popup_core PUBLIC cxx_std_20)
 
+add_library(prism_owner_task_core STATIC task_session.cpp)
+target_include_directories(prism_owner_task_core PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
+target_compile_features(prism_owner_task_core PUBLIC cxx_std_20)
+
+add_library(prism_owner_feedback_core STATIC owner_feedback_session.cpp)
+target_link_libraries(prism_owner_feedback_core PUBLIC prism_contracts)
+
 add_library(prism_client_scene STATIC
+    owner_file_panel.cpp
+    owner_task_panel.cpp
+    owner_feedback_panel.cpp
+    owner_task_text.cpp
+    scene_text_metrics.cpp
     control_value.cpp
     control_value_delivery.cpp
     scene_choice.cpp
     scene_control.cpp
     scene_menu.cpp
+    scene_owner_modal.cpp
+    scene_owner_modal_input.cpp
     scene_popup.cpp
     scene_popup_surface.cpp
     popup_surface_prepare.cpp
@@ -63,7 +77,7 @@ add_library(prism_client_scene STATIC
     ui_load.cpp
     theme_tokens.cpp
     buffer_damage.cpp)
-target_link_libraries(prism_client_scene PUBLIC prism_popup_core prism_popup_positioner_contract prism_text_buffer prism_animation_core prism_display_list_contract prism_surface_effect_contract prism_dsl_schema prism_theme_contract prism_task_scheduler Threads::Threads)
+target_link_libraries(prism_client_scene PUBLIC prism_owner_feedback_contract prism_owner_task_contract prism_popup_core prism_popup_positioner_contract prism_text_buffer prism_animation_core prism_display_list_contract prism_surface_effect_contract prism_dsl_schema prism_theme_contract prism_task_scheduler Threads::Threads)
 target_include_directories(prism_client_scene PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
 target_compile_features(prism_client_scene PUBLIC cxx_std_20)
 
@@ -80,6 +94,11 @@ target_include_directories(prism_client_dsl PUBLIC "${CMAKE_CURRENT_LIST_DIR}/..
 add_library(prism_task_scheduler STATIC task_scheduler.cpp)
 target_link_libraries(prism_task_scheduler PUBLIC prism_task_budget)
 target_include_directories(prism_task_scheduler PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
+
+add_library(prism_file_task_model STATIC file_task_model.cpp file_task_model_worker.cpp)
+target_link_libraries(prism_file_task_model PUBLIC prism_task_scheduler prism_owner_task_contract)
+target_include_directories(prism_file_task_model PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
+target_compile_features(prism_file_task_model PUBLIC cxx_std_20)
 
 add_library(prism_ui_loader STATIC load_session.cpp master_load_session.cpp master_load_tasks.cpp)
 target_link_libraries(prism_ui_loader PUBLIC prism_client_dsl prism_load_plan prism_task_scheduler)
@@ -109,6 +128,12 @@ if(PRISM_ENABLE_GLES AND PRISM_SKIA_ROOT)
         client_application_frame.cpp
         client_application_gesture.cpp
         client_application_control.cpp
+        client_application_task.cpp
+        client_application_task_refresh.cpp
+        client_application_confirmation.cpp
+        client_application_file_panel.cpp
+        client_application_feedback.cpp
+        client_application_feedback_input.cpp
         client_application_scene.cpp
         client_application_state.cpp
         client_application_resources.cpp
@@ -125,7 +150,7 @@ if(PRISM_ENABLE_GLES AND PRISM_SKIA_ROOT)
         client_render_owner_popup_submit.cpp
         render_worker_lifecycle.cpp)
     target_include_directories(prism_client_app PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
-    target_link_libraries(prism_client_app PUBLIC prism_client_scene prism_client_dsl prism_png_codec prism_text_shaper prism_skia_gles prism_wayland_egl)
+    target_link_libraries(prism_client_app PUBLIC prism_owner_feedback_core prism_client_scene prism_client_dsl prism_owner_task_core prism_png_codec prism_text_shaper prism_skia_gles prism_wayland_egl)
 endif()
 
 # Pure Interface/Slot compilation and immutable critical composition.

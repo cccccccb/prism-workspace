@@ -45,6 +45,7 @@ void Scene::UpdateInputSnapshot()
     InputSnapshot snapshot;
     snapshot.scene = input_scene_id_;
     snapshot.popup_token = PopupToken();
+    snapshot.owner_modal_epoch = owner_modal_epoch_;
     snapshot.root = root_->id;
     snapshot.viewport = viewport_;
     snapshot.nodes.resize(nodes_.size());
@@ -66,9 +67,10 @@ void Scene::UpdateInputSnapshot()
                     node->style.clip || node->style.overflow == "clip";
         item.visible = IsVisible(*node);
         item.enabled = IsEnabled(*node);
-        item.interactive = !InputAction(*node).empty() ||
-                           (node->kind == Kind::InteractionTarget ||
-                            (IsPopupKind(node->kind) || node->kind == Kind::ScrollView));
+        item.interactive = InOwnerModalScope(*node) &&
+                           (!InputAction(*node).empty() ||
+                            (node->kind == Kind::InteractionTarget ||
+                             (IsPopupKind(node->kind) || node->kind == Kind::ScrollView)));
         item.action = InputAction(*node);
         item.gesture = node->gesture;
         for (const auto &child : node->children) {
@@ -78,6 +80,7 @@ void Scene::UpdateInputSnapshot()
         }
     }
     if (input_snapshot_ && input_snapshot_->popup_token == snapshot.popup_token &&
+        input_snapshot_->owner_modal_epoch == snapshot.owner_modal_epoch &&
         input_snapshot_->root == snapshot.root && input_snapshot_->viewport == snapshot.viewport &&
         input_snapshot_->nodes == snapshot.nodes) {
         input_snapshot_dirty_ = false;
@@ -96,8 +99,7 @@ void Scene::UpdateInputSnapshot()
 
 bool Scene::ApplyInputSnapshot(const std::shared_ptr<const InputSnapshot> &snapshot)
 {
-    if (!snapshot || snapshot->scene != input_scene_id_ ||
-        snapshot->version <= applied_input_version_) {
+    if (!CurrentOwnerModalSnapshot(snapshot.get()) || snapshot->version <= applied_input_version_) {
         return false;
     }
 
@@ -114,10 +116,18 @@ bool Scene::ApplyInputSnapshot(const std::shared_ptr<const InputSnapshot> &snaps
     }
     ReconcileSliderGeometry(*snapshot);
     applied_input_version_ = snapshot->version;
+    applied_owner_modal_epoch_ = snapshot->owner_modal_epoch;
     const auto pixels = pixels_revision_;
     RefreshInputGeometry();
     ResolveInteractionStyles();
     return pixels != pixels_revision_;
+}
+
+bool Scene::IsInputSnapshotAdopted(const InputSnapshot &snapshot) const noexcept
+{
+    return CurrentOwnerModalSnapshot(&snapshot) && snapshot.version &&
+           snapshot.version == applied_input_version_ &&
+           snapshot.owner_modal_epoch == applied_owner_modal_epoch_;
 }
 
 bool Scene::IsInteractive(contracts::NodeId id, const InputSnapshot *snapshot) const
@@ -129,8 +139,8 @@ bool Scene::IsInteractive(contracts::NodeId id, const InputSnapshot *snapshot) c
         DescendantOf(node, *Find(active_popup_))) {
         return false;
     }
-    return snapshot && snapshot->popup_token == PopupToken() && item && item->visible &&
-           item->enabled && item->interactive && IsInteractive(id) &&
+    return CurrentOwnerModalSnapshot(snapshot) && snapshot->popup_token == PopupToken() && item &&
+           item->visible && item->enabled && item->interactive && IsInteractive(id) &&
            item->action == InputAction(*node) && item->gesture == node->gesture &&
            CurrentScrollGeometry(*node, *snapshot);
 }
@@ -138,7 +148,9 @@ bool Scene::IsInteractive(contracts::NodeId id, const InputSnapshot *snapshot) c
 std::optional<HitResult> Scene::Hit(const InputSnapshotNode &node, contracts::LogicalPoint point,
                                     const InputSnapshot &snapshot) const
 {
-    if (!node.visible || !node.enabled) {
+    const auto *live = Find(node.id);
+    if ((owner_modal_ && (!live || !CanTraverseOwnerModal(*live))) || !node.visible ||
+        !node.enabled) {
         return std::nullopt;
     }
     const bool rounded_inside =
@@ -155,7 +167,7 @@ std::optional<HitResult> Scene::Hit(const InputSnapshotNode &node, contracts::Lo
             }
         }
     }
-    if (rounded_inside && node.interactive) {
+    if (rounded_inside && node.interactive && (!owner_modal_ || InOwnerModalScope(*live))) {
         return HitResult{node.id, {point.x - node.bounds.x, point.y - node.bounds.y}};
     }
     return std::nullopt;
@@ -165,7 +177,7 @@ std::optional<HitResult> Scene::HitTest(contracts::LogicalPoint point,
                                         const InputSnapshot &snapshot) const
 {
     const auto *root = snapshot.Find(snapshot.root);
-    if (snapshot.scene != input_scene_id_ || !root || !std::isfinite(point.x) ||
+    if (!CurrentOwnerModalSnapshot(&snapshot) || !root || !std::isfinite(point.x) ||
         !std::isfinite(point.y) ||
         !scene_detail::Inside({0, 0, snapshot.viewport.width, snapshot.viewport.height}, point)) {
         return std::nullopt;

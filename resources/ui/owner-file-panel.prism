@@ -1,0 +1,473 @@
+// Shared Host file task presentation. All actions and values are framework-owned.
+// Eight slots form one page; the list and complete selected path remain scrollable.
+Card {
+    VStack(spacing: 0, align: "center") {
+        Card(flex: 1)
+        Card(material: "card", background: "@surfaceRaised", borderWidth: 1, borderColor: "@controlOutline", width: 600, height: 360, padding: 16, minViewportHeight: 400) {
+            VStack(spacing: 8) {
+                HStack(height: 32, spacing: 8, align: "center") {
+                    ScrollView(flex: 1, height: 32) {
+                        Text($__prism_task_file_title, font: "@font_title", lineHeight: "@line_title", foreground: "@text", overflow: "clip")
+                    }
+                    InteractionTarget(action: "__prism_task_file_previous", height: 32, width: 32, enabled: $__prism_task_file_nav_enabled) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                            Icon("arrow-left", width: 16, height: 16, foreground: "@text")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    Text($__prism_task_file_page_caption, width: 64, font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText", anchor: "center", overflow: "clip")
+                    InteractionTarget(action: "__prism_task_file_next", height: 32, width: 32, enabled: $__prism_task_file_nav_enabled) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                            Icon("arrow-right", width: 16, height: 16, foreground: "@text")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                }
+                HStack(height: 32, spacing: 8, align: "center") {
+                    InteractionTarget(action: "__prism_task_file_up", height: 32, width: 48, enabled: $__prism_task_file_nav_enabled) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                            Text("Up", font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    Text($__prism_task_file_directory, flex: 1, font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText", overflow: "clip")
+                }
+                HStack(flex: 1, spacing: 12) {
+                    Card(width: 88, padding: 8, background: "@cardTint", cornerRadius: "@control_state_radius", minViewportWidth: 640) {
+                        VStack(spacing: 8) {
+                            Text("Location", font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText")
+                            InteractionTarget(action: "__prism_task_file_home", height: 32, enabled: $__prism_task_file_nav_enabled) {
+                                Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                                    Text("Home", font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                                }
+                                .state(when: "hovered", scope: "target", background: "@hover")
+                                .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                .transition(property: "background", motion: "control.feedback")
+                                Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                            }
+                        }
+                    }
+                    ScrollView(flex: 1) {
+                        VStack(spacing: 8) {
+                            VStack(spacing: 0) {
+                                InteractionTarget(action: "__prism_task_file_row_0", height: 32, visible: $__prism_task_file_row_0_visible, enabled: $__prism_task_file_nav_enabled) {
+                                    Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline")
+                                    .state(when: "hovered", scope: "target", background: "@hover")
+                                    .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                    .transition(property: "background", motion: "control.feedback")
+                                    Visual(background: "@accentSoft", cornerRadius: "@control_state_radius", visible: $__prism_task_file_row_0_selected)
+                                    HStack(spacing: 8, paddingX: 8, align: "center") {
+                                        Icon("document", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_0_file)
+                                        Icon("folder", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_0_directory)
+                                        Text($__prism_task_file_row_0_name, flex: 1, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", overflow: "clip")
+                                        Icon("check", width: 16, height: 16, foreground: "@accent", visible: $__prism_task_file_row_0_selected)
+                                    }
+                                    Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                    .state(when: "focusVisible", scope: "target", opacity: 1)
+                                }
+                                InteractionTarget(action: "__prism_task_file_row_1", height: 32, visible: $__prism_task_file_row_1_visible, enabled: $__prism_task_file_nav_enabled) {
+                                    Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline")
+                                    .state(when: "hovered", scope: "target", background: "@hover")
+                                    .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                    .transition(property: "background", motion: "control.feedback")
+                                    Visual(background: "@accentSoft", cornerRadius: "@control_state_radius", visible: $__prism_task_file_row_1_selected)
+                                    HStack(spacing: 8, paddingX: 8, align: "center") {
+                                        Icon("document", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_1_file)
+                                        Icon("folder", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_1_directory)
+                                        Text($__prism_task_file_row_1_name, flex: 1, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", overflow: "clip")
+                                        Icon("check", width: 16, height: 16, foreground: "@accent", visible: $__prism_task_file_row_1_selected)
+                                    }
+                                    Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                    .state(when: "focusVisible", scope: "target", opacity: 1)
+                                }
+                                InteractionTarget(action: "__prism_task_file_row_2", height: 32, visible: $__prism_task_file_row_2_visible, enabled: $__prism_task_file_nav_enabled) {
+                                    Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline")
+                                    .state(when: "hovered", scope: "target", background: "@hover")
+                                    .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                    .transition(property: "background", motion: "control.feedback")
+                                    Visual(background: "@accentSoft", cornerRadius: "@control_state_radius", visible: $__prism_task_file_row_2_selected)
+                                    HStack(spacing: 8, paddingX: 8, align: "center") {
+                                        Icon("document", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_2_file)
+                                        Icon("folder", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_2_directory)
+                                        Text($__prism_task_file_row_2_name, flex: 1, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", overflow: "clip")
+                                        Icon("check", width: 16, height: 16, foreground: "@accent", visible: $__prism_task_file_row_2_selected)
+                                    }
+                                    Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                    .state(when: "focusVisible", scope: "target", opacity: 1)
+                                }
+                                InteractionTarget(action: "__prism_task_file_row_3", height: 32, visible: $__prism_task_file_row_3_visible, enabled: $__prism_task_file_nav_enabled) {
+                                    Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline")
+                                    .state(when: "hovered", scope: "target", background: "@hover")
+                                    .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                    .transition(property: "background", motion: "control.feedback")
+                                    Visual(background: "@accentSoft", cornerRadius: "@control_state_radius", visible: $__prism_task_file_row_3_selected)
+                                    HStack(spacing: 8, paddingX: 8, align: "center") {
+                                        Icon("document", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_3_file)
+                                        Icon("folder", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_3_directory)
+                                        Text($__prism_task_file_row_3_name, flex: 1, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", overflow: "clip")
+                                        Icon("check", width: 16, height: 16, foreground: "@accent", visible: $__prism_task_file_row_3_selected)
+                                    }
+                                    Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                    .state(when: "focusVisible", scope: "target", opacity: 1)
+                                }
+                                InteractionTarget(action: "__prism_task_file_row_4", height: 32, visible: $__prism_task_file_row_4_visible, enabled: $__prism_task_file_nav_enabled) {
+                                    Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline")
+                                    .state(when: "hovered", scope: "target", background: "@hover")
+                                    .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                    .transition(property: "background", motion: "control.feedback")
+                                    Visual(background: "@accentSoft", cornerRadius: "@control_state_radius", visible: $__prism_task_file_row_4_selected)
+                                    HStack(spacing: 8, paddingX: 8, align: "center") {
+                                        Icon("document", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_4_file)
+                                        Icon("folder", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_4_directory)
+                                        Text($__prism_task_file_row_4_name, flex: 1, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", overflow: "clip")
+                                        Icon("check", width: 16, height: 16, foreground: "@accent", visible: $__prism_task_file_row_4_selected)
+                                    }
+                                    Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                    .state(when: "focusVisible", scope: "target", opacity: 1)
+                                }
+                                InteractionTarget(action: "__prism_task_file_row_5", height: 32, visible: $__prism_task_file_row_5_visible, enabled: $__prism_task_file_nav_enabled) {
+                                    Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline")
+                                    .state(when: "hovered", scope: "target", background: "@hover")
+                                    .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                    .transition(property: "background", motion: "control.feedback")
+                                    Visual(background: "@accentSoft", cornerRadius: "@control_state_radius", visible: $__prism_task_file_row_5_selected)
+                                    HStack(spacing: 8, paddingX: 8, align: "center") {
+                                        Icon("document", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_5_file)
+                                        Icon("folder", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_5_directory)
+                                        Text($__prism_task_file_row_5_name, flex: 1, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", overflow: "clip")
+                                        Icon("check", width: 16, height: 16, foreground: "@accent", visible: $__prism_task_file_row_5_selected)
+                                    }
+                                    Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                    .state(when: "focusVisible", scope: "target", opacity: 1)
+                                }
+                                InteractionTarget(action: "__prism_task_file_row_6", height: 32, visible: $__prism_task_file_row_6_visible, enabled: $__prism_task_file_nav_enabled) {
+                                    Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline")
+                                    .state(when: "hovered", scope: "target", background: "@hover")
+                                    .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                    .transition(property: "background", motion: "control.feedback")
+                                    Visual(background: "@accentSoft", cornerRadius: "@control_state_radius", visible: $__prism_task_file_row_6_selected)
+                                    HStack(spacing: 8, paddingX: 8, align: "center") {
+                                        Icon("document", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_6_file)
+                                        Icon("folder", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_6_directory)
+                                        Text($__prism_task_file_row_6_name, flex: 1, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", overflow: "clip")
+                                        Icon("check", width: 16, height: 16, foreground: "@accent", visible: $__prism_task_file_row_6_selected)
+                                    }
+                                    Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                    .state(when: "focusVisible", scope: "target", opacity: 1)
+                                }
+                                InteractionTarget(action: "__prism_task_file_row_7", height: 32, visible: $__prism_task_file_row_7_visible, enabled: $__prism_task_file_nav_enabled) {
+                                    Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline")
+                                    .state(when: "hovered", scope: "target", background: "@hover")
+                                    .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                    .transition(property: "background", motion: "control.feedback")
+                                    Visual(background: "@accentSoft", cornerRadius: "@control_state_radius", visible: $__prism_task_file_row_7_selected)
+                                    HStack(spacing: 8, paddingX: 8, align: "center") {
+                                        Icon("document", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_7_file)
+                                        Icon("folder", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_7_directory)
+                                        Text($__prism_task_file_row_7_name, flex: 1, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", overflow: "clip")
+                                        Icon("check", width: 16, height: 16, foreground: "@accent", visible: $__prism_task_file_row_7_selected)
+                                    }
+                                    Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                    .state(when: "focusVisible", scope: "target", opacity: 1)
+                                }
+                            }
+                            ScrollView(height: 22) {
+                                Text($__prism_task_file_status, font: "@font_body", lineHeight: "@line_body", foreground: "@mutedText", overflow: "clip")
+                            }
+                            ScrollView(height: 44, maxViewportWidth: 640) {
+                                Text($__prism_task_file_selected_caption, font: "@font_body", lineHeight: "@line_body", foreground: "@text", overflow: "clip")
+                            }
+                        }
+                        Visual(scrollPart: "thumb", width: 3, height: 24, inset: 2, cornerRadius: 1.5, background: "@controlOutline")
+                    }
+                    Card(width: 136, padding: 8, background: "@cardTint", cornerRadius: "@control_state_radius", minViewportWidth: 640) {
+                        ScrollView {
+                            VStack(spacing: 8) {
+                                Text("Location / Selection", font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText")
+                                Text($__prism_task_file_selected_caption, font: "@font_body", lineHeight: "@line_body", foreground: "@text", overflow: "clip")
+                            }
+                            Visual(scrollPart: "thumb", width: 3, height: 24, inset: 2, cornerRadius: 1.5, background: "@controlOutline")
+                        }
+                    }
+                }
+                TextField($__prism_task_file_filename, action: "__prism_task_file_name", height: 32, padding: 8, material: "control", font: "@font_body", lineHeight: "@line_caption", foreground: "@text", visible: $__prism_task_file_show_filename, enabled: $__prism_task_file_editing_enabled)
+                HStack(height: 32, spacing: 8) {
+                    InteractionTarget(action: "__prism_task_cancel", height: 32, width: 72) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                            Text("Cancel", font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    Card(flex: 1)
+                    InteractionTarget(action: "__prism_task_file_back", height: 32, width: 64, visible: $__prism_task_file_overwrite, enabled: $__prism_task_file_submit_enabled) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                            Text("Back", font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    InteractionTarget(action: "__prism_task_file_submit", height: 32, width: 88, visible: $__prism_task_file_normal, enabled: $__prism_task_file_submit_enabled) {
+                        Visual(background: "@controlPrimary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                            Text($__prism_task_file_submit_caption, font: "@font_body", lineHeight: "@line_caption", foreground: "@controlPrimaryText", anchor: "center", overflow: "clip")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+                        .state(when: "pressed", scope: "target", background: "@controlPrimaryPressed")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    InteractionTarget(action: "__prism_task_file_replace", height: 32, width: 88, visible: $__prism_task_file_overwrite, enabled: $__prism_task_file_submit_enabled) {
+                        Visual(background: "@controlPrimary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                            Text("Replace", font: "@font_body", lineHeight: "@line_caption", foreground: "@controlPrimaryText", anchor: "center", overflow: "clip")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+                        .state(when: "pressed", scope: "target", background: "@controlPrimaryPressed")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                }
+            }
+        }
+        Card(material: "card", background: "@surfaceRaised", borderWidth: 1, borderColor: "@controlOutline", width: 600, height: 216, padding: 12, maxViewportHeight: 400) {
+            VStack(spacing: 8) {
+                ScrollView(height: 24) {
+                    Text($__prism_task_file_title, font: "@font_title", lineHeight: "@line_title", foreground: "@text", overflow: "clip")
+                }
+                HStack(height: 32, spacing: 8, align: "center") {
+                    InteractionTarget(action: "__prism_task_file_up", height: 32, width: 48, enabled: $__prism_task_file_nav_enabled) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                            Text("Up", font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    Text($__prism_task_file_directory, flex: 1, font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText", overflow: "clip")
+                }
+                ScrollView(flex: 1) {
+                    VStack(spacing: 8) {
+                        VStack(spacing: 0) {
+                            InteractionTarget(action: "__prism_task_file_row_0", height: 32, visible: $__prism_task_file_row_0_visible, enabled: $__prism_task_file_nav_enabled) {
+                                Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline")
+                                .state(when: "hovered", scope: "target", background: "@hover")
+                                .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                .transition(property: "background", motion: "control.feedback")
+                                Visual(background: "@accentSoft", cornerRadius: "@control_state_radius", visible: $__prism_task_file_row_0_selected)
+                                HStack(spacing: 8, paddingX: 8, align: "center") {
+                                    Icon("document", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_0_file)
+                                    Icon("folder", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_0_directory)
+                                    Text($__prism_task_file_row_0_name, flex: 1, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", overflow: "clip")
+                                    Icon("check", width: 16, height: 16, foreground: "@accent", visible: $__prism_task_file_row_0_selected)
+                                }
+                                Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                            }
+                            InteractionTarget(action: "__prism_task_file_row_1", height: 32, visible: $__prism_task_file_row_1_visible, enabled: $__prism_task_file_nav_enabled) {
+                                Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline")
+                                .state(when: "hovered", scope: "target", background: "@hover")
+                                .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                .transition(property: "background", motion: "control.feedback")
+                                Visual(background: "@accentSoft", cornerRadius: "@control_state_radius", visible: $__prism_task_file_row_1_selected)
+                                HStack(spacing: 8, paddingX: 8, align: "center") {
+                                    Icon("document", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_1_file)
+                                    Icon("folder", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_1_directory)
+                                    Text($__prism_task_file_row_1_name, flex: 1, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", overflow: "clip")
+                                    Icon("check", width: 16, height: 16, foreground: "@accent", visible: $__prism_task_file_row_1_selected)
+                                }
+                                Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                            }
+                            InteractionTarget(action: "__prism_task_file_row_2", height: 32, visible: $__prism_task_file_row_2_visible, enabled: $__prism_task_file_nav_enabled) {
+                                Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline")
+                                .state(when: "hovered", scope: "target", background: "@hover")
+                                .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                .transition(property: "background", motion: "control.feedback")
+                                Visual(background: "@accentSoft", cornerRadius: "@control_state_radius", visible: $__prism_task_file_row_2_selected)
+                                HStack(spacing: 8, paddingX: 8, align: "center") {
+                                    Icon("document", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_2_file)
+                                    Icon("folder", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_2_directory)
+                                    Text($__prism_task_file_row_2_name, flex: 1, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", overflow: "clip")
+                                    Icon("check", width: 16, height: 16, foreground: "@accent", visible: $__prism_task_file_row_2_selected)
+                                }
+                                Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                            }
+                            InteractionTarget(action: "__prism_task_file_row_3", height: 32, visible: $__prism_task_file_row_3_visible, enabled: $__prism_task_file_nav_enabled) {
+                                Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline")
+                                .state(when: "hovered", scope: "target", background: "@hover")
+                                .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                .transition(property: "background", motion: "control.feedback")
+                                Visual(background: "@accentSoft", cornerRadius: "@control_state_radius", visible: $__prism_task_file_row_3_selected)
+                                HStack(spacing: 8, paddingX: 8, align: "center") {
+                                    Icon("document", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_3_file)
+                                    Icon("folder", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_3_directory)
+                                    Text($__prism_task_file_row_3_name, flex: 1, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", overflow: "clip")
+                                    Icon("check", width: 16, height: 16, foreground: "@accent", visible: $__prism_task_file_row_3_selected)
+                                }
+                                Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                            }
+                            InteractionTarget(action: "__prism_task_file_row_4", height: 32, visible: $__prism_task_file_row_4_visible, enabled: $__prism_task_file_nav_enabled) {
+                                Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline")
+                                .state(when: "hovered", scope: "target", background: "@hover")
+                                .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                .transition(property: "background", motion: "control.feedback")
+                                Visual(background: "@accentSoft", cornerRadius: "@control_state_radius", visible: $__prism_task_file_row_4_selected)
+                                HStack(spacing: 8, paddingX: 8, align: "center") {
+                                    Icon("document", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_4_file)
+                                    Icon("folder", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_4_directory)
+                                    Text($__prism_task_file_row_4_name, flex: 1, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", overflow: "clip")
+                                    Icon("check", width: 16, height: 16, foreground: "@accent", visible: $__prism_task_file_row_4_selected)
+                                }
+                                Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                            }
+                            InteractionTarget(action: "__prism_task_file_row_5", height: 32, visible: $__prism_task_file_row_5_visible, enabled: $__prism_task_file_nav_enabled) {
+                                Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline")
+                                .state(when: "hovered", scope: "target", background: "@hover")
+                                .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                .transition(property: "background", motion: "control.feedback")
+                                Visual(background: "@accentSoft", cornerRadius: "@control_state_radius", visible: $__prism_task_file_row_5_selected)
+                                HStack(spacing: 8, paddingX: 8, align: "center") {
+                                    Icon("document", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_5_file)
+                                    Icon("folder", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_5_directory)
+                                    Text($__prism_task_file_row_5_name, flex: 1, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", overflow: "clip")
+                                    Icon("check", width: 16, height: 16, foreground: "@accent", visible: $__prism_task_file_row_5_selected)
+                                }
+                                Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                            }
+                            InteractionTarget(action: "__prism_task_file_row_6", height: 32, visible: $__prism_task_file_row_6_visible, enabled: $__prism_task_file_nav_enabled) {
+                                Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline")
+                                .state(when: "hovered", scope: "target", background: "@hover")
+                                .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                .transition(property: "background", motion: "control.feedback")
+                                Visual(background: "@accentSoft", cornerRadius: "@control_state_radius", visible: $__prism_task_file_row_6_selected)
+                                HStack(spacing: 8, paddingX: 8, align: "center") {
+                                    Icon("document", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_6_file)
+                                    Icon("folder", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_6_directory)
+                                    Text($__prism_task_file_row_6_name, flex: 1, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", overflow: "clip")
+                                    Icon("check", width: 16, height: 16, foreground: "@accent", visible: $__prism_task_file_row_6_selected)
+                                }
+                                Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                            }
+                            InteractionTarget(action: "__prism_task_file_row_7", height: 32, visible: $__prism_task_file_row_7_visible, enabled: $__prism_task_file_nav_enabled) {
+                                Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline")
+                                .state(when: "hovered", scope: "target", background: "@hover")
+                                .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                .transition(property: "background", motion: "control.feedback")
+                                Visual(background: "@accentSoft", cornerRadius: "@control_state_radius", visible: $__prism_task_file_row_7_selected)
+                                HStack(spacing: 8, paddingX: 8, align: "center") {
+                                    Icon("document", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_7_file)
+                                    Icon("folder", width: 16, height: 16, foreground: "@mutedText", visible: $__prism_task_file_row_7_directory)
+                                    Text($__prism_task_file_row_7_name, flex: 1, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", overflow: "clip")
+                                    Icon("check", width: 16, height: 16, foreground: "@accent", visible: $__prism_task_file_row_7_selected)
+                                }
+                                Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                            }
+                        }
+                        ScrollView(height: 22) {
+                            Text($__prism_task_file_status, font: "@font_body", lineHeight: "@line_body", foreground: "@mutedText", overflow: "clip")
+                        }
+                        HStack(height: 32, spacing: 8, align: "center") {
+                            InteractionTarget(action: "__prism_task_file_previous", height: 32, width: 32, enabled: $__prism_task_file_nav_enabled) {
+                                Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                                    Icon("arrow-left", width: 16, height: 16, foreground: "@text")
+                                }
+                                .state(when: "hovered", scope: "target", background: "@hover")
+                                .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                .transition(property: "background", motion: "control.feedback")
+                                Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                            }
+                            Text($__prism_task_file_page_caption, width: 64, font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText", anchor: "center", overflow: "clip")
+                            InteractionTarget(action: "__prism_task_file_next", height: 32, width: 32, enabled: $__prism_task_file_nav_enabled) {
+                                Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                                    Icon("arrow-right", width: 16, height: 16, foreground: "@text")
+                                }
+                                .state(when: "hovered", scope: "target", background: "@hover")
+                                .state(when: "pressed", scope: "target", background: "@accentSoft")
+                                .transition(property: "background", motion: "control.feedback")
+                                Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                                .state(when: "focusVisible", scope: "target", opacity: 1)
+                            }
+                        }
+                        ScrollView(height: 44) {
+                            Text($__prism_task_file_selected_caption, font: "@font_body", lineHeight: "@line_body", foreground: "@text", overflow: "clip")
+                        }
+                    }
+                    Visual(scrollPart: "thumb", width: 3, height: 24, inset: 2, cornerRadius: 1.5, background: "@controlOutline")
+                }
+                TextField($__prism_task_file_filename, action: "__prism_task_file_name", height: 32, padding: 8, material: "control", font: "@font_body", lineHeight: "@line_caption", foreground: "@text", visible: $__prism_task_file_show_filename, enabled: $__prism_task_file_editing_enabled)
+                HStack(height: 32, spacing: 8) {
+                    InteractionTarget(action: "__prism_task_cancel", height: 32, width: 72) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                            Text("Cancel", font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    Card(flex: 1)
+                    InteractionTarget(action: "__prism_task_file_back", height: 32, width: 64, visible: $__prism_task_file_overwrite, enabled: $__prism_task_file_submit_enabled) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                            Text("Back", font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    InteractionTarget(action: "__prism_task_file_submit", height: 32, width: 88, visible: $__prism_task_file_normal, enabled: $__prism_task_file_submit_enabled) {
+                        Visual(background: "@controlPrimary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                            Text($__prism_task_file_submit_caption, font: "@font_body", lineHeight: "@line_caption", foreground: "@controlPrimaryText", anchor: "center", overflow: "clip")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+                        .state(when: "pressed", scope: "target", background: "@controlPrimaryPressed")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    InteractionTarget(action: "__prism_task_file_replace", height: 32, width: 88, visible: $__prism_task_file_overwrite, enabled: $__prism_task_file_submit_enabled) {
+                        Visual(background: "@controlPrimary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                            Text("Replace", font: "@font_body", lineHeight: "@line_caption", foreground: "@controlPrimaryText", anchor: "center", overflow: "clip")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+                        .state(when: "pressed", scope: "target", background: "@controlPrimaryPressed")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                }
+            }
+        }
+    }
+}

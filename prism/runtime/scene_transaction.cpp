@@ -7,9 +7,9 @@
 
 namespace prism::runtime {
 namespace {
-void ReplaceRegions(Blueprint &node, std::span<const RegionUpdate> updates,
-                    std::set<std::string> &found, std::size_t &count, std::size_t depth = 1,
-                    bool inside_update = false)
+void ApplyRegionUpdates(Blueprint &node, std::span<const RegionUpdate> updates,
+                        std::set<std::string> &found, std::size_t &count, std::size_t depth = 1,
+                        bool inside_update = false, bool replacement = false)
 {
     if (++count > 8192 || depth > 64) {
         throw std::length_error("Combined scene node or depth limit");
@@ -18,7 +18,8 @@ void ReplaceRegions(Blueprint &node, std::span<const RegionUpdate> updates,
         if (node.region != update.region) {
             continue;
         }
-        if (inside_update || node.region_mounted || !found.insert(update.region).second) {
+        if (inside_update || (node.region_mounted && !replacement) ||
+            !found.insert(update.region).second) {
             throw std::invalid_argument("Region is already mounted or overlaps another update");
         }
         node.children = {update.content};
@@ -27,7 +28,7 @@ void ReplaceRegions(Blueprint &node, std::span<const RegionUpdate> updates,
         break;
     }
     for (auto &child : node.children) {
-        ReplaceRegions(child, updates, found, count, depth + 1, inside_update);
+        ApplyRegionUpdates(child, updates, found, count, depth + 1, inside_update, replacement);
     }
 }
 
@@ -84,6 +85,16 @@ bool Scene::RegionMounted(std::string_view region) const
 
 Blueprint Scene::RegionBlueprint(std::span<const RegionUpdate> updates) const
 {
+    return BuildRegionBlueprint(updates, false);
+}
+
+Blueprint Scene::ReplacementBlueprint(std::span<const RegionUpdate> updates) const
+{
+    return BuildRegionBlueprint(updates, true);
+}
+
+Blueprint Scene::BuildRegionBlueprint(std::span<const RegionUpdate> updates, bool replacement) const
+{
     if (!root_ || updates.empty()) {
         throw std::invalid_argument("Empty region transaction");
     }
@@ -91,14 +102,14 @@ Blueprint Scene::RegionBlueprint(std::span<const RegionUpdate> updates) const
     for (const auto &update : updates) {
         const auto found = regions_.find(update.region);
         if (update.region.empty() || !names.insert(update.region).second ||
-            found == regions_.end() || found->second->region_mounted) {
+            found == regions_.end() || (found->second->region_mounted && !replacement)) {
             throw std::invalid_argument("Unknown, duplicate or already mounted region");
         }
     }
     auto blueprint = CurrentBlueprint(*root_);
     std::set<std::string> found;
     std::size_t count = 0;
-    ReplaceRegions(blueprint, updates, found, count);
+    ApplyRegionUpdates(blueprint, updates, found, count, 1, false, replacement);
     if (found.size() != updates.size()) {
         throw std::invalid_argument("Overlapping region transaction");
     }
@@ -394,8 +405,34 @@ bool Scene::MountRegions(std::span<const RegionUpdate> updates, const BindingVal
     }
 }
 
+bool Scene::ReplaceRegions(std::span<const RegionUpdate> updates, const BindingValues &values,
+                           std::string *diagnostic)
+{
+    try {
+        const auto revision = transaction_revision_;
+        Scene candidate(BuildRegionBlueprint(updates, true), shaper_, font_, theme_);
+        return CommitRegions(updates, values, candidate, revision, true, diagnostic);
+    } catch (const std::exception &error) {
+        return Failure(diagnostic, error);
+    }
+}
+
+bool Scene::ReplaceRegions(std::span<const RegionUpdate> updates, const BindingValues &values,
+                           Scene &candidate, std::uint64_t expected_revision,
+                           std::string *diagnostic)
+{
+    return CommitRegions(updates, values, candidate, expected_revision, true, diagnostic);
+}
+
 bool Scene::MountRegions(std::span<const RegionUpdate> updates, const BindingValues &values,
                          Scene &candidate, std::uint64_t expected_revision, std::string *diagnostic)
+{
+    return CommitRegions(updates, values, candidate, expected_revision, false, diagnostic);
+}
+
+bool Scene::CommitRegions(std::span<const RegionUpdate> updates, const BindingValues &values,
+                          Scene &candidate, std::uint64_t expected_revision, bool replacement,
+                          std::string *diagnostic)
 {
     try {
         if (&candidate == this || expected_revision != transaction_revision_ ||
@@ -405,7 +442,7 @@ bool Scene::MountRegions(std::span<const RegionUpdate> updates, const BindingVal
         if (!candidate.root_) {
             throw std::invalid_argument("Scene candidate has been consumed");
         }
-        const auto expected = RegionBlueprint(updates);
+        const auto expected = BuildRegionBlueprint(updates, replacement);
         if (!SameStructure(expected, candidate.CurrentBlueprint(*candidate.root_))) {
             throw std::invalid_argument("Region candidate does not match transaction topology");
         }
@@ -430,28 +467,51 @@ bool Scene::MountRegions(std::span<const RegionUpdate> updates, const BindingVal
         ValidateRetainedValues(pairs, values);
 
         auto next_nodes = nodes_;
+        auto next_generations = node_generations_;
+        std::vector<Node *> added;
+        std::vector<std::pair<Node *, contracts::NodeId>> assigned;
         std::vector<std::pair<Node *, Node *>> replacements;
         std::vector<Node *> removed;
+        bool replaces_owner_modal = false;
         for (const auto &name : names) {
             auto *live = regions_.at(name);
+            if (owner_modal_ && DescendantOf(Find(owner_modal_->root), *live)) {
+                replaces_owner_modal = true;
+            }
             auto *prepared = candidate.regions_.at(name);
             replacements.emplace_back(live, prepared);
             for (auto &child : live->children) {
                 CollectNodes(*child, removed);
             }
-            std::vector<Node *> added;
             for (auto &child : prepared->children) {
                 CollectNodes(*child, added);
-            }
-            for (auto *node : added) {
-                if (next_nodes.size() >= UINT32_MAX) {
-                    throw std::length_error("Scene NodeId limit");
-                }
-                next_nodes.push_back(node);
             }
         }
         for (const auto *node : removed) {
             next_nodes[node->id.index] = nullptr;
+        }
+        std::vector<std::size_t> free_slots;
+        for (std::size_t index = 0; index < next_nodes.size(); ++index) {
+            if (!next_nodes[index] && next_generations[index] < UINT32_MAX) {
+                free_slots.push_back(index);
+            }
+        }
+        std::size_t free_index = 0;
+        for (auto *node : added) {
+            std::size_t index = next_nodes.size();
+            if (free_index < free_slots.size()) {
+                index = free_slots[free_index++];
+                ++next_generations[index];
+                next_nodes[index] = node;
+            } else {
+                if (index >= UINT32_MAX) {
+                    throw std::length_error("Scene NodeId limit");
+                }
+                next_nodes.push_back(node);
+                next_generations.push_back(1);
+            }
+            assigned.emplace_back(node, contracts::NodeId{static_cast<std::uint32_t>(index),
+                                                          next_generations[index]});
         }
         std::unordered_map<std::string, std::vector<BindingTarget>> next_bindings;
         std::unordered_map<std::string, Node *> next_regions;
@@ -476,24 +536,28 @@ bool Scene::MountRegions(std::span<const RegionUpdate> updates, const BindingVal
                 child->parent = live;
             }
         }
-        for (std::size_t i = nodes_.size(); i < next_nodes.size(); ++i) {
-            next_nodes[i]->id = {static_cast<std::uint32_t>(i), 1};
+        for (const auto &[node, id] : assigned) {
+            node->id = id;
         }
-        const auto retained_count = nodes_.size();
         nodes_.swap(next_nodes);
+        node_generations_.swap(next_generations);
         BindInteractionTree(*root_, nullptr, false);
         DropAnimationsForNodes(removed);
         CancelHiddenAnimations();
         bindings_.swap(next_bindings);
         regions_.swap(next_regions);
+        if (replaces_owner_modal) {
+            FinishOwnerModal(OwnerModalCloseReason::Unavailable);
+        }
         ReconcileInput();
         const auto now = AnimationNowNs();
-        for (std::size_t i = retained_count; i < nodes_.size(); ++i) {
-            ResolveNodeStateTargets(*nodes_[i], now, false);
+        for (auto *node : added) {
+            ResolveNodeStateTargets(*node, now, false);
         }
         state_styles_dirty_ = true;
         ResolveStateTargets(now, true);
         candidate.nodes_.clear();
+        candidate.node_generations_.clear();
         candidate.bindings_.clear();
         candidate.regions_.clear();
         candidate.root_.reset();

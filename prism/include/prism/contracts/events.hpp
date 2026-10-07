@@ -134,6 +134,8 @@ struct TextInputEvent {
     WindowId window{};
     std::string utf8;
     std::uint64_t time_ns{0};
+    // Text follows the keyboard seat that produced it, including native popup input.
+    InputSource source{};
 };
 
 struct ConfigureEvent {

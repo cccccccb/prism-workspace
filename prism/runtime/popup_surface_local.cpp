@@ -163,6 +163,7 @@ std::shared_ptr<const InputSnapshot> PreparePopupInput(const SceneSnapshot &snap
     // input API. Native target-scoped submission is a separate protocol step.
     result.scene = 0;
     result.popup_token = source.input->popup_token;
+    result.owner_modal_epoch = source.input->owner_modal_epoch;
     result.version = source.input->version;
     result.root = snapshot.root;
     result.viewport = viewport;

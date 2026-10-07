@@ -22,8 +22,9 @@ bool Scene::HandleTextInput(const contracts::WindowEvent &event, InteractionResu
             }
         }
     } else if (key || text) {
+        const auto seat = key ? key->source.seat : text->source.seat;
         for (const auto &focus : input_state_->focus) {
-            if (!key || focus.seat == key->source.seat) {
+            if (focus.seat == seat) {
                 node = Find(focus.node);
                 break;
             }

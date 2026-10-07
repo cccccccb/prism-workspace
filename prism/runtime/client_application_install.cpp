@@ -1,4 +1,5 @@
 #include "client_application_p.hpp"
+#include "prism/runtime/owner_task_panel.hpp"
 #include <algorithm>
 #include <chrono>
 
@@ -212,6 +213,13 @@ runtime::UiInstallState ClientApplication::AdvanceUiInstall(const runtime::Bindi
     app.install_advanced_since_pump = true;
     auto &stage = *app.install;
     try {
+        for (const auto &[name, value] : bindings) {
+            if (runtime::IsOwnerTaskReservedName(name) ||
+                runtime::IsOwnerFeedbackReservedName(name)) {
+                throw std::invalid_argument(
+                    "Reserved owner task binding in application projection");
+            }
+        }
         app.PollResources();
         if (app.failed || !app.install) {
             Reject(diagnostic, {}, "Live resource failure cancelled UI staging",
@@ -285,14 +293,24 @@ runtime::UiInstallState ClientApplication::AdvanceUiInstall(const runtime::Bindi
         if (!stage.construction && !stage.scene) {
             if (stage.updates.empty()) {
                 for (const auto &unit : stage.units) {
-                    stage.updates.push_back(
-                        {unit.region,
-                         runtime::LinkComponent(
-                             unit.prepared, std::bind_front(&StagedUiInstall::Resolve, &stage))});
+                    auto content = runtime::LinkComponent(
+                        unit.prepared, std::bind_front(&StagedUiInstall::Resolve, &stage));
+                    runtime::ValidateOwnerTaskApplication(content);
+                    runtime::ValidateOwnerFeedbackApplication(content);
+                    if ((runtime::IsOwnerTaskReservedName(unit.region) ||
+                         runtime::IsOwnerFeedbackReservedName(unit.region))) {
+                        throw std::invalid_argument(
+                            "Cannot install an application region in the task namespace");
+                    }
+                    stage.updates.push_back({unit.region, std::move(content)});
                 }
             }
             auto blueprint = stage.regions ? app.scene->RegionBlueprint(stage.updates)
                                            : std::move(stage.updates.front().content);
+            if (!stage.regions && (app.owner_task_panel_template || app.owner_file_panel_template ||
+                                   app.owner_feedback_panel_template)) {
+                blueprint = app.ComposeOwnerPanels(std::move(blueprint));
+            }
             stage.result_images.clear();
             CollectImageIds(blueprint, stage.result_images);
             stage.transaction_revision = stage.regions ? app.scene->TransactionRevision() : 0;
@@ -318,6 +336,15 @@ runtime::UiInstallState ClientApplication::AdvanceUiInstall(const runtime::Bindi
             }
             stage.scene = stage.construction->TakeScene();
             stage.construction.reset();
+            if (!stage.regions &&
+                (app.owner_task_panel_template || app.owner_file_panel_template ||
+                 app.owner_feedback_panel_template) &&
+                (runtime::HasOwnerTaskPanel(*stage.scene) ||
+                 runtime::HasOwnerFeedbackPanel(*stage.scene))) {
+                for (const auto &[key, value] : app.OwnerPanelDefaults()) {
+                    stage.scene->SetBinding(key, value);
+                }
+            }
             for (auto value : stage.result_images) {
                 stage.candidate_images.push_back({value});
             }

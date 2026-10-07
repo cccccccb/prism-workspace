@@ -44,7 +44,8 @@ void RemoveInputSubtree(InputSnapshot &snapshot, contracts::NodeId id)
 
 bool Scene::HasPopupSurfaceAdoption() const noexcept
 {
-    return popup_surface_adoption_ &&
+    return !OwnerModalToken() && popup_surface_adoption_ &&
+           popup_surface_adoption_->plan.input_snapshot->owner_modal_epoch == owner_modal_epoch_ &&
            popup_surface_adoption_->plan.request.popup_token == PopupToken() &&
            popup_surface_adoption_->plan.request.active_node == active_popup_ &&
            popup_surface_adoption_->plan.request.parent_configure_generation ==
@@ -66,9 +67,12 @@ std::optional<PopupSurfaceIdentity> Scene::PopupSurfaceAdoptionIdentity() const 
 bool Scene::AdoptPopupSurface(const PopupSurfacePlan &plan, const PopupSurfaceIdentity &identity)
 {
     const auto *popup = Find(active_popup_);
-    if (!ValidIdentity(identity) || !plan.prepared ||
+    if (OwnerModalToken() || !ValidIdentity(identity) || !plan.prepared ||
         !SamePreparedPlan(plan, plan.prepared->values) || !plan.prepared->layout ||
-        !plan.request.source || !plan.input_snapshot || plan.input_snapshot->scene != 0 || !popup ||
+        !plan.request.source || !plan.request.source->input ||
+        !CurrentOwnerModalSnapshot(plan.request.source->input.get()) || !plan.input_snapshot ||
+        plan.input_snapshot->scene != 0 ||
+        plan.input_snapshot->owner_modal_epoch != owner_modal_epoch_ || !popup ||
         !IsVisible(*popup) || !IsEnabled(*popup) || plan.request.scene != input_scene_id_ ||
         plan.request.popup_token != PopupToken() || plan.request.active_node != popup->id ||
         plan.request.trigger != popup->popup_anchor ||

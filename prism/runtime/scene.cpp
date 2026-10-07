@@ -182,6 +182,7 @@ bool Scene::SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyVa
     std::erase_if(node->theme_refs,
                   [property](const ThemeRef &ref) { return ref.target == property; });
     ApplyCachedProperty(*node, property, value);
+    ReconcileOwnerModal();
     if (property == DslProperty::SelectedKey || property == DslProperty::Checked) {
         state_styles_dirty_ = true;
     }
@@ -246,6 +247,7 @@ bool Scene::SetViewport(contracts::LogicalSize size)
     }
     if (viewport_.width != size.width || viewport_.height != size.height) {
         viewport_ = size;
+        ReconcileOwnerModal();
         CancelHiddenAnimations();
         ++transaction_revision_;
         input_dirty_ = true;
@@ -287,6 +289,7 @@ bool Scene::ImageReady(contracts::ResourceId image, contracts::LogicalSize intri
 
 std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
 {
+    ReconcileOwnerModal();
     ReconcilePopup();
     ResolveInteractionStyles();
     ++build_calls_;
@@ -310,8 +313,7 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
 
     PrepareSceneContours(snapshot);
     if (layout_changed) {
-        ++layout_count_;
-        input_dirty_ = true;
+        ApplyResolvedLayout(snapshot);
     }
     for (const auto &item : snapshot.nodes) {
         if (!item.id) {
@@ -322,12 +324,6 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
         node->contour_request = item.contour_request;
         node->contour_prepared = item.contour_prepared;
         node->popup_placement = item.popup_placement;
-        if (layout_changed) {
-            node->bounds = item.bounds;
-            node->scroll_offset = item.scroll_offset;
-            node->scroll_content_height = item.scroll_content_height;
-            node->shaped = item.shaped;
-        }
     }
 
     if (const auto *popup = Find(active_popup_);

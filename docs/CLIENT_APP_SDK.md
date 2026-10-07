@@ -55,6 +55,32 @@ Visual 子树不参与输入，它的平移、缩放、整体 opacity 以及 bac
 
 ## 统一运行时与启动目标
 
+### Owner任务会话（2026-10-07，5a源码）
+
+Host或SDK控制器可以用已安装且已挂载的命名region启动局部任务。接口由前端
+owner线程调用，不开放给业务模块持有Scene或管理渲染线程。
+
+| C++入口 | 约束 |
+| --- | --- |
+| `BeginOwnerTask(region, seat)` | 已Open并安装UI、region可见可用、布局已解析；拒绝嵌套和未取终态 |
+| `ActiveOwnerTask()` | 返回typed身份与Preparing/Ready/Working阶段 |
+| `SetOwnerTaskWorking(identity)` | 仅Ready进入Working |
+| `ResumeOwnerTask(identity)` | 仅Working返回Ready，不能绕过首次输入采用 |
+| `CompleteOwnerTask(identity)` | 仅Ready/Working成功 |
+| `CancelOwnerTask(identity, reason)` / `FailOwnerTask(identity, failure)` | 精确匹配活动身份；失败使用typed code |
+| `TakeOwnerTaskTerminal()` | 取走一次终态后再调用业务，支持同步重入 |
+| `RetireOwnerTasks()` | 永久退出，撤销作用域并丢弃待交付终态 |
+
+Preparing只有在当前UI、Scene和模态epoch的输入快照实际被worker采用后进入Ready。
+State和checked-identical None也可以完成采用；像素是否变化不是采用是否成功。
+候选UiLoad准备/取消/失败保留旧任务；成功全UI替换取消当前request。Host关闭先
+退休任务，再通知业务断开、停止work并销毁模块。任务逻辑、输入作用域与面板运动
+分别管理，结束任务不会自动隐藏DSL子树。
+
+完整身份、生命周期和实施顺序见 [Owner任务契约](OWNER_TASK_AND_MODAL_SCOPE.md)。
+本步没有任务C ABI、文件结果或系统选择器；运行中的v26尚未包含5a。现有同步
+关闭回调仍保持bool契约，异步保存后关闭在后续步骤接入。
+
 统一 host 的初始化分为 PrepareFrontend、初始主题安装、Bind 与 configure 后 EGL。应用以 DSL/资源和版本化业务模块提供状态/动作。ClientApplication 支持同 surface 的 ReplaceUi 和严格 assets 根解析。SetBinding 返回值表示值已被接受，重复相同值不触发重绘；底层 Scene 的 SetBinding 返回值仍表示是否发生变更。实际 FirstPresented 使用 PresentationCount，兼容 PresentedCount 仍仅计 swap。实现与约束见 [APP_HOST_RUNTIME.md](APP_HOST_RUNTIME.md)。
 
 `prism_launch_client` 与 host 模块 Launch API 使用同一个 launcher。待命 worker 已完成公共 CPU 前端准备，收到并确认当前 ThemeSnapshot 后才分配应用；EGL/GPU 仍在绑定窗口后初始化。池规范见 [LAUNCHER_WORKER_POOL.md](LAUNCHER_WORKER_POOL.md)，生产会话与授权规则见 [SESSION_LAUNCH_RUNTIME.md](SESSION_LAUNCH_RUNTIME.md)。
@@ -192,3 +218,88 @@ revision 的值事件。Checkbox 有效释放只发送 Commit；业务以 SetBin
 binding 或替换 UI 不会递归触发值回调。注销/替换 OnControlValue 会撤销旧队列和
 预览记录，不调用已退休的接收者。连续预览的取消与异常边界见值控件契约第 10 节；
 该通知链路与水平 Slider 的 DSL、输入及呈现均已接入本轮源码。
+
+## 2026-10-07：共享Confirmation Provider（5b源码）
+
+5b在前述5a C++会话之上接入业务任务ABI与共享DSL面板。当前正式v26没有5a/5b，
+本节不声明实机视觉或GPU验证通过。字段、枚举、限制及完整业务示例见
+[Provider契约](OWNER_TASK_PROVIDER_CONTRACT.md)。
+
+| Host/provider C++入口 | 契约 |
+| --- | --- |
+| `ConfigureOwnerTaskPanel(prepared)` | 配置一次受信、无应用图片资源的共享模板；Host在Preview之后、Master安装之前调用 |
+| `SupportsOwnerConfirmation()` | 当前前端已打开且存活、安装了共享panel，逻辑viewport至少240×180；不保证任意label可完整显示 |
+| `BeginOwnerConfirmation(request)` | 校验owning请求、准备主题投影和可读文字、建立5a局部scope；返回真实SDK TaskIdentity或拒绝 |
+
+业务模块不调用这些C++入口、不持有Scene。`PrismHostApiV1`的可选尾字段为
+`task_capabilities`、`request_task`和`cancel_task`，模块可选尾回调为
+`on_task_completed`；读取每个字段前检查`offsetof + sizeof`覆盖完整字段。
+Confirmation含1—2个typed业务choice，系统另提供Cancel。Success只报告匹配选择，
+不等于文件保存或其它业务操作已完成。文件任务的5c扩展见下一节，5d异步关闭契约见
+[Notepad文件业务与Close](NOTEPAD_TASK_AND_CLOSE_CONTRACT.md)。
+
+ModuleSession复制请求输入并发放单调关联ID；Host绑定实际实例、前端和SDK身份。
+接口调用只stage，owner Pump随后推进；完成回调不能先于`request_task`返回。
+SDK以真实采用的输入快照推进Ready，排队、像素变化和动画完成均不能替代采用。
+终态及controller状态先取走、scope与投影收回，再退休模块pending并callback，
+支持回调同步发起下一请求。owner退出先退休任务和controller，再join work、销毁
+业务，不对已退出实例投递完成。
+
+共享面板只组合普通非region Box/Card根Master，Preview不注入。不能保持该语义的
+根仍按原树运行，任务能力不可用。`__prism_task_`前缀由框架保留；应用DSL、Interface
+binding/component ID、区域安装及业务`set_binding`不能使用它，即使声明未被实际
+引用也拒绝。内部panel投影单独保存，应用绑定表和后续deferred区域安装不能覆盖。
+
+准备按当前可见标题/正文region的逻辑宽度及真实shaper度量折行，随后逐行复测。
+长内容在ScrollView中读取，动作固定；choice label必须完整适合实际标签盒的宽高，
+不能靠clip继续显示一个意义不完整的动作。窗口或字体度量无法满足时明确返回
+PreparationFailed，支持能力的最小viewport240×180不是任何文案都可显示的保证。
+resize/主题更新重新检查文字，适配代次与installed UI用于限制回滚范围；旧请求
+发布中的异常不能清掉同步重入创建的新请求或领取它的终态。
+
+这些准备与输入作用域沿用同一Scene、不可变帧包和render owner，不新增Timer、
+渲染循环或业务专用WM绘制路径。标题/正文的折行属于共享provider准备，Text本身
+仍不提供新的DSL自动wrap属性。
+
+## 2026-10-07：文件任务Provider（5c源码）
+
+文件请求使用同一业务任务ABI、TaskSession、Scene输入域和render owner。
+完整字段、限额与覆盖重验见[文件任务规范](FILE_TASK_PROVIDER_CONTRACT.md)。
+
+| Host/provider C++入口 | 契约 |
+| --- | --- |
+| `ConfigureOwnerFilePanel(prepared)` | 配置一次无应用图片资源的受信共享文件模板，Master安装前与Confirmation共同组合 |
+| `SupportsOwnerFileTasks()` | 当前Master实际包含文件面板，前端存活，逻辑viewport至少320×240 |
+| `BeginOwnerFileTask(request, view)` | 校验Open/Save/SelectDirectory与拥有的投影，建立同一个owner任务；不执行文件I/O |
+| `UpdateOwnerFileTask(identity, view)` | 更新当前任务；目录、条目、分页、loading或覆盖状态变化时刷新输入代次 |
+| `RefreshOwnerTask(identity)` | 精确匹配当前身份，刷新scope代次并回到Preparing，等待真实输入采用 |
+
+业务模块只调用Host可选C ABI，不调用上述C++接口。Host使用共享scheduler的独立
+`FileTaskModel` channel，在worker枚举目录、规范路径、验证候选与metadata；主线程
+只接收不可变结果并投影当前页八个条目。模型FD与容量通知加入Host的实际等待源，
+取消后的迟到通知也会排空，不引入固定轮询或新的Timer。
+
+文件名、状态文字与提交可用性更新保留当前文本焦点和输入代次，防止每个字符都
+等待下一次GPU采用；涉及行槽位含义的变化则撤销旧流并等待新epoch。更新只影响
+私有provider投影，不进入模块绑定表。主题/resize重新测量文字并保持当前文件任务。
+
+Open返回现存普通文件路径；Save返回目标路径与用户覆盖确认意图；目录请求返回
+现存目录路径。成功选择不读取文件内容、不写入也不代表保存成功，后续业务负责实际
+操作及对象竞争。Save的覆盖确认在同一个任务中完成，再次验证对象stamp后才交付。
+Notepad真实文件操作和异步关闭续接已在5d源码接入；正式v26尚不包含本阶段接口。
+
+## 异步关闭接受（5d源码）
+
+`OnCloseRequested(bool callback)`仍保留同步接口。Host通过ModuleSession的typed
+Close ABI等待业务确认/保存，在回调栈之后消费close ID的决策，再调用
+`bool AcceptClose()`：只允许有效UI owner使用，先撤销任务输入，单次提交有序
+AcceptCloseCommand；重复调用不重复排队。业务模块只调用Host complete_close，
+不持有SDK或直接调用此方法。缺失/错线程/失败状态返回false，命令队列失败沿
+既有terminal链报告。关闭接受后同一输入批次不再交付编辑或动作。
+详情及兼容示例见[文件业务与Close契约](NOTEPAD_TASK_AND_CLOSE_CONTRACT.md)。
+
+
+## 6a：Owner反馈
+
+ConfigureOwnerFeedbackPanel配置资源free共享DSL，ShowOwnerFeedback/DismissOwnerFeedback管理一条owner反馈，TakeOwnerFeedbackAction只取用户业务动作。外观属于主题，替换生成新节点身份，不抢焦点。
+细节与版本边界见[Owner轻量反馈契约](OWNER_FEEDBACK_CONTRACT.md)。

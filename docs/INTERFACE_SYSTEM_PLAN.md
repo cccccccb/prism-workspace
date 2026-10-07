@@ -15,7 +15,9 @@
 此规范补充现有 Concept B 应用布局，不立即替换所有 Demo。设计图蓝色说明、
 Slider、跨窗口 Popup、系统文件服务及透视翻转均不能仅凭图示视为已支持。
 
-## 2. 源码能力核对
+## 2. 源码能力核对（更新至6a）
+
+以下为工作区源码能力；已安装的正式v26不包含5a—6a，部署记录另行确认。
 
 | 设计要求 | 当前依据 | 差距 / 实施入口 |
 | --- | --- | --- |
@@ -23,11 +25,12 @@ Slider、跨窗口 Popup、系统文件服务及透视翻转均不能仅凭图�
 | 悬停、按下、捕获、focusVisible、disabled | scene_input.cpp、scene_state.cpp、render_tree.cpp | 已有输入状态、状态规则和主题焦点描边；本轮接 DSL enabled |
 | 状态属性与主题 Motion | ANIMATION_RUNTIME_SPEC、MOTION_PRESENTATION_SPEC | 复用已有 .state/.transition，不新增第二套动画驱动 |
 | 字号、间距、内边距、截断与窄窗条件 | dsl_schema.cpp、layout_engine.cpp、text_shaper.cpp | 已有 font/spacing/padding、viewport 条件；第二阶段增加 lineHeight 与显式分行，字重/自动折行/字体回退待实现 |
-| Checkbox、Radio、Slider、Segment、可滚动列表 | schema 未提供这些独立节点 | 不能用不可交互图形宣称实现；需值模型、键盘与动作契约 |
-| Popup/Menu 与焦点作用域 | 已有 Scene 焦点和窗口输入链 | 缺完整锚定、回避、外点关闭、嵌套焦点恢复与跨边界契约 |
-| 应用内未保存确认 | prism-notepad、TEXT_EDITING | 已有业务流程；通用模态作用域仍需抽象 |
-| 系统文件任务 | Notepad 有业务文件读写与路径输入 | 不等于系统选择器；需独立服务、owner、取消和类型化结果 |
-| 会话确认、Toast、Tooltip | 可组合基本节点 | 没有完整统一服务/控件契约 |
+| Checkbox、Radio、Slider、Segment、可滚动列表 | CONTROL_VALUE_CONTRACT、SCROLL_VIEW_CONTRACT | 有类型值与键鼠流程已接入；当前Slider水平，滚动指示条不可拖动 |
+| Popup/Menu 与焦点作用域 | POPUP_MENU_CONTRACT、POPUP_TARGET_LIFECYCLE | 锚定、关闭、面板子菜单与Host原生子层已接入；侧向级联待实现 |
+| 应用内未保存确认 | OWNER_TASK_PROVIDER_CONTRACT、NOTEPAD_TASK_AND_CLOSE_CONTRACT | 共享Confirmation、owner局部模态及Notepad异步Close已接入 |
+| 系统文件任务 | FILE_TASK_PROVIDER_CONTRACT | 共享OpenFile/SaveFile/SelectDirectory单项选择已接入；业务仍负责真正读写，多选待实现 |
+| Owner轻量反馈 | OWNER_FEEDBACK_CONTRACT | 6a接入Info/Success/Error、恢复动作与可见期限；一条owner反馈，不是全局通知中心 |
+| 会话确认、Tooltip | 图04提案 | 6b独立定义受信入口与非抢焦点说明，不由反馈API取得系统权限 |
 | 下缘翻起与 owner 退后 | 有平移/缩放/透明度与 WM 呈现接口 | 透视、裁剪、命中、缓存和中断行为需新增能力；不得伪造 API |
 
 ## 3. 责任边界
@@ -976,3 +979,290 @@ CTest **11/11**、代码规范、Skill校验和生产包审计通过；测试/pr
 首帧已确认。实际VNC检查了Glass明暗、Square直线三角、Appearance命令关闭、
 外点及Esc，WM commit/effect/mask失败计数均为0。最终留Glass Dark和展开菜单。
 记录位于 `dist/validation/prism-v26-deploy/`；实际颈部视觉等待用户确认。
+
+## 32. 第五阶段5a：Owner任务核心与局部模态（2026-10-07）
+
+第四阶段源码、文档、主题和应用改动已提交为`0418359`。继续图03—05前，先落实
+[Owner任务契约](OWNER_TASK_AND_MODAL_SCOPE.md)，把业务会话、输入门禁和面板运动
+分开。5a提供运行时基础，不声明系统文件选择器或图05透视运动已经完成。
+
+- 纯`TaskSession`使用不同的owner/request strong type；owner只在最终已打开的
+  前端首次请求时分配。每个owner一个活动任务或待取终态，不同owner互不阻塞。
+  Preparing/Ready/Working和Success/Cancelled/Failed有明确合法转换，首个终态
+  接受后拒绝重复及迟到结果；终态先取走再调用业务，支持同步发起下一请求。
+- Scene普通子树提供局部模态作用域，所有seat的命中、滚轮、文本、值控件和焦点
+  都受门禁。打开取消正文捕获、撤销旧Popup采用；外点保留，Esc一次终结，失焦
+  取消捕获而保留任务。隐藏/禁用/成功区域替换使作用域失效，失败候选保持旧状态。
+- 不可变输入快照新增独立单调`owner_modal_epoch`，打开、关闭及失效均推进。
+  root/child命中与采用检查当前epoch，旧按下的释放不能激活新任务或结束后正文。
+  纯取消与生命周期清理继续执行，不通过旧或外来快照恢复坐标命中。
+- SDK以已挂载region接入TaskSession和Scene。Preparing只在worker真实采用匹配
+  当前UI/Scene/epoch的输入后进入Ready；像素是否变化与输入采用分别判断。
+  候选UI准备/取消/失败保留任务，成功UI替换取消request；Host退出先永久退休
+  owner，再停止work并销毁业务。输入作用域不修改DSL的visible绑定。
+- 第一版拒绝模态内所有Popup及嵌套作用域；没有任务C ABI、跨进程授权、文件结果
+  payload或新DSL任务节点。owner数字只作本进程关联，不能作为系统服务权限。
+  既有同步bool关闭接口保留，异步关闭续接随后设计。
+
+后续顺序为5b业务任务ABI/Host-provider/共享DSL面板，5c异步目录与文件任务，5d
+Notepad打开/另存为/未保存确认及关闭续接，然后推进图04反馈与图05主题运动。
+面板布局继续参考图03：owner下缘展开、保留工作上下文、紧凑自然密度和清晰文字
+层次；运动引用独立主题接口，不以动画完成代替业务Ready或终态。
+
+本步相关CTest累计 **15/15** 通过：最终生产代码的整组复测14项通过，唯一剩余
+Scene用例修正焦点前置状态后单项复跑通过。首轮12/15保留在日志中：未采用的
+`scene == 0`原生描述符仍应完全拒绝根输入，已恢复该屏障；两个新夹具分别使用了
+非法Column region及误把默认true空操作当作SetBinding失败，按已有契约修正。
+随后一项夹具误以为PointerCancel重置键盘焦点，改为验证焦点保留，再真实点击
+指定按钮继续验证Close/释放；没有改变生产焦点规则或放松有效断言。
+
+三个新增测试覆盖精确身份、一次终态、退休/重入、Scene多seat与旧/null/foreign
+快照、真实gesture/slider取消、原生Popup撤销与重开，以及SDK候选UI失败/成功
+替换、无像素变化的输入采用、命令队列满回滚和Cancel回调同步发起下一请求。
+SDK测试不开原生连接、worker或GPU，成功metadata为隔离夹具模拟，不作为实际
+compositor采用/呈现或帧率证据。
+
+正式Host/WM及相关目标构建通过。代码规范通过：**425**个生产文件、**166**个
+测试文件，最大生产文件仍为714行；Skill校验和`git diff --check`通过。WM符号与
+动态依赖审计未发现Scene、ClientApplication、TaskSession、Skia或Qt依赖。
+最终增量曾因生成的Ninja规则出现异常字节而失败，重新生成后构建恢复；失败日志
+独立保留，不将其当作功能通过。本步未打包部署，正式VNC仍为v26。
+证据在`dist/validation/interface-system-step5a/`，README与summary区分整组复测、
+单项修复复跑和自动检查范围；下一步按5b推进任务ABI与共享面板。
+
+## 33. 第五阶段5b：Confirmation Provider与共享任务面板（2026-10-07）
+
+继续[Provider与业务ABI契约](OWNER_TASK_PROVIDER_CONTRACT.md)，先建立真实
+Confirmation，不提前实现文件列表、演示路径或Notepad异步关闭续接。任务含义由
+业务决定，Host掌握实际owner归属，UI由受信共享DSL呈现；WM保持通用窗口职责。
+
+- C ABI v1只尾追加能力查询、typed request/cancel及完成回调。业务不指定owner或
+  Scene，ModuleSession复制UTF-8和choice数组、发放独立单调关联ID；一个pending，
+  终态先退休再callback。Host sink只stage，完成回调不得发生在提交返回之前。
+- Confirmation含1—2个业务选项，Primary/Destructive有明确角色；系统始终追加
+  Cancel。Success只表示已选择已知choice，取消和失败有独立typed payload，不
+  代表文件保存或业务后台操作已经成功。非法结构、UTF-8、角色及结果原子拒绝。
+- Host在Preview之后、Master安装之前准备共享panel；普通非region Box/Card根
+  才进行composition。Preview无panel，不能保留composition的根按原树运行并
+  拒绝能力。`__prism_task_`是框架保留空间，业务binding/action不能修改或伪造它。
+- owner Pump推进staged请求，准备当前Master的可见投影与局部scope。只有真实
+  输入快照采用身份才能使Preparing进入Ready，provider输入只在精确任务/epoch
+  上完成。结果取走、scope撤销与面板收回后交付；退出先退休owner且不再回调。
+- 下缘面板沿图03/04保留工作上下文，文字说明清楚、动作位置稳定、边距紧凑。
+  复用当前主题材质、状态、字号/行框及control.feedback；宽窄短视口分别布局，
+  正文按真实宽度折行，溢出高度滚动。图05翻起/收回及owner退后运动随后接入。
+- 标题/正文使用真实内容宽度折行和独立ScrollView；choice按实际字体与标签盒
+  校验，不靠clip或缩字号掩盖不可读布局。主题、resize和后续Layout变化重新准备，
+  Paint动画不重复折行。私有任务投影不进入业务binding表，deferred区域安装保持
+  当前投影；包括未使用Interface声明在内的应用源始终检查保留空间。
+- Preferences的View菜单接入真实Reset monitoring确认：一个Primary选择，系统
+  提供Cancel，确认才恢复监控和1s间隔，取消保留业务值。完成结果一次交付，回调
+  可同步发起下一请求；已接受的业务取消优先于随后失败，owner退出不再回调。
+
+正式Host/WM、Preferences模块与相关目标构建通过。最终同一轮CTest **17/17**
+通过，包含ABI兼容、任务策略、Scene/SDK、共享面板及已有DSL组合/菜单/值控件。
+纯布局检查覆盖八种材质/配色×四视口×一/二选择，共64组合；SDK夹具使用真实
+FreeType/HarfBuzz、布局与帧包，但其提交metadata为模拟，不是GPU呈现证明。
+
+独立临时Wayland环境中的原生V3D门槛 **7/7** 通过：真实确认、系统Cancel、Esc、
+业务取消与失败先后顺序、callback同步下一请求、owner关闭及两个owner同时持有
+任务。Ready记录实际worker采用的owner/request/epoch、帧与输入版本；原生鼠标/
+键盘验证正文屏障、任务结束后恢复及双窗隔离。该探针使用Square Light，其他主题
+的64组合是纯布局检查；不将它们称为全主题GPU视觉验收或帧率测试。
+
+验证中修正共享composer在Visual下放入测量region的问题：标签改用普通内容子树，
+Visual只负责装饰，Scene限制保持。窄窗放大字体导致真实标签宽度不足时应返回
+PreparationFailed，正向主题夹具改用可读宽度。另修复CriticalComposer漏拷贝
+gesture的实际问题，保留真实拖动、捕获取消及异常回调中新请求的断言。
+原生夹具补齐真实backend_ready声明，没有放松实际呈现/采用/V3D门槛。
+构建探针显式链接已有nlohmann_json目标，避开系统异常头文件，系统文件未修改。
+
+代码规范通过：**436**个生产文件、**174**个测试文件，最大生产文件仍为714行；
+Skill、diff、WM符号/Qt依赖及生成安装规则检查通过。共享DSL资源进入安装规则，
+测试/probe不进入生产安装。首轮测试、窄窗/手势失败及原生失败日志独立保留。
+证据与各检查范围见`dist/validation/interface-system-step5b/README.md`和summary。
+本阶段未提交新commit、未打包部署，正式VNC仍保留v26，面板实机视觉待后续部署确认。
+
+后续为5c文件请求/异步目录模型、5d Notepad真实打开/另存为/未保存确认与关闭
+续接，再推进图04反馈及图05主题运动。5a基础与本协议保持同一任务身份和输入门禁。
+
+## 34. 第五阶段5c：异步文件Provider与共享文件面板（2026-10-07）
+
+规范先落在[文件任务契约](FILE_TASK_PROVIDER_CONTRACT.md)，沿图03的下缘任务面板
+继续同一个owner生命周期。三种文件请求通过typed ABI进入Host，实际读写留给业务。
+本节源码已接入；正式远程会话仍为v26，自动验证与部署分别记录。
+
+- Request/Result只尾追加文件options、路径及覆盖标志；旧Confirmation前缀、旧完成
+  回调保持。业务借用内容在边界复制，文件Success校验类型、路径、后缀及独立payload。
+- `FileTaskModel`使用共享scheduler的独立channel；规范路径、目录枚举、候选验证
+  和stamp均在worker，主线程只处理拥有的结果。代次过滤、取消、容量FD重试保持。
+  输出4096条/4MiB，扫描16384项；超限明确失败，特殊/无法表达的名称排除并计数。
+- 共享`owner-file-panel.prism`与Confirmation共同组成一个普通作用域。保持原Master
+  正文几何和根末尾Menu，引用系统材质、颜色及字号；八个投影槽位配合分页，不把
+  数千个文件变成Scene节点。完整选中名可滚动阅读，主操作保留明确文字。
+- Host路由Up/Home、分页、目录进入、文件选择、Save名称和提交；空目录、读取失败、
+  非法名称与类型不匹配有恢复状态。文件名回送保留焦点与Ready，语义变化推进epoch、
+  撤销旧流并等待新快照实际采用，不在每次按键中等待渲染。
+- Save存在目标时同面板显示Replace/Back，保持一个TaskIdentity。再次worker验证
+  canonical路径、parent identity及完整target stamp，对象改变要求重新审阅；不创建
+  文件、不截断、不执行实际保存。选择结果不代替业务读写时的对象与错误检查。
+- scope取消/替换/关闭撤销工作与投影，迟到结果不能写入下一请求。Host在没有活动
+  文件任务时仍排空该channel通知，避免取消后空闲反复唤醒。测试/probe独立于安装。
+
+实施顺序为ABI→工作模型→输入刷新→共享面板→Host路由→相关测试与隔离V3D。
+下一步5d接Notepad的Open/Save As、实际文件工作、未保存确认和异步关闭续接；图04
+反馈与图05独立主题运动随后按原顺序实现，不以面板动画完成替代任务Ready或终态。
+
+验证期间修复刷新后的文本焦点跟踪：取消输入时临时移出focus记录会删除active项，
+恢复focus记录时同步恢复TrackInputTarget。连续刷新保留面板焦点，结束后仍恢复最初
+owner焦点。还修复空目录/Loading的状态文字被自然布局压到11像素的问题，共享DSL
+给状态和紧凑路径详情明确的滚动视口；真实文字宽高校验保持，不以裁切冒充可读。
+
+测试夹具使用实际slider中心、真实字体，以及原生输入源对应seat的焦点回执；原断言
+保留，并补充命中、全选及逐字输入检查。初轮模板启动失败原因没有被记录，补充
+StartDiagnostic后复测通过；不把未捕获原因自动归为I/O或预算问题。失败日志保留。
+
+后轮模板回归明确捕获冷模块加载超过默认20ms入口预算。该结构/schema测试使用
+独立5s夹具入口预算，保留Start、实际binding和全部布局断言；生产20ms及专用
+module_work_test的严格预算/超时检查保持，不将模板测试当作启动性能证明。
+
+原生逐字输入还揭示TextInputEvent缺少来源，文字错误进入最先创建的seat0焦点。
+补充尾source并由Wayland携带KeyboardSource，Scene将按键和文字分别路由到各自
+seat；新增双seat与旧epoch回归。C业务文本回调保持，旧合成事件默认seat0。
+
+固定主操作按实际viewport、直属容器及祖先rect/rounded/contour clip校验。可读resize
+保留目录、名称、身份和scope；空间不足明确PreparationFailed并收回。补正常resize、
+越界一次终态、过大padding、圆角clip和凹Contour穿过按钮中段的回归。
+
+最终同一轮CTest **24/24**通过；在原21项之外增加现有Notepad、文字行高和原生虚拟
+输入回归，UTF-8来源须非零且与同次按键一致。纯面板为八种材质/配色×四视口×三种
+文件请求，共96组合；SDK使用真实字体及模拟metadata，不连接worker/GPU。
+
+隔离Wayland/V3D原生门槛 **14/14**通过：7个确认场景和7个文件场景，包含真实键盘
+改名、导航选择、同任务覆盖及对象变动后的重审、取消/旧快照、owner关闭；核对规范
+路径、覆盖意图、一次完成及provider没有写文件。实际采用记录owner/request/epoch、
+帧与input_version/pixel commits。Square Light用于原生流程，不称全主题视觉或FPS验收。
+
+统一构建的链接阶段发现SDK静态库一个成员与有效独立对象有65字节差异，readelf确认
+异常重定位；重建该派生产物后恢复，25个成员逐一与独立对象一致。损坏原因未确定，
+原日志与成员保留，不改源代码或把失败写成通过。最后统一构建包含全部24个测试目标。
+
+规范门槛通过：**448**个生产文件、**178**个测试文件，最大生产文件714行；Skill、
+diff、WM客户端符号/Qt依赖及52条生成安装规则审计通过。测试/probe无生产安装规则。
+证据与范围见`dist/validation/interface-system-step5c/README.md`及summary；本阶段
+未创建commit、deb或替换正式v26会话，用户视觉验收仍留后续部署。
+
+## 第五阶段5d：Notepad业务与异步关闭（2026-10-07）
+
+本轮将5c的选择结果接入真实Notepad业务，契约见
+[文件业务与Close](NOTEPAD_TASK_AND_CLOSE_CONTRACT.md)。图03/04工作上下文和共享
+任务面板保持；任务运动不在本轮伪造，下一步接图04轻量反馈及图05命名主题运动。
+
+1. Open/Save As与未保存确认复用Host typed文件/Confirmation请求；移除Notepad
+   自带路径页、确认页及相关binding，不保留两条选择器路径。
+2. 业务复制结果后提交异步文件work；实际读写完成才更新文档。固定父目录FD，
+   完整mtime/ctime stamp核对，批准覆盖仍需业务检查，新目标不意外覆盖。
+3. Close ABI以尾字段追加request ID、REJECT/ACCEPT/DEFER与complete_close，
+   保持旧bool回调兼容；owner Pump在回调结束后消费决策，SDK单次有序接受平台关闭。
+4. 多文档逐个询问，全部完成自动关窗；中途取消/失败保留全部草稿。保存前准备
+   快照，保存期间的新编辑仍未保存并再次确认；已接受task/work的异常恢复保留关联。
+5. 业务、真实文件竞争、ABI/SDK、主题布局及隔离原生Wayland/V3D分别验证。
+   测试/probe不安装，正式VNC与自动验证分别记录。
+
+源码、验证与部署的最终状态在本节后续结果和
+`dist/validation/interface-system-step5d/`记录。正式v26不包含5a—5d，
+本轮不自动替换用户VNC会话。
+
+### 5d验证结果
+
+最终同一轮相关CTest **28/28**通过：原24项任务/输入/布局回归，加Notepad真实文件
+竞争、主题布局及ModuleSession/SDK异步关闭门槛。Notepad布局覆盖四材质×明暗×
+244×420、320×480、482×204、900×640视口，共32组合；光栅和纯布局不代替壁纸
+合成的实机视觉认可。测试assert在Release下显式启用。
+
+隔离真实Wayland/V3D **18/18**通过：原provider14场景，加真实Notepad模块的4流程。
+原生键鼠完成打开、重复激活、另存、批准覆盖和外部修改后拒绝保存；真实WM关闭
+事件验证重复请求合并、多草稿中途取消完整保留、全部Discard自动退出、Save后
+实际写入才自动退出。Close成功同时核对渲染terminal无故障，临时WM与文件均已回收。
+原生使用Square Light，不是FPS、全主题视觉或触控屏验收。
+
+代码规范检查通过：450个生产文件、185个测试文件，最大生产文件714行；Skill、
+diff、WM客户端边界、模块纯依赖和安装规则检查通过。已移除两套自定义内联面板。
+首次测试link旧规则和新增Save as焦点过渡缺失已修复，失败与最终日志保留在
+`dist/validation/interface-system-step5d/README.md`。
+
+本轮源码完成，正式VNC仍为v26，未生成新deb或提交commit。下一步接图04轻量
+业务反馈，再接图05主题可定义的任务开合、owner退后/恢复与中断/reduced motion；
+继续复用现有任务身份、输入epoch及时间驱动动画，不新增Timer或WM应用分支。
+
+
+## 6a：Owner轻量业务反馈
+
+5d文件业务及异步Close之后，按图04先接Info/Success/Error与恢复操作。
+详细规范见[反馈契约](OWNER_FEEDBACK_CONTRACT.md)。实现顺序：
+
+1. 纯反馈值与C ABI完整尾字段、ModuleSession复制/身份边界。
+2. SDK区域原子替换、共享DSL与主题语义颜色；不抢焦点的输入身份。
+3. 实际采用后开始的单调可见时间期限、悬停/聚焦/模态暂停，无固定tick。
+4. Host统一接入，Notepad真实成功/失败/取消及文件安全恢复。
+5. ABI、业务、布局、native输入与打包边界验证。
+
+本步后继续图04的说明/会话确认接口，再进入图05由主题定义的任务呈现运动；
+系统会话确认须有受信入口，不以普通反馈API代理。源码完成不代表正式v26已部署，
+不把现有Motion声明或功能检查写成透视翻转/用户视觉验收已完成。
+
+
+### 6a验证结果（2026-10-07）
+
+本轮Info/Success/Error已沿typed ABI、ModuleSession、Host与SDK接入共享
+`owner-feedback-panel.prism`。只有业务恢复操作产生一次动作事件；到期、关闭、替换、
+UI更换及owner退出静默撤销。共享反馈位于正文之后、局部任务之前，保留根末尾
+Popup/Menu；显示不抢编辑焦点，不改变owner modal epoch。四主题的明暗配色新增
+成功/错误语义色，实际129个Number/Color token需要匹配本轮扩展到256项的新协议
+预算，64 KiB payload约束保持，不能只更新正式v26的主题资源。
+
+最终选定的相关CTest **48/48**通过，覆盖反馈值/ABI短尾与复制、回调重入及退出，
+SDK真实DSL/字体/布局与模拟metadata采用，非模态焦点、悬停及模态共存，期限暂停/
+恢复/到期收回、旧输入与动态action伪造隔离。1000次区域替换检查节点槽位有界，
+复用递增generation，UINT32_MAX槽位永久退休；拒绝请求保留旧投影，提交后发布失败
+清退前端。通用区域安装、输入、动画、控件、Popup/Menu、主题协议、Confirmation、
+文件Provider、Notepad业务与Close回归一并通过。这是48项相关选择，不宣称全仓库
+CTest已全部运行；SDK夹具的模拟采用不代替原生呈现。
+
+反馈纯布局覆盖四材质×明暗×240×180/640×420×零/一/二业务动作，共**48组合**。
+独立CPU探针使用真实DejaVu Sans、共享DSL和Skia raster，生成**4张**PNG：640×420
+明暗、240×180窄窗和640×204短窗。实际字形、标签宽高、32像素操作与DrawGlyphRun
+均有断言；窄窗收起状态图标，将宽度留给标题和关闭操作，长内容通过独立ScrollView
+阅读。这些图片是Notes风格上下文中的共享卡片，不是真实Notepad或GPU/VNC截图，
+不构成全主题GPU视觉、中文字体回退、用户外观认可或FPS验收。
+
+隔离headless Wayland/V3D原生门槛 **18/18**通过：**14**个既有确认/文件Provider
+场景，加**4**个真实Notepad模块文件/关闭流程。Notepad核对实际读写后Saved采用，
+继续原生键盘编辑、持久Error、真实Change location操作、取消后草稿与外部文件保留，
+以及失败Close先退休后再恢复。旧Show前后采样为空的证据保留；追加一条明确的
+SDK Info测试请求：真实Saved和原生编辑之后，显示前存在非零seat及有效编辑节点，
+Show和实际采用后两者完全相同，不再点击即继续键入，草稿更新而磁盘快照不变。
+最终4个Notepad流程再次通过，非空焦点样本为1；该专项不宣称多一次业务成功。
+Provider继续核对真实owner/request/epoch及快照采用、导航/改名、覆盖重审、
+旧描述拒绝、一次结果、FD排空和无业务写文件。临时WM均已回收；原生
+采用Square Light，持久Error检查其期限为空，自动到期由独立策略/SDK测试覆盖，
+没有将其写成真实原生墙钟到期、触控屏或性能测试。
+
+规范检查通过：**462**个生产文件、**193**个测试文件，最大生产文件714行；Skill、
+diff及WM客户端符号/Qt依赖、Notepad模块前端依赖边界检查通过。安装边界只读审计
+核对21份生成安装脚本、62个安装来源及65个build share文件，三份共享Provider DSL
+的构建副本与最终源码SHA一致，反馈安装到`share/prism/ui`；测试、probe与fixture
+不进入生产安装。该审计没有执行install、CPack或验证新deb。
+
+构建中再次发现派生`.o`/`.a`内容损坏及archive成员与当前独立对象不一致。恢复相关
+派生产物后，最终审计的**39**个有效静态archive、**248**个成员全部与当前对象一致，
+六个先前受影响对象检查通过，再完成最终构建与上述回归。损坏原因仍未确定，原失败、
+差异和恢复记录保留，不归因于编译器、存储或硬件，也不以当前产物通过宣称环境问题
+已根治。证据以`dist/validation/interface-system-step6a/`中的`ctest-final.log`、
+`visual-final.log`、`native-notepad-focus/native-gates.json`、
+`native-provider/native-gates.json`及最终artifact/package/boundary审计为准。
+
+本阶段源码已接入，当前通过范围如上；未提交新commit、生成deb、部署或替换正式VNC。
+正式版本仍为**0.1.0-26**。下一步6b先定义Tooltip与受信系统会话确认入口，再进入
+图05主题可定义的任务开合、owner退后/恢复和中断/reduced motion，继续复用现有
+时间驱动动画、任务身份与输入epoch，普通反馈不能代理系统会话授权。

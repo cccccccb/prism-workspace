@@ -1,3 +1,5 @@
+#include "module_feedback_p.hpp"
+#include "module_task_p.hpp"
 #include "module_work_p.hpp"
 #include <algorithm>
 #include <limits>
@@ -130,6 +132,10 @@ void ModuleSession::StopWork() noexcept
         return;
     }
     closed_ = true;
+    tasks_->pending.reset();
+    feedback_->pending.reset();
+    pending_close_.reset();
+    close_decision_.reset();
     ready_ = false;
     tick_due_.reset();
     work_->channel->Stop();

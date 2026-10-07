@@ -6,6 +6,8 @@
 
 namespace prism::contracts {
 namespace {
+constexpr std::size_t kMaxThemeTokens = 256; // Combined number and color tokens.
+
 void Check(bool ok, const char *message)
 {
     if (!ok) {
@@ -275,7 +277,8 @@ void ValidateTheme(const ThemeSnapshot &t)
     } else {
         Check(t.motion == MotionSet{}, "Legacy themes cannot carry motion");
     }
-    Check(t.numbers.size() + t.colors.size() <= 128 && t.materials.size() <= 32,
+    Check(t.numbers.size() <= kMaxThemeTokens &&
+              t.colors.size() <= kMaxThemeTokens - t.numbers.size() && t.materials.size() <= 32,
           "Theme exceeds item limits");
     std::set<std::string> names;
     for (auto &v : t.numbers) {
@@ -393,12 +396,12 @@ ThemeSnapshot DecodeTheme(std::span<const std::uint8_t> bytes)
     t.id = r.Text();
     t.name = r.Text();
     auto n = r.U(2);
-    Check(n <= 128, "Too many theme numbers");
+    Check(n <= kMaxThemeTokens, "Too many theme numbers");
     while (n--) {
         t.numbers.push_back({r.Text(), r.Number()});
     }
     n = r.U(2);
-    Check(n <= 128, "Too many theme colors");
+    Check(n <= kMaxThemeTokens - t.numbers.size(), "Too many theme colors");
     while (n--) {
         auto name = r.Text();
         t.colors.push_back({std::move(name), r.ColorValue()});

@@ -78,7 +78,7 @@ bool Scene::InPopupScope(const Node &node) const
 bool Scene::OpenPopup(contracts::NodeId anchor_id, std::uint64_t seat)
 {
     auto *anchor = Find(anchor_id);
-    if (!anchor || !IsInteractive(anchor_id) || Has(dirty_, Dirty::Layout)) {
+    if (OwnerModalToken() || !anchor || !IsInteractive(anchor_id) || Has(dirty_, Dirty::Layout)) {
         return false;
     }
     Node *popup = nullptr;

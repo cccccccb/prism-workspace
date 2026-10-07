@@ -3,6 +3,7 @@
 #include <chrono>
 #include <limits>
 #include <stdexcept>
+#include <string_view>
 #include <variant>
 
 using namespace prism;
@@ -113,6 +114,18 @@ bool HasColor(const contracts::DisplayList &list, contracts::Color color)
     return false;
 }
 
+contracts::NodeId ActionId(Scene &scene, std::string_view action)
+{
+    const auto input = scene.CaptureInputSnapshot();
+    for (const auto &node : input->nodes) {
+        if (node.visible && node.action == action) {
+            return node.id;
+        }
+    }
+    assert(false && "Expected visible action");
+    return {};
+}
+
 void CheckConstruction()
 {
     auto source = Layout();
@@ -171,17 +184,21 @@ void CheckStableMount()
     assert(!candidate->RootId() && !candidate->SetBinding("new_width", 99.0));
     auto list = Build(*scene);
     assert(HasColor(list, green));
-    assert(scene->Bounds({6, 1}).width == 23);
+    const auto first_action = ActionId(*scene, "new-first");
+    assert(first_action != removed);
+    assert(scene->Bounds(first_action).width == 23);
     assert(scene->ActionAt({10, 40}) == "new-first");
     assert(scene->SetBinding("new_width", 35.0));
     Build(*scene);
-    assert(scene->Bounds({6, 1}).width == 35);
+    assert(scene->Bounds(first_action).width == 35);
 
-    // A second mount produces a new monotonic ID and keeps the first region intact.
+    // A second mount has a distinct identity and keeps the first region intact.
     const RegionUpdate other{"second", Action("new-second")};
     assert(scene->MountRegions(std::span(&other, 1), {}));
     Build(*scene);
-    assert(scene->Bounds({6, 1}).width == 35 && scene->IsVisible({7, 1}));
+    const auto second_action = ActionId(*scene, "new-second");
+    assert(second_action != first_action && second_action != (contracts::NodeId{5, 1}));
+    assert(scene->Bounds(first_action).width == 35 && scene->IsVisible(second_action));
     assert(!scene->IsVisible({5, 1}));
     assert(scene->FocusNext() && scene->FocusedAction() == "new-first");
     assert(scene->FocusNext() && scene->FocusedAction() == "new-second");
@@ -189,7 +206,7 @@ void CheckStableMount()
     assert(scene->ApplyTheme(changed)); // theme rebuild works with sparse IDs/bindings
     assert(scene->SetBinding("new_width", 39.0));
     Build(*scene);
-    assert(scene->Bounds({6, 1}).width == 39 && scene->RegionMounted("first"));
+    assert(scene->Bounds(first_action).width == 39 && scene->RegionMounted("first"));
 }
 
 void CheckRollback()

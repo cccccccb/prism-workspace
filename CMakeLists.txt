@@ -157,3 +157,13 @@ configure_file(cmake/PrismPackaging.cmake.in
 set(CPACK_PROJECT_CONFIG_FILE "${CMAKE_BINARY_DIR}/PrismPackaging.cmake")
 
 include(CPack)
+
+# Shared provider UI is framework content, separate from application assets.
+configure_file(resources/ui/owner-task-panel.prism
+    "${CMAKE_BINARY_DIR}/share/prism/ui/owner-task-panel.prism" COPYONLY)
+configure_file(resources/ui/owner-file-panel.prism
+    "${CMAKE_BINARY_DIR}/share/prism/ui/owner-file-panel.prism" COPYONLY)
+configure_file(resources/ui/owner-feedback-panel.prism
+    "${CMAKE_BINARY_DIR}/share/prism/ui/owner-feedback-panel.prism" COPYONLY)
+install(FILES resources/ui/owner-task-panel.prism resources/ui/owner-file-panel.prism resources/ui/owner-feedback-panel.prism
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/prism/ui)

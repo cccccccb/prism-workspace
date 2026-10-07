@@ -192,35 +192,23 @@ int main(int argc, char **argv)
                 scene.SetBinding("active_0", true);
                 scene.Build({1});
                 const auto editor = Target(scene, "edit:0");
-                scene.SetBinding("active_0", false);
-                scene.SetBinding("confirm", true);
-                scene.SetBinding("confirm_title", std::string("Save changes to Draft.txt?"));
-                scene.SetBinding("confirm_opacity", 1.0);
-                scene.SetBinding("confirm_offset", 0.0);
-                const auto prompt = Settle(scene, clock);
-                assert(prompt);
-                if (std::string_view(theme) == "glass") {
-                    assert(renderer.Render(*prompt, pixels.data(), width, height, width * 4));
-                    WritePpm(output / (std::string(theme) + "-" + scheme + "-" +
-                                       std::to_string(width) + "-confirm.ppm"),
-                             pixels, width, height);
-                }
-                Target(scene, "cancel");
-                Target(scene, "discard");
-                Target(scene, "save-close");
-                assert(scene.ActionAt(editor) != "edit:0");
-                scene.SetBinding("confirm", false);
-                scene.SetBinding("path_panel", true);
-                scene.SetBinding("path_title", std::string("Save document"));
-                scene.Build({1});
-                Target(scene, "path");
-                Target(scene, "cancel");
-                Target(scene, "apply-path");
-                scene.SetBinding("path_panel", false);
-                scene.SetBinding("active_0", true);
                 scene.SetBinding("normal", true);
-                scene.Build({1});
+                scene.SetBinding("available", false);
+                scene.SetBinding("editable", true);
+                Settle(scene, clock);
+                assert(scene.ActionAt(save) != "save");
+                Target(scene, "edit:0"); // Saved snapshot allows genuine newer edits.
+                scene.SetBinding("editable", false);
+                Settle(scene, clock);
+                assert(scene.ActionAt(editor) != "edit:0");
+                scene.SetBinding("available", true);
+                scene.SetBinding("editable", true);
+                Settle(scene, clock);
                 Target(scene, "edit:0");
+                Target(scene, "save");
+                if (width >= 420) {
+                    Target(scene, "save-as");
+                }
 
                 auto instant = snapshot;
                 instant.generation++;

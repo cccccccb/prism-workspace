@@ -236,9 +236,9 @@ void WaylandWindow::KeyboardKey(void *data, wl_keyboard *, std::uint32_t, std::u
             xkb_state_key_get_utf8(self.keyboard_state_, key + 8, text, sizeof(text));
         if (length > 0 && length < static_cast<int>(sizeof(text)) &&
             static_cast<unsigned char>(text[0]) >= 32 && text[0] != 127) {
-            self.EmitSurfaceInput(focus, contracts::TextInputEvent{contracts::WindowId{1},
-                                                                   std::string(text, length),
-                                                                   InputTimeNs()});
+            self.EmitSurfaceInput(
+                focus, contracts::TextInputEvent{contracts::WindowId{1}, std::string(text, length),
+                                                 InputTimeNs(), self.KeyboardSource()});
         }
     }
 }

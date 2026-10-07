@@ -13,7 +13,7 @@
 | [动效与常见陷阱](skills/prism-app-ui/references/motion-and-pitfalls.md) | v19/源码能力边界、命名 Motion、主题适配、输入与加载陷阱、交付验收 |
 | [视觉设计规范](skills/prism-app-ui/references/visual-design.md) | 图标、排版、主题、明暗配色、材质、阴影、BSP 布局与 DSL 示例 |
 | [Counter 应用模板](skills/prism-app-ui/assets/starter/README.md) | 可复制的独立 CMake 项目、完整 DSL 文件和纯业务模块 |
-| [Notepad 真实应用](../prism-notepad/README.md) | 多文档文本编辑、异步文件读写、构建与首版边界 |
+| [Notepad 真实应用](../prism-notepad/README.md) | 多文档文本编辑、共享文件任务、异步读写与关闭续接 |
 | [通用文本编辑契约](TEXT_EDITING.md) | TextField/TextArea、typed edit 事件与窗口关闭确认 |
 
 Skill 与参考资料只有一份正文，统一在仓库维护。人和 AI 使用相同规范；详细指南区分
@@ -27,6 +27,10 @@ Skill 与参考资料只有一份正文，统一在仓库维护。人和 AI 使�
 | --- | --- |
 | 界面系统设计与执行计划 | [INTERFACE_SYSTEM_PLAN](INTERFACE_SYSTEM_PLAN.md)（控件状态、浮层、文件任务、动效与能力差异） |
 | 界面系统视觉参考 | [图01—05与连接颈C方案](design/interface-system/README.md)（用户参考稿、修订选择及实机验收边界） |
+| Owner任务与局部模态 | [OWNER_TASK_AND_MODAL_SCOPE](OWNER_TASK_AND_MODAL_SCOPE.md)（5a C++核心、提交输入门禁与生命周期） |
+| 任务Provider与业务ABI | [OWNER_TASK_PROVIDER_CONTRACT](OWNER_TASK_PROVIDER_CONTRACT.md)（5b Confirmation、Host真实归属与共享DSL面板） |
+| 文件任务与异步目录 | [FILE_TASK_PROVIDER_CONTRACT](FILE_TASK_PROVIDER_CONTRACT.md)（5c typed文件请求、工作线程模型、共享面板与覆盖重验） |
+| 文件业务与异步关闭 | [NOTEPAD_TASK_AND_CLOSE_CONTRACT](NOTEPAD_TASK_AND_CLOSE_CONTRACT.md)（5d Notepad真实读写、保存快照、typed Close ABI与取消恢复） |
 | 值控件交互契约 | [CONTROL_VALUE_CONTRACT](CONTROL_VALUE_CONTRACT.md)（值核心、Checkbox 与 Radio/Segment 已接入；Slider 待实现） |
 | 代码规范 | [CODING_STYLE](CODING_STYLE.md) |
 | 应用启动与进程边界 | [APP_LAUNCH_CONTRACT](APP_LAUNCH_CONTRACT.md)、[PROCESS_CONTRACTS](PROCESS_CONTRACTS.md) |
@@ -92,3 +96,5 @@ Skill 与参考资料只有一份正文，统一在仓库维护。人和 AI 使�
 
 [通用轮廓契约](SURFACE_CONTOUR_CONTRACT.md)：有界多边形、曲线准备、参数化面板配方、payload 和
 Skia 绘制/裁剪、Wayland v2 与 WM 遮罩，以及 Scene/DSL 局部路径、快照命中与输入交集。
+
+- [Owner轻量反馈（6a）](OWNER_FEEDBACK_CONTRACT.md)：有类型请求、非模态输入、可见时间期限与文件恢复边界。

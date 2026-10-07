@@ -41,6 +41,12 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND BUILD_TESTING)
     add_test(NAME prism_app_module_abi_smoke COMMAND prism_app_module_abi_smoke)
 endif()
 
+# Owning task values remain independent of Scene and render backends.
+add_library(prism_owner_task_contract STATIC owner_task.cpp)
+target_link_libraries(prism_owner_task_contract PUBLIC prism_contracts)
+add_library(prism_owner_feedback_contract STATIC owner_feedback.cpp)
+target_link_libraries(prism_owner_feedback_contract PUBLIC prism_contracts)
+
 # The binary theme transport is a backend independent value codec.
 add_library(prism_theme_contract STATIC theme.cpp motion.cpp)
 target_link_libraries(prism_theme_contract PUBLIC prism_contracts)

@@ -1,10 +1,16 @@
 #include "app_host_p.hpp"
+#include "prism/runtime/owner_feedback_panel.hpp"
+#include "prism/runtime/owner_task_panel.hpp"
 
 namespace prism::sdk {
 using namespace host_detail;
 
 bool AppHost::Impl::SetBinding(std::string_view key, runtime::PropertyValue value)
 {
+    if (runtime::IsOwnerTaskReservedName(key) || runtime::IsOwnerFeedbackReservedName(key)) {
+        return false;
+    }
+
     if (installed_plan && !installed_plan->legacy) {
         const auto declaration =
             std::find_if(installed_plan->bindings.begin(), installed_plan->bindings.end(),
@@ -71,6 +77,22 @@ bool AppHost::Impl::HandleCloseRequested()
     return !business || business->RequestClose();
 }
 
+void AppHost::Impl::AdvanceCloseDecision()
+{
+    if (!business || failed || closed) {
+        return;
+    }
+    const auto decision = business->ConsumeCloseDecision();
+    if (!decision) {
+        return;
+    }
+
+    business_progress = true;
+    if (*decision && !frontend->AcceptClose()) {
+        Fail(contracts::LaunchError::RuntimeFailed, "Accepted close command unavailable");
+    }
+}
+
 void AppHost::Impl::HandleControlValue(const runtime::ControlEdit &edit)
 {
     if (business) {
@@ -80,6 +102,10 @@ void AppHost::Impl::HandleControlValue(const runtime::ControlEdit &edit)
 
 void AppHost::Impl::HandleTextEdit(std::string_view action, std::string_view text)
 {
+    if (HandleFileTaskText(action, text) || runtime::IsOwnerTaskReservedName(action) ||
+        runtime::IsOwnerFeedbackReservedName(action)) {
+        return;
+    }
     if (business) {
         business->TextEdit(action, text);
     }
@@ -87,7 +113,10 @@ void AppHost::Impl::HandleTextEdit(std::string_view action, std::string_view tex
 
 void AppHost::Impl::HandleAction(std::string_view action)
 {
-    business->Action(action);
+    if (!HandleOwnerTaskAction(action) && !runtime::IsOwnerFeedbackReservedName(action) &&
+        business) {
+        business->Action(action);
+    }
 }
 
 void AppHost::Impl::HandleGesture(const contracts::GestureEvent &event)
@@ -104,7 +133,33 @@ void AppHost::Impl::PrepareBusiness()
         std::bind_front(&Impl::SetBinding, this), std::bind_front(&Impl::LaunchApplication, this),
         std::bind_front(&Impl::SubscribeInstances, this), std::bind_front(&Impl::SelectTheme, this),
         std::bind_front(&Impl::SelectColorScheme, this), scheduler, config.module_limits,
-        package->assets, config.subscribe_layout, config.submit_layout_control);
+        package->assets, config.subscribe_layout, config.submit_layout_control,
+        std::bind_front(&Impl::RequestOwnerTask, this),
+        std::bind_front(&Impl::CancelOwnerTaskRequest, this),
+        std::bind_front(&Impl::OwnerTaskCapabilities, this),
+        std::bind_front(&Impl::ShowOwnerFeedback, this),
+        std::bind_front(&Impl::DismissOwnerFeedback, this),
+        std::bind_front(&Impl::OwnerFeedbackCapabilities, this));
+    const auto feedback_source =
+        LoadUiSource("owner-feedback-panel.prism", "resources/ui/owner-feedback-panel.prism");
+    if (feedback_source) {
+        frontend->ConfigureOwnerFeedbackPanel(runtime::PrepareComponent(
+            *feedback_source, {"prism.owner-feedback-panel", "owner-feedback-panel.prism", {}}));
+    }
+    if (prepared_business->SupportsOwnerTasks()) {
+        const auto source =
+            LoadUiSource("owner-task-panel.prism", "resources/ui/owner-task-panel.prism");
+        if (source) {
+            frontend->ConfigureOwnerTaskPanel(runtime::PrepareComponent(
+                *source, {"prism.owner-task-panel", "owner-task-panel.prism", {}}));
+        }
+        const auto file_source =
+            LoadUiSource("owner-file-panel.prism", "resources/ui/owner-file-panel.prism");
+        if (file_source) {
+            frontend->ConfigureOwnerFilePanel(runtime::PrepareComponent(
+                *file_source, {"prism.owner-file-panel", "owner-file-panel.prism", {}}));
+        }
+    }
 }
 
 bool AppHost::Impl::StartBusiness()

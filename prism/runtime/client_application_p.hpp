@@ -5,6 +5,9 @@
 #include "prism/runtime/control_value_delivery.hpp"
 #include "prism/runtime/dsl_frontend.hpp"
 #include "prism/runtime/frame_packet.hpp"
+#include "prism/runtime/owner_feedback_panel.hpp"
+#include "prism/runtime/owner_feedback_session.hpp"
+#include "prism/runtime/owner_file_panel.hpp"
 #include "prism/runtime/png_codec.hpp"
 #include "prism/runtime/pollable_queue.hpp"
 #include "prism/runtime/render_command.hpp"
@@ -26,6 +29,8 @@
 #include <optional>
 #include <set>
 #include <stdexcept>
+#include <thread>
+#include <tuple>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -81,6 +86,8 @@ struct ClientApplication::Impl {
             throw std::invalid_argument("UI installation limits must be positive");
         }
     }
+
+    bool AcceptClose();
 
     ~Impl();
 
@@ -143,6 +150,29 @@ struct ClientApplication::Impl {
     void ResetPopupSurface();
     void CompleteInteractionResult(const runtime::InteractionResult &result,
                                    runtime::UiLoadId input_ui);
+    void ReconcileOwnerTask();
+    void CancelCurrentOwnerTask(runtime::TaskCancelReason reason);
+    void RevokeOwnerTaskScope();
+    void AdoptOwnerTaskInput(const std::shared_ptr<const runtime::InputSnapshot> &input,
+                             runtime::UiLoadId ui);
+    void RetireOwnerTasks(runtime::TaskCancelReason reason);
+    void PublishOwnerTaskChange();
+    void UpdateOwnerConfirmationText();
+    void ClearOwnerConfirmation();
+    void ClearOwnerFilePanel();
+    void UpdateOwnerFilePanelText();
+    void ClearOwnerFeedback(bool clear_pending = false);
+    void RetireOwnerFeedback();
+    void UpdateOwnerFeedbackText();
+    void ReconcileOwnerFeedback();
+    void AdoptOwnerFeedbackInput(const std::shared_ptr<const runtime::InputSnapshot> &input,
+                                 runtime::UiLoadId ui);
+    void ObserveOwnerFeedbackEvent(const contracts::WindowEvent &event);
+    bool HandleOwnerFeedbackAction(const runtime::Activation &activation);
+    bool OwnerFeedbackPaused() const;
+    int FeedbackTimeoutMs(int timeout_ms) const noexcept;
+    runtime::Blueprint ComposeOwnerPanels(runtime::Blueprint blueprint) const;
+    runtime::BindingValues OwnerPanelDefaults() const;
     std::shared_ptr<const std::vector<runtime::ImageVersion>>
     CollectImageUses(const contracts::DisplayList &list) const;
     void PublishFramePacket();
@@ -175,6 +205,38 @@ struct ClientApplication::Impl {
         owner_turn_image_ready{};
     runtime::UiLoadState ui_load;
     runtime::UiLoadId installed_ui{};
+
+    struct OwnerTaskScope {
+        runtime::TaskIdentity identity;
+        runtime::UiLoadId ui;
+        std::uint64_t token{};
+    };
+
+    std::unique_ptr<runtime::TaskSession> owner_tasks;
+    std::optional<OwnerTaskScope> owner_task_scope;
+    bool owner_tasks_retired{};
+    std::optional<runtime::PreparedComponent> owner_task_panel_template;
+    std::optional<runtime::PreparedComponent> owner_file_panel_template;
+    std::optional<runtime::OwnerFilePanelView> owner_file_view;
+    std::optional<contracts::OwnerTaskKind> owner_file_kind;
+    runtime::UiLoadId owner_file_ui{};
+    std::uint64_t owner_file_generation{};
+    std::optional<contracts::OwnerTaskRequest> owner_confirmation;
+    runtime::BindingValues owner_task_bindings;
+    std::uint64_t owner_confirmation_generation{};
+    runtime::UiLoadId owner_confirmation_ui{};
+    std::optional<runtime::PreparedComponent> owner_feedback_panel_template;
+    std::optional<contracts::OwnerFeedbackRequest> owner_feedback;
+    runtime::BindingValues owner_feedback_bindings;
+    runtime::UiLoadId owner_feedback_ui{};
+    std::uint64_t owner_feedback_generation{};
+    runtime::OwnerFeedbackSession owner_feedback_session;
+    std::optional<contracts::OwnerFeedbackAction> owner_feedback_action;
+    bool owner_feedback_retired{}, owner_feedback_hidden{}, owner_feedback_wait_adoption{};
+    bool owner_feedback_focus_known{}, owner_feedback_window_focused{true};
+    std::set<std::uint64_t> owner_feedback_focused_seats;
+    std::map<std::tuple<std::uint64_t, std::uint64_t, std::uint64_t>, contracts::LogicalPoint>
+        owner_feedback_pointers;
     UiPresentationTracker ui_presentation;
     ClientConfig config;
     runtime::TextShaper shaper;
@@ -206,6 +268,8 @@ struct ClientApplication::Impl {
     std::uint64_t last_processed_window_sequence{};
     bool force_frame_capture{};
     std::function<bool()> on_close_requested;
+    const std::thread::id owner_thread{std::this_thread::get_id()};
+    bool close_accept_queued{};
     std::function<void(std::string_view)> on_action;
     runtime::ControlValueDelivery control_delivery;
     std::function<void(std::string_view, std::string_view)> on_text_edit;

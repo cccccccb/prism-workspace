@@ -86,6 +86,7 @@ ClientApplication::Impl::CaptureFramePacket(bool pixels, contracts::BufferSize s
     packet.surface_effects = scene->SurfaceEffects();
     packet.input_regions = scene->InputRegions();
     packet.input_snapshot = scene->CaptureInputSnapshot();
+    ReconcileOwnerTask();
     // Record the state sample that produced this packet after preparation.
     // Submitted input geometry is adopted separately by HandleSubmitted.
     packet.scene_revision = scene->TransactionRevision();
@@ -98,6 +99,13 @@ void ClientApplication::Impl::PublishFramePacket()
 {
     if (!scene || !ui_configure_count) {
         return;
+    }
+    ReconcileOwnerFeedback();
+    if (owner_confirmation && runtime::Has(scene->PendingDirty(), runtime::Dirty::Layout)) {
+        UpdateOwnerConfirmationText();
+    }
+    if (owner_file_view && runtime::Has(scene->PendingDirty(), runtime::Dirty::Layout)) {
+        UpdateOwnerFilePanelText();
     }
 
     const auto metrics = ui_metrics;

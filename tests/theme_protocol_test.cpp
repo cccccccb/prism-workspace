@@ -3,9 +3,16 @@
 #include "prism/theme/compiler.hpp"
 #include <algorithm>
 #include <cassert>
+#include <cstddef>
 #include <iostream>
 #include <limits>
+#include <stdexcept>
+#include <string>
+#include <string_view>
 using namespace prism;
+
+constexpr std::size_t kExpandedTokenCount = 129;
+constexpr std::size_t kTokenLimit = 256;
 
 template <class F> void Reject(F f)
 {
@@ -18,9 +25,76 @@ template <class F> void Reject(F f)
     assert(rejected);
 }
 
+void CheckTokenBudget(const contracts::ThemeSnapshot &base)
+{
+    auto expanded = base;
+    expanded.numbers.clear();
+    expanded.colors.clear();
+
+    for (std::size_t i = 0; i < kTokenLimit; ++i) {
+        expanded.numbers.push_back({"number_" + std::to_string(i), 1});
+        if (i + 1 == kExpandedTokenCount || i + 1 == kTokenLimit) {
+            assert(contracts::DecodeTheme(contracts::EncodeTheme(expanded)) == expanded);
+        }
+    }
+    expanded.numbers.push_back({"over_budget", 1});
+    Reject([&] { contracts::ValidateTheme(expanded); });
+    Reject([&] { contracts::EncodeTheme(expanded); });
+
+    expanded.numbers.clear();
+    for (std::size_t i = 0; i < kTokenLimit; ++i) {
+        expanded.colors.push_back({"color_" + std::to_string(i), {1, 2, 3, 255}});
+        if (i + 1 == kExpandedTokenCount || i + 1 == kTokenLimit) {
+            assert(contracts::DecodeTheme(contracts::EncodeTheme(expanded)) == expanded);
+        }
+    }
+    expanded.colors.push_back({"over_budget", {1, 2, 3, 255}});
+    Reject([&] { contracts::ValidateTheme(expanded); });
+    Reject([&] { contracts::EncodeTheme(expanded); });
+
+    expanded.colors.resize(128);
+    for (std::size_t i = 0; i < 128; ++i) {
+        expanded.numbers.push_back({"number_" + std::to_string(i), 1});
+    }
+    assert(contracts::DecodeTheme(contracts::EncodeTheme(expanded)) == expanded);
+    expanded.colors.push_back({"over_budget", {1, 2, 3, 255}});
+    Reject([&] { contracts::ValidateTheme(expanded); });
+    Reject([&] { contracts::EncodeTheme(expanded); });
+    expanded.colors.pop_back();
+
+    // An excessive count must fail before parsing entries or allocating them.
+    auto bytes = contracts::EncodeTheme(expanded);
+    const auto numbers_offset = 12 + 2 + expanded.id.size() + 2 + expanded.name.size();
+    auto colors_offset = numbers_offset + 2;
+    for (const auto &number : expanded.numbers) {
+        colors_offset += 2 + number.name.size() + 8;
+    }
+    bytes[colors_offset] = 0;
+    bytes[colors_offset + 1] = kExpandedTokenCount;
+    bool rejected = false;
+    try {
+        contracts::DecodeTheme(bytes);
+    } catch (const std::invalid_argument &error) {
+        rejected = std::string_view(error.what()) == "Too many theme colors";
+    }
+    assert(rejected);
+
+    bytes = contracts::EncodeTheme(expanded);
+    bytes[numbers_offset] = 1;
+    bytes[numbers_offset + 1] = 1;
+    rejected = false;
+    try {
+        contracts::DecodeTheme(bytes);
+    } catch (const std::invalid_argument &error) {
+        rejected = std::string_view(error.what()) == "Too many theme numbers";
+    }
+    assert(rejected);
+}
+
 int main()
 {
     auto t = theme::LoadTheme(PRISM_SOURCE_THEMES, "glass", 41);
+    CheckTokenBudget(t);
     const auto encoded = contracts::EncodeTheme(t);
     assert(contracts::DecodeTheme(encoded) == t);
     assert(t.schema_version == 3 && t.color_scheme == "dark");

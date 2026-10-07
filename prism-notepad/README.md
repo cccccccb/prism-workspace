@@ -5,19 +5,25 @@ EGL、Skia、Qt 或 Scene；文件工作通过 Host work 线程执行。
 
 ## 操作
 
-- 顶部四个图标依次为新建、打开、保存、文档总览；主要操作保持 32×32 点击区。
-- 最多同时保留八份文档。标签显示文件名、未保存圆点、当前标签横线和独立关闭按钮。
-  每页两个标签；超过两份时显示翻页箭头，总览可直接选择任意文档。
-  翻页只浏览标签，不改变正在编辑的文档；选中文档会定位它所在的标签页。
-- 打开图标进入路径页，填写**绝对路径**后确认。已有文件点击保存即可；新文档首次
-  保存才请求路径。文档总览右上角保存图标进入另存为，避免常驻路径栏占据正文空间。
-  路径输入支持水平查看完整名称；当前没有系统文件选择器。
-- 另存路径已存在时拒绝覆盖；已打开文件保存前校验磁盘身份/大小/修改时间。
-- 每个标签的 × 关闭对应文档；关闭后台的干净标签不切换当前文档。未保存文档显示
-  Keep（取消）、Discard（放弃）和 Save（保存并关闭）。取消保留所有内容；保存失败
-  不关闭文档；保存期间若出现更新的内容，重新确认，不丢弃新修改。
-- 最后一份文档关闭后创建空白文档。关闭整个窗口遇到未保存文档会保留窗口并定位它；
-  处理后可再次关闭窗口。文件工作期间暂不接受标签管理或退出，正文普通保存时仍可编辑。
+- 工具栏提供新建、打开、保存、文档总览，图标点击区为32×32。宽至少420逻辑单位
+  时额外显示带文字的“Save as”；窄窗仍可从文档总览右上角进入另存为。
+- 最多保留八份文档。标签显示文件名、未保存圆点、当前标签横线和独立关闭按钮。
+  每页两个标签；超过两份时显示翻页箭头，总览直接选择文档。翻页不改变正在编辑的
+  文档，选择文档会定位相应标签页；再次打开同一路径直接激活已有文档。
+- 打开、首次保存及另存为使用Host共享文件面板，目录枚举与选择校验不阻塞编辑线程。
+  不保留旧内联路径页。provider不可用或准备失败时保留文档并提供状态提示。
+- 另存为选择现存目标时，由provider在同一个任务内确认覆盖。业务收到规范路径与
+  覆盖意图后才提交真正读写；意图不是冻结版本，worker再次检查目标及提交前变化。
+  已加载文档普通保存使用完整device/inode/size/mtime/ctime stamp，外部变化不会被覆盖。
+- 标签×使用共享Unsaved changes确认，业务提供Save/Discard，系统提供Cancel。
+  取消、文件选择失败、写入失败保留草稿。保存期间继续编辑仅将提交快照标记为已保存；
+  newer edits再次确认，不能自动丢弃。最后一份标签关闭后创建空白文档。
+- 关闭窗口使用typed异步关闭续接，一次关闭请求顺序处理所有未保存文档，完成后自动
+  退出，无需再次关闭。整个流程确认完成前不删除任何草稿；中途Cancel保留全部标签
+  和先前选择Discard的内容。正在进行文件工作时等待完成后续接；工作失败则拒绝退出。
+  已有文件选择或标签确认任务时拒绝新增窗口关闭请求，先完成/取消当前任务再关闭。
+- 文件任务、工作或关闭流程期间暂停标签管理；保存worker运行期间仍允许当前正文编辑。
+  不支持异步关闭的旧Host只接受干净、无工作状态退出，未保存文档保持打开。
 - 点击正文编辑；方向键、Home/End、Ctrl+Home/End 移动光标，Shift 扩选，鼠标拖动选择。
   Ctrl+A 全选，Ctrl+Z 撤销，Ctrl+Shift+Z / Ctrl+Y 重做；每份文档最多 64 次历史。
 - Ctrl+C/X/V 使用本窗口内部剪贴板。Tab / Shift+Tab 在控件间切换。
@@ -42,7 +48,8 @@ Wayland text-input 输入法、系统剪贴板、按键长按重复。不要将�
 
 ## 开发运行
 
-需要本次源码构建的 Host，旧安装版本不认识 TextField/TextArea 和新增 ABI 尾字段。
+需要匹配5d源码的Host/SDK；正式v26尚不提供共享文件任务和异步关闭续接。
+不在旧版本中复制另一套本地选择器或确认页。
 
 ```sh
 cmake --build build-gles --target prism_notepad_module prism-app-host notepad_test
@@ -57,17 +64,17 @@ build-gles/bin/prism-app-host --package "$PWD/build-gles/share/prism/apps/prism_
 
 | 区域 | binding | action | 尺度 / 加载 |
 | --- | --- | --- | --- |
-| 工具栏 | normal | new/open-panel/save/documents | 32 高、18px 标题、18px 图标 / critical |
+| 工具栏 | normal、available | new/open-panel/save/save-as/documents | 32 高、18px 标题、18px 图标 / critical |
 | 标签栏 | tab_0..7、label_0..7、selected_0..7、pages | select:0..7、close:0..7、page-previous/page-next | 36 高、11px 文件名、24×32 关闭范围、4px 选中条 / critical |
-| 正文 | text_0..7、active_0..7 | edit:0..7 | flex、14px 正文、12px 内边距 / critical |
+| 正文 | text_0..7、active_0..7、editable | edit:0..7 | flex、14px 正文、12px 内边距 / critical |
 | 文档总览 | documents、used_0..7、label_0..7 | select:0..7、save-as、cancel | 两列四行，适应低矮 BSP 窗口 / critical |
-| 路径页 | path_panel、path_title、path | path、apply-path、cancel | 18px 标题、32 高输入与操作 / critical |
-| 未保存确认 | confirm、confirm_title | cancel/discard/save-close | 18px 标题、14px 提示、32 高操作 / critical |
+| 共享文件/确认任务 | Host保留绑定，不进入应用Interface | typed request_task / on_task_completed | 共享DSL、owner局部模态 / Host |
 | 状态 | summary、status、activity_opacity | 无 | 18 高、11px 辅助信息 / critical |
 
 根使用 window 材质和 `@window_padding`，区域间距 8；正文使用 card 和 surfaceRaised。
 操作与选中条沿用 text/accent/hover/accentSoft，不在应用内硬编码明暗色、窗口玻璃或阴影。
-路径、总览和确认占据主体页并隐藏工具栏及正文输入；使用 visible 折叠，不以透明度冒充禁用。
+文档总览在正文区域显示；共享文件和确认任务保留背后的工作上下文，由Host掌握输入作用域。
+available/ editable使用enabled控制真实输入，visible只折叠总览，不以透明度冒充禁用。
 零高度在当前布局中意味着自动布局，不能用于折叠 Slot。
 
 首个空文档即可 ready。文件工作保留提交时的文本快照，只有该快照标记为已保存。
@@ -83,6 +90,8 @@ build-gles/bin/prism-app-host --package "$PWD/build-gles/share/prism/apps/prism_
 `panel.visibility`。动画只改变 Visual；命中区域保持稳定。instant motion 立即完成，
 无常驻动画循环，也不伪造布局动画。
 
-独立测试覆盖 244×420、320×480、482×204、900×640，四种材质 × 明暗；检查工具栏、
-标签、总览、路径和确认操作的真实命中，保存快照/新编辑、失败保留、后台关闭与八文档上限。
-光栅图片用于检查字号和留白，不代表透明材质在真实壁纸上的最终合成效果。
+独立布局测试覆盖244×420、320×480、482×204、900×640及四种材质×明暗；检查工具栏、
+标签、总览和disabled状态真实命中，光栅图片用于字号和留白检查，不代表真实壁纸的透明合成。
+业务测试使用typed fake Host深复制请求，再执行真实临时文件读写，覆盖共享任务取消、
+陈旧/损坏结果、保存快照/newer edits、另存覆盖、重复打开、八文档上限及顺序异步关闭。
+共享面板尺寸及原生GPU验证由框架独立测试负责；本源码改动不自动替换正式VNC。

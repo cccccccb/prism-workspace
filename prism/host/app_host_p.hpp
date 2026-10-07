@@ -1,4 +1,5 @@
 #pragma once
+#include "file_task_state_p.hpp"
 #include "prism/host/event_wait.hpp"
 #include "prism/launch/error.hpp"
 #include "prism/runtime/dsl_schema.hpp"
@@ -73,6 +74,21 @@ struct AppHost::Impl {
     std::optional<runtime::MasterLoadCompletion> master_completion;
     bool master_install_started{}, install_advanced{};
     bool business_work_dispatched{}, business_progress{};
+
+    struct OwnerTaskBinding {
+        contracts::OwnerTaskRequest request;
+        std::optional<runtime::TaskIdentity> identity;
+        std::uint32_t choice{};
+        bool cancel_requested{};
+        std::optional<OwnerFileState> file;
+        std::string file_path;
+        bool overwrite_approved{};
+    };
+
+    std::optional<OwnerTaskBinding> owner_task;
+    bool owner_task_delivered{};
+    bool owner_feedback_delivered{};
+    std::unique_ptr<runtime::FileTaskModel> file_model;
     std::shared_ptr<const runtime::LoadPlan> installed_plan;
     runtime::BindingValues bindings;
     std::set<std::string, std::less<>> mounted_bindings;
@@ -101,6 +117,11 @@ struct AppHost::Impl {
     std::uint64_t SelectTheme(std::string_view id);
     std::uint64_t SelectColorScheme(std::string_view scheme);
     bool HandleCloseRequested();
+    void AdvanceCloseDecision();
+    std::uint32_t OwnerFeedbackCapabilities() const;
+    bool ShowOwnerFeedback(const contracts::OwnerFeedbackRequest &request);
+    bool DismissOwnerFeedback(std::uint64_t request_id);
+    void AdvanceOwnerFeedback();
     void HandleControlValue(const runtime::ControlEdit &edit);
     void HandleTextEdit(std::string_view action, std::string_view text);
     void HandleAction(std::string_view action);
@@ -108,6 +129,22 @@ struct AppHost::Impl {
     void PrepareBusiness();
     bool StartBusiness();
     void DispatchBusinessWork();
+    std::uint32_t OwnerTaskCapabilities() const;
+    bool RequestOwnerTask(const contracts::OwnerTaskRequest &request);
+    bool CancelOwnerTaskRequest(std::uint64_t request_id);
+    bool HandleOwnerTaskAction(std::string_view action);
+    void AdvanceOwnerTask();
+    bool OwnerTaskNeedsWork() const;
+    void RetireOwnerTaskController();
+    std::optional<runtime::TaskIdentity> BeginFileTask(const contracts::OwnerTaskRequest &);
+    void AdvanceFileTask();
+    bool HandleFileTaskAction(std::string_view);
+    bool HandleFileTaskText(std::string_view, std::string_view);
+    runtime::OwnerFilePanelView FilePanelView() const;
+    bool PublishFilePanel();
+    void NavigateFileTask(std::string directory);
+    void ValidateFileSelection(bool overwrite);
+    std::string FileHomeDirectory() const;
     bool StartMasterPreparation();
     void UiSubmitted(runtime::UiLoadId load);
     void TakeMasterCompletion();

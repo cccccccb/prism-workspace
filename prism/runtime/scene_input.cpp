@@ -30,7 +30,7 @@ bool Scene::IsEnabled(const Node &node) const
 bool Scene::IsInteractive(contracts::NodeId id) const
 {
     const auto *node = Find(id);
-    return node && IsVisible(*node) && IsEnabled(*node) &&
+    return node && InOwnerModalScope(*node) && IsVisible(*node) && IsEnabled(*node) &&
            (!IsChoiceOption(node->kind) || !node->parent->selected_key.empty()) &&
            (!InputAction(*node).empty() || node->kind == Kind::InteractionTarget ||
             (IsPopupKind(node->kind) || node->kind == Kind::ScrollView));
@@ -83,8 +83,8 @@ bool Scene::SetEnabled(contracts::NodeId id, bool enabled)
 
 std::optional<HitResult> Scene::Hit(const Node &node, contracts::LogicalPoint point) const
 {
-    if (!IsVisible(node) || !node.enabled || node.kind == Kind::Visual ||
-        (HasPopupSurfaceAdoption() && node.id == active_popup_)) {
+    if (!CanTraverseOwnerModal(node) || !IsVisible(node) || !node.enabled ||
+        node.kind == Kind::Visual || (HasPopupSurfaceAdoption() && node.id == active_popup_)) {
         return std::nullopt;
     }
     const bool clip = IsPopupKind(node.kind) || node.kind == Kind::ScrollView || node.style.clip ||
@@ -190,6 +190,7 @@ bool Scene::RefreshInputStates() noexcept
 
 bool Scene::ReconcileInput() noexcept
 {
+    ReconcileOwnerModal();
     ReconcileSliders();
     ReconcileGestures();
     for (auto &pointer : input_state_->pointers) {
@@ -378,6 +379,26 @@ std::optional<std::string> Scene::FocusedAction() const
         return std::nullopt;
     }
     return std::string(InputAction(*Find(focus->node)));
+}
+
+bool Scene::IsNodeInRegion(contracts::NodeId node, std::string_view region) const
+{
+    const auto found = regions_.find(std::string(region));
+    return found != regions_.end() && DescendantOf(Find(node), *found->second);
+}
+
+bool Scene::HasFocusInRegion(std::string_view region) const
+{
+    const auto found = regions_.find(std::string(region));
+    if (found == regions_.end() || !input_state_) {
+        return false;
+    }
+    for (const auto &focus : input_state_->focus) {
+        if (DescendantOf(Find(focus.node), *found->second)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool Scene::SetPointer(contracts::LogicalPoint point)

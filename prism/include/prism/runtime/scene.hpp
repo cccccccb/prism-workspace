@@ -1,5 +1,6 @@
 #pragma once
 #include "prism/runtime/control_value.hpp"
+#include "prism/runtime/owner_modal.hpp"
 #include "prism/runtime/popup.hpp"
 #include "prism/runtime/popup_surface.hpp"
 
@@ -111,6 +112,10 @@ struct ScrollMetrics {
     double offset{}, maximum{}, viewport_height{}, content_height{};
 };
 
+struct TextLayoutInfo {
+    double width{}, height{}, font_size{};
+};
+
 struct Activation {
     contracts::NodeId node{};
     std::string action;
@@ -171,6 +176,12 @@ public:
     bool MountRegions(std::span<const RegionUpdate>, const BindingValues &,
                       std::string *diagnostic = nullptr);
     Blueprint RegionBlueprint(std::span<const RegionUpdate>) const;
+    Blueprint ReplacementBlueprint(std::span<const RegionUpdate>) const;
+    // Atomic child replacement also supports regions that have already mounted.
+    bool ReplaceRegions(std::span<const RegionUpdate>, const BindingValues &,
+                        std::string *diagnostic = nullptr);
+    bool ReplaceRegions(std::span<const RegionUpdate>, const BindingValues &, Scene &candidate,
+                        std::uint64_t expected_revision, std::string *diagnostic = nullptr);
     // Success consumes the detached candidate; failure never mutates the live scene.
     bool MountRegions(std::span<const RegionUpdate>, const BindingValues &, Scene &candidate,
                       std::uint64_t expected_revision, std::string *diagnostic = nullptr);
@@ -202,14 +213,25 @@ public:
     std::shared_ptr<const InputSnapshot> CaptureInputSnapshot();
     // Called only after the worker confirms adopting this input geometry.
     bool ApplyInputSnapshot(const std::shared_ptr<const InputSnapshot> &snapshot);
+    bool IsInputSnapshotAdopted(const InputSnapshot &snapshot) const noexcept;
     InteractionResult HandleInput(const contracts::WindowEvent &event);
     // A null snapshot has no submitted targets and cannot start an activation.
     InteractionResult HandleInput(const contracts::WindowEvent &event,
                                   const std::shared_ptr<const InputSnapshot> &snapshot);
     InteractionState State(contracts::NodeId id) const;
+    bool HasFocusInRegion(std::string_view region) const;
+    bool IsNodeInRegion(contracts::NodeId node, std::string_view region) const;
     // Same local enabled value as the Boolean DSL property; ancestors still constrain input.
     bool SetEnabled(contracts::NodeId id, bool enabled);
     bool CancelInput();
+    // Restricts input to an existing subtree; presentation remains controlled by the DSL.
+    std::optional<std::uint64_t> BeginOwnerModal(contracts::NodeId root, std::uint64_t seat = 0);
+    // Retains the domain and text focus, revokes captures and all old projection input.
+    std::optional<std::uint64_t> RefreshOwnerModal(std::uint64_t expected_token);
+    bool EndOwnerModal(std::uint64_t expected_token);
+    std::uint64_t OwnerModalToken() const noexcept;
+    std::uint64_t OwnerModalEpoch() const noexcept;
+    std::vector<OwnerModalClosure> TakeOwnerModalClosures();
     // Drains owning values before callbacks can replace a UI or mutate the Scene.
     std::vector<contracts::GestureEvent> TakeGestureEvents();
     bool SetGesture(contracts::NodeId, std::optional<GestureSpec>);
@@ -240,6 +262,10 @@ public:
 
     contracts::NodeId RootId() const;
     contracts::LogicalRect Bounds(contracts::NodeId id) const;
+    // A named Box containing a single Text supplies resolved layout and font metrics.
+    std::optional<TextLayoutInfo> TextLayoutInRegion(std::string_view region) const;
+    // Resolve measurement geometry, retaining paint. No input adoption or frame submission.
+    void ResolveLayout();
     bool IsVisible(contracts::NodeId id) const;
     std::vector<contracts::SurfaceEffectRegion> SurfaceEffects() const;
     const std::vector<contracts::SurfaceInputRegion> &InputRegions() const;
@@ -276,8 +302,10 @@ private:
     friend class SceneConstruction;
     struct Node;
     SceneSnapshot CaptureResolvedSnapshot() const;
+    void ApplyResolvedLayout(const SceneSnapshot &snapshot);
     struct AnimationState;
     struct InputState;
+    struct OwnerModalState;
 
     struct EmptyConstruction {};
 
@@ -295,6 +323,9 @@ private:
     void CollectMountPairs(Node &, Node &, const std::set<std::string> &,
                            std::vector<std::pair<Node *, Node *>> &) const;
     Blueprint CurrentBlueprint(const Node &) const;
+    Blueprint BuildRegionBlueprint(std::span<const RegionUpdate>, bool replacement) const;
+    bool CommitRegions(std::span<const RegionUpdate>, const BindingValues &, Scene &candidate,
+                       std::uint64_t expected_revision, bool replacement, std::string *diagnostic);
     Node *Find(contracts::NodeId id) const;
     bool IsVisible(const Node &) const;
     bool SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyValue value,
@@ -331,6 +362,15 @@ private:
     void ApplyPopupScrollOffsets(SceneSnapshot &) const;
     static std::uint64_t NextInputSceneId();
     bool IsEnabled(const Node &node) const;
+    bool InOwnerModalScope(const Node &) const noexcept;
+    bool CanTraverseOwnerModal(const Node &) const noexcept;
+    bool CurrentOwnerModalSnapshot(const InputSnapshot *) const noexcept;
+    void ReconcileOwnerModal() noexcept;
+    void FinishOwnerModal(OwnerModalCloseReason) noexcept;
+    void RestoreOwnerModalFocus(const OwnerModalState &) noexcept;
+    bool HandleOwnerModalInput(const contracts::WindowEvent &,
+                               const std::shared_ptr<const InputSnapshot> &, bool submitted);
+    static bool IsInputCleanupEvent(const contracts::WindowEvent &) noexcept;
     bool IsInteractive(contracts::NodeId id) const;
     bool IsInteractive(contracts::NodeId id, const InputSnapshot *) const;
     std::optional<HitResult> InputHit(contracts::LogicalPoint,
@@ -456,6 +496,7 @@ private:
     contracts::ResourceId font_{};
     contracts::LogicalSize viewport_{};
     std::vector<Node *> nodes_;
+    std::vector<std::uint32_t> node_generations_;
     std::unordered_map<std::string, Node *> regions_;
 
     struct BindingTarget {
@@ -482,12 +523,17 @@ private:
     std::unique_ptr<AnimationState> animation_state_;
     bool state_styles_dirty_{true};
     std::unique_ptr<InputState> input_state_;
+    std::unique_ptr<OwnerModalState> owner_modal_;
+    std::uint64_t owner_modal_epoch_{};
+    std::vector<OwnerModalClosure> owner_modal_closures_;
+    std::vector<contracts::InputSource> owner_modal_escape_;
     std::shared_ptr<const InputSnapshot> input_snapshot_;
     std::shared_ptr<const InputSnapshot> root_surface_input_snapshot_;
     std::shared_ptr<const InputSnapshot> root_surface_input_source_;
     std::uint64_t input_snapshot_version_{};
     const std::uint64_t input_scene_id_{NextInputSceneId()};
     std::uint64_t applied_input_version_{};
+    std::uint64_t applied_owner_modal_epoch_{};
     bool input_snapshot_dirty_{true};
     AnimationSampleStamp animation_sample_{};
     bool hit_geometry_dirty_{true};

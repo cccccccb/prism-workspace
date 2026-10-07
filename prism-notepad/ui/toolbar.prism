@@ -1,4 +1,4 @@
-VStack(spacing: 8, visible: $normal) {
+VStack(spacing: 8, visible: $normal, enabled: $available) {
     HStack(height: 32, spacing: 4, align: "center") {
         Text("Notes", flex: 1, font: "@font_title", foreground: "@text", overflow: "clip")
 InteractionTarget(width: 32, height: 32, action: "new", cornerRadius: 8) {
@@ -34,6 +34,22 @@ InteractionTarget(width: 32, height: 32, action: "save", cornerRadius: 8) {
             .state(when: "focusVisible", scope: "target", opacity: 1)
             .transition(property: "opacity", motion: "control.feedback")
     }
+InteractionTarget(width: 72, height: 32, action: "save-as", minViewportWidth: 420, cornerRadius: 8) {
+    Visual(background: "@none", cornerRadius: 8, align: "center", justify: "center") {
+        HStack(spacing: 4, align: "center") {
+            Icon("save", width: 16, height: 16, foreground: "@text")
+            Text("Save as", font: "@font_caption", foreground: "@text")
+        }
+    }
+        .state(when: "hovered", scope: "target", background: "@hover")
+        .state(when: "pressed", scope: "target", background: "@accentSoft", scaleX: 0.95, scaleY: 0.95)
+        .transition(property: "background", motion: "control.feedback")
+        .transition(property: "scaleX", motion: "control.feedback")
+        .transition(property: "scaleY", motion: "control.feedback")
+    Visual(cornerRadius: 8, borderWidth: 1.5, borderColor: "@accent", opacity: 0)
+        .state(when: "focusVisible", scope: "target", opacity: 1)
+        .transition(property: "opacity", motion: "control.feedback")
+}
 InteractionTarget(width: 32, height: 32, action: "documents", cornerRadius: 8) {
         Visual(background: "@none", cornerRadius: 8, align: "center", justify: "center") { Icon("layers", width: 18, height: 18, foreground: "@text") }
             .state(when: "hovered", scope: "target", background: "@hover")

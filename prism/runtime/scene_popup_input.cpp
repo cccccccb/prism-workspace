@@ -54,6 +54,9 @@ bool Scene::HandlePopupInput(const contracts::WindowEvent &event,
         ClosePopup(PopupCloseReason::Unavailable);
         return false;
     }
+    if (IsInputCleanupEvent(event)) {
+        return false;
+    }
     // The previous frame may still show either a closed or a different popup. Never
     // interpret its coordinates as a fresh press in the replacement content.
     if (submitted && snapshot && snapshot->popup_token != PopupToken()) {

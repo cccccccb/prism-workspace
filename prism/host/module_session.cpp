@@ -1,4 +1,6 @@
 #include "prism/sdk/module_session.hpp"
+#include "module_feedback_p.hpp"
+#include "module_task_p.hpp"
 #include "module_work_p.hpp"
 #include "prism/host/event_wait.hpp"
 #include <algorithm>
@@ -28,16 +30,41 @@ ModuleSession::ModuleSession(const std::filesystem::path &module, std::string ap
                              SubscribeSink subscribe, ThemeSink themes, ColorSchemeSink schemes,
                              std::shared_ptr<runtime::TaskScheduler> scheduler,
                              ModuleSessionLimits limits, std::filesystem::path assets_root,
-                             LayoutSubscribeSink layout_subscribe, ControlSink control)
+                             LayoutSubscribeSink layout_subscribe, ControlSink control,
+                             TaskSink tasks, TaskCancelSink cancel_tasks,
+                             TaskCapabilitySink task_capabilities, FeedbackSink feedback,
+                             FeedbackDismissSink dismiss_feedback,
+                             FeedbackCapabilitySink feedback_capabilities)
     : module_(module), app_id_(std::move(app_id)), assets_root_(assets_root.string()),
       instance_id_(instance), bindings_(std::move(bindings)), launch_(std::move(launch)),
       subscribe_(std::move(subscribe)), themes_(std::move(themes)), schemes_(std::move(schemes)),
       layout_subscribe_(std::move(layout_subscribe)), controls_(std::move(control)),
-      host_{
-          sizeof(host_),   PRISM_APP_ABI_V1, this,        SetBinding,        Ready,      Launch,
-          Schedule,        Subscribe,        SelectTheme, SelectColorScheme, SubmitWork, CancelWork,
-          SubscribeLayout, ControlGesture},
-      limits_(limits), work_(std::make_unique<ModuleWorkState>())
+      host_{sizeof(host_),
+            PRISM_APP_ABI_V1,
+            this,
+            SetBinding,
+            Ready,
+            Launch,
+            Schedule,
+            Subscribe,
+            SelectTheme,
+            SelectColorScheme,
+            SubmitWork,
+            CancelWork,
+            SubscribeLayout,
+            ControlGesture,
+            TaskCapabilities,
+            RequestTask,
+            CancelTask,
+            CompleteClose,
+            FeedbackCapabilities,
+            ShowFeedback,
+            DismissFeedback},
+      limits_(limits), work_(std::make_unique<ModuleWorkState>()),
+      tasks_(std::make_unique<ModuleTaskState>(std::move(tasks), std::move(cancel_tasks),
+                                               std::move(task_capabilities))),
+      feedback_(std::make_unique<ModuleFeedbackState>(
+          std::move(feedback), std::move(dismiss_feedback), std::move(feedback_capabilities)))
 {
     if (!limits_.outstanding || limits_.outstanding > 128 || !limits_.input_bytes ||
         !limits_.result_bytes || !limits_.queued_input_bytes ||
@@ -134,7 +161,8 @@ int32_t ModuleSession::SetBinding(void *ctx, PrismStringViewV1 key, PrismValueV1
     }
     try {
         auto &self = *static_cast<ModuleSession *>(ctx);
-        if (self.closed_ || !Valid(key, 128)) {
+        if (self.closed_ || !Valid(key, 128) ||
+            std::string_view(key.data, key.size).starts_with("__prism_task_")) {
             return -1;
         }
         runtime::PropertyValue converted;
@@ -351,12 +379,6 @@ void ModuleSession::Action(std::string_view action)
     if (instance_ && module_.Api().on_action) {
         module_.Api().on_action(instance_, {action.data(), action.size()});
     }
-}
-
-bool ModuleSession::RequestClose()
-{
-    return !OnOwnerThread() || closed_ || !instance_ || !module_.Api().on_close_requested ||
-           module_.Api().on_close_requested(instance_) != 0;
 }
 
 void ModuleSession::TextEdit(std::string_view action, std::string_view text)

@@ -768,3 +768,25 @@ Begin，然后接收 Update/End/Cancel；它会抑制同一目标的普通点击
 使用方式、typed edit/close ABI 与现有限制见 [通用文本编辑规范](../../../TEXT_EDITING.md)。
 它们提供控件内滚动，不代表通用 Scroll/List、IME 或系统剪贴板已经实现。
 新应用参考 [Notepad](../../../../prism-notepad/README.md)；必须搭配本次源码 Host。
+
+## 文件业务与异步关闭补充（2026-10-07，5d源码）
+
+文件选择使用Host任务，借用结果在回调内复制；真实读写提交Host work。只有实际
+写入完成并通过校验才更新saved版本，提交时先准备文本快照，不能在工作已接受后
+留下可能失败的快照复制。保存期间新编辑仍未保存，取消/失败不得清除草稿。
+
+新typed `on_close_request`与Host `complete_close`支持REJECT/ACCEPT/DEFER和
+一次关联完成，多个文档可逐个确认后自动关闭；系统Cancel不是成功choice。
+接口、完整尾字段检查、旧Host处理、存储竞争限制及示例见
+[文件业务与Close契约](../../../NOTEPAD_TASK_AND_CLOSE_CONTRACT.md)。
+复用共享面板与普通owner输入快照，不持有Scene或复制本地路径/确认页。
+正式v26未包含此扩展，源码支持和部署分别记录。
+
+
+## 轻量反馈（6a源码）
+
+使用[反馈契约](../../../OWNER_FEEDBACK_CONTRACT.md)的typed Host API与模块动作回调，
+无需持有Scene或复制确认面板。先完整检查尾字段与当前能力；只在真实工作完成后报成功。
+有动作的反馈允许Tab访问，悬停/聚焦暂停自动收起；Error保持可读原因与恢复操作。
+同owner新反馈替换旧提示。不要把保存错误的字符串解释为可重新覆盖或已安全提交。
+没有匹配Host时保留正文/状态反馈，不改变业务生命周期。

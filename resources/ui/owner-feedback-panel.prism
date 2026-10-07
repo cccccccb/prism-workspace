@@ -1,0 +1,56 @@
+// Host-owned inline feedback. Opaque content follows the theme and never grabs focus.
+Card {
+    VStack(spacing: 0, align: "end") {
+        Card(flex: 1)
+        Card(visible: $__prism_feedback_card_visible, width: 336, height: 148, padding: 12, background: "@surfaceRaised", borderWidth: 1, borderColor: "@controlOutline", cornerRadius: "@control_state_radius") {
+            VStack(spacing: 8) {
+                HStack(height: 32, spacing: 8, align: "center") {
+                    Icon("info", width: 16, height: 16, foreground: "@text", visible: $__prism_feedback_info, minViewportWidth: 320)
+                    Icon("check", width: 16, height: 16, foreground: "@feedbackSuccess", visible: $__prism_feedback_success, minViewportWidth: 320)
+                    Icon("error", width: 16, height: 16, foreground: "@feedbackError", visible: $__prism_feedback_error, minViewportWidth: 320)
+                    ScrollView(flex: 1, height: 32) {
+                        Text($__prism_feedback_title, font: "@font_title", lineHeight: "@line_title", foreground: "@text", overflow: "clip")
+                    }
+                    InteractionTarget(action: "__prism_feedback_dismiss", width: 32, height: 32) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", padding: 8) {
+                            Icon("close", width: 16, height: 16, foreground: "@text")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                }
+                ScrollView(flex: 1) {
+                    Text($__prism_feedback_message, font: "@font_body", lineHeight: "@line_body", foreground: "@text", overflow: "clip")
+                    Visual(scrollPart: "thumb", width: 3, height: 24, inset: 2, cornerRadius: 1.5, background: "@controlOutline")
+                }
+                HStack(height: 32, spacing: 8, visible: $__prism_feedback_has_actions) {
+                    InteractionTarget(action: "__prism_feedback_choice_0", flex: 1, height: 32, visible: $__prism_feedback_choice_0_visible) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline")
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Card(paddingX: 8, justify: "center") {
+                            Text($__prism_feedback_choice_0_label, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                        }
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    InteractionTarget(action: "__prism_feedback_choice_1", flex: 1, height: 32, visible: $__prism_feedback_choice_1_visible) {
+                        Visual(background: "@controlPrimary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline")
+                        .state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+                        .state(when: "pressed", scope: "target", background: "@controlPrimaryPressed")
+                        .transition(property: "background", motion: "control.feedback")
+                        Card(paddingX: 8, justify: "center") {
+                            Text($__prism_feedback_choice_1_label, font: "@font_body", lineHeight: "@line_caption", foreground: "@controlPrimaryText", anchor: "center", overflow: "clip")
+                        }
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                }
+            }
+        }
+    }
+}

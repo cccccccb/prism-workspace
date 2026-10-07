@@ -18,8 +18,11 @@ bool AppHost::Impl::Fail(contracts::LaunchError error, std::string detail)
         failed = true;
         ui.failed = true;
         if (frontend) {
+            frontend->RetireOwnerTasks();
+            frontend->RetireOwnerFeedback();
             frontend->CancelUiLoad();
         }
+        RetireOwnerTaskController();
         if (master_loader) {
             master_loader->Cancel(ui.master_load);
         }

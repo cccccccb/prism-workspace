@@ -52,6 +52,9 @@ bool Scene::HandleScrollInput(const contracts::WindowEvent &event,
     double remaining = wheel->delta_y;
     bool handled = false;
     for (; node; node = node->parent) {
+        if (!InOwnerModalScope(*node)) {
+            break;
+        }
         if (node->kind != Kind::ScrollView || !IsEnabled(*node) || !IsVisible(*node)) {
             continue;
         }
@@ -93,6 +96,9 @@ void Scene::RevealScrollTarget(contracts::NodeId id)
     }
     auto bounds = target->bounds;
     for (auto *parent = target->parent; parent; parent = parent->parent) {
+        if (!InOwnerModalScope(*parent)) {
+            break;
+        }
         if (parent->kind != Kind::ScrollView) {
             continue;
         }

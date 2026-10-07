@@ -212,7 +212,10 @@ InteractionResult Scene::HandleInput(const contracts::WindowEvent &event)
 InteractionResult Scene::HandleInput(const contracts::WindowEvent &event,
                                      const std::shared_ptr<const InputSnapshot> &snapshot)
 {
-    if (snapshot && snapshot->scene != input_scene_id_) {
+    // Native descriptors deliberately have no Scene identity. They must enter
+    // through the adopted target gate even for cleanup, never through root input.
+    if (snapshot &&
+        (!snapshot->scene || (snapshot->scene != input_scene_id_ && !IsInputCleanupEvent(event)))) {
         return {};
     }
     return DispatchInput(event, snapshot, true);
@@ -224,6 +227,11 @@ InteractionResult Scene::DispatchInput(const contracts::WindowEvent &event,
 {
     InteractionResult result;
     const auto previous_pixels = pixels_revision_;
+    if (HandleOwnerModalInput(event, snapshot, submitted)) {
+        result.changed = ReconcileInput() || pixels_revision_ != previous_pixels;
+        ResolveInteractionStyles();
+        return result;
+    }
     if (HandlePopupInput(event, snapshot, submitted)) {
         result.changed = ReconcileInput() || pixels_revision_ != previous_pixels;
         ResolveInteractionStyles();

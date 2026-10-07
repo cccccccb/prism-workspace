@@ -1,0 +1,259 @@
+// Shared Host confirmation presentation. No application resources or service permission.
+// The SDK owns the reserved projection; request/terminal/input state stays outside this DSL.
+Card {
+    VStack(spacing: 0, align: "center") {
+        Card(flex: 1)
+        Card(material: "card", background: "@controlSecondary", borderColor: "@controlOutline", width: 520, height: 196, padding: 16, minViewportWidth: 360, minViewportHeight: 260) {
+            VStack(spacing: 12) {
+                VStack(height: 48, spacing: 4) {
+                    Text($__prism_task_context, height: 18, font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText")
+                    ScrollView(height: 26) {
+                        Text($__prism_task_title, font: "@font_title", lineHeight: "@line_title", foreground: "@text", overflow: "clip")
+                    }
+                }
+                ScrollView(flex: 1) {
+                    Text($__prism_task_message, font: "@font_body", lineHeight: "@line_body", foreground: "@mutedText", overflow: "clip")
+                    Visual(scrollPart: "thumb", width: 3, height: 24, inset: 2, cornerRadius: 1.5, background: "@controlOutline")
+                }
+                HStack(height: 36, spacing: 8) {
+                    InteractionTarget(action: "__prism_task_cancel", flex: 1, height: 36) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                            HStack(height: 22, spacing: 4, align: "center", justify: "center") {
+                                Text("Cancel", font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                            }
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    InteractionTarget(action: "__prism_task_choice_0", flex: 1, justify: "center", height: 36) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center")
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        HStack(height: 22, spacing: 4, paddingX: 8, align: "center", justify: "center") {
+                            Icon("trash", width: 16, height: 16, foreground: "@text", visible: $__prism_task_choice_0_destructive)
+                            Text($__prism_task_choice_0_label, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                        }
+                        Visual(background: "@controlPrimary", cornerRadius: "@control_state_radius", paddingX: 8, justify: "center", visible: $__prism_task_choice_0_primary) {
+                            Text($__prism_task_choice_0_label, font: "@font_body", lineHeight: "@line_caption", foreground: "@controlPrimaryText", anchor: "center", overflow: "clip")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+                        .state(when: "pressed", scope: "target", background: "@controlPrimaryPressed")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    InteractionTarget(action: "__prism_task_choice_1", flex: 1, justify: "center", height: 36, visible: $__prism_task_choice_1_visible) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center")
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        HStack(height: 22, spacing: 4, paddingX: 8, align: "center", justify: "center") {
+                            Icon("trash", width: 16, height: 16, foreground: "@text", visible: $__prism_task_choice_1_destructive)
+                            Text($__prism_task_choice_1_label, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                        }
+                        Visual(background: "@controlPrimary", cornerRadius: "@control_state_radius", paddingX: 8, justify: "center", visible: $__prism_task_choice_1_primary) {
+                            Text($__prism_task_choice_1_label, font: "@font_body", lineHeight: "@line_caption", foreground: "@controlPrimaryText", anchor: "center", overflow: "clip")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+                        .state(when: "pressed", scope: "target", background: "@controlPrimaryPressed")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                }
+            }
+        }
+        Card(material: "card", background: "@controlSecondary", borderColor: "@controlOutline", width: 328, height: 252, padding: 12, maxViewportWidth: 360, minViewportHeight: 260) {
+            VStack(spacing: 12) {
+                VStack(height: 48, spacing: 4) {
+                    Text($__prism_task_context, height: 18, font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText")
+                    ScrollView(height: 26) {
+                        Text($__prism_task_title, font: "@font_title", lineHeight: "@line_title", foreground: "@text", overflow: "clip")
+                    }
+                }
+                ScrollView(flex: 1) {
+                    Text($__prism_task_message, font: "@font_body", lineHeight: "@line_body", foreground: "@mutedText", overflow: "clip")
+                    Visual(scrollPart: "thumb", width: 3, height: 24, inset: 2, cornerRadius: 1.5, background: "@controlOutline")
+                }
+                VStack(height: $__prism_task_narrow_actions_height, spacing: 8) {
+                    InteractionTarget(action: "__prism_task_cancel", flex: 1, height: 32) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                            HStack(height: 22, spacing: 4, align: "center", justify: "center") {
+                                Text("Cancel", font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                            }
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    InteractionTarget(action: "__prism_task_choice_0", flex: 1, justify: "center", height: 32) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center")
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        HStack(height: 22, spacing: 4, paddingX: 8, align: "center", justify: "center") {
+                            Icon("trash", width: 16, height: 16, foreground: "@text", visible: $__prism_task_choice_0_destructive)
+                            Text($__prism_task_choice_0_label, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                        }
+                        Visual(background: "@controlPrimary", cornerRadius: "@control_state_radius", paddingX: 8, justify: "center", visible: $__prism_task_choice_0_primary) {
+                            Text($__prism_task_choice_0_label, font: "@font_body", lineHeight: "@line_caption", foreground: "@controlPrimaryText", anchor: "center", overflow: "clip")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+                        .state(when: "pressed", scope: "target", background: "@controlPrimaryPressed")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    InteractionTarget(action: "__prism_task_choice_1", flex: 1, justify: "center", height: 32, visible: $__prism_task_choice_1_visible) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center")
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        HStack(height: 22, spacing: 4, paddingX: 8, align: "center", justify: "center") {
+                            Icon("trash", width: 16, height: 16, foreground: "@text", visible: $__prism_task_choice_1_destructive)
+                            Text($__prism_task_choice_1_label, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                        }
+                        Visual(background: "@controlPrimary", cornerRadius: "@control_state_radius", paddingX: 8, justify: "center", visible: $__prism_task_choice_1_primary) {
+                            Text($__prism_task_choice_1_label, font: "@font_body", lineHeight: "@line_caption", foreground: "@controlPrimaryText", anchor: "center", overflow: "clip")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+                        .state(when: "pressed", scope: "target", background: "@controlPrimaryPressed")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                }
+            }
+        }
+        Card(material: "card", background: "@controlSecondary", borderColor: "@controlOutline", width: 520, height: 148, padding: 16, minViewportWidth: 360, maxViewportHeight: 260) {
+            VStack(spacing: 8) {
+                ScrollView(height: 26) {
+                    Text($__prism_task_title, font: "@font_title", lineHeight: "@line_title", foreground: "@text", overflow: "clip")
+                }
+                ScrollView(flex: 1) {
+                    Text($__prism_task_message, font: "@font_body", lineHeight: "@line_body", foreground: "@mutedText", overflow: "clip")
+                    Visual(scrollPart: "thumb", width: 3, height: 24, inset: 2, cornerRadius: 1.5, background: "@controlOutline")
+                }
+                HStack(height: 36, spacing: 8) {
+                    InteractionTarget(action: "__prism_task_cancel", flex: 1, height: 36) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                            HStack(height: 22, spacing: 4, align: "center", justify: "center") {
+                                Text("Cancel", font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                            }
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    InteractionTarget(action: "__prism_task_choice_0", flex: 1, justify: "center", height: 36) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center")
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        HStack(height: 22, spacing: 4, paddingX: 8, align: "center", justify: "center") {
+                            Icon("trash", width: 16, height: 16, foreground: "@text", visible: $__prism_task_choice_0_destructive)
+                            Text($__prism_task_choice_0_label, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                        }
+                        Visual(background: "@controlPrimary", cornerRadius: "@control_state_radius", paddingX: 8, justify: "center", visible: $__prism_task_choice_0_primary) {
+                            Text($__prism_task_choice_0_label, font: "@font_body", lineHeight: "@line_caption", foreground: "@controlPrimaryText", anchor: "center", overflow: "clip")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+                        .state(when: "pressed", scope: "target", background: "@controlPrimaryPressed")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    InteractionTarget(action: "__prism_task_choice_1", flex: 1, justify: "center", height: 36, visible: $__prism_task_choice_1_visible) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center")
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        HStack(height: 22, spacing: 4, paddingX: 8, align: "center", justify: "center") {
+                            Icon("trash", width: 16, height: 16, foreground: "@text", visible: $__prism_task_choice_1_destructive)
+                            Text($__prism_task_choice_1_label, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                        }
+                        Visual(background: "@controlPrimary", cornerRadius: "@control_state_radius", paddingX: 8, justify: "center", visible: $__prism_task_choice_1_primary) {
+                            Text($__prism_task_choice_1_label, font: "@font_body", lineHeight: "@line_caption", foreground: "@controlPrimaryText", anchor: "center", overflow: "clip")
+                        }
+                        .state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+                        .state(when: "pressed", scope: "target", background: "@controlPrimaryPressed")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                }
+            }
+        }
+        Card(material: "card", background: "@controlSecondary", borderColor: "@controlOutline", width: 328, height: 168, padding: 12, maxViewportWidth: 360, maxViewportHeight: 260) {
+            VStack(spacing: 8) {
+                ScrollView(height: 26) {
+                    Text($__prism_task_title, font: "@font_title", lineHeight: "@line_title", foreground: "@text", overflow: "clip")
+                }
+                ScrollView(flex: 1) {
+                    Text($__prism_task_message, font: "@font_body", lineHeight: "@line_body", foreground: "@mutedText", overflow: "clip")
+                    Visual(scrollPart: "thumb", width: 3, height: 24, inset: 2, cornerRadius: 1.5, background: "@controlOutline")
+                }
+                VStack(height: 68, spacing: 4) {
+                    InteractionTarget(action: "__prism_task_cancel", flex: 1, height: 32) {
+                        Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center") {
+                            HStack(height: 22, spacing: 4, align: "center", justify: "center") {
+                                Text("Cancel", font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                            }
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    HStack(height: 32, spacing: 8) {
+                        InteractionTarget(action: "__prism_task_choice_0", flex: 1, justify: "center", height: 32) {
+                            Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center")
+                            .state(when: "hovered", scope: "target", background: "@hover")
+                            .state(when: "pressed", scope: "target", background: "@accentSoft")
+                            .transition(property: "background", motion: "control.feedback")
+                            HStack(height: 22, spacing: 4, paddingX: 8, align: "center", justify: "center") {
+                                Icon("trash", width: 16, height: 16, foreground: "@text", visible: $__prism_task_choice_0_destructive)
+                                Text($__prism_task_choice_0_label, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                            }
+                            Visual(background: "@controlPrimary", cornerRadius: "@control_state_radius", paddingX: 8, justify: "center", visible: $__prism_task_choice_0_primary) {
+                                Text($__prism_task_choice_0_label, font: "@font_body", lineHeight: "@line_caption", foreground: "@controlPrimaryText", anchor: "center", overflow: "clip")
+                            }
+                            .state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+                            .state(when: "pressed", scope: "target", background: "@controlPrimaryPressed")
+                            .transition(property: "background", motion: "control.feedback")
+                            Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                            .state(when: "focusVisible", scope: "target", opacity: 1)
+                        }
+                        InteractionTarget(action: "__prism_task_choice_1", flex: 1, justify: "center", height: 32, visible: $__prism_task_choice_1_visible) {
+                            Visual(background: "@controlSecondary", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline", paddingX: 8, justify: "center")
+                            .state(when: "hovered", scope: "target", background: "@hover")
+                            .state(when: "pressed", scope: "target", background: "@accentSoft")
+                            .transition(property: "background", motion: "control.feedback")
+                            HStack(height: 22, spacing: 4, paddingX: 8, align: "center", justify: "center") {
+                                Icon("trash", width: 16, height: 16, foreground: "@text", visible: $__prism_task_choice_1_destructive)
+                                Text($__prism_task_choice_1_label, font: "@font_body", lineHeight: "@line_caption", foreground: "@text", anchor: "center", overflow: "clip")
+                            }
+                            Visual(background: "@controlPrimary", cornerRadius: "@control_state_radius", paddingX: 8, justify: "center", visible: $__prism_task_choice_1_primary) {
+                                Text($__prism_task_choice_1_label, font: "@font_body", lineHeight: "@line_caption", foreground: "@controlPrimaryText", anchor: "center", overflow: "clip")
+                            }
+                            .state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+                            .state(when: "pressed", scope: "target", background: "@controlPrimaryPressed")
+                            .transition(property: "background", motion: "control.feedback")
+                            Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                            .state(when: "focusVisible", scope: "target", opacity: 1)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

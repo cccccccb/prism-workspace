@@ -1,11 +1,14 @@
 #pragma once
 #include "prism/contracts/gesture.hpp"
+#include "prism/contracts/owner_feedback.hpp"
+#include "prism/contracts/owner_task.hpp"
 #include "prism/contracts/theme.hpp"
 #include "prism/contracts/types.hpp"
 #include "prism/runtime/control_value.hpp"
 #include "prism/runtime/prepared_component.hpp"
 #include "prism/runtime/prepared_regions.hpp"
 #include "prism/runtime/property.hpp"
+#include "prism/runtime/task_session.hpp"
 #include "prism/runtime/ui_install.hpp"
 #include "prism/runtime/ui_load.hpp"
 #include "prism/sdk/ui_presentation.hpp"
@@ -21,6 +24,7 @@
 
 namespace prism::runtime {
 class TaskScheduler;
+struct OwnerFilePanelView;
 enum class ImageState;
 } // namespace prism::runtime
 
@@ -143,7 +147,44 @@ public:
     bool SetBinding(std::string_view name, runtime::PropertyValue value);
     bool ApplyTheme(const contracts::ThemeSnapshot &, std::string *diagnostic = nullptr);
     std::uint64_t ThemeGeneration() const;
+    // Host/provider C++ interface. The named region must already be mounted,
+    // visible and enabled. Preparing becomes Ready only after input adoption.
+    std::optional<runtime::TaskIdentity> BeginOwnerTask(std::string_view region,
+                                                        std::uint64_t seat = 0);
+    std::optional<runtime::TaskEntry> ActiveOwnerTask() const noexcept;
+    bool SetOwnerTaskWorking(runtime::TaskIdentity identity);
+    bool ResumeOwnerTask(runtime::TaskIdentity identity);
+    bool RefreshOwnerTask(runtime::TaskIdentity identity);
+    bool CompleteOwnerTask(runtime::TaskIdentity identity);
+    bool CancelOwnerTask(runtime::TaskIdentity identity,
+                         runtime::TaskCancelReason reason = runtime::TaskCancelReason::User);
+    bool FailOwnerTask(runtime::TaskIdentity identity, const runtime::TaskFailure &failure);
+    std::optional<runtime::TaskTerminal> TakeOwnerTaskTerminal();
+    // Permanent owner shutdown; revoke before stopping work/destroying business.
+    void RetireOwnerTasks();
+
+    // Trusted Host provider template, configured after Preview and before Master installation.
+    bool ConfigureOwnerTaskPanel(const runtime::PreparedComponent &prepared);
+    bool SupportsOwnerConfirmation() const noexcept;
+    std::optional<runtime::TaskIdentity>
+    BeginOwnerConfirmation(const contracts::OwnerTaskRequest &request);
+    bool ConfigureOwnerFilePanel(const runtime::PreparedComponent &prepared);
+    bool SupportsOwnerFileTasks() const noexcept;
+    std::optional<runtime::TaskIdentity>
+    BeginOwnerFileTask(const contracts::OwnerTaskRequest &request,
+                       const runtime::OwnerFilePanelView &view);
+    bool UpdateOwnerFileTask(runtime::TaskIdentity identity,
+                             const runtime::OwnerFilePanelView &view);
+    bool ConfigureOwnerFeedbackPanel(const runtime::PreparedComponent &prepared);
+    bool SupportsOwnerFeedback() const noexcept;
+    bool ShowOwnerFeedback(const contracts::OwnerFeedbackRequest &request);
+    bool DismissOwnerFeedback(std::uint64_t request_id);
+    std::optional<contracts::OwnerFeedbackAction> TakeOwnerFeedbackAction();
+    void RetireOwnerFeedback();
     void OnCloseRequested(std::function<bool()> callback);
+    // Complete an accepted asynchronous close on the owner thread. Revokes
+    // task input before queuing the worker command; repeated calls are harmless.
+    bool AcceptClose();
     void OnControlValue(std::function<void(const runtime::ControlEdit &)> callback);
     void OnTextEdit(std::function<void(std::string_view, std::string_view)> callback);
     void OnAction(std::function<void(std::string_view)> callback);

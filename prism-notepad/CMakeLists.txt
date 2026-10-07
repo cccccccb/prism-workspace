@@ -1,5 +1,5 @@
-add_library(prism_notepad_module MODULE module.cpp notepad.cpp files.cpp)
-target_link_libraries(prism_notepad_module PRIVATE prism_contracts prism_text_buffer nlohmann_json::nlohmann_json)
+add_library(prism_notepad_module MODULE module.cpp notepad.cpp notepad_tasks.cpp notepad_files.cpp notepad_publish.cpp notepad_feedback.cpp files.cpp)
+target_link_libraries(prism_notepad_module PRIVATE prism_contracts prism_owner_task_contract prism_text_buffer nlohmann_json::nlohmann_json)
 set(package "${CMAKE_BINARY_DIR}/share/prism/apps/prism_notepad")
 set_target_properties(prism_notepad_module PROPERTIES PREFIX "" OUTPUT_NAME notepad
     CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON LIBRARY_OUTPUT_DIRECTORY "${package}")

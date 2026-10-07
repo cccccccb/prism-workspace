@@ -1,4 +1,5 @@
 #include "client_application_p.hpp"
+#include "prism/runtime/owner_task_panel.hpp"
 #include <cerrno>
 #include <poll.h>
 #include <system_error>
@@ -184,6 +185,8 @@ bool ClientApplication::OpenPrepared(runtime::UiLoadId load,
 void ClientApplication::Impl::FailFrontend()
 {
     failed = true;
+    RetireOwnerTasks(runtime::TaskCancelReason::FrontendFailed);
+    RetireOwnerFeedback();
     if (scene) {
         scene->CancelInput();
         CollectGestureEvents();
@@ -276,6 +279,7 @@ bool ClientApplication::Pump(int timeout_ms, std::span<pollfd> wake_fds)
             return false;
         }
         app.AdvanceAnimationDeadline();
+        app.ReconcileOwnerFeedback();
         app.PublishFramePacket();
         if (app.ui_work_turn_started) {
             timeout_ms = 0;
@@ -293,7 +297,7 @@ bool ClientApplication::Pump(int timeout_ms, std::span<pollfd> wake_fds)
         sources.insert(sources.end(), wake_fds.begin(), wake_fds.end());
 
         const int ready = poll(sources.data(), static_cast<nfds_t>(sources.size()),
-                               app.AnimationTimeoutMs(timeout_ms));
+                               app.FeedbackTimeoutMs(app.AnimationTimeoutMs(timeout_ms)));
         if (ready < 0 && errno != EINTR) {
             throw std::system_error(errno, std::generic_category(), "Client event poll");
         }
@@ -325,6 +329,7 @@ bool ClientApplication::Pump(int timeout_ms, std::span<pollfd> wake_fds)
             return false;
         }
         app.AdvanceAnimationDeadline();
+        app.ReconcileOwnerFeedback();
         app.PublishFramePacket();
         return true;
     } catch (const std::exception &error) {
@@ -343,11 +348,13 @@ bool ClientApplication::SetSlot(std::string_view name, std::string value)
 bool ClientApplication::SetBinding(std::string_view name, runtime::PropertyValue value)
 {
     auto &app = *impl_;
-    if (!app.scene || !app.scene->AcceptsBinding(name, value)) {
+    if (!app.scene || runtime::IsOwnerTaskReservedName(name) ||
+        runtime::IsOwnerFeedbackReservedName(name) || !app.scene->AcceptsBinding(name, value)) {
         return false;
     }
     app.binding_values.insert_or_assign(std::string(name), value);
     const bool changed = app.scene->SetBinding(name, std::move(value));
+    app.ReconcileOwnerTask();
     if (changed &&
         (app.scene->PendingDirty() != runtime::Dirty::None || app.scene->HasActiveAnimations())) {
         app.InvalidateQueuedFrame();
@@ -373,6 +380,10 @@ bool ClientApplication::ApplyTheme(const contracts::ThemeSnapshot &theme, std::s
         }
         app.theme.swap(prepared);
         if (app.scene) {
+            app.ReconcileOwnerTask();
+            app.UpdateOwnerConfirmationText();
+            app.UpdateOwnerFilePanelText();
+            app.UpdateOwnerFeedbackText();
             // A resolved no-op can still change the accepted theme identity
             // while an older visual candidate is waiting for submission.
             app.InvalidateQueuedFrame();
@@ -444,6 +455,8 @@ void ClientApplication::Close()
     }
 
     impl_->closed = true;
+    impl_->RetireOwnerTasks(runtime::TaskCancelReason::OwnerClosed);
+    impl_->RetireOwnerFeedback();
     if (impl_->scene) {
         impl_->scene->CancelInput();
         impl_->CollectGestureEvents();

@@ -240,3 +240,20 @@ presentation feedback 触发。它不是“提交等于呈现”的替代定义�
 选中边界通过 snapshot v2 的 control_handle 和 C ABI `PrismLayoutStateV1` 的
 struct_size 可选尾指针传递。业务模块只发布 visible/width/height 绑定、开始和结束
 BoundaryGesture；坐标、比例夹取、捕获凭据和窗口尺寸配置由 WM 验证与执行。
+
+## Owner任务与异步关闭（2026-10-07，5a—5d源码）
+
+Host组合共享Confirmation/File DSL面板，绑定真实前端owner、任务identity和输入
+快照；业务通过typed request/cancel与完成回调参与，不持有Scene或复制系统面板。
+目录模型只选择路径，实际读写仍由模块work完成。Notepad已示范保存快照、失败恢复
+和多文档顺序确认。新Close ABI的DEFER待complete_close匹配一次，Host在owner Pump
+的回调结束后调用SDK AcceptClose，先撤销输入再有序接受平台关闭；旧bool回调兼容。
+规范与示例见[Owner任务](OWNER_TASK_PROVIDER_CONTRACT.md)、
+[文件provider](FILE_TASK_PROVIDER_CONTRACT.md)和
+[文件业务与Close](NOTEPAD_TASK_AND_CLOSE_CONTRACT.md)。正式v26尚未部署这些扩展。
+
+
+## 6a：轻量反馈provider
+
+ModuleSession复制typed反馈值，Host使用共享owner-feedback-panel.prism接入Master。业务动作从SDK退休后投递；Error保留，Info/Success采用后使用可暂停的一次性期限。
+细节与版本边界见[Owner轻量反馈契约](OWNER_FEEDBACK_CONTRACT.md)。

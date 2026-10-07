@@ -8,6 +8,12 @@
 
 `prism::theme::CompileTheme(source, generation, color_scheme)` 编译源码；`LoadTheme(root, id, generation, color_scheme)` 读取并编译包，拒绝路径越界与 ID 不符。generation 默认 0，color_scheme 默认 `"dark"`。`DefaultThemeRoot()` 取运行程序前缀下的 `share/prism/themes`，构建树和安装树使用相同目录结构。编译器只依赖共享 DSL 语法与纯值契约。
 
+6a源码将解析后 `Number` 与 `Color` 的合计预算扩展为 **256**，材料最多32项，
+源码和编码payload仍限65536字节。Palette覆盖既有token，不另增加解析后条目；
+编码、解码与纯值校验使用相同总预算，超量明确拒绝。wire schema不变，但旧v26
+Host/WM仍执行128项上限；超过128项的新主题须随匹配的Host、launcher及WM部署，
+不能单独复制到旧会话。成功与错误反馈颜色使用 `feedbackSuccess`、`feedbackError`。
+
 现成完整范例为 `resources/themes/glass/theme.prism`。首批包的区别：
 
 | ID | 窗口/面板背景 | 模糊 | 圆角 |

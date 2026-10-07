@@ -1,5 +1,7 @@
 #pragma once
 #include "prism/contracts/launch.hpp"
+#include "prism/contracts/owner_feedback.hpp"
+#include "prism/contracts/owner_task.hpp"
 #include "prism/contracts/theme.hpp"
 #include "prism/launch/module.hpp"
 #include "prism/runtime/control_value.hpp"
@@ -11,6 +13,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 
 namespace prism::sdk {
@@ -25,6 +28,8 @@ struct ModuleSessionLimits {
 };
 
 struct ModuleWorkState;
+struct ModuleTaskState;
+struct ModuleFeedbackState;
 
 // Owner-thread lifecycle adapter. CPU work shares the Host scheduler and never
 // receives an instance, graphics object or protocol connection.
@@ -37,18 +42,32 @@ public:
     using LayoutSubscribeSink = std::function<std::uint64_t(bool)>;
     using ControlSink = LayoutControlBridge::Send;
     using ThemeSink = std::function<std::uint64_t(std::string_view)>;
+    // Sinks receive owning typed data. TaskSink stages without delivering a
+    // terminal callback; Host binds correlation to its actual frontend owner.
+    using TaskSink = std::function<bool(const contracts::OwnerTaskRequest &)>;
+    using TaskCancelSink = std::function<bool(std::uint64_t)>;
+    using TaskCapabilitySink = std::function<std::uint32_t()>;
+    using FeedbackSink = std::function<bool(const contracts::OwnerFeedbackRequest &)>;
+    using FeedbackDismissSink = std::function<bool(std::uint64_t)>;
+    using FeedbackCapabilitySink = std::function<std::uint32_t()>;
     ModuleSession(const std::filesystem::path &module, std::string app_id, std::uint64_t instance,
                   BindingSink bindings, LaunchSink launch = {}, SubscribeSink subscribe = {},
                   ThemeSink themes = {}, ColorSchemeSink schemes = {},
                   std::shared_ptr<runtime::TaskScheduler> scheduler = {},
                   ModuleSessionLimits limits = {}, std::filesystem::path assets_root = {},
-                  LayoutSubscribeSink layout_subscribe = {}, ControlSink control = {});
+                  LayoutSubscribeSink layout_subscribe = {}, ControlSink control = {},
+                  TaskSink tasks = {}, TaskCancelSink cancel_tasks = {},
+                  TaskCapabilitySink task_capabilities = {}, FeedbackSink feedback = {},
+                  FeedbackDismissSink dismiss_feedback = {},
+                  FeedbackCapabilitySink feedback_capabilities = {});
     ~ModuleSession();
     ModuleSession(const ModuleSession &) = delete;
     ModuleSession &operator=(const ModuleSession &) = delete;
     bool Start();
     void Action(std::string_view action);
     bool RequestClose();
+    // Deferred completion only. Never consume inside a module close callback.
+    std::optional<bool> ConsumeCloseDecision() noexcept;
     void TextEdit(std::string_view action, std::string_view text);
     void ControlValue(const runtime::ControlEdit &edit);
     void Tick(std::uint64_t now_ns);
@@ -61,6 +80,12 @@ public:
     void Gesture(const contracts::GestureEvent &event);
     void Deliver(const contracts::LayoutStateEvent &event);
     void Deliver(const contracts::LayoutControlResult &event);
+    bool SupportsOwnerTasks() const noexcept;
+    // Rejects invalid, duplicate, stale results and delivery during submission.
+    // Removes the matching pending request before invoking the business module.
+    bool DeliverTaskResult(const contracts::OwnerTaskResult &result);
+    bool SupportsFeedback() const noexcept;
+    bool DeliverFeedbackAction(const contracts::OwnerFeedbackAction &action);
     void Disconnected();
     int WorkCompletionFd() const noexcept;
     // Checks the cooperative budget between indivisible module callbacks.
@@ -89,6 +114,13 @@ private:
     static int32_t CancelWork(void *, uint64_t) noexcept;
     static uint64_t SubscribeLayout(void *, uint32_t enabled) noexcept;
     static int32_t ControlGesture(void *, const PrismLayoutCommandV1 *) noexcept;
+    static uint32_t TaskCapabilities(void *) noexcept;
+    static uint64_t RequestTask(void *, const PrismTaskRequestV1 *) noexcept;
+    static int32_t CancelTask(void *, uint64_t request_id) noexcept;
+    static int32_t CompleteClose(void *, uint64_t request_id, uint32_t decision) noexcept;
+    static uint32_t FeedbackCapabilities(void *) noexcept;
+    static uint64_t ShowFeedback(void *, const PrismFeedbackRequestV1 *) noexcept;
+    static int32_t DismissFeedback(void *, uint64_t request_id) noexcept;
     void DispatchControlResults();
     void DisconnectControl();
     bool OnOwnerThread() const noexcept;
@@ -124,8 +156,15 @@ private:
     bool ready_{};
     bool started_{};
     bool closed_{};
+    std::uint64_t next_close_id_{1};
+    std::optional<std::uint64_t> pending_close_;
+    std::optional<bool> close_decision_;
+    bool close_callback_active_{};
+    bool close_accepted_{};
     ModuleSessionLimits limits_;
     std::unique_ptr<ModuleWorkState> work_;
+    std::unique_ptr<ModuleTaskState> tasks_;
+    std::unique_ptr<ModuleFeedbackState> feedback_;
     std::string start_diagnostic_;
     std::uint64_t create_duration_ns_{};
 };

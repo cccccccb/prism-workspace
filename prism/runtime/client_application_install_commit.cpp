@@ -1,4 +1,5 @@
 #include "client_application_p.hpp"
+#include "prism/runtime/owner_task_panel.hpp"
 
 namespace prism::sdk {
 void ClientApplication::Impl::CommitScene(runtime::UiLoadId load,
@@ -9,6 +10,8 @@ void ClientApplication::Impl::CommitScene(runtime::UiLoadId load,
     next->EnableAnimations();
     QueueRenderInstallUi(load);
 
+    CancelCurrentOwnerTask(runtime::TaskCancelReason::UiReplaced);
+    ClearOwnerFeedback(true);
     if (scene) {
         scene->CancelInput();
         CollectGestureEvents();
@@ -71,6 +74,29 @@ bool ClientApplication::Impl::CommitInstall(const runtime::BindingValues &bindin
     for (const auto &[key, value] : bindings) {
         current.insert_or_assign(key, value);
     }
+    if (!stage.regions &&
+        (owner_task_panel_template || owner_file_panel_template || owner_feedback_panel_template) &&
+        (runtime::HasOwnerTaskPanel(*stage.scene) ||
+         runtime::HasOwnerFeedbackPanel(*stage.scene))) {
+        for (const auto &[key, value] : OwnerPanelDefaults()) {
+            current.insert_or_assign(key, value);
+        }
+    }
+
+    if (stage.regions &&
+        (owner_task_panel_template || owner_file_panel_template || owner_feedback_panel_template) &&
+        (runtime::HasOwnerTaskPanel(*stage.scene) ||
+         runtime::HasOwnerFeedbackPanel(*stage.scene))) {
+        for (const auto &[key, value] : OwnerPanelDefaults()) {
+            current.insert_or_assign(key, value);
+        }
+        for (const auto &[key, value] : owner_task_bindings) {
+            current.insert_or_assign(key, value);
+        }
+        for (const auto &[key, value] : owner_feedback_bindings) {
+            current.insert_or_assign(key, value);
+        }
+    }
 
     if (stage.regions) {
         auto next_images = stage.result_images;
@@ -83,6 +109,7 @@ bool ClientApplication::Impl::CommitInstall(const runtime::BindingValues &bindin
             }
             return false;
         }
+        ReconcileOwnerTask();
 
         // Retire the old candidate before releasing images it may still use.
         // The following frame is published after the new region tree is ready.
@@ -111,6 +138,10 @@ bool ClientApplication::Impl::CommitInstall(const runtime::BindingValues &bindin
     PublishFramePacket();
     SyncAnimationSampling();
     QueueRenderUpdate(true);
+    std::erase_if(current, [](const auto &entry) {
+        return runtime::IsOwnerTaskReservedName(entry.first) ||
+               runtime::IsOwnerFeedbackReservedName(entry.first);
+    });
     binding_values.swap(current);
     install.reset();
     install_state = runtime::UiInstallState::Committed;

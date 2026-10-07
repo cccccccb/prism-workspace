@@ -61,6 +61,7 @@ struct WindowEvents {
     std::string text;
     bool sources_valid{true};
     prism::contracts::InputSource pointer_source{};
+    prism::contracts::InputSource keyboard_source{};
     prism::contracts::InputSource cancelled_source{};
     prism::contracts::InputSource touch_source{};
     prism::contracts::InputSource touch_cancelled_source{};
@@ -107,9 +108,12 @@ struct WindowEvents {
             CheckSource(focus->source);
             focus_lost_count += !focus->focused;
         } else if (const auto *input = std::get_if<prism::contracts::TextInputEvent>(&event)) {
+            CheckSource(input->source);
+            sources_valid &= input->source == keyboard_source;
             text += input->utf8;
         } else if (const auto *key = std::get_if<prism::contracts::KeyEvent>(&event)) {
             CheckSource(key->source);
+            keyboard_source = key->source;
             if (key->physical_key == 0x2b && key->state == prism::contracts::ButtonState::Pressed) {
                 shift_tab_count += key->modifiers.shift;
                 plain_tab_count += !key->modifiers.shift;

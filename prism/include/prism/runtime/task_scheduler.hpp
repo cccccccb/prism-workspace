@@ -29,7 +29,9 @@ private:
 };
 
 // Work owns its input and returns a fresh immutable output. It may only perform
-// CPU preparation and must not retain frontend/platform objects or source views.
+// Background reading/preparation only, with cancellation checked at operation
+// boundaries. It must not mutate business/UI state or retain frontend/platform
+// objects or source views. Blocking filesystem calls cannot be forcibly interrupted.
 using TaskWork = std::function<std::shared_ptr<const TaskOutput>(std::stop_token)>;
 
 struct TaskRequest {

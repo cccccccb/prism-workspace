@@ -5,6 +5,8 @@
 #include <string>
 
 namespace {
+constexpr std::uint32_t kResetMonitoringChoice = 1;
+
 std::string_view View(PrismStringViewV1 value)
 {
     return value.data ? std::string_view(value.data, value.size) : std::string_view{};
@@ -21,6 +23,7 @@ struct Settings {
     const PrismHostApiV1 *host;
     prism::settings::LinuxMetrics sampler{};
     std::uint64_t theme_request{}, theme_generation{}, interval_ns{1000000000ULL};
+    std::uint64_t reset_request{};
     bool monitoring{true};
 
     bool Selection(std::string_view id)
@@ -62,6 +65,49 @@ struct Settings {
     bool Schedule()
     {
         return !monitoring || prism::app::Tick(host, interval_ns);
+    }
+
+    bool RequestMonitoringReset()
+    {
+        if (reset_request) {
+            return true;
+        }
+        if (host->struct_size < offsetof(PrismHostApiV1, cancel_task) + sizeof(host->cancel_task) ||
+            !host->task_capabilities || !host->request_task || !host->cancel_task ||
+            !(host->task_capabilities(host->context) & PRISM_TASK_CAP_CONFIRMATION_V1)) {
+            return Error("Confirmation is unavailable in this session");
+        }
+
+        const PrismTaskChoiceV1 choice{sizeof(choice),
+                                       kResetMonitoringChoice,
+                                       {"Reset", sizeof("Reset") - 1},
+                                       PRISM_TASK_CHOICE_PRIMARY_V1};
+        const PrismTaskRequestV1 request{
+            sizeof(request),
+            PRISM_TASK_CONFIRMATION_V1,
+            {"Reset monitoring?", sizeof("Reset monitoring?") - 1},
+            {"Turn monitoring on and restore a 1-second sampling interval.",
+             sizeof("Turn monitoring on and restore a 1-second sampling interval.") - 1},
+            &choice,
+            1,
+            nullptr};
+        reset_request = host->request_task(host->context, &request);
+        if (!reset_request) {
+            return Error("Unable to open confirmation. Please try again");
+        }
+        return true;
+    }
+
+    bool ResetMonitoring()
+    {
+        monitoring = true;
+        sampler.ResetCpu();
+
+        if (!prism::app::Boolean(host, "monitoring_active", true) || !Interval(1000000000ULL) ||
+            !Metrics() || !Schedule()) {
+            return Error("Unable to restore monitoring. Please try again");
+        }
+        return Error();
     }
 
     bool Metrics()
@@ -149,6 +195,8 @@ void Action(void *instance, PrismStringViewV1 value) noexcept
             settings.Error();
         } else if (action == "sys:refresh") {
             settings.Metrics(); // A manual sample does not move the periodic deadline.
+        } else if (action == "monitor:reset") {
+            settings.RequestMonitoringReset();
         } else if (action == "page:performance") {
             settings.Page(0);
         } else if (action == "page:appearance") {
@@ -235,8 +283,37 @@ void ThemeEvent(void *instance, const PrismThemeEventV1 *event) noexcept
     }
 }
 
-const PrismAppModuleV1 api{sizeof(api), PRISM_APP_ABI_V1, Create,  Destroy,   Action,
-                           Tick,        nullptr,          nullptr, ThemeEvent};
+void TaskCompleted(void *instance, const PrismTaskResultV1 *result) noexcept
+{
+    try {
+        constexpr auto confirmation_size =
+            offsetof(PrismTaskResultV1, diagnostic) + sizeof(PrismTaskResultV1::diagnostic);
+        if (!instance || !result || result->struct_size < confirmation_size) {
+            return;
+        }
+        auto &settings = *static_cast<Settings *>(instance);
+        if (!settings.reset_request || result->request_id != settings.reset_request ||
+            result->outcome > PRISM_TASK_FAILED_V1 ||
+            (result->outcome == PRISM_TASK_SUCCEEDED_V1 &&
+             result->choice_id != kResetMonitoringChoice)) {
+            return;
+        }
+
+        settings.reset_request = 0;
+        if (result->outcome == PRISM_TASK_SUCCEEDED_V1) {
+            settings.ResetMonitoring();
+        } else if (result->outcome == PRISM_TASK_FAILED_V1) {
+            settings.Error("Monitoring reset could not open. Please try again");
+        }
+        // Cancel keeps monitoring and its existing one-shot sampling schedule.
+    } catch (...) {
+    }
+}
+
+const PrismAppModuleV1 api{sizeof(api), PRISM_APP_ABI_V1, Create,  Destroy,    Action,
+                           Tick,        nullptr,          nullptr, ThemeEvent, nullptr,
+                           nullptr,     nullptr,          nullptr, nullptr,    nullptr,
+                           nullptr,     TaskCompleted};
 } // namespace
 
 extern "C" PRISM_APP_EXPORT const PrismAppModuleV1 *prism_app_module_v1()

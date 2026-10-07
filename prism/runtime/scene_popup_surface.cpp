@@ -110,10 +110,10 @@ Scene::CapturePopupSurfaceRequest(std::uint64_t parent_configure_generation,
                                   contracts::LogicalRect parent_window_geometry)
 {
     const auto *popup = Find(active_popup_);
-    if (!popup || !IsVisible(*popup) || !IsEnabled(*popup) || !parent_configure_generation ||
-        !IntegerRect(parent_window_geometry) || !popup_snapshot_ || !input_snapshot_ ||
-        popup_snapshot_pixels_revision_ != pixels_revision_ || Has(dirty_, Dirty::Layout) ||
-        Has(dirty_, Dirty::Paint)) {
+    if (OwnerModalToken() || !popup || !IsVisible(*popup) || !IsEnabled(*popup) ||
+        !parent_configure_generation || !IntegerRect(parent_window_geometry) || !popup_snapshot_ ||
+        !input_snapshot_ || popup_snapshot_pixels_revision_ != pixels_revision_ ||
+        Has(dirty_, Dirty::Layout) || Has(dirty_, Dirty::Paint)) {
         return std::nullopt;
     }
 
@@ -213,7 +213,9 @@ std::optional<PopupSurfacePlan> Scene::PreparePopupSurface(const PopupSurfaceReq
     }
     try {
         const auto *popup = Find(active_popup_);
-        if (!request.source || request.source != popup_surface_source_ ||
+        if (OwnerModalToken() || !request.source ||
+            !CurrentOwnerModalSnapshot(request.source->input.get()) ||
+            request.source != popup_surface_source_ ||
             request.source->snapshot != popup_snapshot_ ||
             request.source->input != input_snapshot_ ||
             request.source->metadata != Metadata(request) || !popup ||
