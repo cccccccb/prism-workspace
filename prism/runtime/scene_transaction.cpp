@@ -33,7 +33,8 @@ void ReplaceRegions(Blueprint &node, std::span<const RegionUpdate> updates,
 
 bool SameStructure(const Blueprint &a, const Blueprint &b)
 {
-    if (a.kind != b.kind || a.region != b.region || a.region_mounted != b.region_mounted ||
+    if (a.kind != b.kind || a.contour != b.contour || a.contour_recipe != b.contour_recipe ||
+        a.region != b.region || a.region_mounted != b.region_mounted ||
         a.allowed_properties != b.allowed_properties || a.transitions != b.transitions ||
         a.state_rules != b.state_rules || a.gesture != b.gesture ||
         a.bindings.size() != b.bindings.size() || a.children.size() != b.children.size()) {
@@ -141,6 +142,20 @@ void Scene::CollectNodes(Node &node, std::vector<Node *> &nodes) const
 
 void Scene::CopyResources(const Node &live, Node &candidate) const
 {
+    if (live.contour_source && candidate.contour_source &&
+        *live.contour_source == *candidate.contour_source) {
+        candidate.contour_source = live.contour_source;
+        candidate.contour = live.contour;
+    }
+    if (live.contour_recipe && live.contour_recipe == candidate.contour_recipe) {
+        candidate.contour = live.contour;
+        candidate.contour_prepared = live.contour_prepared;
+        candidate.contour_request = live.contour_request;
+    }
+    candidate.popup_placement = live.popup_placement;
+    candidate.popup_token = live.popup_token;
+    candidate.popup_anchor = live.popup_anchor;
+    candidate.scroll_offset = live.scroll_offset;
     if (live.image == candidate.image) {
         candidate.intrinsic_size = live.intrinsic_size;
         candidate.image_ready = live.image_ready;
@@ -212,6 +227,12 @@ void Scene::ValidateRetainedValues(const std::vector<std::pair<Node *, Node *>> 
     for (const auto &[live, candidate] : pairs) {
         // Multiple binding names for one target retain the same lexicographic
         // projection order as ValidateCandidate's ordered BindingValues map.
+        if (bool(live->contour_source) != bool(candidate->contour_source) ||
+            (live->contour_source && *live->contour_source != *candidate->contour_source) ||
+            live->contour_recipe != candidate->contour_recipe ||
+            live->contour_spec != candidate->contour_spec) {
+            throw std::invalid_argument("Candidate changes retained contour descriptor");
+        }
         std::map<DslProperty, std::pair<std::string, const PropertyValue *>> projected;
         for (const auto &binding : live->bindings) {
             const auto value = values.find(binding.name);
@@ -268,6 +289,13 @@ void Scene::ValidateRetainedValues(const std::vector<std::pair<Node *, Node *>> 
 void Scene::CommitValues(const std::vector<std::pair<Node *, Node *>> &pairs) noexcept
 {
     for (const auto &[live, candidate] : pairs) {
+        if (!live->contour || !candidate->contour || *live->contour != *candidate->contour) {
+            live->contour.swap(candidate->contour);
+        }
+        live->contour_spec.swap(candidate->contour_spec);
+        live->contour_request.swap(candidate->contour_request);
+        live->contour_prepared.swap(candidate->contour_prepared);
+        live->popup_placement.swap(candidate->popup_placement);
         std::swap(live->style, candidate->style);
         std::swap(live->presentation, candidate->presentation);
         live->resolved_state_rules.swap(candidate->resolved_state_rules);
@@ -277,8 +305,29 @@ void Scene::CommitValues(const std::vector<std::pair<Node *, Node *>> &pairs) no
         live->text.swap(candidate->text);
         live->action.swap(candidate->action);
         live->icon.swap(candidate->icon);
+        if (live->kind == Kind::Slider && live->value != candidate->value) {
+            ++live->control_revision;
+        }
+        live->popup_for.swap(candidate->popup_for);
+        live->popup_token = candidate->popup_token;
+        live->popup_anchor = candidate->popup_anchor;
+        live->scroll_offset = candidate->scroll_offset;
+        live->scroll_content_height = candidate->scroll_content_height;
+        live->scroll_speed = candidate->scroll_speed;
+        live->scroll_part.swap(candidate->scroll_part);
         live->value = candidate->value;
+        live->number_domain = candidate->number_domain;
+        live->slider_part.swap(candidate->slider_part);
+        if (live->checked != candidate->checked) {
+            ++live->control_revision;
+        }
         live->checked = candidate->checked;
+        if (live->selected_key != candidate->selected_key) {
+            ++live->control_revision;
+        }
+        live->selected_key.swap(candidate->selected_key);
+        live->option_key.swap(candidate->option_key);
+        live->enabled = candidate->enabled;
         live->image = candidate->image;
         live->intrinsic_size = candidate->intrinsic_size;
         live->image_ready = candidate->image_ready;
@@ -369,6 +418,9 @@ bool Scene::MountRegions(std::span<const RegionUpdate> updates, const BindingVal
         // A detached candidate never supplies the live owner's shaping service.
         candidate.shaper_ = shaper_;
         for (const auto &[live, prepared] : pairs) {
+            prepared->popup_token = live->popup_token;
+            prepared->popup_anchor = live->popup_anchor;
+            prepared->scroll_offset = live->scroll_offset;
             if (live->image == prepared->image) {
                 prepared->intrinsic_size = live->intrinsic_size;
                 prepared->image_ready = live->image_ready;

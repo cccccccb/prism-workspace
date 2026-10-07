@@ -125,7 +125,7 @@ bool ClientApplication::ReplaceUiPrepared(runtime::UiLoadId load,
     }
 
     app.PublishFramePacket();
-    app.DeliverGestureEvents();
+    app.DeliverInteractionEvents();
     return true;
 }
 
@@ -187,6 +187,7 @@ void ClientApplication::Impl::FailFrontend()
     if (scene) {
         scene->CancelInput();
         CollectGestureEvents();
+        CollectControlEvents();
     }
 
     QueueStopRenderWorker();
@@ -209,8 +210,9 @@ void ClientApplication::Impl::FailFrontend()
     while (bridge->render_commands.TryPop()) {
     }
     try {
-        DeliverGestureEvents();
+        DeliverInteractionEvents();
     } catch (...) {
+        control_delivery.Clear();
         pending_gestures.clear();
         delivered_gestures.clear();
     }
@@ -269,7 +271,7 @@ bool ClientApplication::Pump(int timeout_ms, std::span<pollfd> wake_fds)
             app.FailFrontend();
             return false;
         }
-        app.DeliverGestureEvents();
+        app.DeliverInteractionEvents();
         if (app.closed || app.failed) {
             return false;
         }
@@ -318,7 +320,7 @@ bool ClientApplication::Pump(int timeout_ms, std::span<pollfd> wake_fds)
             app.FailFrontend();
             return false;
         }
-        app.DeliverGestureEvents();
+        app.DeliverInteractionEvents();
         if (app.closed || app.failed) {
             return false;
         }
@@ -356,7 +358,7 @@ bool ClientApplication::SetBinding(std::string_view name, runtime::PropertyValue
             app.QueueRenderUpdate(true);
         }
     }
-    app.DeliverGestureEvents();
+    app.DeliverInteractionEvents();
     return true;
 }
 
@@ -377,7 +379,7 @@ bool ClientApplication::ApplyTheme(const contracts::ThemeSnapshot &theme, std::s
             app.PublishFramePacket();
             app.SyncAnimationSampling();
         }
-        app.DeliverGestureEvents();
+        app.DeliverInteractionEvents();
         if (diagnostic) {
             diagnostic->clear();
         }
@@ -398,6 +400,11 @@ std::uint64_t ClientApplication::ThemeGeneration() const
 void ClientApplication::OnCloseRequested(std::function<bool()> callback)
 {
     impl_->on_close_requested = std::move(callback);
+}
+
+void ClientApplication::OnControlValue(std::function<void(const runtime::ControlEdit &)> callback)
+{
+    impl_->control_delivery.SetHandler(std::move(callback));
 }
 
 void ClientApplication::OnTextEdit(std::function<void(std::string_view, std::string_view)> callback)
@@ -440,6 +447,7 @@ void ClientApplication::Close()
     if (impl_->scene) {
         impl_->scene->CancelInput();
         impl_->CollectGestureEvents();
+        impl_->CollectControlEvents();
     }
 
     impl_->QueueStopRenderWorker();
@@ -478,7 +486,7 @@ void ClientApplication::Close()
     }
     while (impl_->bridge->render_commands.TryPop()) {
     }
-    impl_->DeliverGestureEvents();
+    impl_->DeliverInteractionEvents();
 }
 
 } // namespace prism::sdk

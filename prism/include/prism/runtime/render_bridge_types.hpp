@@ -18,6 +18,9 @@ struct RenderPlatformSnapshot {
     std::uint64_t wait_duration_ns{};
     std::uint64_t surface_state_commits{}, surface_pixel_commits{};
     std::uint64_t surface_submission_failures{}, surface_noops{};
+    std::uint64_t popup_lifetime{}, popup_configure_generation{};
+    std::uint64_t popup_pixel_commits{}, popup_configures{}, popup_closes{};
+    contracts::LogicalRect popup_window_bounds{};
 };
 
 // Cumulative backend fields of ClientRenderStats. Scene build counts stay on

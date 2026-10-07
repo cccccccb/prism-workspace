@@ -1,4 +1,5 @@
 #include "prism/runtime/theme_tokens.hpp"
+#include "scene_contour_p.hpp"
 #include "scene_p.hpp"
 #include <algorithm>
 #include <stdexcept>
@@ -26,10 +27,27 @@ std::unique_ptr<Scene::Node> Scene::MakeShallowNode(Blueprint blueprint, std::si
     node->id = {static_cast<std::uint32_t>(nodes_.size()), 1};
     Node *raw = node.get();
     nodes_.push_back(raw);
-    if (blueprint.kind < Kind::Row || blueprint.kind > Kind::TextArea) {
+    if (blueprint.kind < Kind::Row || blueprint.kind > Kind::MenuBack) {
         throw std::invalid_argument("Invalid Blueprint node kind");
     }
     node->kind = blueprint.kind;
+    if (blueprint.contour_recipe) {
+        if (blueprint.contour || !IsPopupKind(node->kind)) {
+            throw std::invalid_argument(
+                "Attached panel recipe requires an exclusive Popup/Menu contour");
+        }
+        node->contour_spec =
+            ResolveContourRecipe(*blueprint.contour_recipe, theme_ ? &*theme_ : nullptr);
+        node->contour_recipe = std::move(blueprint.contour_recipe);
+    }
+    if (blueprint.contour) {
+        if (!SupportsContour(node->kind)) {
+            throw std::invalid_argument("Contour is not supported by this component");
+        }
+        contracts::ValidateContour(*blueprint.contour);
+        node->contour_source =
+            std::make_shared<const contracts::Contour>(std::move(*blueprint.contour));
+    }
     for (const auto &transition : blueprint.transitions) {
         if (!SupportsTransition(node->kind, transition.property) ||
             !(blueprint.allowed_properties & PropertyBit(transition.property)) ||
@@ -74,6 +92,9 @@ std::unique_ptr<Scene::Node> Scene::MakeShallowNode(Blueprint blueprint, std::si
                 throw std::invalid_argument("Material requires a theme snapshot");
             }
             const auto *name = std::get_if<std::string>(&property.value);
+            if ((node->contour_source || node->contour_recipe) && name && *name == "window") {
+                throw std::invalid_argument("Window material requires the standard frame contour");
+            }
             const auto *material = name ? contracts::FindThemeMaterial(*theme_, *name) : nullptr;
             if (!material) {
                 throw std::invalid_argument("Unknown theme material");
@@ -146,6 +167,10 @@ std::unique_ptr<Scene::Node> Scene::MakeShallowNode(Blueprint blueprint, std::si
             "Text editor requires a nonempty action and bounded UTF-8 text");
     }
     node->gesture = std::move(blueprint.gesture);
+    if ((node->contour_source || node->contour_recipe) &&
+        (!node->slider_part.empty() || !node->scroll_part.empty())) {
+        throw std::invalid_argument("Generated slider/scroll parts do not support Contour");
+    }
     PrepareNodeStates(*node, std::move(blueprint.state_rules));
     return node;
 }
@@ -154,6 +179,10 @@ Blueprint Scene::CurrentBlueprint(const Node &node) const
 {
     Blueprint result;
     result.kind = node.kind;
+    result.contour_recipe = node.contour_recipe;
+    if (node.contour_source) {
+        result.contour = *node.contour_source;
+    }
     result.region = node.region;
     result.region_mounted = node.region_mounted;
     result.bindings = node.bindings;

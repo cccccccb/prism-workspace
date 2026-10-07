@@ -1,5 +1,6 @@
 #pragma once
 #include "prism/animation/timeline.hpp"
+#include "prism/contracts/panel_contour.hpp"
 #include "prism/runtime/dsl_schema.hpp"
 #include "prism/runtime/presentation.hpp"
 #include "prism/runtime/scene.hpp"
@@ -25,6 +26,13 @@ struct Scene::Node {
     VisualPresentation presentation{};
     Node *parent{};
     Style style{};
+    std::shared_ptr<const contracts::Contour> contour_source;
+    std::shared_ptr<const contracts::Contour> contour;
+    std::optional<AttachedPanelRecipe> contour_recipe;
+    std::optional<contracts::PanelContourSpec> contour_spec;
+    std::optional<contracts::PanelContourRequest> contour_request;
+    std::shared_ptr<const contracts::Contour> contour_prepared;
+    std::optional<PopupPlacement> popup_placement;
     std::map<DslProperty, PropertyValue> properties;
     std::set<DslProperty> explicit_properties;
     std::vector<ThemeRef> theme_refs;
@@ -35,7 +43,19 @@ struct Scene::Node {
     std::string action;
     std::string icon;
     double value{0};
+    NumberDomain number_domain;
+    std::string slider_part;
+    std::string popup_for;
+    std::uint64_t popup_token{};
+    contracts::NodeId popup_anchor;
+    std::string scroll_part;
+    double scroll_offset{}, scroll_content_height{};
+    double scroll_speed{3};
     bool checked{false};
+    std::string selected_key;
+    std::string option_key;
+    std::uint64_t control_revision{};
+    std::unique_ptr<ControlValueSession> control_session;
     contracts::ResourceId image{};
     contracts::LogicalSize intrinsic_size{};
     bool image_ready{false};
@@ -57,6 +77,7 @@ struct Scene::InputState {
         std::shared_ptr<const InputSnapshot> snapshot;
         bool submitted{};
         std::uint64_t gesture{};
+        std::uint64_t control_revision{};
     };
 
     struct Focus {
@@ -70,6 +91,7 @@ struct Scene::InputState {
         contracts::NodeId node{};
         std::uint32_t key{};
         std::string action;
+        std::uint64_t control_revision{};
     };
 
     struct Touch {
@@ -97,6 +119,22 @@ struct Scene::InputState {
         std::optional<contracts::GesturePhase> terminal;
     };
 
+    struct SliderStream {
+        contracts::NodeId node;
+        std::string action;
+        contracts::InputSource source;
+        std::uint32_t key{}; // Zero is a pointer stream.
+        contracts::LogicalRect track;
+        std::uint64_t interaction{};
+        std::uint64_t revision{};
+        NumberDomain domain;
+        ControlValueSession session{NumberDomain{}, 0.0};
+        bool preview_pending{};
+        std::optional<ControlValueEvent> terminal;
+    };
+
+    std::vector<SliderStream> sliders;
+    std::uint64_t slider_sequence{};
     std::string clipboard;
     std::vector<Gesture> gestures;
     std::vector<Pointer> pointers;
@@ -105,6 +143,13 @@ struct Scene::InputState {
     std::vector<Touch> touches;
     // Only active targets are revisited for pointer motion; idle nodes need no scan.
     std::vector<contracts::NodeId> active;
+};
+
+struct Scene::PopupSurfaceAdoption {
+    PopupSurfaceIdentity identity;
+    PopupSurfacePlan plan;
+    std::shared_ptr<const InputSnapshot> trusted_input;
+    std::map<std::uint32_t, double> scroll_offsets;
 };
 
 struct Scene::AnimationState {

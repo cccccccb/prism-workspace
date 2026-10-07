@@ -26,6 +26,9 @@ bool Scene::ApplyTheme(const contracts::ThemeSnapshot &theme, std::string *diagn
             if (!IsVisible(*live)) {
                 continue;
             }
+            if (live->contour_spec != prepared->contour_spec) {
+                affected = affected | Dirty::Layout | Dirty::Paint | Dirty::Composite;
+            }
             for (unsigned id = 0; id <= static_cast<unsigned>(DslProperty::Last); ++id) {
                 const auto property = static_cast<DslProperty>(id);
                 if (property != DslProperty::Material &&

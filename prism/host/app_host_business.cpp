@@ -71,6 +71,13 @@ bool AppHost::Impl::HandleCloseRequested()
     return !business || business->RequestClose();
 }
 
+void AppHost::Impl::HandleControlValue(const runtime::ControlEdit &edit)
+{
+    if (business) {
+        business->ControlValue(edit);
+    }
+}
+
 void AppHost::Impl::HandleTextEdit(std::string_view action, std::string_view text)
 {
     if (business) {
@@ -111,6 +118,7 @@ bool AppHost::Impl::StartBusiness()
     }
 
     frontend->OnCloseRequested(std::bind_front(&Impl::HandleCloseRequested, this));
+    frontend->OnControlValue(std::bind_front(&Impl::HandleControlValue, this));
     frontend->OnTextEdit(std::bind_front(&Impl::HandleTextEdit, this));
     frontend->OnAction(std::bind_front(&Impl::HandleAction, this));
     frontend->OnGesture(std::bind_front(&Impl::HandleGesture, this));

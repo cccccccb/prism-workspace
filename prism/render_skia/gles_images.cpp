@@ -73,6 +73,9 @@ bool GlesRenderer::UploadImage(contracts::ResourceId id)
         return false;
     }
 
+    // Uploads may be scheduled after switching WSI, before selecting a render
+    // target. Reset state independently of the last rendered target's FBO 0.
+    self.context->resetContext();
     UploadFramebuffer restore(*self.context);
     self.PruneImages();
     try {

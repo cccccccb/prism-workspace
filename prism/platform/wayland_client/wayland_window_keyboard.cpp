@@ -126,6 +126,8 @@ void WaylandWindow::ReleaseKeyboard()
 {
     const auto source = KeyboardSource();
     const bool notify = keyboard_ != nullptr;
+    auto *focus = keyboard_focus_surface_;
+    pending_keyboard_focus_.clear();
     if (keyboard_) {
         wl_keyboard_release(keyboard_);
         keyboard_ = nullptr;
@@ -135,9 +137,15 @@ void WaylandWindow::ReleaseKeyboard()
     keyboard_state_ = nullptr;
     xkb_context_unref(keyboard_context_);
     keyboard_context_ = nullptr;
+    keyboard_focus_surface_ = nullptr;
 
     if (notify) {
-        Emit(contracts::FocusEvent{contracts::WindowId{1}, false, source});
+        const contracts::FocusEvent event{contracts::WindowId{1}, false, source};
+        if (FindPopup(focus)) {
+            EmitSurfaceInput(focus, event);
+        } else {
+            Emit(event);
+        }
     }
 }
 
@@ -179,17 +187,21 @@ void WaylandWindow::KeyboardKeymap(void *data, wl_keyboard *, std::uint32_t form
     }
 }
 
-void WaylandWindow::KeyboardEnter(void *data, wl_keyboard *, std::uint32_t, wl_surface *,
+void WaylandWindow::KeyboardEnter(void *data, wl_keyboard *, std::uint32_t, wl_surface *surface,
                                   wl_array *)
 {
     auto &self = *static_cast<WaylandWindow *>(data);
-    self.Emit(contracts::FocusEvent{contracts::WindowId{1}, true, self.KeyboardSource()});
+    self.keyboard_focus_surface_ = surface;
+    self.pending_keyboard_focus_.push_back({surface, true, self.KeyboardSource()});
 }
 
-void WaylandWindow::KeyboardLeave(void *data, wl_keyboard *, std::uint32_t, wl_surface *)
+void WaylandWindow::KeyboardLeave(void *data, wl_keyboard *, std::uint32_t, wl_surface *surface)
 {
     auto &self = *static_cast<WaylandWindow *>(data);
-    self.Emit(contracts::FocusEvent{contracts::WindowId{1}, false, self.KeyboardSource()});
+    if (self.keyboard_focus_surface_ == surface) {
+        self.keyboard_focus_surface_ = nullptr;
+    }
+    self.pending_keyboard_focus_.push_back({surface, false, self.KeyboardSource()});
     if (self.keyboard_state_) {
         xkb_state_update_mask(self.keyboard_state_, 0, 0, 0, 0, 0, 0);
     }
@@ -199,22 +211,34 @@ void WaylandWindow::KeyboardKey(void *data, wl_keyboard *, std::uint32_t, std::u
                                 std::uint32_t key, std::uint32_t state)
 {
     auto &self = *static_cast<WaylandWindow *>(data);
-    ++self.key_count_;
-    self.Emit(contracts::KeyEvent{
-        contracts::WindowId{1}, HidUsage(key),
-        state == WL_KEYBOARD_KEY_STATE_PRESSED ? contracts::ButtonState::Pressed
-                                               : contracts::ButtonState::Released,
-        false, InputTimeNs(), self.KeyboardSource(), self.CurrentKeyModifiers()});
+    if (!self.keyboard_focus_surface_) {
+        return;
+    }
+    self.FlushKeyboardFocus();
+    auto *focus = self.keyboard_focus_surface_;
+    if (!focus) {
+        return;
+    }
+    if (focus == self.surface_) {
+        ++self.key_count_;
+    }
+    self.EmitSurfaceInput(focus, contracts::KeyEvent{contracts::WindowId{1}, HidUsage(key),
+                                                     state == WL_KEYBOARD_KEY_STATE_PRESSED
+                                                         ? contracts::ButtonState::Pressed
+                                                         : contracts::ButtonState::Released,
+                                                     false, InputTimeNs(), self.KeyboardSource(),
+                                                     self.CurrentKeyModifiers()});
     const auto modifiers = self.CurrentKeyModifiers();
-    if (state == WL_KEYBOARD_KEY_STATE_PRESSED && self.keyboard_state_ && !modifiers.control &&
-        !modifiers.alt && !modifiers.meta) {
+    if (focus == self.keyboard_focus_surface_ && state == WL_KEYBOARD_KEY_STATE_PRESSED &&
+        self.keyboard_state_ && !modifiers.control && !modifiers.alt && !modifiers.meta) {
         char text[128]{};
         const int length =
             xkb_state_key_get_utf8(self.keyboard_state_, key + 8, text, sizeof(text));
         if (length > 0 && length < static_cast<int>(sizeof(text)) &&
             static_cast<unsigned char>(text[0]) >= 32 && text[0] != 127) {
-            self.Emit(contracts::TextInputEvent{contracts::WindowId{1}, std::string(text, length),
-                                                InputTimeNs()});
+            self.EmitSurfaceInput(focus, contracts::TextInputEvent{contracts::WindowId{1},
+                                                                   std::string(text, length),
+                                                                   InputTimeNs()});
         }
     }
 }

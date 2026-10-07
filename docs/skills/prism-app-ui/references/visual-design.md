@@ -18,7 +18,7 @@ Prism 的默认方向是图标为主、文字为辅的简洁桌面。参考 mac-
 
 | 层次 | 表达方式 | 设计理由 |
 | --- | --- | --- |
-| 普通窗口 | `material: "window"`、统一根裁剪 | 跟随会话主题，与 WM 外框共享轮廓 |
+| 普通窗口 | `material: "window"`、正文裁剪 | 跟随会话主题，与 WM 外框共享轮廓；浮层裁剪另见 3.1 |
 | 内容分组 | `material: "card"`、小间距、短标题 | 分清业务区域，不把每行都做成独立窗口 |
 | 可操作控件 | `IconButton` / `Button` / `Toggle`，`material: "control"` | 形状与 hover/focus 提示可操作性 |
 | 主操作 | 同样的控件，少量 `@accent` 强调 | 避免一排按钮都抢占注意力 |
@@ -176,6 +176,25 @@ Card(material: "window", padding: "@window_padding", clip: true) {
 普通根也不要硬写 `cornerRadius: 12`：square 的根应变成直角，其他主题的客户端
 轮廓应与 WM `shape: "window"` 一致。局部按钮、封面装饰可以有自己的圆形/圆角，
 普通根覆写圆角则不能声称仍匹配全局窗口外框。
+
+有 root-last Popup/Menu 的窗口应把普通内容裁剪与浮层分开：根仍使用 `window`
+材质，普通内容容器声明 `clip: true`，Popup/Menu 放在其外、作为根末尾的兄弟。
+例如将上面的根改为 `Card(material: "window", padding: "@window_padding")`，
+其 `VStack` 改为 `VStack(spacing: 8, clip: true)`，再在 VStack 后声明 Menu。
+菜单自己的轮廓、内容裁剪和 ScrollView 保持。原生菜单可能连同阴影伸出父窗口；
+若继续裁剪整个根，Host 必须保留该裁剪语义并回退，不能为了 native 静默忽略它。
+检查真实菜单的最终 configure 导出及安装版本，不能仅用普通 Scene 截图判断能力。
+
+圆润三角连接颈字段自v25支持；C造型需要匹配v26 Host及主题。声明
+`neckShape: "roundedTriangle"`，宽/高使用 `@panel_neck_width`/`@panel_neck_height`。
+保持肩部、顶点和正文为一个闭合 Contour，不能用图标、重叠矩形或独立箭头拼接。
+当前 64×20 是主题的起点，可按锚点和面板比例调整；旧 softTab 平顶仍是兼容默认。
+圆润三角的 Square 分支使用直线；详见[轮廓契约](../../../SURFACE_CONTOUR_CONTRACT.md)。
+v25 实机造型尚未获用户认可：常规圆润主题的目标是图02的宽肩、柔和衔接和顶部
+圆弧，整段曲线不应显成直斜边三角。方正主题才采用直线三角。圆弧/圆顶/圆润收尖
+提案中用户选定[对照稿 C](../../../design/interface-system/neck-study-v1.png)：宽肩柔和
+衔接，整段曲线逐渐收尖，顶部饱满圆弧。v26按此调整通用配方；不能把v25的尖锐
+试验外观当作已确认标准。设计稿选择与最终实机验收分别记录。
 
 ### 3.2 局部材料
 
@@ -412,7 +431,8 @@ InteractionTarget，声明必须位于其 Visual 子树。规则只接受数字/
 支持 hovered、pressed、captured、disabled、focused、focusVisible。普通条件的同属性
 优先级为 disabled > pressed > captured > hovered；焦点条件写入的属性不能再被其他条件
 写入，重复条件/属性也拒绝。示例将键盘焦点颜色与按下缩放分开。disabled 来自通用输入
-禁用接口，当前没有 DSL `enabled` 属性；不要伪造 `$disabled` 状态规则来代替输入禁用。
+禁用接口；v22 之后源码新增 `enabled: false/$binding`，旧 v22 不支持。
+不要用视觉 `$disabled` binding 代替输入禁用，`enabled` 本身不可写入状态规则。
 
 只有 Visual 可声明 translateX/Y（−8192..8192）、scaleX/Y（0.01..8）、originX/Y（0..1）
 及 opacity（0..1）；原点默认 0.5，其余默认平移 0、缩放/opacity 1。原点不能 Transition。
@@ -477,9 +497,10 @@ Card(material: "card", padding: 8, overflow: "clip") {
 遵循实际业务契约；deferred 占位、视觉 check、frame callback 都不能冒充业务成功
 或内容已真实呈现。错误重试也应遵循启动期限与任务取消规则，详见主指南。
 
-在 pending 阶段显示原操作按钮时，业务 handler 必须检查数据是否可用。当前 DSL
-没有通用 `disabled` / `enabled` 控件属性；不要造一个 `disabled: true` 来解决问题。
-如果不应可操作，隐藏操作节点，或使用无 action 的 Icon 并附状态说明。
+在 pending 阶段显示原操作按钮时，业务 handler 必须检查数据是否可用。
+v22 之后源码可声明 `enabled: $canSubmit`（Boolean）；没有 `disabled` 属性。
+旧 v22 仍须隐藏操作节点，或使用无 action 的 Icon 并附状态说明。
+禁用视觉使用现有状态规则；仅改变颜色或透明度不会禁用输入。
 
 ## 7. 图片、裁剪与内容资源
 
@@ -514,7 +535,8 @@ Card(height: 120, material: "card", padding: 8, clip: true) {
 | 图标按钮、文字按钮、Progress、Toggle、Separator | 已有；业务状态与动作仍由 module 维护 |
 | hover/pressed/capture/focus、Tab/Shift+Tab、Enter/Space | 源码已有统一状态；主按钮与键盘释放时激活，取消不触发 action；仍非完整无障碍系统 |
 | Interface v2 critical/deferred 与稳定 Slot | 已有；声明式加载顺序不是动画/滚动布局能力 |
-| Slider 拖动、通用滚动容器、虚拟列表 | 当前视觉 schema 未提供，不能写伪 API |
+| 水平 Slider | 本轮源码可用；三个 sliderPart Visual、固定数值域，见值控件契约第 11 节 |
+| 通用滚动容器、虚拟列表 | 当前视觉 schema 未提供，不能写伪 API |
 | TextField / TextArea | 工作区源码已补基础编辑；需新版 Host，v19 不包含；非完整 IME/系统剪贴板 |
 | CSS gradient/box-shadow、百分比尺寸、media query | 当前 DSL 未提供；使用现有类型化属性，Visual.opacity 也不是任意 CSS 样式 |
 | 自动换行/省略号/自动缩字、任意自定义字体属性 | 未提供对应声明式属性，不作隐式假设 |
@@ -565,8 +587,9 @@ schema 能力；新增能力以源代码与相应测试/发布记录为准。
 前两者表示全屏/恢复，后两者分别表示左右/上下排列；图标本身不会获取 WM 权限。
 平台窗口控制面板用 `controlTint`、`text`、`hover` 等共享 token，禁用项保留图标，
 降低 opacity，并隐藏实际 gesture target。固定外层 InteractionTarget 保持输入区域，
-防止禁用区域的点击透传。当前 DSL 没有 `enabled` 属性；`Scene::SetEnabled` 是 typed
-运行时接口，不应凭该接口名称臆造 DSL 属性。
+防止禁用区域的点击透传。v22 之后源码的 `enabled` 会移除该子树的命中，
+不自动吞掉点击，也不创建模态屏障；控制面板如需阻挡底层仍保留独立感应范围。
+`Scene::SetEnabled` 与该属性共享本地值。
 
 截至本阶段，Topbar 鼠标手势已实现组沉浸/恢复；私有 LayoutControls 已实现分隔线
 拖动及窗口控制，新的触屏操作延期。参见 [布局控制计划](../../../LAYOUT_CONTROL_IMPLEMENTATION_PLAN.md)。

@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -17,7 +18,30 @@
 
 extern "C" {
 #include <wlr/interfaces/wlr_keyboard.h>
+#include <wlr/types/wlr_compositor.h>
+#include <wlr/types/wlr_scene.h>
+#include <wlr/types/wlr_seat.h>
 }
+
+namespace {
+bool InputReady(prism::wm::WlrServer &server, std::uint32_t surface_id)
+{
+    if (!surface_id || !server.GetScene() || !server.GetSeat()) {
+        return false;
+    }
+
+    double sx{}, sy{};
+    auto *node =
+        wlr_scene_node_at(&server.GetScene()->tree.node, 1280 * 0.25, 720 * 0.25, &sx, &sy);
+    if (!node || node->type != WLR_SCENE_NODE_BUFFER) {
+        return false;
+    }
+    auto *surface = wlr_scene_surface_try_from_buffer(wlr_scene_buffer_from_node(node));
+    return surface && surface->surface->mapped &&
+           wl_resource_get_id(surface->surface->resource) == surface_id &&
+           server.GetSeat()->keyboard_state.focused_surface == surface->surface;
+}
+} // namespace
 
 int main()
 {
@@ -52,6 +76,7 @@ int main()
     server.HandleNewInput(&test_keyboard.base);
 
     std::atomic<bool> client_mapped{false};
+    std::atomic<std::uint32_t> client_surface_id{};
     std::atomic<bool> client_done{false};
     std::atomic<bool> client_pass{false};
     std::thread client([&] {
@@ -92,6 +117,7 @@ int main()
             client_done = true;
             return;
         }
+        client_surface_id = wl_proxy_get_id(reinterpret_cast<wl_proxy *>(window.Surface()));
         bool maximized = false;
         bool redrawn = false;
         int configure_before_maximize = 0;
@@ -147,7 +173,9 @@ int main()
     auto input_time = deadline;
     while (!client_done && std::chrono::steady_clock::now() < deadline) {
         server.RunEventLoopIteration(10);
-        if (client_mapped && !input_sent) {
+        // IsMapped records the client's local pixel commit. The WM must consume
+        // it and expose the real input surface before this one-shot injection.
+        if (client_mapped && !input_sent && InputReady(server, client_surface_id)) {
             server.HandleCursorMotionAbsolute(100, 0.25, 0.25);
             server.HandleCursorButton(101, 272, 1);
             server.HandleCursorButton(102, 272, 0);

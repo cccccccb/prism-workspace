@@ -52,6 +52,17 @@ void ValidateDisplayList(const DisplayList &list)
                       shadow->blur <= 512 && std::isfinite(shadow->offset_y) &&
                       std::abs(shadow->offset_y) <= 16384,
                   index, "invalid shadow bounds/radius/blur/offset");
+        } else if (const auto *fill = std::get_if<FillContour>(&command)) {
+            ValidateContour(fill->contour);
+        } else if (const auto *stroke = std::get_if<StrokeContour>(&command)) {
+            ValidateContour(stroke->contour);
+            Check(std::isfinite(stroke->width) && stroke->width >= 0 && stroke->width <= 512, index,
+                  "invalid contour stroke width");
+        } else if (const auto *shadow = std::get_if<ContourShadow>(&command)) {
+            ValidateContour(shadow->contour);
+            Check(std::isfinite(shadow->blur) && shadow->blur >= 0 && shadow->blur <= 512 &&
+                      std::isfinite(shadow->offset_y) && std::abs(shadow->offset_y) <= 16384,
+                  index, "invalid contour shadow blur/offset");
         } else if (const auto *icon = std::get_if<DrawIcon>(&command)) {
             Check(ValidRect(icon->bounds) && icon->icon >= VectorIcon::Grid &&
                       icon->icon <= VectorIcon::HeartOutline,
@@ -77,6 +88,10 @@ void ValidateDisplayList(const DisplayList &list)
             Check(ValidRect(clip->bounds) && std::isfinite(clip->radius) && clip->radius >= 0 &&
                       stack.size() < 256,
                   index, "invalid rounded clip bounds/radius/depth");
+            stack.push_back(Scope::Clip);
+        } else if (const auto *clip = std::get_if<PushClipContour>(&command)) {
+            ValidateContour(clip->contour);
+            Check(stack.size() < 256, index, "contour clip depth exceeds 256");
             stack.push_back(Scope::Clip);
         } else if (const auto *transform = std::get_if<PushTransform>(&command)) {
             Check(stack.size() < 256, index, "transform stack depth exceeds 256");

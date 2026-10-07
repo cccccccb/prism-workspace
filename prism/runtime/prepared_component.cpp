@@ -1,6 +1,8 @@
 #include "prism/runtime/prepared_component.hpp"
 #include "prepared_component_p.hpp"
+#include <initializer_list>
 #include <utility>
+#include <variant>
 
 namespace prism::runtime {
 namespace {
@@ -47,6 +49,8 @@ Blueprint LinkNode(const PreparedNode &node, const std::vector<contracts::Resour
     result.transitions = node.transitions;
     result.state_rules = node.state_rules;
     result.gesture = node.gesture;
+    result.contour = node.contour;
+    result.contour_recipe = node.contour_recipe;
     result.properties.reserve(node.properties.size());
     result.children.reserve(node.children.size());
 
@@ -73,6 +77,17 @@ std::uint64_t NodeBytes(const PreparedNode &node) noexcept
                           node.transitions.capacity() * sizeof(TransitionSpec) +
                           node.state_rules.capacity() * sizeof(StateRule) +
                           node.children.capacity() * sizeof(PreparedNode) + node.region.capacity();
+    if (node.contour) {
+        bytes += node.contour->points.capacity() * sizeof(contracts::LogicalPoint);
+    }
+    if (node.contour_recipe) {
+        const auto &recipe = *node.contour_recipe;
+        for (const auto *number : {&recipe.radius, &recipe.neck_width, &recipe.neck_height}) {
+            if (const auto *reference = std::get_if<ContourThemeNumber>(number)) {
+                bytes += reference->name.capacity();
+            }
+        }
+    }
     for (const auto &property : node.properties) {
         if (const auto *text = std::get_if<std::string>(&property.value)) {
             bytes += text->capacity();

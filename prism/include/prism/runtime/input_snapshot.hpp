@@ -1,8 +1,10 @@
 #pragma once
 
+#include "prism/contracts/contour.hpp"
 #include "prism/contracts/types.hpp"
 #include "prism/runtime/gesture_spec.hpp"
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -18,6 +20,9 @@ struct InputSnapshotNode {
     std::vector<contracts::NodeId> children;
     contracts::LogicalRect bounds{};
     double radius{};
+    std::shared_ptr<const contracts::Contour> contour;
+    double scroll_offset{};
+    contracts::LogicalRect slider_track{};
     bool clip{};
     bool visible{}; // Includes ancestor visibility.
     bool enabled{}; // Includes ancestor availability.
@@ -29,7 +34,8 @@ struct InputSnapshotNode {
 };
 
 struct InputSnapshot {
-    std::uint64_t scene{};   // Process-local Scene identity; node indices alone are not sufficient.
+    std::uint64_t scene{}; // Process-local Scene identity; node indices alone are not sufficient.
+    std::uint64_t popup_token{};
     std::uint64_t version{}; // Nonzero and monotonic within one Scene.
     contracts::NodeId root{};
     contracts::LogicalSize viewport{};

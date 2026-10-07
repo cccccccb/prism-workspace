@@ -47,4 +47,5 @@ const ComponentSpec *FindComponent(std::string_view name);
 bool ValidPropertyValue(DslProperty id, const PropertyValue &value);
 bool SupportsTransition(Kind kind, DslProperty property);
 bool SupportsState(Kind kind, DslProperty property);
+bool SupportsContour(Kind kind);
 } // namespace prism::runtime

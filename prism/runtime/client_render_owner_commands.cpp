@@ -22,17 +22,13 @@ bool ClientRenderOwner::DrainCommands()
                 throw std::runtime_error("Invalid render UI installation");
             }
             if (installed_ui_ != installed->ui) {
+                ClosePopup();
+                blocked_popup_request_.reset();
                 installed_ui_ = installed->ui;
-                input_ui_ = installed_ui_;
-                input_snapshot_.reset();
+                root_target_.ResetSubmission();
+                root_target_.input_ui = installed_ui_;
                 animation_sampling_active_ = false;
                 ResetFrameOpportunity();
-                render_frame_.reset();
-                committed_frame_.reset();
-                committed_damage_resource_epoch_ = 0;
-                prepared_frame_.reset();
-                prepared_damage_.reset();
-                damage_history_.Invalidate();
             }
             continue;
         }
@@ -44,8 +40,9 @@ bool ClientRenderOwner::DrainCommands()
             if (invalidated->ui == installed_ui_) {
                 // A later UI mutation superseded the candidate already read
                 // from the queue. Keep the last successful pixel baseline.
-                render_frame_.reset();
-                approved_frame_.reset();
+                root_target_.render_frame.reset();
+                popup_frame_.reset();
+                ApproveFrame({});
                 if (!frame_opportunity_) {
                     spontaneous_animation_frame_allowed_ = false;
                 }
@@ -58,11 +55,11 @@ bool ClientRenderOwner::DrainCommands()
             if (!frame->frame || frame->frame->ui != installed_ui_) {
                 throw std::runtime_error("Render frame belongs to an uninstalled UI");
             }
-            render_frame_ = std::move(frame->frame);
+            root_target_.render_frame = std::move(frame->frame);
             if (animation_sampling_active_) {
-                approved_frame_ = !frame_opportunity_ && spontaneous_animation_frame_allowed_
-                                      ? render_frame_
-                                      : nullptr;
+                ApproveFrame(!frame_opportunity_ && spontaneous_animation_frame_allowed_
+                                 ? root_target_.render_frame
+                                 : nullptr);
             }
             window_.RequestUpdate(true);
             continue;
@@ -70,6 +67,13 @@ bool ClientRenderOwner::DrainCommands()
 
         if (auto *sampling = std::get_if<runtime::SetAnimationSamplingCommand>(&*command)) {
             SetAnimationSampling(*sampling);
+            continue;
+        }
+
+        if (const auto *rejected = std::get_if<runtime::RejectPopupCommand>(&*command)) {
+            if (rejected->ui == popup_ui_ && rejected->identity == PopupIdentity(popup_.Target())) {
+                ClosePopup(true);
+            }
             continue;
         }
 
@@ -117,9 +121,60 @@ bool ClientRenderOwner::DrainCommands()
 void ClientRenderOwner::ResetFrameOpportunity() noexcept
 {
     frame_opportunity_.reset();
-    approved_frame_.reset();
+    ApproveFrame({});
     opportunity_candidate_sequence_ = 0;
     spontaneous_animation_frame_allowed_ = false;
+}
+
+void ClientRenderOwner::ApproveFrame(std::shared_ptr<const runtime::FramePacket> frame)
+{
+    if (frame && frame == approved_frame_) {
+        return;
+    }
+    approved_frame_ = std::move(frame);
+    approved_root_consumed_ = false;
+    approved_popup_consumed_ = true;
+    if (!approved_frame_) {
+        return;
+    }
+
+    const auto &child = approved_frame_->popup_surface_frame;
+    const auto target = popup_.Target();
+    approved_popup_consumed_ = !child || !target || child->ui != approved_frame_->ui ||
+                               child->worker != worker_generation_ ||
+                               child->identity != PopupIdentity(target);
+}
+
+void ClientRenderOwner::ConsumeApprovedRoot(
+    const std::shared_ptr<const runtime::FramePacket> &frame) noexcept
+{
+    if (!animation_sampling_active_ || !approved_frame_ || frame != approved_frame_) {
+        return;
+    }
+    approved_root_consumed_ = true;
+    FinishApprovedFrame();
+}
+
+void ClientRenderOwner::ConsumeApprovedPopup(
+    const std::shared_ptr<const runtime::PopupFramePacket> &frame) noexcept
+{
+    if (!animation_sampling_active_ || !approved_frame_ ||
+        frame != approved_frame_->popup_surface_frame || !frame ||
+        frame->identity != PopupIdentity(popup_.Target())) {
+        return;
+    }
+    approved_popup_consumed_ = true;
+    FinishApprovedFrame();
+}
+
+void ClientRenderOwner::FinishApprovedFrame() noexcept
+{
+    if (!approved_frame_ || !approved_root_consumed_ || !approved_popup_consumed_) {
+        return;
+    }
+    ApproveFrame({});
+    spontaneous_animation_frame_allowed_ = false;
+    window_.RequestUpdate(true);
 }
 
 void ClientRenderOwner::SetAnimationSampling(runtime::SetAnimationSamplingCommand command)
@@ -136,7 +191,7 @@ void ClientRenderOwner::SetAnimationSampling(runtime::SetAnimationSamplingComman
     if (command.active) {
         // The packet already consumed by the worker is only a candidate. The
         // successful submission remains the damage and presentation baseline.
-        render_frame_.reset();
+        root_target_.render_frame.reset();
     }
     window_.RequestUpdate(true);
 }
@@ -155,14 +210,16 @@ void ClientRenderOwner::AnswerFrameOpportunity(runtime::AnswerFrameOpportunityCo
          command.frame->configure_count != command.configure_count || !command.frame->sequence)) {
         throw std::runtime_error("Invalid frame opportunity response packet");
     }
-    if (command.frame && committed_frame_ && command.frame->ui == committed_frame_->ui &&
-        command.frame->sequence < committed_frame_->sequence) {
+    if (command.frame && root_target_.committed_frame &&
+        command.frame->ui == root_target_.committed_frame->ui &&
+        command.frame->sequence < root_target_.committed_frame->sequence) {
         ResetFrameOpportunity();
         window_.RequestUpdate(true);
         return;
     }
-    if (render_frame_ && render_frame_->sequence > opportunity_candidate_sequence_ &&
-        (!command.frame || render_frame_->sequence > command.frame->sequence)) {
+    if (root_target_.render_frame &&
+        root_target_.render_frame->sequence > opportunity_candidate_sequence_ &&
+        (!command.frame || root_target_.render_frame->sequence > command.frame->sequence)) {
         // The UI published a newer packet after this opportunity was sent.
         // A stale response must not roll it back or park its only permit.
         ResetFrameOpportunity();
@@ -173,9 +230,9 @@ void ClientRenderOwner::AnswerFrameOpportunity(runtime::AnswerFrameOpportunityCo
     frame_opportunity_.reset();
     opportunity_candidate_sequence_ = 0;
     spontaneous_animation_frame_allowed_ = true;
-    approved_frame_ = std::move(command.frame);
+    ApproveFrame(std::move(command.frame));
     if (approved_frame_) {
-        render_frame_ = approved_frame_;
+        root_target_.render_frame = approved_frame_;
         window_.RequestUpdate(true);
     }
 }
@@ -196,7 +253,8 @@ bool ClientRenderOwner::IssueFrameOpportunity()
     }
 
     frame_opportunity_ = opportunity;
-    opportunity_candidate_sequence_ = render_frame_ ? render_frame_->sequence : 0;
+    opportunity_candidate_sequence_ =
+        root_target_.render_frame ? root_target_.render_frame->sequence : 0;
     return true;
 }
 
@@ -215,7 +273,7 @@ bool ClientRenderOwner::RegisterImage(runtime::RegisterImageCommand command)
         throw std::runtime_error("Render damage image registration failed");
     }
     if (renderer_) {
-        if (!egl_.MakeCurrent()) {
+        if (!root_target_.egl.MakeCurrent()) {
             throw std::runtime_error("Render image registration context unavailable");
         }
         if (found != render_images_.end()) {
@@ -238,9 +296,10 @@ bool ClientRenderOwner::ReleaseImage(runtime::ReleaseImageCommand command)
         throw std::runtime_error("Invalid render image release");
     }
 
+    RetirePopupImage(command.version);
     auto found = render_images_.find(command.version.id.value);
     if (found != render_images_.end() && found->second.version == command.version) {
-        if (renderer_ && !egl_.MakeCurrent()) {
+        if (renderer_ && !root_target_.egl.MakeCurrent()) {
             renderer_->Abandon();
             renderer_.reset();
             throw std::runtime_error("Render image release context unavailable");
@@ -269,9 +328,10 @@ bool ClientRenderOwner::EnsureRenderer(int width, int height)
     if (!window_.IsConfigured() || width <= 0 || height <= 0) {
         return false;
     }
-    if (!egl_.Ready()) {
+    if (!root_target_.egl.Ready()) {
         const auto started = std::chrono::steady_clock::now();
-        const bool opened = egl_.Open(window_.Display(), window_.Surface(), width, height);
+        const bool opened = (egl_context_.Ready() || egl_context_.Open(window_.Display())) &&
+                            root_target_.egl.Open(egl_context_, window_.Surface(), width, height);
         if (!egl_init_sampled_) {
             startup_stats_.egl_init_us =
                 static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
@@ -283,15 +343,15 @@ bool ClientRenderOwner::EnsureRenderer(int width, int height)
             return false;
         }
 
-        gl_renderer_ = egl_.GlRenderer();
-        const auto capability = egl_.Capabilities();
-        backend_stats_.buffer_age_supported = capability.buffer_age;
-        backend_stats_.swap_damage_supported = capability.swap_damage;
-        backend_stats_.partial_update_supported = capability.partial_update;
-        damage_history_.Reset(
+        gl_renderer_ = root_target_.egl.GlRenderer();
+        const auto capability = root_target_.egl.Capabilities();
+        root_target_.backend_stats.buffer_age_supported = capability.buffer_age;
+        root_target_.backend_stats.swap_damage_supported = capability.swap_damage;
+        root_target_.backend_stats.partial_update_supported = capability.partial_update;
+        root_target_.damage_history.Reset(
             {static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height)});
     }
-    if (!egl_.Resize(width, height) || !egl_.MakeCurrent()) {
+    if (!root_target_.egl.Resize(width, height) || !root_target_.egl.MakeCurrent()) {
         return false;
     }
     if (!renderer_) {
@@ -301,7 +361,8 @@ bool ClientRenderOwner::EnsureRenderer(int width, int height)
         }
 
         const auto started = std::chrono::steady_clock::now();
-        auto next = std::make_unique<render_skia::GlesRenderer>(config_.font_path, options);
+        auto next = std::make_unique<render_skia::GlesRenderer>(
+            config_.font_path, root_target_.egl.TargetIdentity(), options);
         if (!ganesh_init_sampled_) {
             startup_stats_.ganesh_init_us =
                 static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
@@ -374,9 +435,10 @@ bool ClientRenderOwner::AdvanceImageUploads()
             }
             ++uploaded;
             bytes += size;
-            ++backend_stats_.image_uploads;
-            backend_stats_.upload_bytes += size;
-            backend_stats_.oversized_uploads += size > config_.install_limits.upload_bytes_per_turn;
+            ++root_target_.backend_stats.image_uploads;
+            root_target_.backend_stats.upload_bytes += size;
+            root_target_.backend_stats.oversized_uploads +=
+                size > config_.install_limits.upload_bytes_per_turn;
         }
         if (!QueueEvent(runtime::RenderEvent(runtime::ImageUploadedEvent{found->second.version}))) {
             return false;

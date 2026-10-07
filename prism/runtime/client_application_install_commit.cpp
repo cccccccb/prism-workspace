@@ -12,8 +12,10 @@ void ClientApplication::Impl::CommitScene(runtime::UiLoadId load,
     if (scene) {
         scene->CancelInput();
         CollectGestureEvents();
+        CollectControlEvents();
         AddSceneStats(render_stats, scene->GetRenderStats());
     }
+    ResetPopupSurface();
     ReleaseUnusedImages(images);
     preloaded_images.clear();
     preloaded_ui = {};
@@ -28,6 +30,7 @@ void ClientApplication::Impl::CommitScene(runtime::UiLoadId load,
     last_image_uses.reset();
     queued_frame.reset();
     ui_submitted_frame.reset();
+    ui_root_metadata_frame.reset();
     force_frame_capture = true;
 }
 

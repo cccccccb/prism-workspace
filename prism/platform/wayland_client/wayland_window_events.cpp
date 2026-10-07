@@ -41,9 +41,16 @@ void WaylandWindow::ReleasePointer()
     const auto source = PointerSource();
     wl_pointer_release(pointer_);
     pointer_ = nullptr;
+    auto *focus = pointer_focus_surface_;
+    pointer_focus_surface_ = nullptr;
     pointer_position_ = {};
 
-    Emit(contracts::PointerCancelEvent{contracts::WindowId{1}, InputTimeNs(), source});
+    const contracts::PointerCancelEvent event{contracts::WindowId{1}, InputTimeNs(), source};
+    if (FindPopup(focus)) {
+        EmitSurfaceInput(focus, event);
+    } else {
+        Emit(event);
+    }
 }
 
 void WaylandWindow::RegistryGlobal(void *data, wl_registry *registry, std::uint32_t name,
@@ -59,10 +66,12 @@ void WaylandWindow::RegistryGlobal(void *data, wl_registry *registry, std::uint3
         static const wp_presentation_listener listener{.clock_id = PresentationClock};
         wp_presentation_add_listener(self.presentation_, &listener, &self);
     } else if (std::strcmp(interface, prism_surface_effect_manager_v1_interface.name) == 0) {
-        self.effect_manager_ = static_cast<prism_surface_effect_manager_v1 *>(
-            wl_registry_bind(registry, name, &prism_surface_effect_manager_v1_interface, 1));
-        static const prism_surface_effect_manager_v1_listener listener{.capabilities =
-                                                                           EffectCapabilities};
+        self.effect_manager_ = static_cast<prism_surface_effect_manager_v1 *>(wl_registry_bind(
+            registry, name, &prism_surface_effect_manager_v1_interface, std::min(version, 3u)));
+        static const prism_surface_effect_manager_v1_listener listener{
+            .capabilities = EffectCapabilities,
+            .contour_capabilities = ContourCapabilities,
+            .popup_backdrop_capabilities = PopupBackdropCapabilities};
         prism_surface_effect_manager_v1_add_listener(self.effect_manager_, &listener, &self);
     } else if (std::strcmp(interface, wl_shm_interface.name) == 0) {
         self.shm_ = static_cast<wl_shm *>(wl_registry_bind(registry, name, &wl_shm_interface, 1));
@@ -88,6 +97,18 @@ void WaylandWindow::EffectCapabilities(void *data, prism_surface_effect_manager_
                                        std::uint32_t supported)
 {
     static_cast<WaylandWindow *>(data)->backdrop_supported_ = supported != 0;
+}
+
+void WaylandWindow::ContourCapabilities(void *data, prism_surface_effect_manager_v1 *,
+                                        std::uint32_t supported)
+{
+    static_cast<WaylandWindow *>(data)->contour_supported_ = supported != 0;
+}
+
+void WaylandWindow::PopupBackdropCapabilities(void *data, prism_surface_effect_manager_v1 *,
+                                              std::uint32_t supported)
+{
+    static_cast<WaylandWindow *>(data)->popup_backdrop_supported_ = supported != 0;
 }
 
 void WaylandWindow::RegistryGlobalRemove(void *data, wl_registry *, std::uint32_t name)
@@ -134,6 +155,12 @@ void WaylandWindow::SurfaceConfigure(void *data, xdg_surface *surface, std::uint
         {static_cast<double>(safe_width), static_cast<double>(safe_height)},
         {static_cast<std::uint32_t>(safe_width), static_cast<std::uint32_t>(safe_height)},
         1.0};
+    if (self.mapped_ && self.metrics_.logical_size != self.committed_logical_size_) {
+        self.ClosePopups();
+    }
+    if (self.deferred_close_) {
+        return;
+    }
     self.configured_ = true;
     ++self.configure_count_;
     self.update_requested_ = true;
@@ -216,20 +243,28 @@ void WaylandWindow::SeatName(void *, wl_seat *, const char *)
 {
 }
 
-void WaylandWindow::PointerEnter(void *data, wl_pointer *, std::uint32_t, wl_surface *,
+void WaylandWindow::PointerEnter(void *data, wl_pointer *, std::uint32_t, wl_surface *surface,
                                  wl_fixed_t x, wl_fixed_t y)
 {
     auto &self = *static_cast<WaylandWindow *>(data);
-    ++self.pointer_enter_count_;
+    self.pointer_focus_surface_ = surface;
+    if (surface == self.surface_) {
+        ++self.pointer_enter_count_;
+    }
     self.pointer_position_ = {wl_fixed_to_double(x), wl_fixed_to_double(y)};
-    self.Emit(contracts::PointerEnterEvent{contracts::WindowId{1}, self.pointer_position_,
-                                           InputTimeNs(), self.PointerSource()});
+    self.EmitSurfaceInput(
+        surface, contracts::PointerEnterEvent{contracts::WindowId{1}, self.pointer_position_,
+                                              InputTimeNs(), self.PointerSource()});
 }
 
-void WaylandWindow::PointerLeave(void *data, wl_pointer *, std::uint32_t, wl_surface *)
+void WaylandWindow::PointerLeave(void *data, wl_pointer *, std::uint32_t, wl_surface *surface)
 {
     auto &self = *static_cast<WaylandWindow *>(data);
-    self.Emit(
+    if (self.pointer_focus_surface_ == surface) {
+        self.pointer_focus_surface_ = nullptr;
+    }
+    self.EmitSurfaceInput(
+        surface,
         contracts::PointerLeaveEvent{contracts::WindowId{1}, InputTimeNs(), self.PointerSource()});
 }
 
@@ -237,16 +272,26 @@ void WaylandWindow::PointerMotion(void *data, wl_pointer *, std::uint32_t, wl_fi
                                   wl_fixed_t y)
 {
     auto &self = *static_cast<WaylandWindow *>(data);
+    if (!self.pointer_focus_surface_) {
+        return;
+    }
     self.pointer_position_ = {wl_fixed_to_double(x), wl_fixed_to_double(y)};
-    self.Emit(contracts::PointerMotionEvent{contracts::WindowId{1}, self.pointer_position_,
-                                            InputTimeNs(), self.PointerSource()});
+    self.EmitSurfaceInput(self.pointer_focus_surface_,
+                          contracts::PointerMotionEvent{contracts::WindowId{1},
+                                                        self.pointer_position_, InputTimeNs(),
+                                                        self.PointerSource()});
 }
 
 void WaylandWindow::PointerButton(void *data, wl_pointer *, std::uint32_t serial, std::uint32_t,
                                   std::uint32_t button, std::uint32_t state)
 {
     auto &self = *static_cast<WaylandWindow *>(data);
-    ++self.pointer_button_count_;
+    if (!self.pointer_focus_surface_) {
+        return;
+    }
+    if (self.pointer_focus_surface_ == self.surface_) {
+        ++self.pointer_button_count_;
+    }
     contracts::PointerButton mapped = contracts::PointerButton::Other;
     if (button == BTN_LEFT) {
         mapped = contracts::PointerButton::Primary;
@@ -259,23 +304,30 @@ void WaylandWindow::PointerButton(void *data, wl_pointer *, std::uint32_t serial
     } else if (button == BTN_EXTRA) {
         mapped = contracts::PointerButton::Forward;
     }
-    self.Emit(contracts::PointerButtonEvent{contracts::WindowId{1}, self.pointer_position_, mapped,
-                                            state == WL_POINTER_BUTTON_STATE_PRESSED
-                                                ? contracts::ButtonState::Pressed
-                                                : contracts::ButtonState::Released,
-                                            mapped == contracts::PointerButton::Other ? button : 0,
-                                            InputTimeNs(), self.PointerSource(), serial});
+    self.EmitSurfaceInput(
+        self.pointer_focus_surface_,
+        contracts::PointerButtonEvent{contracts::WindowId{1}, self.pointer_position_, mapped,
+                                      state == WL_POINTER_BUTTON_STATE_PRESSED
+                                          ? contracts::ButtonState::Pressed
+                                          : contracts::ButtonState::Released,
+                                      mapped == contracts::PointerButton::Other ? button : 0,
+                                      InputTimeNs(), self.PointerSource(), serial});
 }
 
 void WaylandWindow::PointerAxis(void *data, wl_pointer *, std::uint32_t, std::uint32_t axis,
                                 wl_fixed_t value)
 {
     auto &self = *static_cast<WaylandWindow *>(data);
+    if (!self.pointer_focus_surface_) {
+        return;
+    }
     const double delta = wl_fixed_to_double(value);
-    self.Emit(contracts::PointerScrollEvent{contracts::WindowId{1}, self.pointer_position_,
-                                            axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL ? delta : 0.0,
-                                            axis == WL_POINTER_AXIS_VERTICAL_SCROLL ? delta : 0.0,
-                                            InputTimeNs(), self.PointerSource()});
+    self.EmitSurfaceInput(
+        self.pointer_focus_surface_,
+        contracts::PointerScrollEvent{contracts::WindowId{1}, self.pointer_position_,
+                                      axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL ? delta : 0.0,
+                                      axis == WL_POINTER_AXIS_VERTICAL_SCROLL ? delta : 0.0,
+                                      InputTimeNs(), self.PointerSource()});
 }
 
 void WaylandWindow::PointerFrame(void *, wl_pointer *)

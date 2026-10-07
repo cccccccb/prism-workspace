@@ -175,6 +175,36 @@ typedef struct PrismThemeEventV1 {
     PrismStringViewV1 color_scheme;
 } PrismThemeEventV1;
 
+enum PrismControlValuePhaseV1 {
+    PRISM_CONTROL_PREVIEW_V1 = 0,
+    PRISM_CONTROL_COMMIT_V1 = 1,
+    PRISM_CONTROL_CANCEL_V1 = 2
+};
+
+enum PrismControlCancelReasonV1 {
+    PRISM_CONTROL_CANCEL_NONE_V1 = 0,
+    PRISM_CONTROL_CANCEL_ESCAPE_V1 = 1,
+    PRISM_CONTROL_CANCEL_UNAVAILABLE_V1 = 2,
+    PRISM_CONTROL_CANCEL_FOCUS_LOST_V1 = 3,
+    PRISM_CONTROL_CANCEL_SUPERSEDED_V1 = 4
+};
+
+/* Callback-local node identity; do not retain it across UI replacement.
+ * before/value contain only BOOL, NUMBER or STRING; all views are borrowed.
+ * revision is the frontend value revision, not a business/database version. */
+typedef struct PrismControlValueEventV1 {
+    uint32_t struct_size;
+    uint32_t node_index;
+    uint32_t node_generation;
+    uint32_t phase;
+    uint32_t cancel_reason;
+    uint64_t interaction;
+    uint64_t revision;
+    PrismStringViewV1 action;
+    PrismValueV1 before;
+    PrismValueV1 value;
+} PrismControlValueEventV1;
+
 typedef struct PrismAppModuleV1 {
     uint32_t struct_size;
     uint32_t abi_version;
@@ -200,6 +230,8 @@ typedef struct PrismAppModuleV1 {
     void (*on_text_edit)(void *, PrismStringViewV1 action, PrismStringViewV1 text);
     /* Optional: return zero to keep the window open, nonzero to accept close. */
     int32_t (*on_close_requested)(void *);
+    /* Optional typed value proposal; only set_binding accepts business state. */
+    void (*on_control_value)(void *, const PrismControlValueEventV1 *);
 } PrismAppModuleV1;
 
 typedef const PrismAppModuleV1 *(*PrismAppEntryV1)(void);

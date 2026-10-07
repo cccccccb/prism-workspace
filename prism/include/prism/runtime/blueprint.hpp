@@ -1,5 +1,7 @@
 #pragma once
 
+#include "prism/contracts/contour.hpp"
+#include "prism/runtime/contour_recipe.hpp"
 #include "prism/runtime/gesture_spec.hpp"
 #include <optional>
 
@@ -26,11 +28,54 @@ enum class Kind {
     InteractionTarget,
     Visual,
     TextField,
-    TextArea
+    TextArea,
+    Checkbox,
+    RadioGroup,
+    SegmentGroup,
+    Radio,
+    Segment,
+    Slider,
+    ScrollView,
+    Popup,
+    Menu,
+    MenuItem,
+    MenuBack
 };
+
+constexpr bool IsPopupKind(Kind kind)
+{
+    return kind == Kind::Popup || kind == Kind::Menu;
+}
+
+constexpr bool IsMenuRow(Kind kind)
+{
+    return kind == Kind::MenuItem || kind == Kind::MenuBack;
+}
+
+constexpr bool IsChoiceGroup(Kind kind)
+{
+    return kind == Kind::RadioGroup || kind == Kind::SegmentGroup;
+}
+
+constexpr bool IsChoiceOption(Kind kind)
+{
+    return kind == Kind::Radio || kind == Kind::Segment;
+}
+
+constexpr bool IsControlTarget(Kind kind)
+{
+    return kind == Kind::Checkbox || kind == Kind::Slider || IsChoiceOption(kind);
+}
+
+constexpr bool IsInteractionOwner(Kind kind)
+{
+    return kind == Kind::InteractionTarget || IsControlTarget(kind) || IsMenuRow(kind);
+}
 
 struct Blueprint {
     Kind kind{Kind::Box};
+    std::optional<contracts::Contour> contour;
+    std::optional<AttachedPanelRecipe> contour_recipe;
     std::string region;
     bool region_mounted{false};
     std::vector<PropertyAssignment> properties;

@@ -421,6 +421,9 @@ struct EffectsWorkMessage {
     std::uint64_t damage_history_fallbacks{};
     std::uint64_t partial_damage_cache_hits{};
     std::uint64_t capture_nodes{};
+    std::uint64_t mask_builds{};
+    std::uint64_t mask_cache_hits{};
+    std::uint64_t mask_failures{};
 };
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(
     EffectsWorkMessage, update_calls, skipped_updates, unsupported_updates, dirty_transitions,
@@ -429,7 +432,8 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(
     allocation_attempts, allocated_buffers, allocation_failures, rendered_regions, rendered_pixels,
     failed_regions, invalid_regions, removed_regions, scene_reorders, dependency_leaves_checked,
     dependency_leaves_included, dependency_leaves_skipped, content_revisions, metadata_commits,
-    damage_history_fallbacks, partial_damage_cache_hits, capture_nodes)
+    damage_history_fallbacks, partial_damage_cache_hits, capture_nodes, mask_builds,
+    mask_cache_hits, mask_failures)
 
 struct PerformanceMessage {
     std::size_t sample_capacity{240};

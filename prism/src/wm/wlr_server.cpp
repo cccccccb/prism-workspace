@@ -16,6 +16,8 @@ WlrServer::WlrServer(std::shared_ptr<Compositor> compositor) : compositor_(std::
     wl_list_init(&signals_.output_layout_change.link);
     wl_list_init(&signals_.new_virtual_keyboard.link);
     wl_list_init(&signals_.new_virtual_pointer.link);
+    wl_list_init(&signals_.new_xdg_toplevel.link);
+    wl_list_init(&signals_.new_xdg_popup.link);
 }
 
 WlrServer::~WlrServer()
@@ -99,6 +101,8 @@ bool WlrServer::Initialize(const std::string &socket_name)
     if (xdg_shell_) {
         signals_.new_xdg_toplevel.notify = handle_server_new_xdg_surface;
         wl_signal_add(&xdg_shell_->events.new_toplevel, &signals_.new_xdg_toplevel);
+        signals_.new_xdg_popup.notify = handle_server_new_xdg_popup;
+        wl_signal_add(&xdg_shell_->events.new_popup, &signals_.new_xdg_popup);
         PRISM_LOG_INFO("WLR-SERVER",
                        "Wayland XDG-Shell v3 active: Native application windows supported");
     }
@@ -274,9 +278,14 @@ void WlrServer::Stop()
     surface_watches_.clear();
     wl_list_remove(&signals_.new_surface.link);
     wl_list_init(&signals_.new_surface.link);
+    wl_list_remove(&signals_.new_xdg_toplevel.link);
+    wl_list_init(&signals_.new_xdg_toplevel.link);
+    wl_list_remove(&signals_.new_xdg_popup.link);
+    wl_list_init(&signals_.new_xdg_popup.link);
     surface_effects_.reset();
 
     focused_xdg_view_ = nullptr;
+    xdg_popups_.clear();
     xdg_views_.clear();
     keyboards_.clear();
     touches_.clear();

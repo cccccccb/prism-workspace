@@ -51,7 +51,7 @@ Visual 子树不参与输入，它的平移、缩放、整体 opacity 以及 bac
 
 `tests/probes/skia_gles_wayland_probe.cpp` 使用同一 SDK 生命周期，测试和诊断程序留在 tests，不安装到生产包。早期 GLES 检查点的计数与验收记录见 [SKIA_GLES_PI.md](SKIA_GLES_PI.md)，不作为当前主题功能的验证结论。
 
-五个生产应用均由统一 host 加业务模块/DSL 包运行，旧独立入口、音乐 exec 适配器和 ImGui 生产路径已删除。SDK 使用 xdg-shell；Shell 角色由 launcher 与 WM 的可信控制通道按真实进程登记，普通 app_id 不授予权限。背景 blur 通过通用 surface effects 契约请求 compositor；SDK 绘制 tint 与客户端内容。Slider 拖动语义尚未实现。空 socket 使用当前 `WAYLAND_DISPLAY`；包入口使用严格 assets 根解析，`LoadUiSource` 的模板查找只服务直接 SDK 调用场景。
+五个生产应用均由统一 host 加业务模块/DSL 包运行，旧独立入口、音乐 exec 适配器和 ImGui 生产路径已删除。SDK 使用 xdg-shell；Shell 角色由 launcher 与 WM 的可信控制通道按真实进程登记，普通 app_id 不授予权限。背景 blur 通过通用 surface effects 契约请求 compositor；SDK 绘制 tint 与客户端内容。Slider 已接入 typed Number 鼠标拖动/键盘会话，业务使用值回调，见 [值控件契约](CONTROL_VALUE_CONTRACT.md)。空 socket 使用当前 `WAYLAND_DISPLAY`；包入口使用严格 assets 根解析，`LoadUiSource` 的模板查找只服务直接 SDK 调用场景。
 
 ## 统一运行时与启动目标
 
@@ -68,6 +68,33 @@ Visual 子树不参与输入，它的平移、缩放、整体 opacity 以及 bac
 Controls 的变化目前统一保守标记 Paint，即使变化的控件样式未被可见内容使用。新身份或 generation 的候选主题仍执行隔离布局、文字整形及效果/输入预检；这部分 CPU 工作不计入已提交 Scene 的工作计数。零 GPU/Swap 不表示主题安装零 CPU 工作。
 
 下一次提交将同一 Scene 的 DisplayList、SurfaceEffects 和 InputRegions 按各自失效应用于该 surface；纯效果/输入状态复用现有 buffer，不调用 Skia。WM 不接收 UI 语法或业务 binding。全局主题包由 launcher 编译与分发，SDK 不读取第二份 JSON 或静态样式头；包、ACK、失败恢复和跨进程呈现边界见 [DSL_THEME_RUNTIME.md](DSL_THEME_RUNTIME.md)。应用模块仅通过可选 `select_theme` 请求包 ID，并用 `on_theme_event` 接收实际结果。
+
+4g 源码支持局部 `Contour` 几何声明；Scene 将规范轮廓纳入不可变输入快照，并由同一
+几何生成 DrawList、输入 region 和 surface effect。平移按整个原点量化到 1/256，
+未改动的轮廓共享存储；业务模块不接触路径解析、Skia 或协议 payload。完整语法、
+裁剪限制和版本边界见 [通用轮廓契约](SURFACE_CONTOUR_CONTRACT.md)。
+4h 的 Popup/Menu 可声明 `Contour(recipe: "attachedPanel", ...)`，使用 typed 数值或
+主题 Number 引用。最终布局驱动连接颈方向/偏移；颜色切换复用几何，形状参数切换
+由 Scene 候选校验和安装。业务模块仍只操作值和动作，不计算路径。
+
+4i 提供内部 `WaylandPopup` 同连接传输与 typed positioner 基础，WM 接纳标准
+xdg_popup；它不是业务模块的窗口启动 API。4k1 的
+[Popup surface 计划](POPUP_SURFACE_PLAN_CONTRACT.md)从同一个 Scene 捕获请求，随内部
+FramePacket 发布，最终 configure 的准备只操作拥有的快照值。
+
+4k2 的 [子层生命周期与已提交输入](POPUP_TARGET_LIFECYCLE.md)接通自动 native 呈现：
+scale=1、无 backdrop 需求且支持局部导出的 Popup/Menu，在首次 child Pixels 成功后
+采用可信局部输入并撤下 root 中的面板。State/checked-identical None 可更新已有提交
+的输入；child 自己拥有 callback、feedback、损伤与像素基线，沿用同一个 worker。
+子层反馈不推进根 Preview/Master 或 `OnUiSubmitted` 里程碑。`GetPlatformStatus()`
+中的 popup 身份、配置/关闭/像素计数和父坐标 bounds 仅为诊断，不能作为输入许可。
+毛玻璃、编辑器及不支持的局部布局保留 root 呈现，跨 surface effect 与父正文采样为
+4k3。业务 ABI/DSL 没有增加原生窗口入口，不能用新建 ClientApplication 代替内部子层。
+
+4j 的渲染所有者显式持有一份 WaylandEglContext；每 target 的 WSI、损伤历史、
+候选/提交帧和已提交输入基线独立。Ganesh 和版本化图片仍共享；GlesRenderer 的
+多 target 调用使用平台签发的 GpuTargetIdentity，旧无身份重载只支持创建时 target。
+业务 C ABI、DSL 和单窗口公开 SDK 行为保持原接口，普通应用不直接管理 GPU target。
 
 0.1.0-5 的物理 Pi 外观与输入验收属于此前静态视觉版本，见 [PI_DEB_DEPLOYMENT.md](PI_DEB_DEPLOYMENT.md)；本轮运行时主题的测试与实机结果不能由该记录替代。
 
@@ -152,3 +179,16 @@ Host 的业务 ABI v1 使用 `struct_size` 可选尾部提供 `on_gesture`、`su
 分隔线尺寸修改仍未启用；触屏组控制延期。
 接口示例、生命周期、权限、上限与验收记录见
 [布局控制计划第 8 节](LAYOUT_CONTROL_IMPLEMENTATION_PLAN.md#8-第二步源码交付连续手势与-typed-控制会话)。
+
+## 2026-10-05：类型化控件值事件
+
+`OnControlValue` 接收 `runtime::ControlEdit`：节点、具名 action 和包含 phase/before/value/
+revision 的值事件。Checkbox 有效释放只发送 Commit；业务以 SetBinding 回写确认，
+不会同时发送 OnAction。回调在 Scene 完成本次输入后运行，UI/节点/值修订失效时丢弃。
+标准 Host 将其转成可选 C ABI `on_control_value`。完整规则、兼容范围与样例见
+[值控件契约](CONTROL_VALUE_CONTRACT.md)。Radio/Segment 组复用 String 值通路，水平 Slider 使用 Number 预览/提交/取消，见契约第 11 节。
+
+值事件经拥有数据的队列投递，携带 UI load 身份并在回调前检查有效性；回调内更新
+binding 或替换 UI 不会递归触发值回调。注销/替换 OnControlValue 会撤销旧队列和
+预览记录，不调用已退休的接收者。连续预览的取消与异常边界见值控件契约第 10 节；
+该通知链路与水平 Slider 的 DSL、输入及呈现均已接入本轮源码。

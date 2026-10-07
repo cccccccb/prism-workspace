@@ -157,13 +157,17 @@ c+=(texture2D(image,uv+step_size*1.384615)+texture2D(image,uv-step_size*1.384615
 c+=(texture2D(image,uv+step_size*3.230769)+texture2D(image,uv-step_size*3.230769))*0.070270;
 gl_FragColor=c;})";
 constexpr const char *material_shader = R"(
-precision mediump float;varying vec2 uv;uniform sampler2D image;uniform vec2 size;
+precision highp float;varying vec2 uv;uniform sampler2D image;uniform vec2 size;
+uniform sampler2D contour_mask;uniform float contour_enabled;uniform vec2 image_uv_scale;
 uniform vec4 box;uniform float radius;uniform float shadow;uniform float blur_enabled;
 uniform float border_width;uniform vec4 border_color;uniform vec4 shadow_color;uniform float shadow_offset;
 float distance_box(vec2 p){vec2 q=abs(p-(box.xy+box.zw*0.5))-(box.zw*0.5-vec2(radius));return length(max(q,0.0))+min(max(q.x,q.y),0.0)-radius;}
-void main(){float d=distance_box(uv*size);float inside=1.0-smoothstep(-0.5,0.5,d);
-vec4 c=texture2D(image,uv)*inside*blur_enabled;
-float sd=max(distance_box(uv*size-vec2(0.0,shadow_offset)),0.0);
+void main(){vec2 logical_uv=uv;vec2 p=logical_uv*size;
+float d=distance_box(p);float inside=contour_enabled>0.5?texture2D(contour_mask,logical_uv).a:1.0-smoothstep(-0.5,0.5,d);
+vec2 image_uv=uv*image_uv_scale;
+vec4 c=texture2D(image,image_uv)*inside*blur_enabled;
+if(contour_enabled>0.5){gl_FragColor=c;return;}
+float sd=max(distance_box(p-vec2(0.0,shadow_offset)),0.0);
 float a=shadow>0.0?exp(-sd*sd/(shadow*shadow*0.32))*shadow_color.a*(1.0-inside):0.0;
 c+=vec4(shadow_color.rgb*a,a)*(1.0-c.a);
 float ring=(1.0-smoothstep(border_width-0.5,border_width+0.5,abs(d)))*(1.0-inside);
@@ -185,17 +189,50 @@ struct Buffer {
     }
 };
 
+struct ContourMask {
+    wlr_renderer *renderer{};
+    GLuint texture{};
+    int width{}, height{};
+    double origin_x{}, origin_y{};
+    contracts::Contour relative;
+    ~ContourMask();
+};
+
 struct Paint {
     wlr_scene_tree *tree{};
     wlr_scene_buffer *node{};
     std::unique_ptr<Buffer> source, intermediate, result;
+    std::unique_ptr<ContourMask> mask;
     int width{}, height{};
     std::uint64_t key{}, generation{};
     bool valid{};
     std::map<wlr_scene_buffer *, effects::DependencyStamp> dependencies;
 
+    struct TreeListener {
+        wl_listener listener{};
+        Paint *paint{};
+    } tree_destroy;
+
+    Paint()
+    {
+        wl_list_init(&tree_destroy.listener.link);
+        tree_destroy.listener.notify = TreeGone;
+        tree_destroy.paint = this;
+    }
+
+    static void TreeGone(wl_listener *listener, void *)
+    {
+        auto *paint = reinterpret_cast<TreeListener *>(listener)->paint;
+        wl_list_remove(&paint->tree_destroy.listener.link);
+        wl_list_init(&paint->tree_destroy.listener.link);
+        paint->tree = nullptr;
+        paint->node = nullptr;
+        paint->valid = false;
+    }
+
     ~Paint()
     {
+        wl_list_remove(&tree_destroy.listener.link);
         if (tree) {
             wlr_scene_node_destroy(&tree->node);
         }
@@ -486,6 +523,8 @@ struct SurfaceEffects::Impl {
     static void Clear(wl_client *, wl_resource *resource);
     static void Add(wl_client *, wl_resource *resource, wl_fixed_t x, wl_fixed_t y, wl_fixed_t w,
                     wl_fixed_t h, wl_fixed_t radius, wl_fixed_t blur_radius);
+    static void AddContour(wl_client *, wl_resource *resource, wl_fixed_t blur_radius,
+                           wl_array *payload);
     static void EffectGone(wl_resource *resource);
     static void Commit(wl_listener *listener, void *);
     static void SurfaceGone(wl_listener *listener, void *);
@@ -495,10 +534,12 @@ struct SurfaceEffects::Impl {
     static void Bind(wl_client *client, void *data, uint32_t version, uint32_t id);
     std::unique_ptr<Buffer> Allocate(int width, int height);
     bool Draw(Buffer &target, Buffer &source, GLuint program, int width, int height,
-              const Region *region = nullptr, double padding = 0,
-              const contracts::ThemeDecoration *decoration = nullptr);
+              const Region *region = nullptr, double origin_x = 0, double origin_y = 0,
+              const contracts::ThemeDecoration *decoration = nullptr, Paint *paint = nullptr);
+    bool PrepareMask(Paint &paint, const Region &region, int width, int height, double origin_x,
+                     double origin_y);
     bool Blur(Buffer &target, Buffer &source, double radius, bool horizontal);
     UpdateResult Update(wlr_scene *scene, std::span<WlrXdgView *const> views, WlrXdgView *focused,
-                        const contracts::ThemeSnapshot *theme);
+                        const contracts::ThemeSnapshot *theme, std::span<const Target> popups);
 };
 } // namespace prism::wm

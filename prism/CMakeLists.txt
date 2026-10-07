@@ -26,6 +26,8 @@ add_library(prism_core
     src/wm/wlr_server_input.cpp
     src/wm/wlr_server_touch.cpp
     src/wm/wlr_server_views.cpp
+    src/wm/wlr_server_popup.cpp
+    src/wm/wlr_server_popup_effects.cpp
     src/wm/wlr_server_ipc.cpp
     src/wm/wlr_server_status.cpp
     src/wm/wlr_server_layout.cpp
@@ -44,6 +46,8 @@ add_library(prism_core
     src/wm/surface_effects.cpp
     src/wm/surface_effects_content.cpp
     src/wm/surface_effects_gpu.cpp
+    src/wm/surface_effects_contour.cpp
+    src/wm/surface_effects_mask.cpp
     src/wm/surface_effects_update.cpp
     src/wm/effect_dependencies.cpp
     src/wm/layer_manager.cpp
@@ -96,6 +100,7 @@ target_include_directories(prism_core PUBLIC
 )
 target_link_libraries(prism_core PUBLIC
     prism_contracts
+    prism_surface_effect_contract
     prism_animation_core
     prism_surface_protocol
     Threads::Threads
@@ -111,7 +116,10 @@ target_link_libraries(prism_core PUBLIC
     ${XKBCOMMON_LIBRARIES}
 )
 pkg_check_modules(PRISM_WM_GLES REQUIRED IMPORTED_TARGET glesv2)
-target_link_libraries(prism_core PRIVATE PkgConfig::PRISM_WM_GLES nlohmann_json::nlohmann_json)
+target_link_libraries(prism_core
+    PRIVATE PkgConfig::PRISM_WM_GLES
+    PUBLIC nlohmann_json::nlohmann_json
+)
 
 # A production compositor must never compile client UI parsers or renderers.
 get_target_property(PRISM_WM_SOURCES prism_core SOURCES)

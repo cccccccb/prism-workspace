@@ -3,6 +3,7 @@
 #include "prism/contracts/events.hpp"
 #include "prism/platform/presentation.hpp"
 #include "prism/runtime/frame_packet.hpp"
+#include "prism/runtime/popup_frame.hpp"
 #include "prism/runtime/render_bridge_types.hpp"
 #include "prism/runtime/render_resource.hpp"
 #include "prism/runtime/render_worker_lifecycle.hpp"
@@ -68,12 +69,27 @@ struct FrameOpportunityEvent {
 // presentation, resource acknowledgments and status across both owners.
 using RenderEvent =
     std::variant<SequencedWindowEvent, SubmittedFrameEvent, platform::PixelPresentation,
-                 ImageUploadedEvent, ImageReleasedEvent, RenderStatusEvent, FrameOpportunityEvent>;
+                 ImageUploadedEvent, ImageReleasedEvent, RenderStatusEvent, FrameOpportunityEvent,
+                 PopupConfigureEvent, PopupClosedEvent, PopupInputEvent, PopupSubmittedEvent,
+                 PopupPresentationEvent>;
 
 // Only adjacent motions from the same UI, applied geometry and source can
 // merge. Touch also requires the same contact; Down/Up/Cancel/Frame are barriers.
 inline bool ReplacePointerMotionTail(const RenderEvent &older, const RenderEvent &newer) noexcept
 {
+    const auto *previous_popup = std::get_if<PopupInputEvent>(&older);
+    const auto *current_popup = std::get_if<PopupInputEvent>(&newer);
+    if (previous_popup || current_popup) {
+        if (!previous_popup || !current_popup || previous_popup->ui != current_popup->ui ||
+            previous_popup->identity != current_popup->identity ||
+            previous_popup->input_snapshot != current_popup->input_snapshot) {
+            return false;
+        }
+        const auto *previous = std::get_if<contracts::PointerMotionEvent>(&previous_popup->event);
+        const auto *current = std::get_if<contracts::PointerMotionEvent>(&current_popup->event);
+        return previous && current && previous->source == current->source &&
+               previous->window == current->window;
+    }
     const auto *previous_event = std::get_if<SequencedWindowEvent>(&older);
     const auto *current_event = std::get_if<SequencedWindowEvent>(&newer);
     if (!previous_event || !current_event || previous_event->ui != current_event->ui ||

@@ -8,6 +8,7 @@
 #include <cstring>
 #include <exception>
 #include <functional>
+#include <initializer_list>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -20,9 +21,19 @@ namespace {
 using Application = prism::sdk::ClientApplication;
 using namespace std::chrono_literals;
 
+struct ActionObserver;
+struct GestureObserver;
+Application *failure_application{};
+ActionObserver *failure_actions{};
+GestureObserver *failure_gestures{};
+std::thread::id failure_owner{};
+
+void PrintFailure(std::string_view detail);
+
 void Require(bool condition, std::string_view detail)
 {
     if (!condition) {
+        PrintFailure(detail);
         throw std::runtime_error(std::string(detail));
     }
 }
@@ -206,6 +217,38 @@ struct ActionObserver {
     }
 };
 
+class ScopedFailureContext {
+public:
+    ScopedFailureContext(Application &app, ActionObserver &actions)
+    {
+        failure_application = &app;
+        failure_actions = &actions;
+        failure_owner = std::this_thread::get_id();
+    }
+
+    ~ScopedFailureContext()
+    {
+        failure_application = nullptr;
+        failure_actions = nullptr;
+    }
+
+    ScopedFailureContext(const ScopedFailureContext &) = delete;
+    ScopedFailureContext &operator=(const ScopedFailureContext &) = delete;
+};
+
+void WaitForActions(Application &app, const ActionObserver &actions, std::size_t expected,
+                    std::string_view action)
+{
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (actions.actions.size() < expected) {
+        Require(std::chrono::steady_clock::now() < deadline,
+                "Expected action never reached the UI owner");
+        Require(app.Pump(20), "Input client stopped while waiting for action receipt");
+    }
+    Require(actions.actions.size() == expected && actions.actions.back() == action,
+            "Action receipt had an unexpected count or action");
+}
+
 void PumpFor(Application &app, std::chrono::milliseconds duration)
 {
     const auto deadline = std::chrono::steady_clock::now() + duration;
@@ -292,12 +335,114 @@ struct GestureObserver {
     }
 };
 
+const char *PhaseName(prism::contracts::GesturePhase phase)
+{
+    using Phase = prism::contracts::GesturePhase;
+    switch (phase) {
+    case Phase::Begin:
+        return "Begin";
+    case Phase::Update:
+        return "Update";
+    case Phase::End:
+        return "End";
+    case Phase::Cancel:
+        return "Cancel";
+    }
+    return "Unknown";
+}
+
+void PrintFailure(std::string_view detail)
+{
+    std::cerr << "receipt-failure=" << detail << '\n';
+    if (failure_owner != std::this_thread::get_id()) {
+        std::cerr << "diagnostics-unavailable=outside-ui-owner\n";
+        return;
+    }
+    if (failure_actions) {
+        std::cerr << "action-count=" << failure_actions->actions.size();
+        for (const auto &action : failure_actions->actions) {
+            std::cerr << " action=" << action;
+        }
+        std::cerr << '\n';
+    }
+    if (failure_gestures) {
+        std::cerr << "gesture-count=" << failure_gestures->events.size() << '\n';
+        for (const auto &event : failure_gestures->events) {
+            std::cerr << "gesture phase=" << PhaseName(event.phase) << " id=" << event.id
+                      << " serial=" << event.serial << " start=" << event.start.x << ','
+                      << event.start.y << " position=" << event.position.x << ','
+                      << event.position.y << " snapshot=" << event.snapshot_scene << ':'
+                      << event.snapshot_version << " time-ns=" << event.time_ns << '\n';
+        }
+    }
+    if (failure_application) {
+        const auto stats = failure_application->GetRenderStats();
+        const auto platform = failure_application->GetPlatformStatus();
+        std::cerr << "client builds=" << stats.scene_builds << " layouts=" << stats.scene_layouts
+                  << " swap-attempts=" << stats.swap_attempts << " swaps=" << stats.swap_successes
+                  << " submission-failures=" << stats.surface_submission_failures
+                  << " configure=" << platform.configure_count
+                  << " frame-done=" << platform.frame_done_count
+                  << " presentation=" << platform.presentation_count
+                  << " frame-pending=" << failure_application->FrameCallbackPending() << '\n';
+    }
+}
+
+void WaitForGestures(Application &app, const GestureObserver &gestures,
+                     std::initializer_list<prism::contracts::GesturePhase> phases)
+{
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (true) {
+        Require(gestures.events.size() <= phases.size(),
+                "Unexpected extra gesture while waiting for input receipt");
+        auto expected_phase = phases.begin();
+        for (const auto &event : gestures.events) {
+            Require(event.phase == *expected_phase++,
+                    "Unexpected gesture phase while waiting for input receipt");
+            const auto &first = gestures.events.front();
+            Require(event.id == first.id && event.serial == first.serial &&
+                        event.start == first.start,
+                    "Gesture capture identity changed while waiting for input receipt");
+        }
+        if (gestures.events.size() == phases.size()) {
+            return;
+        }
+
+        Require(std::chrono::steady_clock::now() < deadline,
+                "Expected gesture never reached the UI owner");
+        Require(app.Pump(20), "Input client stopped while waiting for gesture receipt");
+    }
+}
+
+class ScopedGestureHandler {
+public:
+    ScopedGestureHandler(Application &app, GestureObserver &observer) : app_(app)
+    {
+        failure_gestures = &observer;
+        app_.OnGesture(std::bind_front(&GestureObserver::Handle, &observer));
+    }
+
+    ~ScopedGestureHandler()
+    {
+        // A failed assertion must unbind before the local observer is destroyed.
+        // Otherwise application teardown can deliver Cancel into its freed events.
+        app_.OnGesture({});
+        failure_gestures = nullptr;
+    }
+
+    ScopedGestureHandler(const ScopedGestureHandler &) = delete;
+    ScopedGestureHandler &operator=(const ScopedGestureHandler &) = delete;
+
+private:
+    Application &app_;
+};
+
 void CheckGestures(Application &app, RemotePointer &pointer, ActionObserver &actions,
                    std::uint32_t x, std::uint32_t y)
 {
     using Phase = prism::contracts::GesturePhase;
     GestureObserver gestures{&app};
-    app.OnGesture(std::bind_front(&GestureObserver::Handle, &gestures));
+    ScopedGestureHandler gesture_handler(app, gestures);
     Require(app.ReplaceUi(gesture_ui), "Gesture UI replacement failed");
     Require(app.SetBinding("targetVisible", true), "Gesture target show failed");
     Stable(app, "gesture-submission");
@@ -308,6 +453,7 @@ void CheckGestures(Application &app, RemotePointer &pointer, ActionObserver &act
     Stable(app, "gesture-below-threshold");
     Require(gestures.events.empty(), "Gesture started before its movement threshold");
     pointer.Button(false);
+    WaitForActions(app, actions, old_actions + 1, "gesture-click");
     Stable(app, "gesture-ordinary-click");
     Require(actions.actions.size() == old_actions + 1 && actions.actions.back() == "gesture-click",
             "Gesture declaration broke ordinary click semantics");
@@ -315,6 +461,7 @@ void CheckGestures(Application &app, RemotePointer &pointer, ActionObserver &act
     pointer.Move(x, y);
     pointer.Button(true);
     pointer.Move(x + 12, y);
+    WaitForGestures(app, gestures, {Phase::Begin});
     Stable(app, "gesture-begin");
     Require(gestures.events.size() == 1 && gestures.events[0].phase == Phase::Begin &&
                 gestures.events[0].serial && gestures.events[0].snapshot_scene &&
@@ -322,12 +469,14 @@ void CheckGestures(Application &app, RemotePointer &pointer, ActionObserver &act
             "Gesture Begin lacks the original Down or submitted snapshot provenance");
     const auto first = gestures.events[0];
     pointer.Move(x + 24, y);
+    WaitForGestures(app, gestures, {Phase::Begin, Phase::Update});
     Stable(app, "gesture-update");
     Require(gestures.events.size() == 2 && gestures.events[1].phase == Phase::Update &&
                 gestures.events[1].id == first.id && gestures.events[1].serial == first.serial &&
                 gestures.events[1].start == first.start,
             "Gesture Update changed capture identity or failed");
     pointer.Button(false);
+    WaitForGestures(app, gestures, {Phase::Begin, Phase::Update, Phase::End});
     Stable(app, "gesture-end");
     Require(gestures.events.size() == 3 && gestures.events.back().phase == Phase::End &&
                 gestures.events.back().id == first.id && actions.actions.size() == old_actions + 1,
@@ -338,6 +487,7 @@ void CheckGestures(Application &app, RemotePointer &pointer, ActionObserver &act
     pointer.Move(x, y);
     pointer.Button(true);
     pointer.Move(x + 12, y);
+    WaitForGestures(app, gestures, {Phase::Begin, Phase::Cancel});
     Stable(app, "gesture-callback-replaces-ui");
     Require(gestures.events.size() == 2 && gestures.events[0].phase == Phase::Begin &&
                 gestures.events[1].phase == Phase::Cancel &&
@@ -358,8 +508,10 @@ void CheckGestures(Application &app, RemotePointer &pointer, ActionObserver &act
     pointer.Move(x, y);
     pointer.Button(true);
     pointer.Move(x + 12, y);
+    WaitForGestures(app, gestures, {Phase::Begin});
     Stable(app, "gesture-second-begin");
     pointer.Move(x + 24, y);
+    WaitForGestures(app, gestures, {Phase::Begin, Phase::Update, Phase::Cancel});
     Stable(app, "gesture-callback-hides-target");
     Require(gestures.events.size() == 3 && gestures.events[0].phase == Phase::Begin &&
                 gestures.events[0].id > retired && gestures.events[1].phase == Phase::Update &&
@@ -376,6 +528,7 @@ void CheckGestures(Application &app, RemotePointer &pointer, ActionObserver &act
     pointer.Move(x, y);
     pointer.Button(true);
     pointer.Move(x + 12, y);
+    WaitForGestures(app, gestures, {Phase::Begin});
     Stable(app, "gesture-before-close");
     app.Close();
     Require(gestures.events.size() == 2 && gestures.events[0].phase == Phase::Begin &&
@@ -398,8 +551,10 @@ int Verify(const char *socket)
     config.app_id = "prism.input.snapshot.probe";
     config.title = "Input snapshot verification";
     config.font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+    ActionObserver observer;
     Application app(config);
-    ActionObserver observer{&app};
+    observer.app = &app;
+    ScopedFailureContext failure_context(app, observer);
     app.OnAction(std::bind_front(&ActionObserver::Handle, &observer));
     Require(app.Open(moving_ui), "Input snapshot UI failed to open");
     Require(app.SetBinding("targetX", 40.0), "Initial target position rejected");
@@ -422,6 +577,7 @@ int Verify(const char *socket)
     const auto new_x = origin_x + 260;
     const auto y = pointer.Height() / 2;
     pointer.Click(old_x, y);
+    WaitForActions(app, observer, 1, "activate");
     Stable(app, "snapshot-baseline-click");
     Require(observer.actions == std::vector<std::string>{"activate"},
             "Baseline pointer mapping missed the submitted target");
@@ -435,6 +591,7 @@ int Verify(const char *socket)
     // Quiescent counters alone cannot distinguish idle from an in-flight GPU
     // submission. First require positive progress; then check settled state.
     WaitForNewPixels(app, before_move.swap_successes);
+    WaitForActions(app, observer, 2, "activate");
     Stable(app, "snapshot-queued-old-geometry");
     Require(observer.actions == std::vector<std::string>({"activate", "activate"}),
             "Queued input used the unsubmitted candidate instead of its old submitted geometry");
@@ -445,6 +602,7 @@ int Verify(const char *socket)
     Stable(app, "snapshot-retired-old-position");
     Require(observer.actions.size() == 2, "New input still used retired target geometry");
     pointer.Click(new_x, y);
+    WaitForActions(app, observer, 3, "activate");
     Stable(app, "snapshot-current-new-position");
     Require(observer.actions == std::vector<std::string>({"activate", "activate", "activate"}),
             "New input did not use the moved and shrunk target geometry");
@@ -455,12 +613,14 @@ int Verify(const char *socket)
     pointer.Click(new_x, y);
     pointer.Click(new_x, y);
     HoldUiForWorker();
+    WaitForActions(app, observer, 4, "activate");
     Stable(app, "snapshot-replacement-drops-queued-input");
     Require(!observer.replace_on_action &&
                 observer.actions ==
                     std::vector<std::string>({"activate", "activate", "activate", "activate"}),
             "Old UI input reached the replacement or activation failed");
     pointer.Click(new_x, y);
+    WaitForActions(app, observer, 5, "replacement");
     Stable(app, "snapshot-replacement-accepts-current-input");
     Require(observer.actions.size() == 5 && observer.actions.back() == "replacement",
             "Replacement did not accept input after its own successful submission");

@@ -1,3 +1,5 @@
+#include "prism/contracts/rounded_region.hpp"
+#include "scene_contour_p.hpp"
 #include "scene_p.hpp"
 #include <atomic>
 #include <limits>
@@ -19,7 +21,7 @@ std::uint64_t Scene::NextInputSceneId()
 
 std::shared_ptr<const InputSnapshot> Scene::InputGeometry() const noexcept
 {
-    return input_snapshot_;
+    return root_surface_input_snapshot_ ? root_surface_input_snapshot_ : input_snapshot_;
 }
 
 std::shared_ptr<const InputSnapshot> Scene::CaptureInputSnapshot()
@@ -30,17 +32,19 @@ std::shared_ptr<const InputSnapshot> Scene::CaptureInputSnapshot()
 
     input_snapshot_dirty_ = input_snapshot_dirty_ || hit_geometry_dirty_;
     UpdateInputSnapshot();
-    return input_snapshot_;
+    return InputGeometry();
 }
 
 void Scene::UpdateInputSnapshot()
 {
     if (!input_snapshot_dirty_) {
+        UpdateRootSurfaceInputSnapshot();
         return;
     }
 
     InputSnapshot snapshot;
     snapshot.scene = input_scene_id_;
+    snapshot.popup_token = PopupToken();
     snapshot.root = root_->id;
     snapshot.viewport = viewport_;
     snapshot.nodes.resize(nodes_.size());
@@ -52,12 +56,20 @@ void Scene::UpdateInputSnapshot()
         item.id = node->id;
         item.parent = node->parent ? node->parent->id : contracts::NodeId{};
         item.bounds = node->bounds;
-        item.radius = node->style.radius;
-        item.clip = node->style.clip || node->style.overflow == "clip";
+        item.radius = node->contour_source || node->contour_recipe ? 0 : node->style.radius;
+        item.contour = node->contour;
+        item.scroll_offset = node->scroll_offset;
+        if (node->kind == Kind::Slider) {
+            item.slider_track = SliderTrack(*node);
+        }
+        item.clip = (IsPopupKind(node->kind) || node->kind == Kind::ScrollView) ||
+                    node->style.clip || node->style.overflow == "clip";
         item.visible = IsVisible(*node);
         item.enabled = IsEnabled(*node);
-        item.interactive = !node->action.empty() || node->kind == Kind::InteractionTarget;
-        item.action = node->action;
+        item.interactive = !InputAction(*node).empty() ||
+                           (node->kind == Kind::InteractionTarget ||
+                            (IsPopupKind(node->kind) || node->kind == Kind::ScrollView));
+        item.action = InputAction(*node);
         item.gesture = node->gesture;
         for (const auto &child : node->children) {
             if (!child->decorative && child->kind != Kind::Visual) {
@@ -65,19 +77,21 @@ void Scene::UpdateInputSnapshot()
             }
         }
     }
-    if (input_snapshot_ && input_snapshot_->root == snapshot.root &&
-        input_snapshot_->viewport == snapshot.viewport &&
+    if (input_snapshot_ && input_snapshot_->popup_token == snapshot.popup_token &&
+        input_snapshot_->root == snapshot.root && input_snapshot_->viewport == snapshot.viewport &&
         input_snapshot_->nodes == snapshot.nodes) {
         input_snapshot_dirty_ = false;
+        UpdateRootSurfaceInputSnapshot();
         return;
     }
 
-    if (input_snapshot_ && input_snapshot_->version == std::numeric_limits<std::uint64_t>::max()) {
+    if (input_snapshot_version_ == std::numeric_limits<std::uint64_t>::max()) {
         throw std::overflow_error("Scene input snapshot version exhausted");
     }
-    snapshot.version = input_snapshot_ ? input_snapshot_->version + 1 : 1;
+    snapshot.version = ++input_snapshot_version_;
     input_snapshot_ = std::make_shared<const InputSnapshot>(std::move(snapshot));
     input_snapshot_dirty_ = false;
+    UpdateRootSurfaceInputSnapshot();
 }
 
 bool Scene::ApplyInputSnapshot(const std::shared_ptr<const InputSnapshot> &snapshot)
@@ -89,15 +103,16 @@ bool Scene::ApplyInputSnapshot(const std::shared_ptr<const InputSnapshot> &snaps
 
     PrepareInputGeometry();
     for (auto &pointer : input_state_->pointers) {
-        if (pointer.submitted) {
+        if (pointer.submitted && !IsPopupInputSnapshot(pointer.snapshot.get())) {
             pointer.snapshot = snapshot;
         }
     }
     for (auto &touch : input_state_->touches) {
-        if (touch.submitted) {
+        if (touch.submitted && !IsPopupInputSnapshot(touch.snapshot.get())) {
             touch.snapshot = snapshot;
         }
     }
+    ReconcileSliderGeometry(*snapshot);
     applied_input_version_ = snapshot->version;
     const auto pixels = pixels_revision_;
     RefreshInputGeometry();
@@ -110,8 +125,14 @@ bool Scene::IsInteractive(contracts::NodeId id, const InputSnapshot *snapshot) c
     const auto *item =
         snapshot && snapshot->scene == input_scene_id_ ? snapshot->Find(id) : nullptr;
     const auto *node = Find(id);
-    return item && item->visible && item->enabled && item->interactive && IsInteractive(id) &&
-           item->action == node->action && item->gesture == node->gesture;
+    if (HasPopupSurfaceAdoption() && !IsPopupInputSnapshot(snapshot) && node &&
+        DescendantOf(node, *Find(active_popup_))) {
+        return false;
+    }
+    return snapshot && snapshot->popup_token == PopupToken() && item && item->visible &&
+           item->enabled && item->interactive && IsInteractive(id) &&
+           item->action == InputAction(*node) && item->gesture == node->gesture &&
+           CurrentScrollGeometry(*node, *snapshot);
 }
 
 std::optional<HitResult> Scene::Hit(const InputSnapshotNode &node, contracts::LogicalPoint point,
@@ -120,21 +141,8 @@ std::optional<HitResult> Scene::Hit(const InputSnapshotNode &node, contracts::Lo
     if (!node.visible || !node.enabled) {
         return std::nullopt;
     }
-    const bool inside = scene_detail::Inside(node.bounds, point);
-    if (!inside && node.clip) {
-        return std::nullopt;
-    }
-
-    const double radius = std::min({node.radius, node.bounds.width / 2, node.bounds.height / 2});
-    bool rounded_inside = inside;
-    if (radius > 0 && inside) {
-        const double cx =
-            std::clamp(point.x, node.bounds.x + radius, node.bounds.x + node.bounds.width - radius);
-        const double cy = std::clamp(point.y, node.bounds.y + radius,
-                                     node.bounds.y + node.bounds.height - radius);
-        rounded_inside =
-            (point.x - cx) * (point.x - cx) + (point.y - cy) * (point.y - cy) <= radius * radius;
-    }
+    const bool rounded_inside =
+        SceneShapeContains({{node.bounds, node.radius}, node.contour}, point);
     if (node.clip && !rounded_inside) {
         return std::nullopt;
     }

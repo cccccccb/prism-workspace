@@ -1,4 +1,7 @@
 #pragma once
+#include "prism/runtime/control_value.hpp"
+#include "prism/runtime/popup.hpp"
+#include "prism/runtime/popup_surface.hpp"
 
 #include "prism/contracts/display_list.hpp"
 #include "prism/contracts/events.hpp"
@@ -30,6 +33,9 @@ class AnimationClock;
 namespace prism::runtime {
 struct RenderTree;
 struct SnapshotNode;
+struct SceneSnapshot;
+struct SceneRegionShape;
+struct SceneRegionPlacement;
 
 struct Style {
     bool visible{true};
@@ -51,6 +57,7 @@ struct Style {
     contracts::Color background{0, 0, 0, 0};
     contracts::Color foreground{255, 255, 255, 255};
     double font_size{16};
+    double line_height{0}; // 0 keeps the component default; positive values set a minimum.
     bool clip{false};
     std::string align{"stretch"};
     std::string justify{"start"};
@@ -96,7 +103,12 @@ struct HitResult {
 struct InteractionState {
     bool hovered{}, pressed{}, captured{}, focused{}, focusVisible{}, dragging{};
     bool enabled{true};
+    bool selected{};
     bool operator==(const InteractionState &) const = default;
+};
+
+struct ScrollMetrics {
+    double offset{}, maximum{}, viewport_height{}, content_height{};
 };
 
 struct Activation {
@@ -110,6 +122,7 @@ struct TextEdit {
 };
 
 struct InteractionResult {
+    std::optional<ControlEdit> control_edit;
     std::optional<TextEdit> text_edit;
     bool changed{};
     std::optional<Activation> activation;
@@ -126,6 +139,9 @@ public:
     Scene(const Scene &) = delete;
     Scene &operator=(const Scene &) = delete;
     bool SetSlot(std::string_view name, std::string value);
+    ValueCancelReason ControlEditInvalidation(const ControlEdit &edit) const;
+    std::vector<ControlEdit> TakeControlEvents();
+    bool IsCurrentControlEdit(const ControlEdit &edit) const;
     bool AcceptsBinding(std::string_view name, const PropertyValue &value) const;
     bool SetBinding(std::string_view name, PropertyValue value);
     bool SetProperty(contracts::NodeId id, DslProperty property, PropertyValue value);
@@ -191,7 +207,7 @@ public:
     InteractionResult HandleInput(const contracts::WindowEvent &event,
                                   const std::shared_ptr<const InputSnapshot> &snapshot);
     InteractionState State(contracts::NodeId id) const;
-    // Typed runtime control; this does not introduce an enabled DSL property.
+    // Same local enabled value as the Boolean DSL property; ancestors still constrain input.
     bool SetEnabled(contracts::NodeId id, bool enabled);
     bool CancelInput();
     // Drains owning values before callbacks can replace a UI or mutate the Scene.
@@ -229,6 +245,29 @@ public:
     const std::vector<contracts::SurfaceInputRegion> &InputRegions() const;
     // Legacy convenience entry points use the default source / seat zero.
     // Platform events and action dispatch go through HandleInput.
+    std::optional<ScrollMetrics> ScrollInfo(contracts::NodeId id) const;
+    bool ScrollTo(contracts::NodeId id, double offset);
+    bool OpenPopup(contracts::NodeId anchor, std::uint64_t seat = 0);
+    bool ClosePopup(PopupCloseReason reason = PopupCloseReason::Escape);
+    std::uint64_t PopupToken() const noexcept;
+    std::optional<PopupSurfaceRequest>
+    CapturePopupSurfaceRequest(std::uint64_t parent_configure_generation);
+    std::optional<PopupSurfaceRequest>
+    CapturePopupSurfaceRequest(std::uint64_t parent_configure_generation,
+                               contracts::LogicalRect parent_window_geometry);
+    std::optional<PopupSurfacePlan> PreparePopupSurface(const PopupSurfaceRequest &,
+                                                        const PopupSurfaceConfigure &,
+                                                        std::string *diagnostic = nullptr) const;
+    // Returns accepted, including metadata-only adoption after the first pixel commit.
+    // The Host validates UI/native submission credentials before calling this gate.
+    bool AdoptPopupSurface(const PopupSurfacePlan &, const PopupSurfaceIdentity &);
+    bool RevokePopupSurface(const PopupSurfaceIdentity &);
+    bool HasPopupSurfaceAdoption() const noexcept;
+    std::optional<PopupSurfaceIdentity> PopupSurfaceAdoptionIdentity() const noexcept;
+    InteractionResult HandlePopupSurfaceInput(const contracts::WindowEvent &,
+                                              const PopupSurfaceIdentity &,
+                                              const std::shared_ptr<const InputSnapshot> &);
+    PopupSurfacePreparationStats GetPopupSurfacePreparationStats() const noexcept;
     bool SetPointer(contracts::LogicalPoint point);
     bool FocusNext();
     std::optional<std::string> FocusedAction() const;
@@ -236,6 +275,7 @@ public:
 private:
     friend class SceneConstruction;
     struct Node;
+    SceneSnapshot CaptureResolvedSnapshot() const;
     struct AnimationState;
     struct InputState;
 
@@ -282,6 +322,13 @@ private:
     std::optional<HitResult> Hit(const InputSnapshotNode &, contracts::LogicalPoint,
                                  const InputSnapshot &) const;
     void UpdateInputSnapshot();
+    void UpdateRootSurfaceInputSnapshot(bool force = false);
+    bool IsPopupInputSnapshot(const InputSnapshot *) const noexcept;
+    void DropPopupSurfaceAdoption();
+    std::optional<ScrollMetrics> PopupScrollInfo(contracts::NodeId) const;
+    bool ScrollPopupTo(contracts::NodeId, double);
+    bool RevealPopupScrollTarget(contracts::NodeId);
+    void ApplyPopupScrollOffsets(SceneSnapshot &) const;
     static std::uint64_t NextInputSceneId();
     bool IsEnabled(const Node &node) const;
     bool IsInteractive(contracts::NodeId id) const;
@@ -304,6 +351,50 @@ private:
     void PrepareInputGeometry();
     void RefreshInputGeometry() noexcept;
     void CancelSeatInput(std::uint64_t seat) noexcept;
+    void CancelControlCapture(contracts::NodeId node) noexcept;
+    std::string_view InputAction(const Node &node) const;
+    std::uint64_t ControlRevision(const Node &node) const;
+    bool Selected(const Node &node) const;
+    bool ValidChoiceAssignment(const Node &node, DslProperty property,
+                               const PropertyValue &value) const;
+    void ValidateChoiceTree(const Node &node) const;
+    bool ValidSliderAssignment(const Node &, DslProperty, const PropertyValue &) const;
+    void ValidateSliderTree(Node &node);
+    void ValidatePopupTree() const;
+    void ReconcilePopup();
+    bool HandlePopupInput(const contracts::WindowEvent &,
+                          const std::shared_ptr<const InputSnapshot> &, bool);
+    bool HandlePopupActivation(const Activation &, std::uint64_t seat);
+    bool BackPopup();
+    bool HandleMenuKey(const contracts::KeyEvent &, const InputSnapshot *, bool);
+    void ValidateMenuTree() const;
+    bool InPopupScope(const Node &) const;
+    void ValidateScrollTree(const Node &node) const;
+    bool HandleScrollInput(const contracts::WindowEvent &,
+                           const std::shared_ptr<const InputSnapshot> &, bool submitted);
+    void RevealScrollTarget(contracts::NodeId id);
+    void CancelScrolledInput(const Node &content) noexcept;
+    static bool DescendantOf(const Node *node, const Node &parent) noexcept;
+    static void TranslateScrolledTree(Node &node, double delta) noexcept;
+    void ApplyScrollVisuals(struct SceneSnapshot &snapshot) const;
+    bool CurrentScrollGeometry(const Node &, const InputSnapshot &) const;
+    contracts::LogicalRect SliderTrack(const Node &node) const;
+    double SliderPresentedValue(const Node &node) const;
+    void ApplySliderVisuals(struct SceneSnapshot &snapshot) const;
+    bool HandleSliderInput(const contracts::WindowEvent &,
+                           const std::shared_ptr<const InputSnapshot> &, bool submitted);
+    void StartSlider(Node &, contracts::InputSource, std::uint32_t key,
+                     contracts::LogicalRect track);
+    void PreviewSlider(std::size_t index, double value);
+    void FinishSlider(std::size_t index, ValueCancelReason reason) noexcept;
+    void ReconcileSliders() noexcept;
+    void ReconcileSliderGeometry(const InputSnapshot &) noexcept;
+    std::vector<Node *> ChoiceOptions(const Node &group, const InputSnapshot *snapshot,
+                                      bool submitted) const;
+    Node *ChoiceTabStop(const Node &group, const InputSnapshot *snapshot, bool submitted) const;
+    std::optional<Activation> HandleChoiceKey(const contracts::KeyEvent &event,
+                                              const InputSnapshot *snapshot, bool submitted);
+    std::optional<ControlEdit> CommitControl(const Activation &activation);
     bool SetInputFocus(contracts::NodeId id, std::uint64_t seat, bool visible);
     bool MoveInputFocus(std::uint64_t seat, bool reverse, const InputSnapshot *snapshot = nullptr,
                         bool submitted = false);
@@ -328,13 +419,38 @@ private:
     void RefreshTouchGeometry() noexcept;
     InteractionResult DispatchInput(const contracts::WindowEvent &,
                                     const std::shared_ptr<const InputSnapshot> &, bool);
-    void CollectSurfaceEffects(const Node &, std::vector<contracts::SurfaceInputRegion> &,
-                               std::vector<contracts::SurfaceEffectRegion> &) const;
-    void AddInputRegion(contracts::SurfaceInputRegion,
-                        const std::vector<contracts::SurfaceInputRegion> &) const;
-    void CollectInputRegions(const Node &, std::vector<contracts::SurfaceInputRegion> &) const;
+    SceneRegionShape RegionShape(const Node &, const SceneRegionPlacement * = nullptr) const;
+    void CollectSurfaceEffects(const Node &, std::vector<SceneRegionShape> &,
+                               std::vector<contracts::SurfaceEffectRegion> &,
+                               const SceneRegionPlacement * = nullptr) const;
+    void AddInputRegion(const SceneRegionShape &, const std::vector<SceneRegionShape> &,
+                        std::vector<contracts::SurfaceInputRegion> &) const;
+    void CollectInputRegions(const Node &, std::vector<SceneRegionShape> &,
+                             std::vector<contracts::SurfaceInputRegion> &,
+                             const SceneRegionPlacement * = nullptr) const;
+    void PrepareScrolledContours(Node &, SceneRegionPlacement &) const;
+    std::vector<contracts::SurfaceInputRegion>
+    PrepareScrolledRegions(const SceneRegionPlacement &) const;
     void Invalidate(Dirty affected);
 
+    struct PopupFrame {
+        contracts::NodeId node, trigger;
+        std::uint64_t token;
+    };
+
+    std::vector<PopupFrame> popup_stack_;
+    std::uint64_t popup_epoch_{};
+    std::unique_ptr<PopupSession> popup_session_;
+    contracts::NodeId active_popup_;
+    std::uint64_t popup_seat_{};
+
+    struct PopupRelease {
+        contracts::InputSource source;
+        contracts::PointerButton button;
+    };
+
+    std::vector<PopupRelease> popup_releases_;
+    std::optional<contracts::InputSource> popup_escape_;
     std::unique_ptr<Node> root_;
     ShapeText shaper_;
     contracts::ResourceId font_{};
@@ -354,10 +470,22 @@ private:
     std::uint64_t pixels_revision_{1};
     std::uint64_t build_calls_{0}, layout_count_{0};
     std::unique_ptr<RenderTree> render_tree_;
+    std::shared_ptr<const SceneSnapshot> popup_snapshot_;
+    std::shared_ptr<const PopupSurfaceSource> popup_surface_source_;
+    contracts::WindowId popup_snapshot_window_;
+    std::uint64_t popup_snapshot_revision_{}, popup_snapshot_pixels_revision_{};
+    std::uint64_t popup_parent_configure_generation_{};
+    mutable std::shared_ptr<const PopupSurfacePrepared> popup_surface_prepared_;
+    mutable PopupSurfacePreparationStats popup_surface_preparation_stats_;
+    struct PopupSurfaceAdoption;
+    std::unique_ptr<PopupSurfaceAdoption> popup_surface_adoption_;
     std::unique_ptr<AnimationState> animation_state_;
     bool state_styles_dirty_{true};
     std::unique_ptr<InputState> input_state_;
     std::shared_ptr<const InputSnapshot> input_snapshot_;
+    std::shared_ptr<const InputSnapshot> root_surface_input_snapshot_;
+    std::shared_ptr<const InputSnapshot> root_surface_input_source_;
+    std::uint64_t input_snapshot_version_{};
     const std::uint64_t input_scene_id_{NextInputSceneId()};
     std::uint64_t applied_input_version_{};
     bool input_snapshot_dirty_{true};

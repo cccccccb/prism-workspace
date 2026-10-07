@@ -1,191 +1,197 @@
+#include "scene_contour_p.hpp"
 #include "scene_p.hpp"
+#include "surface_effect_geometry_p.hpp"
+
+#include <algorithm>
+#include <optional>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 namespace prism::runtime {
 namespace {
-using Shape = contracts::SurfaceInputRegion;
+using RoundedShape = contracts::SurfaceInputRegion;
+using Shape = SceneRegionShape;
 using Rect = contracts::LogicalRect;
 
-Shape NormalizeShape(Shape shape)
+void AppendInputRegion(RoundedShape shape, std::vector<RoundedShape> &output)
 {
-    shape.corner_radius =
-        std::clamp(shape.corner_radius, 0.0, std::min(shape.bounds.width, shape.bounds.height) / 2);
-    return shape;
+    if (output.size() == 65536) {
+        throw std::length_error("Surface input region limit is 65536 rectangles");
+    }
+    output.push_back(shape);
 }
 
-bool SameBounds(Rect a, Rect b)
+void AppendInputMask(const std::vector<Rect> &mask, std::vector<RoundedShape> &output)
 {
-    return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
+    if (mask.size() > 65536 - output.size()) {
+        throw std::length_error("Surface input region limit is 65536 rectangles");
+    }
+    for (const auto &rect : mask) {
+        output.push_back({rect, 0});
+    }
 }
 
-bool InsideRoundedShape(contracts::LogicalPoint point, Shape shape)
+void AppendUniqueShape(const Shape &shape, std::vector<Shape> &shapes)
 {
-    const auto &b = shape.bounds;
-    if (point.x < b.x || point.y < b.y || point.x > b.x + b.width || point.y > b.y + b.height) {
-        return false;
+    for (const auto &existing : shapes) {
+        if (SameSurfaceRegionShape(shape, existing)) {
+            return;
+        }
     }
-    const auto r = shape.corner_radius;
-    const auto x = std::clamp(point.x, b.x + r, b.x + b.width - r);
-    const auto y = std::clamp(point.y, b.y + r, b.y + b.height - r);
-    return (point.x - x) * (point.x - x) + (point.y - y) * (point.y - y) <= r * r + 1e-7;
-}
-
-bool ContainsRoundedShape(Shape outer, Rect box)
-{
-    return InsideRoundedShape({box.x, box.y}, outer) &&
-           InsideRoundedShape({box.x + box.width, box.y}, outer) &&
-           InsideRoundedShape({box.x, box.y + box.height}, outer) &&
-           InsideRoundedShape({box.x + box.width, box.y + box.height}, outer);
-}
-
-std::optional<Shape> IntersectEffectShapes(Shape a, Shape b)
-{
-    const double x = std::max(a.bounds.x, b.bounds.x), y = std::max(a.bounds.y, b.bounds.y);
-    const Rect box{
-        x, y, std::max(0.0, std::min(a.bounds.x + a.bounds.width, b.bounds.x + b.bounds.width) - x),
-        std::max(0.0, std::min(a.bounds.y + a.bounds.height, b.bounds.y + b.bounds.height) - y)};
-    if (box.width == 0 || box.height == 0) {
-        return std::nullopt;
-    }
-    if (SameBounds(a.bounds, b.bounds)) {
-        return Shape{box, std::max(a.corner_radius, b.corner_radius)};
-    }
-    if (SameBounds(box, a.bounds) && ContainsRoundedShape(b, a.bounds)) {
-        return a;
-    }
-    if (SameBounds(box, b.bounds) && ContainsRoundedShape(a, b.bounds)) {
-        return b;
-    }
-    if (ContainsRoundedShape(a, box) && ContainsRoundedShape(b, box)) {
-        return Shape{box, 0};
-    }
-    // The v1 protocol has one uniform-radius rounded rectangle. Cropping
-    // its curved corners, or combining offset curved clips, can produce
-    // asymmetric masks that cannot be transmitted faithfully.
-    throw std::runtime_error(
-        "Unsupported backdrop clipping: intersection is not a v1 rounded rectangle");
-}
-
-bool SameInputBounds(Rect a, Rect b)
-{
-    return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
-}
-
-Rect IntersectInputBounds(Rect a, Rect b)
-{
-    const auto x = std::max(a.x, b.x), y = std::max(a.y, b.y);
-    return Rect{x, y, std::max(0.0, std::min(a.x + a.width, b.x + b.width) - x),
-                std::max(0.0, std::min(a.y + a.height, b.y + b.height) - y)};
-}
-
-std::pair<double, double> ShapeSpan(Shape region, double y)
-{
-    const auto &b = region.bounds;
-    const double r = std::clamp(region.corner_radius, 0.0, std::min(b.width, b.height) / 2);
-    const double edge = std::min(y - b.y, b.y + b.height - y);
-    double inset = 0;
-    if (edge < r) {
-        inset = r - std::sqrt(std::max(0.0, r * r - (r - edge) * (r - edge)));
-    }
-    return std::pair{b.x + inset, b.x + b.width - inset};
+    shapes.push_back(shape);
 }
 } // namespace
 
+SceneRegionShape Scene::RegionShape(const Node &node, const SceneRegionPlacement *placement) const
+{
+    if ((node.contour_source || node.contour_recipe) && !node.contour) {
+        throw std::logic_error("Contour regions require prepared visible geometry");
+    }
+    Shape result{contracts::NormalizeRoundedRegion({node.bounds, node.style.radius}), node.contour};
+    if (!placement) {
+        return result;
+    }
+
+    for (const Node *current = &node; current && current->parent; current = current->parent) {
+        if (current->parent->id != placement->scroll_root) {
+            continue;
+        }
+        if (current->kind != Kind::Visual) {
+            result.rounded.bounds.y += placement->delta;
+            if (node.contour_source) {
+                result.contour = placement->contours.at(node.id.index);
+            }
+        }
+        break;
+    }
+    return result;
+}
+
 void Scene::CollectSurfaceEffects(const Node &node, std::vector<Shape> &clips,
-                                  std::vector<contracts::SurfaceEffectRegion> &result) const
+                                  std::vector<contracts::SurfaceEffectRegion> &result,
+                                  const SceneRegionPlacement *placement) const
 {
     if (node.kind == Kind::Visual || !IsVisible(node) || node.bounds.width <= 0 ||
-        node.bounds.height <= 0) {
+        node.bounds.height <= 0 || (HasPopupSurfaceAdoption() && node.id == active_popup_) ||
+        (placement && placement->close_popup && IsPopupKind(node.kind))) {
         return;
     }
-    const bool clipped = node.style.clip || node.style.overflow == "clip";
+    const bool clipped = IsPopupKind(node.kind) || node.kind == Kind::ScrollView ||
+                         node.style.clip || node.style.overflow == "clip";
     if (clipped) {
-        clips.push_back(NormalizeShape({node.bounds, node.style.radius}));
+        clips.push_back(RegionShape(node, placement));
     }
     if (node.style.backdrop_blur > 0) {
-        std::optional<Shape> shape = NormalizeShape({node.bounds, node.style.radius});
+        std::optional<Shape> shape = RegionShape(node, placement);
         for (const auto &clip : clips) {
-            shape = IntersectEffectShapes(*shape, clip);
+            shape = IntersectSurfaceEffectShapes(*shape, clip);
             if (!shape) {
                 break;
             }
         }
         if (shape) {
-            const auto &b = shape->bounds;
-            if (std::abs(b.x) > 8192 || std::abs(b.y) > 8192 || b.width > 8192 || b.height > 8192) {
-                throw std::runtime_error(
-                    "Unsupported backdrop bounds: v1 maximum is 8192 logical pixels");
+            contracts::SurfaceEffectRegion effect{shape->Bounds(),
+                                                  shape->contour ? 0 : shape->rounded.corner_radius,
+                                                  node.style.backdrop_blur};
+            if (shape->contour) {
+                effect.contour = *shape->contour;
             }
-            result.push_back({b, shape->corner_radius, node.style.backdrop_blur});
+            ValidatePreparedSurfaceEffect(effect);
+
+            result.push_back(std::move(effect));
         }
     }
     for (const auto &child : node.children) {
-        CollectSurfaceEffects(*child, clips, result);
+        CollectSurfaceEffects(*child, clips, result, placement);
     }
     if (clipped) {
         clips.pop_back();
     }
 }
 
-void Scene::AddInputRegion(Shape shape, const std::vector<Shape> &clips) const
+void Scene::AddInputRegion(const Shape &shape, const std::vector<Shape> &clips,
+                           std::vector<RoundedShape> &output) const
 {
-    auto bounds = shape.bounds;
-    double radius = shape.corner_radius;
-    bool identical = true, rectangular = radius == 0;
+    auto bounds = shape.Bounds();
+    double radius = shape.rounded.corner_radius;
+    bool identical = true;
+    bool rectangular = radius == 0;
+    bool has_contour = static_cast<bool>(shape.contour);
     for (const auto &clip : clips) {
-        bounds = IntersectInputBounds(bounds, clip.bounds);
-        identical = identical && SameInputBounds(shape.bounds, clip.bounds);
-        rectangular = rectangular && clip.corner_radius == 0;
-        radius = std::max(radius, clip.corner_radius);
+        bounds = IntersectSurfaceRegionBounds(bounds, clip.Bounds());
+        identical = identical && shape.rounded.bounds == clip.rounded.bounds;
+        rectangular = rectangular && clip.rounded.corner_radius == 0;
+        radius = std::max(radius, clip.rounded.corner_radius);
+        has_contour = has_contour || static_cast<bool>(clip.contour);
     }
-    if (bounds.width <= 0 || bounds.height <= 0) {
+    if (!has_contour && (bounds.width <= 0 || bounds.height <= 0)) {
         return;
     }
-    if (clips.empty() || identical || rectangular) {
-        input_regions_.push_back({bounds, rectangular ? 0 : radius});
-        return;
-    }
-    // Arbitrary rounded intersections are not themselves rounded rects.
-    // Resolve the exact logical-pixel input mask once, using the same
-    // pixel-center convention as the Wayland region rasterizer.
+    if (!has_contour) {
+        if (clips.empty() || identical || rectangular) {
+            AppendInputRegion({bounds, rectangular ? 0 : radius}, output);
+            return;
+        }
 
-    for (int y = static_cast<int>(std::ceil(bounds.y));
-         y < static_cast<int>(std::floor(bounds.y + bounds.height)); ++y) {
-        auto [left, right] = ShapeSpan(shape, y + .5);
+        std::vector<RoundedShape> intersection;
+        intersection.reserve(clips.size() + 1);
         for (const auto &clip : clips) {
-            const auto [a, b] = ShapeSpan(clip, y + .5);
-            left = std::max(left, a);
-            right = std::min(right, b);
+            intersection.push_back(clip.rounded);
         }
-        const double first = std::ceil(left), last = std::floor(right);
-        if (last > first) {
-            input_regions_.push_back({{first, double(y), last - first, 1}, 0});
+        intersection.push_back(shape.rounded);
+        AppendInputMask(contracts::RasterizeRoundedIntersection(intersection), output);
+        return;
+    }
+
+    std::vector<Shape> intersection;
+    intersection.reserve(clips.size() + 1);
+    AppendUniqueShape(shape, intersection);
+    for (const auto &clip : clips) {
+        AppendUniqueShape(clip, intersection);
+    }
+    std::vector<contracts::Contour> contours;
+    std::vector<RoundedShape> rounded;
+    for (const auto &item : intersection) {
+        if (item.contour) {
+            contours.push_back(*item.contour);
+        } else {
+            rounded.push_back(item.rounded);
         }
     }
+
+    const Rect viewport{0, 0, viewport_.width, viewport_.height};
+    AppendInputMask(contracts::RasterizeContourIntersection(contours, viewport, rounded), output);
 }
 
-void Scene::CollectInputRegions(const Node &node, std::vector<Shape> &clips) const
+void Scene::CollectInputRegions(const Node &node, std::vector<Shape> &clips,
+                                std::vector<RoundedShape> &output,
+                                const SceneRegionPlacement *placement) const
 {
     if (node.kind == Kind::Visual || !IsVisible(node) || node.bounds.width <= 0 ||
-        node.bounds.height <= 0) {
+        node.bounds.height <= 0 || (HasPopupSurfaceAdoption() && node.id == active_popup_) ||
+        (placement && placement->close_popup && IsPopupKind(node.kind))) {
         return;
     }
-    const bool clipped = node.style.clip || node.style.overflow == "clip";
+    const bool clipped = IsPopupKind(node.kind) || node.kind == Kind::ScrollView ||
+                         node.style.clip || node.style.overflow == "clip";
     if (clipped) {
-        clips.push_back({node.bounds, node.style.radius});
+        clips.push_back(RegionShape(node, placement));
     }
-    const bool material = node.kind == Kind::InteractionTarget ||
+    const bool popup_open = (!placement || !placement->close_popup) && PopupToken();
+    const bool material = (&node == root_.get() && popup_open) || IsPopupKind(node.kind) ||
+                          node.kind == Kind::ScrollView || IsInteractionOwner(node.kind) ||
                           node.style.input_shape == "bounds" || node.style.background.a ||
                           node.style.backdrop_blur > 0 || !node.action.empty() ||
                           node.kind == Kind::Image;
     if (material) {
-        AddInputRegion({node.bounds, node.style.radius}, clips);
+        AddInputRegion(RegionShape(node, placement), clips, output);
     }
     // A material clip already covers all visible descendants. A visible
     // overflow child can extend the union beyond its parent's region.
     if (!(material && clipped)) {
         for (const auto &child : node.children) {
-            CollectInputRegions(*child, clips);
+            CollectInputRegions(*child, clips, output, placement);
         }
     }
     if (clipped) {
@@ -193,11 +199,26 @@ void Scene::CollectInputRegions(const Node &node, std::vector<Shape> &clips) con
     }
 }
 
+std::vector<contracts::SurfaceInputRegion>
+Scene::PrepareScrolledRegions(const SceneRegionPlacement &placement) const
+{
+    std::vector<contracts::SurfaceEffectRegion> effects;
+    std::vector<Shape> effect_clips{{{{0, 0, viewport_.width, viewport_.height}, 0}, {}}};
+    CollectSurfaceEffects(*root_, effect_clips, effects, &placement);
+    if (effects.size() > 8) {
+        throw std::length_error("Surface effect region limit is 8");
+    }
+
+    std::vector<RoundedShape> input;
+    std::vector<Shape> input_clips;
+    CollectInputRegions(*root_, input_clips, input, &placement);
+    return input;
+}
+
 std::vector<contracts::SurfaceEffectRegion> Scene::SurfaceEffects() const
 {
     std::vector<contracts::SurfaceEffectRegion> result;
-
-    std::vector<Shape> clips{{{0, 0, viewport_.width, viewport_.height}, 0}};
+    std::vector<Shape> clips{{{{0, 0, viewport_.width, viewport_.height}, 0}, {}}};
 
     if (root_) {
         CollectSurfaceEffects(*root_, clips, result);
@@ -213,13 +234,14 @@ const std::vector<contracts::SurfaceInputRegion> &Scene::InputRegions() const
     if (!input_dirty_) {
         return input_regions_;
     }
-    input_regions_.clear();
 
+    std::vector<RoundedShape> prepared;
     std::vector<Shape> clips;
-
     if (root_) {
-        CollectInputRegions(*root_, clips);
+        CollectInputRegions(*root_, clips, prepared);
     }
+
+    input_regions_.swap(prepared);
     input_dirty_ = false;
     return input_regions_;
 }

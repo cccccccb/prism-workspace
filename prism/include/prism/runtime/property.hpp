@@ -64,7 +64,18 @@ enum class DslProperty {
     MaxViewportWidth,
     MinViewportHeight,
     MaxViewportHeight,
-    Last = MaxViewportHeight
+    Enabled,
+    LineHeight,
+    SelectedKey,
+    OptionKey,
+    Minimum,
+    Maximum,
+    Step,
+    SliderPart,
+    ScrollSpeed,
+    ScrollPart,
+    PopupFor,
+    Last = PopupFor
 };
 using PropertyValue =
     std::variant<double, bool, std::string, contracts::Color, contracts::ResourceId>;

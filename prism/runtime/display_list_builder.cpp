@@ -4,6 +4,58 @@
 
 namespace prism::runtime {
 namespace {
+void EmitShadow(const RenderNode &node, const ShadowVisual &shadow, contracts::DisplayList &list)
+{
+    if (node.contour) {
+        list.commands.emplace_back(contracts::ContourShadow{
+            *node.contour, shadow.blur, shadow.offset_y, shadow.color, shadow.inset});
+    } else {
+        list.commands.emplace_back(contracts::RoundedRectShadow{
+            node.bounds, shadow.radius, shadow.blur, shadow.offset_y, shadow.color, shadow.inset});
+    }
+}
+
+void EmitClip(const RenderNode &node, contracts::DisplayList &list)
+{
+    if (node.contour) {
+        list.commands.emplace_back(contracts::PushClipContour{*node.contour});
+    } else if (node.clip_radius > 0) {
+        list.commands.emplace_back(contracts::PushClipRoundedRect{node.bounds, node.clip_radius});
+    } else {
+        list.commands.emplace_back(contracts::PushClipRect{node.bounds});
+    }
+}
+
+void EmitFill(const RenderNode &node, const RectVisual &visual, contracts::DisplayList &list)
+{
+    if (node.contour) {
+        list.commands.emplace_back(contracts::FillContour{*node.contour, visual.color});
+    } else {
+        list.commands.emplace_back(contracts::FillRect{node.bounds, visual.color});
+    }
+}
+
+void EmitFill(const RenderNode &node, const RoundedRectVisual &visual, contracts::DisplayList &list)
+{
+    if (node.contour) {
+        list.commands.emplace_back(contracts::FillContour{*node.contour, visual.color});
+    } else {
+        list.commands.emplace_back(
+            contracts::FillRoundedRect{node.bounds, visual.radius, visual.color});
+    }
+}
+
+void EmitBorder(const RenderNode &node, const BorderVisual &border, contracts::DisplayList &list)
+{
+    if (node.contour) {
+        list.commands.emplace_back(
+            contracts::StrokeContour{*node.contour, border.width, border.color});
+    } else {
+        list.commands.emplace_back(
+            contracts::StrokeRoundedRect{node.bounds, border.radius, border.width, border.color});
+    }
+}
+
 void Emit(const RenderTree &tree, contracts::NodeId id, contracts::ResourceId font,
           contracts::DisplayList &list)
 {
@@ -24,17 +76,11 @@ void Emit(const RenderTree &tree, contracts::NodeId id, contracts::ResourceId fo
     }
     for (const auto &visual : node.visuals) {
         if (const auto *shadow = std::get_if<ShadowVisual>(&visual); shadow && !shadow->inset) {
-            list.commands.emplace_back(contracts::RoundedRectShadow{
-                node.bounds, shadow->radius, shadow->blur, shadow->offset_y, shadow->color, false});
+            EmitShadow(node, *shadow, list);
         }
     }
     if (node.clip) {
-        if (node.clip_radius > 0) {
-            list.commands.emplace_back(
-                contracts::PushClipRoundedRect{node.bounds, node.clip_radius});
-        } else {
-            list.commands.emplace_back(contracts::PushClipRect{node.bounds});
-        }
+        EmitClip(node, list);
     }
     for (const auto &visual : node.visuals) {
         if (auto *selection = std::get_if<TextSelectionVisual>(&visual)) {
@@ -44,10 +90,9 @@ void Emit(const RenderTree &tree, contracts::NodeId id, contracts::ResourceId fo
                 list.commands.emplace_back(contracts::FillRect{rect, selection->color});
             }
         } else if (auto *rect = std::get_if<RectVisual>(&visual)) {
-            list.commands.emplace_back(contracts::FillRect{node.bounds, rect->color});
+            EmitFill(node, *rect, list);
         } else if (auto *rect = std::get_if<RoundedRectVisual>(&visual)) {
-            list.commands.emplace_back(
-                contracts::FillRoundedRect{node.bounds, rect->radius, rect->color});
+            EmitFill(node, *rect, list);
         } else if (auto *image = std::get_if<ImageVisual>(&visual)) {
             list.commands.emplace_back(contracts::DrawImage{image->image, node.bounds, image->fit});
         } else if (auto *icon = std::get_if<IconVisual>(&visual)) {
@@ -98,11 +143,9 @@ void Emit(const RenderTree &tree, contracts::NodeId id, contracts::ResourceId fo
     // Frame accents belong above contents; children cannot cover the edge.
     for (const auto &visual : node.visuals) {
         if (const auto *shadow = std::get_if<ShadowVisual>(&visual); shadow && shadow->inset) {
-            list.commands.emplace_back(contracts::RoundedRectShadow{
-                node.bounds, shadow->radius, shadow->blur, shadow->offset_y, shadow->color, true});
+            EmitShadow(node, *shadow, list);
         } else if (const auto *border = std::get_if<BorderVisual>(&visual)) {
-            list.commands.emplace_back(contracts::StrokeRoundedRect{node.bounds, border->radius,
-                                                                    border->width, border->color});
+            EmitBorder(node, *border, list);
         }
     }
     if (node.clip) {

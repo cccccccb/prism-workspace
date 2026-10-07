@@ -3,6 +3,7 @@
 #include "prism/contracts/events.hpp"
 #include "prism/contracts/surface_effect.hpp"
 #include "prism/platform/presentation.hpp"
+#include "prism/platform/surface_effect_capabilities.hpp"
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -37,6 +38,7 @@ struct xkb_context;
 struct xkb_state;
 
 namespace prism::platform {
+class WaylandPopup;
 
 enum class SubmitResult { None, State, Pixels, Failed, Deferred, AwaitFrame };
 
@@ -60,6 +62,7 @@ struct WaylandOpenOptions {
 
 // A single xdg-shell toplevel. It owns Wayland objects and temporary SHM
 // buffers; the DSL and renderer do not depend on these implementation types.
+// Its owner must keep it alive until Pump and every callback have returned.
 class WaylandWindow {
 public:
     WaylandWindow();
@@ -80,6 +83,15 @@ public:
     void SetPaintHandler(std::function<void(void *, int, int, int)> handler)
     {
         paint_handler_ = std::move(handler);
+    }
+
+    // Backend leases must release borrowed native resources before proxies or
+    // the connection disappear. Runs once, including on destruction. It must
+    // not throw or call any Wayland owner Close/Open/Pump/destructor. Only
+    // release GPU/WSI resources here.
+    void SetBeforeCloseHandler(std::function<void()> handler)
+    {
+        before_close_handler_ = std::move(handler);
     }
 
     void SetPresentationHandler(std::function<void(const PixelPresentation &)> handler)
@@ -113,6 +125,7 @@ public:
     bool Pump(int timeout_ms, std::span<pollfd> wake_fds = {});
     void RequestMaximize();
     void SetSurfaceEffects(std::span<const contracts::SurfaceEffectRegion> regions);
+    WaylandSurfaceEffectCapabilities SurfaceEffectCapabilities() const noexcept;
     void SetInputRegions(std::span<const contracts::SurfaceInputRegion> regions);
     void Close();
 
@@ -224,11 +237,19 @@ public:
     }
 
 private:
+    friend class WaylandPopup;
+    void ClosePopups(bool notify = true) noexcept;
+    WaylandPopup *FindPopup(wl_surface *) const noexcept;
+    void EmitSurfaceInput(wl_surface *, contracts::WindowEvent);
+    void FlushKeyboardFocus();
+    void RunBeforeClose() noexcept;
     bool defer_close_requests_{};
     struct ShmBuffer;
     static void RegistryGlobal(void *, wl_registry *, std::uint32_t, const char *, std::uint32_t);
     static void OpenSyncDone(void *, wl_callback *, std::uint32_t);
     static void EffectCapabilities(void *, prism_surface_effect_manager_v1 *, std::uint32_t);
+    static void ContourCapabilities(void *, prism_surface_effect_manager_v1 *, std::uint32_t);
+    static void PopupBackdropCapabilities(void *, prism_surface_effect_manager_v1 *, std::uint32_t);
     static void RegistryGlobalRemove(void *, wl_registry *, std::uint32_t);
     static void ShellPing(void *, xdg_wm_base *, std::uint32_t);
     static void SurfaceConfigure(void *, xdg_surface *, std::uint32_t);
@@ -288,6 +309,7 @@ private:
     SubmitResult TrySubmit();
     SubmitResult CompleteSubmit(SubmitResult);
     int DispatchPending();
+    bool FailConnection();
     bool WaitForOpenSync(bool &done, const WaylandOpenOptions &options);
     bool OpenRoundtrip(const WaylandOpenOptions &options);
     void ReapBuffers();
@@ -329,7 +351,18 @@ private:
     wl_pointer *pointer_{nullptr};
     wl_keyboard *keyboard_{nullptr};
     wl_touch *touch_{nullptr};
+    wl_surface *pointer_focus_surface_{};
+    wl_surface *keyboard_focus_surface_{};
+
+    struct PendingKeyboardFocus {
+        wl_surface *surface{};
+        bool focused{};
+        contracts::InputSource source;
+    };
+
+    std::vector<PendingKeyboardFocus> pending_keyboard_focus_;
     std::vector<contracts::InputContactId> touch_contacts_;
+    bool touch_frame_pending_{};
     xkb_context *keyboard_context_{};
     xkb_state *keyboard_state_{};
     xdg_wm_base *shell_{nullptr};
@@ -337,14 +370,20 @@ private:
     prism_surface_effect_manager_v1 *effect_manager_{};
     prism_surface_effect_v1 *surface_effect_{};
     bool backdrop_supported_{};
+    bool contour_supported_{};
+    bool popup_backdrop_supported_{};
     std::vector<contracts::SurfaceEffectRegion> sent_effects_;
     std::vector<contracts::SurfaceInputRegion> sent_input_;
     bool input_sent_{};
     xdg_surface *xdg_surface_{nullptr};
     xdg_toplevel *toplevel_{nullptr};
+    std::vector<WaylandPopup *> popups_;
+    bool closing_{};
+    bool destructing_{};
     wl_callback *frame_callback_{nullptr};
     std::vector<std::unique_ptr<ShmBuffer>> buffers_;
     std::function<void(const contracts::WindowEvent &)> event_handler_;
+    std::function<void()> before_close_handler_;
     std::function<void(void *, int, int, int)> paint_handler_;
     std::function<SubmitResult(const SubmitRequest &)> prepare_submit_;
     std::function<bool()> commit_pixels_;
@@ -352,6 +391,7 @@ private:
     std::function<void(const PixelPresentation &)> presentation_handler_;
     SubmitStats submit_stats_{};
     contracts::WindowMetrics metrics_{};
+    contracts::LogicalSize committed_logical_size_{};
     contracts::LogicalPoint pointer_position_{};
     int preferred_width_{640};
     int preferred_height_{400};
@@ -369,6 +409,7 @@ private:
     bool state_pending_{false};
     bool failed_{false};
     bool dispatching_{false};
+    bool deferred_close_{false};
     bool submission_deferred_{false};
     bool close_requested_{false};
 };

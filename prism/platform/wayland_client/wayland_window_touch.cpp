@@ -41,6 +41,7 @@ void WaylandWindow::ReleaseTouch()
     wl_touch_release(touch_);
     touch_ = nullptr;
     touch_contacts_.clear();
+    touch_frame_pending_ = false;
 
     Emit(contracts::TouchCancelEvent{contracts::WindowId{1}, InputTimeNs(), source});
 }
@@ -56,6 +57,7 @@ void WaylandWindow::TouchDown(void *data, wl_touch *, std::uint32_t serial, std:
     }
 
     self.touch_contacts_.push_back(contact);
+    self.touch_frame_pending_ = true;
     self.Emit(contracts::TouchDownEvent{contracts::WindowId{1},
                                         {wl_fixed_to_double(x), wl_fixed_to_double(y)},
                                         contact,
@@ -71,6 +73,7 @@ void WaylandWindow::TouchUp(void *data, wl_touch *, std::uint32_t, std::uint32_t
     if (std::erase(self.touch_contacts_, contact) == 0) {
         return;
     }
+    self.touch_frame_pending_ = true;
 
     self.Emit(contracts::TouchUpEvent{contracts::WindowId{1}, contact, InputTimeNs(),
                                       self.TouchSource()});
@@ -84,6 +87,7 @@ void WaylandWindow::TouchMotion(void *data, wl_touch *, std::uint32_t, std::int3
         self.touch_contacts_.end()) {
         return;
     }
+    self.touch_frame_pending_ = true;
 
     self.Emit(contracts::TouchMotionEvent{contracts::WindowId{1},
                                           {wl_fixed_to_double(x), wl_fixed_to_double(y)},
@@ -95,6 +99,10 @@ void WaylandWindow::TouchMotion(void *data, wl_touch *, std::uint32_t, std::int3
 void WaylandWindow::TouchFrame(void *data, wl_touch *)
 {
     auto &self = *static_cast<WaylandWindow *>(data);
+    if (!self.touch_frame_pending_) {
+        return;
+    }
+    self.touch_frame_pending_ = false;
     self.Emit(
         contracts::TouchFrameEvent{contracts::WindowId{1}, InputTimeNs(), self.TouchSource()});
 }
@@ -102,7 +110,11 @@ void WaylandWindow::TouchFrame(void *data, wl_touch *)
 void WaylandWindow::TouchCancel(void *data, wl_touch *)
 {
     auto &self = *static_cast<WaylandWindow *>(data);
+    if (self.touch_contacts_.empty() && !self.touch_frame_pending_) {
+        return;
+    }
     self.touch_contacts_.clear();
+    self.touch_frame_pending_ = false;
     self.Emit(
         contracts::TouchCancelEvent{contracts::WindowId{1}, InputTimeNs(), self.TouchSource()});
 }

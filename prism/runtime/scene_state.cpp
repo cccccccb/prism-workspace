@@ -9,6 +9,8 @@ namespace {
 bool Matches(StateCondition condition, const InteractionState &state)
 {
     switch (condition) {
+    case StateCondition::Selected:
+        return state.selected;
     case StateCondition::Hovered:
         return state.hovered;
     case StateCondition::Pressed:
@@ -87,7 +89,7 @@ void Scene::ValidateInteractionTree(const Node &node, const Node *owner, bool de
         }
         decorative = true;
     }
-    if (node.kind == Kind::InteractionTarget) {
+    if (IsInteractionOwner(node.kind)) {
         if (decorative) {
             throw std::invalid_argument("InteractionTarget cannot be a Visual descendant");
         }
@@ -121,7 +123,7 @@ void Scene::ValidateInteractionTree(const Node &node, const Node *owner, bool de
 
 void Scene::BindInteractionTree(Node &node, Node *owner, bool decorative) noexcept
 {
-    if (node.kind == Kind::InteractionTarget) {
+    if (IsInteractionOwner(node.kind)) {
         owner = &node;
     }
     decorative = decorative || node.kind == Kind::Visual;
@@ -134,6 +136,10 @@ void Scene::BindInteractionTree(Node &node, Node *owner, bool decorative) noexce
 
 void Scene::PrepareInteractionTree()
 {
+    ValidatePopupTree();
+    ValidateScrollTree(*root_);
+    ValidateSliderTree(*root_);
+    ValidateChoiceTree(*root_);
     ValidateInteractionTree(*root_, nullptr, false);
     BindInteractionTree(*root_, nullptr, false);
     ResolveStateTargets(AnimationNowNs(), false);

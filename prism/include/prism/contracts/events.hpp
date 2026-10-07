@@ -146,6 +146,9 @@ struct FocusEvent {
     WindowId window{};
     bool focused{false};
     InputSource source{};
+    // Adapter batches native focus changes to distinguish a transfer between
+    // surfaces of this client from losing keyboard focus outside the client.
+    bool internal_transfer{};
 };
 
 struct CloseRequestedEvent {

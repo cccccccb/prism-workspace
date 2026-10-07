@@ -137,6 +137,8 @@ private:
         out.theme_refs = node.theme_refs;
         out.transitions = node.transitions;
         out.state_rules = node.state_rules;
+        out.contour = node.contour;
+        out.contour_recipe = node.contour_recipe;
         out.allowed_properties = node.allowed_properties;
         out.line = node.line;
         for (const auto &property : node.properties) {

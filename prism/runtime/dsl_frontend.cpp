@@ -1,4 +1,5 @@
 #include "prism/runtime/dsl_frontend.hpp"
+#include "dsl_contour_p.hpp"
 #include "load_plan_p.hpp"
 #include "prepared_component_p.hpp"
 #include "prism/compiler/error.hpp"
@@ -80,6 +81,9 @@ std::optional<StateCondition> ParseStateCondition(std::string_view name)
     if (name == "focused") {
         return StateCondition::Focused;
     }
+    if (name == "selected") {
+        return StateCondition::Selected;
+    }
     if (name == "focusVisible") {
         return StateCondition::FocusVisible;
     }
@@ -118,17 +122,26 @@ public:
                          bool target = false)
     {
         AddNode(node.line);
+        if (node.name == "Contour") {
+            Error(node.line, "Contour must be a child geometry declaration");
+        }
+        if (node.name == "Move" || node.name == "Line" || node.name == "Cubic") {
+            Error(node.line, "Contour commands are only allowed inside Contour");
+        }
         const auto *component = FindComponent(node.name);
         if (!component) {
             Error(node.line, "unsupported client DSL component: " + node.name);
         }
-        if (!component->allows_children && !node.children.empty()) {
+        const bool has_children =
+            std::any_of(node.children.begin(), node.children.end(),
+                        [](const SyntaxNode &child) { return child.name != "Contour"; });
+        if (!component->allows_children && has_children) {
             Error(node.line, node.name + " cannot have children");
         }
         if (component->kind == Kind::Visual && root) {
             Error(node.line, "Visual cannot be a component root");
         }
-        if (component->kind == Kind::InteractionTarget) {
+        if (IsInteractionOwner(component->kind)) {
             if (visual) {
                 Error(node.line, "Visual subtree cannot contain InteractionTarget");
             }
@@ -146,6 +159,39 @@ public:
         std::unordered_set<DslProperty> seen;
         AssignArguments(out, seen, *component, node);
         AssignModifiers(out, seen, *component, node);
+        for (const auto &child : node.children) {
+            if (child.name != "Contour") {
+                continue;
+            }
+            if (!SupportsContour(component->kind)) {
+                Error(child.line, "Contour is not supported on " + node.name);
+            }
+            if (out.contour || out.contour_recipe) {
+                Error(child.line, "duplicate Contour geometry declaration");
+            }
+            if (IsDslContourRecipe(child)) {
+                if (!IsPopupKind(component->kind)) {
+                    Error(child.line, "Contour recipe is only supported on Popup or Menu");
+                }
+                out.contour_recipe = PrepareDslContourRecipe(child, source_);
+            } else {
+                out.contour = PrepareDslContour(child, source_);
+            }
+        }
+        if (out.contour || out.contour_recipe) {
+            if (HasPreparedProperty(out, DslProperty::SliderPart) ||
+                HasPreparedProperty(out, DslProperty::ScrollPart)) {
+                Error(node.line,
+                      "Contour is unsupported on generated Slider/ScrollView Visual parts");
+            }
+            for (const auto &property : out.properties) {
+                if (property.id == DslProperty::Material &&
+                    std::get<std::string>(property.value) == "window") {
+                    Error(node.line, "Contour cannot use the compositor window material");
+                }
+            }
+        }
+
         ValidatePresentation(out, visual, target);
         if (component->positional == DslProperty::Source && component->has_positional &&
             !seen.contains(DslProperty::Source)) {
@@ -154,7 +200,9 @@ public:
         CountEffects(out);
 
         for (const auto &child : node.children) {
-            out.children.push_back(Convert(child, false, visual, target));
+            if (child.name != "Contour") {
+                out.children.push_back(Convert(child, false, visual, target));
+            }
         }
         if (component->creates_label) {
             CreateLabel(out);
@@ -258,6 +306,31 @@ private:
         }
         if ((component.allowed_properties & PropertyBit(spec->id)) == 0) {
             Error(line, "property not allowed on " + node.name + ": " + std::string(name));
+        }
+        if (spec->id == DslProperty::Minimum || spec->id == DslProperty::Maximum ||
+            spec->id == DslProperty::Step) {
+            if (!std::holds_alternative<double>(value.data)) {
+                Error(line, "Slider domain requires numeric literals");
+            }
+        }
+        if (component.kind == Kind::Progress && spec->id == DslProperty::Value) {
+            if (const auto *number = std::get_if<double>(&value.data);
+                number && (*number < 0 || *number > 1)) {
+                Error(line, "Progress value must be within 0..1");
+            }
+        }
+        if (spec->id == DslProperty::SliderPart || spec->id == DslProperty::ScrollPart ||
+            spec->id == DslProperty::PopupFor) {
+            const auto *part = std::get_if<std::string>(&value.data);
+            if (!part || part->empty() || part->front() == '@') {
+                Error(line, "Visual part requires a literal role");
+            }
+        }
+        if (spec->id == DslProperty::OptionKey) {
+            const auto *key = std::get_if<std::string>(&value.data);
+            if (!key || key->empty() || key->front() == '@') {
+                Error(line, "option key requires a nonempty literal string");
+            }
         }
         Apply(out, *spec, value, line);
     }
@@ -550,7 +623,8 @@ private:
                 label.properties.push_back(std::move(*it));
                 it = out.properties.erase(it);
             } else {
-                if (it->id == DslProperty::Font || it->id == DslProperty::Foreground) {
+                if (it->id == DslProperty::Font || it->id == DslProperty::LineHeight ||
+                    it->id == DslProperty::Foreground) {
                     label.properties.push_back(*it);
                 }
                 ++it;
@@ -561,14 +635,16 @@ private:
                 label.bindings.push_back(std::move(*it));
                 it = out.bindings.erase(it);
             } else {
-                if (it->target == DslProperty::Font || it->target == DslProperty::Foreground) {
+                if (it->target == DslProperty::Font || it->target == DslProperty::LineHeight ||
+                    it->target == DslProperty::Foreground) {
                     label.bindings.push_back(*it);
                 }
                 ++it;
             }
         }
         for (const auto &ref : out.theme_refs) {
-            if (ref.target == DslProperty::Font || ref.target == DslProperty::Foreground) {
+            if (ref.target == DslProperty::Font || ref.target == DslProperty::LineHeight ||
+                ref.target == DslProperty::Foreground) {
                 label.theme_refs.push_back(ref);
             }
         }

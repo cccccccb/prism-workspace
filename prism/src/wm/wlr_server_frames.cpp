@@ -55,7 +55,9 @@ bool WlrServer::UpdateSurfaceEffects()
     for (auto &view : xdg_views_) {
         views.push_back(view.get());
     }
-    surface_effects_->Update(scene_, views, focused_xdg_view_, theme_snapshot_.get());
+    const auto popups = PopupEffectTargets();
+
+    surface_effects_->Update(scene_, views, focused_xdg_view_, theme_snapshot_.get(), popups);
     effects_cpu_.Record((core::CurrentTimeNs() - start) / 1e6);
     return true;
 }
@@ -69,6 +71,7 @@ void WlrServer::HandleOutputCommit(const void *data)
     }
     if (event->state->committed & (WLR_OUTPUT_STATE_MODE | WLR_OUTPUT_STATE_SCALE |
                                    WLR_OUTPUT_STATE_TRANSFORM | WLR_OUTPUT_STATE_ENABLED)) {
+        CloseXdgPopups();
         group_geometry_.reset();
         surface_geometry_.reset();
         if (control_fade_) {
@@ -116,6 +119,12 @@ void WlrServer::HandleSurfaceCommit(wlr_surface *surface)
         const bool children_changed = it->second->RefreshChildren();
         const bool local_changed = it->second->RefreshLocalGeometry();
         geometry_changed = children_changed || local_changed;
+        if (local_changed) {
+            auto *owner = XdgOwner(surface);
+            if (owner && owner->toplevel->base->surface == surface) {
+                CloseXdgPopups(owner);
+            }
+        }
     }
     if (!(fields & visual_fields) && !geometry_changed) {
         ++frame_work_.surface_nonvisual_commits;

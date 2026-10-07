@@ -26,7 +26,11 @@ bool SameSignificantStatus(const runtime::RenderStatusEvent &left,
         a.surface_state_commits == b.surface_state_commits &&
         a.surface_pixel_commits == b.surface_pixel_commits &&
         a.surface_submission_failures == b.surface_submission_failures &&
-        a.surface_noops == b.surface_noops;
+        a.surface_noops == b.surface_noops && a.popup_lifetime == b.popup_lifetime &&
+        a.popup_configure_generation == b.popup_configure_generation &&
+        a.popup_pixel_commits == b.popup_pixel_commits &&
+        a.popup_configures == b.popup_configures && a.popup_closes == b.popup_closes &&
+        a.popup_window_bounds == b.popup_window_bounds;
 
     const auto &c = left.backend;
     const auto &d = right.backend;
@@ -108,6 +112,7 @@ ClientRenderOwner::Snapshot ClientRenderOwner::ReadSnapshot() const
 bool ClientRenderOwner::OpenWindow()
 {
     window_.DeferCloseRequests();
+    window_.SetBeforeCloseHandler(std::bind_front(&ClientRenderOwner::CloseGpu, this));
     window_.SetEventHandler(std::bind_front(&ClientRenderOwner::QueueWindowEvent, this));
     window_.SetSubmitHandlers(std::bind_front(&ClientRenderOwner::PrepareSubmit, this),
                               std::bind_front(&ClientRenderOwner::CommitPixels, this),
@@ -148,7 +153,7 @@ void ClientRenderOwner::Run(runtime::RenderWorkerGeneration generation) noexcept
         if (outcome == runtime::RenderWorkerOpenOutcome::Opened && open_reported) {
             while (!terminal_.StopRequested() &&
                    terminal_.Reason() == runtime::TerminalReason::None) {
-                if (!DrainCommands() || !AdvanceImageUploads()) {
+                if (!DrainCommands() || !AdvanceImageUploads() || !AdvancePopup()) {
                     terminal_.Fail(runtime::TerminalReason::RenderFailure);
                     break;
                 }
@@ -198,22 +203,17 @@ void ClientRenderOwner::CloseGpu() noexcept
 {
     animation_sampling_active_ = false;
     ResetFrameOpportunity();
-    damage_history_.Invalidate();
-    prepared_damage_.reset();
-    prepared_frame_.reset();
-    render_frame_.reset();
-    input_snapshot_.reset();
-    input_ui_ = {};
-    committed_frame_.reset();
-    committed_damage_resource_epoch_ = 0;
+    ReleasePopupGpu();
+    root_target_.ResetSubmission();
 
     if (renderer_) {
-        if (!egl_.MakeCurrent()) {
+        if (!root_target_.egl.MakeCurrent()) {
             renderer_->Abandon();
         }
         renderer_.reset();
     }
-    egl_.Close();
+    root_target_.egl.Close();
+    egl_context_.Close();
     render_images_.clear();
     upload_queue_.clear();
     queued_uploads_.clear();
@@ -221,11 +221,16 @@ void ClientRenderOwner::CloseGpu() noexcept
 
 void ClientRenderOwner::CloseRenderState() noexcept
 {
+    popup_.SetEventHandler({});
+    popup_.SetInputHandler({});
+    popup_.SetPresentationHandler({});
+    popup_.Close();
     window_.DeferCloseRequests();
     window_.SetEventHandler({});
     window_.SetSubmitHandlers({}, {}, {});
     window_.SetPresentationHandler({});
     CloseGpu();
+    window_.SetBeforeCloseHandler({});
     window_.Close();
     damage_commands_.reset();
 }
@@ -253,8 +258,8 @@ void ClientRenderOwner::QueueWindowEvent(const contracts::WindowEvent &event) no
 
     try {
         const auto sequence = issued_event_sequence_ + 1;
-        runtime::RenderEvent copy(
-            runtime::SequencedWindowEvent{event, sequence, input_ui_, input_snapshot_});
+        runtime::RenderEvent copy(runtime::SequencedWindowEvent{
+            event, sequence, root_target_.input_ui, root_target_.input_snapshot});
         const auto result =
             events_.TryPushLatest(std::move(copy), runtime::ReplacePointerMotionTail);
         if (result == runtime::QueuePushResult::Accepted ||
@@ -297,11 +302,18 @@ void ClientRenderOwner::PublishStatus(bool enqueue)
         .surface_pixel_commits = submitted.pixel_commits,
         .surface_submission_failures = submitted.failures,
         .surface_noops = submitted.none,
+        .popup_lifetime = popup_.Target().surface_lifetime_id,
+        .popup_configure_generation = popup_.Target().configure_generation,
+        .popup_pixel_commits = popup_pixel_commits_,
+        .popup_configures = popup_configures_,
+        .popup_closes = popup_closes_,
+        .popup_window_bounds =
+            popup_.Configure() ? popup_.Configure()->bounds : contracts::LogicalRect{},
     };
-    status.backend = backend_stats_;
+    status.backend = root_target_.backend_stats;
     status.startup = startup_stats_;
     status.gl_renderer = gl_renderer_;
-    status.presented = presented_;
+    status.presented = root_target_.presented;
 
     {
         std::lock_guard lock(snapshot_mutex_);

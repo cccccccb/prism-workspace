@@ -2,6 +2,7 @@
 #include "prism/contracts/launch.hpp"
 #include "prism/contracts/theme.hpp"
 #include "prism/launch/module.hpp"
+#include "prism/runtime/control_value.hpp"
 #include "prism/runtime/property.hpp"
 #include "prism/runtime/task_scheduler.hpp"
 #include "prism/sdk/layout_control_bridge.hpp"
@@ -49,6 +50,7 @@ public:
     void Action(std::string_view action);
     bool RequestClose();
     void TextEdit(std::string_view action, std::string_view text);
+    void ControlValue(const runtime::ControlEdit &edit);
     void Tick(std::uint64_t now_ns);
     // Negative maximum means infinite; only an explicitly scheduled one-shot
     // tick shortens that wait. Merely defining on_tick does not create a timer.

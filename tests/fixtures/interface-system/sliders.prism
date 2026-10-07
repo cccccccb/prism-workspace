@@ -1,0 +1,39 @@
+VStack(padding: "@space_section", spacing: "@space_sm", background: "@surfaceRaised", clip: true) {
+    HStack(height: 30, spacing: "@space_sm", align: "center") {
+        Icon("volume", width: 20, height: 20, foreground: "@text")
+        Text("Sound", font: "@font_heading", lineHeight: "@line_heading", foreground: "@text")
+    }
+    Text("Output", font: "@font_body", lineHeight: "@line_body", foreground: "@mutedText")
+    Card(height: 22) {
+        Text("Volume", anchor: "left", font: "@font_body", lineHeight: "@line_body", foreground: "@text")
+        Text($volumeLabel, anchor: "right", font: "@font_body", lineHeight: "@line_body", foreground: "@text")
+    }
+    Slider(action: "volume", value: $volume, minimum: 0, maximum: 100, step: 1, height: "@control_hit_height", paddingX: "@space_xs") {
+        Visual(sliderPart: "track", height: "@indicator_height", cornerRadius: 2, background: "@controlDisabled")
+        Visual(sliderPart: "fill", height: "@indicator_height", cornerRadius: 2, background: "@controlPrimary")
+            .state(when: "disabled", scope: "target", background: "@controlDisabledText")
+        Visual(sliderPart: "thumb", width: "@space_lg", height: "@space_lg", cornerRadius: "@control_state_radius", background: "@text", shadowBlur: 2, shadowY: 1, shadowColor: #00000026)
+            .state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+            .state(when: "pressed", scope: "target", background: "@controlPrimary")
+        Visual(borderWidth: 1, borderColor: "@controlFocus", cornerRadius: "@control_state_radius", opacity: 0)
+            .state(when: "focusVisible", scope: "target", opacity: 1)
+    }
+    Text("Adjust with drag or arrow keys.", font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText")
+    Separator(height: 1, background: "@controlOutline")
+    Card(height: 22) {
+        Text("Balance", anchor: "left", font: "@font_body", lineHeight: "@line_body", foreground: "@controlDisabledText")
+        Text("Unavailable", anchor: "right", font: "@font_caption", lineHeight: "@line_caption", foreground: "@controlDisabledText")
+    }
+    Slider(action: "balance", value: 0, minimum: -1, maximum: 1, height: "@control_hit_height", enabled: false, paddingX: "@space_xs") {
+        Visual(sliderPart: "track", height: "@indicator_height", cornerRadius: 2, background: "@controlDisabled")
+        Visual(sliderPart: "fill", height: "@indicator_height", cornerRadius: 2, background: "@controlDisabledText", opacity: 0.45)
+        Visual(sliderPart: "thumb", width: "@space_lg", height: "@space_lg", cornerRadius: "@control_state_radius", background: "@controlDisabledText", opacity: 0.65)
+    }
+    Card(height: 22) {
+        Text("Playback", anchor: "left", font: "@font_body", lineHeight: "@line_body", foreground: "@text")
+        Text("62%", anchor: "right", font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText")
+    }
+    Card(height: 22, paddingX: "@space_xs", justify: "center") {
+        Progress(value: 0.62, height: "@indicator_height", cornerRadius: 2, background: "@controlDisabled", foreground: "@controlPrimary")
+    }
+}

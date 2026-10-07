@@ -1,5 +1,6 @@
 #include "presentation-time-client-protocol.h"
 #include "prism-surface-effects-client.h"
+#include "prism/contracts/rounded_region.hpp"
 #include "wayland_window_p.hpp"
 #include "xdg-shell-client-protocol.h"
 
@@ -12,6 +13,7 @@
 #include <limits>
 #include <linux/input-event-codes.h>
 #include <poll.h>
+#include <stdexcept>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -24,13 +26,22 @@ WaylandWindow::~WaylandWindow()
     // Explicit Close delivers cancellation while the owner is alive. Object
     // teardown must not invoke callbacks whose bound owner may be gone.
     event_handler_ = {};
+    destructing_ = true;
     Close();
 }
 
 void WaylandWindow::Emit(contracts::WindowEvent event)
 {
-    if (event_handler_) {
-        event_handler_(event);
+    if (deferred_close_) {
+        return;
+    }
+    try {
+        if (event_handler_) {
+            event_handler_(event);
+        }
+    } catch (...) {
+        failed_ = true;
+        Close();
     }
 }
 
@@ -194,7 +205,7 @@ SubmitResult WaylandWindow::TrySubmit()
     if (failed_) {
         return SubmitResult::Failed;
     }
-    if (!configured_ || !update_requested_ || !surface_) {
+    if (closing_ || deferred_close_ || !configured_ || !update_requested_ || !surface_) {
         return SubmitResult::None;
     }
     if (submission_deferred_) {
@@ -254,6 +265,7 @@ SubmitResult WaylandWindow::TrySubmit()
                 return CompleteSubmit(SubmitResult::Failed);
             }
             ConfirmPixelSubmission(submission);
+            committed_logical_size_ = metrics_.logical_size;
             mapped_ = true;
             force_pixels_ = state_pending_ = update_requested_ = false;
             return CompleteSubmit(SubmitResult::Pixels);
@@ -309,6 +321,7 @@ SubmitResult WaylandWindow::TrySubmit()
     }
     wl_surface_commit(surface_);
     ConfirmPixelSubmission(submission);
+    committed_logical_size_ = metrics_.logical_size;
     mapped_ = true;
     force_pixels_ = state_pending_ = update_requested_ = false;
     return CompleteSubmit(SubmitResult::Pixels);
@@ -335,14 +348,25 @@ int WaylandWindow::DispatchPending()
 {
     dispatching_ = true;
     const int result = wl_display_dispatch_pending(display_);
+    FlushKeyboardFocus();
     dispatching_ = false;
-    // A callback may reject a submission. Disconnect only after libwayland
+    if (result < 0) {
+        failed_ = true;
+    }
+    // A callback may close its owner or reject a submission. Disconnect after libwayland
     // finishes dispatching its queue, never from inside one of its listeners.
-    if (failed_) {
+    if (failed_ || deferred_close_) {
         Close();
         return -1;
     }
     return result;
+}
+
+bool WaylandWindow::FailConnection()
+{
+    failed_ = true;
+    Close();
+    return false;
 }
 
 bool WaylandWindow::Pump(int timeout_ms, std::span<pollfd> wake_fds)
@@ -350,11 +374,11 @@ bool WaylandWindow::Pump(int timeout_ms, std::span<pollfd> wake_fds)
     for (auto &fd : wake_fds) {
         fd.revents = 0;
     }
-    if (!display_ || failed_) {
+    if (!display_ || failed_ || dispatching_ || closing_ || deferred_close_) {
         return false;
     }
     submission_deferred_ = false;
-    if (TrySubmit() == SubmitResult::Failed) {
+    if (TrySubmit() == SubmitResult::Failed || !display_ || close_requested_) {
         return false;
     }
     // Allocate before acquiring the read intention so exceptions cannot leave
@@ -372,12 +396,15 @@ bool WaylandWindow::Pump(int timeout_ms, std::span<pollfd> wake_fds)
         if (dispatched > 0) {
             // Actions may create a host descriptor or an earlier timer. Yield
             // before blocking with the caller's now outdated wait sources.
-            if (TrySubmit() == SubmitResult::Failed) {
+            if (TrySubmit() == SubmitResult::Failed || !display_ || close_requested_) {
                 return false;
             }
             if (!submission_deferred_) {
                 const int flushed = wl_display_flush(display_);
-                return (flushed >= 0 || errno == EAGAIN) && !close_requested_;
+                if (flushed < 0 && errno != EAGAIN) {
+                    return FailConnection();
+                }
+                return !close_requested_;
             }
             // A deferred preparation must also expose ready caller sources.
             // Acquire/cancel the read intention and poll them without waiting.
@@ -386,7 +413,7 @@ bool WaylandWindow::Pump(int timeout_ms, std::span<pollfd> wake_fds)
     const int flushed = wl_display_flush(display_);
     if (flushed < 0 && errno != EAGAIN) {
         wl_display_cancel_read(display_);
-        return false;
+        return FailConnection();
     }
     sources.front().events = static_cast<short>(POLLIN | (flushed < 0 ? POLLOUT : 0));
 
@@ -403,20 +430,20 @@ bool WaylandWindow::Pump(int timeout_ms, std::span<pollfd> wake_fds)
     }
     if (result > 0 && (revents & (POLLERR | POLLHUP | POLLNVAL))) {
         wl_display_cancel_read(display_);
-        return false;
+        return FailConnection();
     }
     if (result > 0 && (revents & POLLOUT) && wl_display_flush(display_) < 0 && errno != EAGAIN) {
         wl_display_cancel_read(display_);
-        return false;
+        return FailConnection();
     }
     if (result > 0 && (revents & POLLIN)) {
         if (wl_display_read_events(display_) < 0) {
-            return false;
+            return FailConnection();
         }
     } else {
         wl_display_cancel_read(display_);
         if (result < 0 && errno != EINTR) {
-            return false;
+            return FailConnection();
         }
     }
     if (DispatchPending() < 0) {
@@ -436,27 +463,82 @@ void WaylandWindow::RequestMaximize()
     }
 }
 
+WaylandSurfaceEffectCapabilities WaylandWindow::SurfaceEffectCapabilities() const noexcept
+{
+    if (!effect_manager_ || !surface_ || closing_ || deferred_close_ || failed_) {
+        return {};
+    }
+    const auto version = prism_surface_effect_manager_v1_get_version(effect_manager_);
+    return {backdrop_supported_, contour_supported_ && version >= 2,
+            popup_backdrop_supported_ && version >= 3};
+}
+
 void WaylandWindow::SetSurfaceEffects(std::span<const contracts::SurfaceEffectRegion> regions)
 {
+    if (regions.size() > 8) {
+        throw std::invalid_argument("Excessive surface effect regions");
+    }
+
+    std::vector<contracts::SurfaceEffectRegion> next;
+    std::vector<std::vector<std::uint8_t>> payloads;
+    next.reserve(regions.size());
+    payloads.reserve(regions.size());
+    const bool contour_supported =
+        contour_supported_ && effect_manager_ &&
+        prism_surface_effect_manager_v1_get_version(effect_manager_) >= 2;
+    for (const auto &region : regions) {
+        contracts::ValidateSurfaceEffectRegion(region);
+        auto payload = region.contour ? contracts::EncodeContour(*region.contour)
+                                      : std::vector<std::uint8_t>{};
+        auto transmitted = region;
+        transmitted.blur_radius = wl_fixed_to_double(wl_fixed_from_double(region.blur_radius));
+        if (!region.contour) {
+            transmitted.bounds = {wl_fixed_to_double(wl_fixed_from_double(region.bounds.x)),
+                                  wl_fixed_to_double(wl_fixed_from_double(region.bounds.y)),
+                                  wl_fixed_to_double(wl_fixed_from_double(region.bounds.width)),
+                                  wl_fixed_to_double(wl_fixed_from_double(region.bounds.height))};
+            transmitted.corner_radius =
+                wl_fixed_to_double(wl_fixed_from_double(region.corner_radius));
+        }
+        contracts::ValidateSurfaceEffectRegion(transmitted);
+        if (region.contour && !contour_supported) {
+            continue;
+        }
+        next.push_back(std::move(transmitted));
+        payloads.push_back(std::move(payload));
+    }
+
     if (!surface_ || !effect_manager_ || !backdrop_supported_) {
         return;
     }
-    std::vector<contracts::SurfaceEffectRegion> next(regions.begin(), regions.end());
     if (next == sent_effects_) {
         return;
     }
     if (!surface_effect_) {
         surface_effect_ =
             prism_surface_effect_manager_v1_get_surface_effect(effect_manager_, surface_);
+        if (!surface_effect_) {
+            throw std::runtime_error("Cannot create surface effect object");
+        }
     }
+
     prism_surface_effect_v1_clear(surface_effect_);
-    for (const auto &region : next) {
+    for (std::size_t index = 0; index < next.size(); ++index) {
+        const auto &region = next[index];
+        if (region.contour) {
+            auto &payload = payloads[index];
+            wl_array array{payload.size(), 0, payload.data()};
+            prism_surface_effect_v1_add_contour(surface_effect_,
+                                                wl_fixed_from_double(region.blur_radius), &array);
+            continue;
+        }
         prism_surface_effect_v1_add_region(
             surface_effect_, wl_fixed_from_double(region.bounds.x),
             wl_fixed_from_double(region.bounds.y), wl_fixed_from_double(region.bounds.width),
             wl_fixed_from_double(region.bounds.height), wl_fixed_from_double(region.corner_radius),
             wl_fixed_from_double(region.blur_radius));
     }
+
     sent_effects_ = std::move(next);
     state_pending_ = update_requested_ = true;
 }
@@ -470,28 +552,18 @@ void WaylandWindow::SetInputRegions(std::span<const contracts::SurfaceInputRegio
     if (input_sent_ && next == sent_input_) {
         return;
     }
-    auto *input = wl_compositor_create_region(compositor_);
+    std::vector<contracts::LogicalRect> rectangles;
+    const contracts::SurfaceInputRegion viewport{
+        {0, 0, metrics_.logical_size.width, metrics_.logical_size.height}, 0};
     for (const auto &shape : next) {
-        const auto &b = shape.bounds;
-        const double radius = std::clamp(shape.corner_radius, 0.0, std::min(b.width, b.height) / 2);
-        const int first = std::max(0, int(std::ceil(b.y))),
-                  last =
-                      std::min(int(metrics_.logical_size.height), int(std::floor(b.y + b.height)));
-        for (int y = first; y < last; ++y) {
-            double inset = 0;
-            const double edge = std::min(y + .5 - b.y, b.y + b.height - y - .5);
-            if (edge < radius) {
-                inset =
-                    radius -
-                    std::sqrt(std::max(0.0, radius * radius - (radius - edge) * (radius - edge)));
-            }
-            const int left = std::max(0, int(std::ceil(b.x + inset))),
-                      right = std::min(int(metrics_.logical_size.width),
-                                       int(std::floor(b.x + b.width - inset)));
-            if (right > left) {
-                wl_region_add(input, left, y, right - left, 1);
-            }
-        }
+        const contracts::SurfaceInputRegion intersection[]{shape, viewport};
+        auto spans = contracts::RasterizeRoundedIntersection(intersection);
+        rectangles.insert(rectangles.end(), spans.begin(), spans.end());
+    }
+    auto *input = wl_compositor_create_region(compositor_);
+    for (const auto &rect : rectangles) {
+        wl_region_add(input, static_cast<int>(rect.x), static_cast<int>(rect.y),
+                      static_cast<int>(rect.width), static_cast<int>(rect.height));
     }
     wl_surface_set_input_region(surface_, input);
     wl_region_destroy(input);
@@ -500,11 +572,40 @@ void WaylandWindow::SetInputRegions(std::span<const contracts::SurfaceInputRegio
     state_pending_ = update_requested_ = true;
 }
 
+void WaylandWindow::RunBeforeClose() noexcept
+{
+    auto handler = std::move(before_close_handler_);
+    before_close_handler_ = {};
+    if (handler) {
+        handler();
+    }
+}
+
 void WaylandWindow::Close()
 {
+    if (closing_) {
+        return;
+    }
+    if (dispatching_) {
+        if (!deferred_close_) {
+            deferred_close_ = true;
+            close_requested_ = true;
+            closing_ = true;
+            RunBeforeClose();
+            ClosePopups(!destructing_);
+            closing_ = false;
+        }
+        return;
+    }
+    closing_ = true;
+    deferred_close_ = false;
+    RunBeforeClose();
+    ClosePopups(!destructing_);
+
     ReleasePointer();
     ReleaseKeyboard();
     ReleaseTouch();
+    pending_keyboard_focus_.clear();
 
     for (auto &pending : feedbacks_) {
         if (pending.handle) {
@@ -531,6 +632,8 @@ void WaylandWindow::Close()
     surface_effect_ = nullptr;
     effect_manager_ = nullptr;
     backdrop_supported_ = false;
+    contour_supported_ = false;
+    popup_backdrop_supported_ = false;
     sent_effects_.clear();
     sent_input_.clear();
     input_sent_ = false;
@@ -575,8 +678,10 @@ void WaylandWindow::Close()
     toplevel_ = nullptr;
     configured_ = false;
     mapped_ = false;
+    committed_logical_size_ = {};
     update_requested_ = force_pixels_ = state_pending_ = false;
     submission_deferred_ = false;
+    closing_ = false;
 }
 
 } // namespace prism::platform

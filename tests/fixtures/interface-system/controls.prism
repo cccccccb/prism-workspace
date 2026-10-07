@@ -1,0 +1,88 @@
+VStack(padding: "@space_section", spacing: "@space_sm", background: "@surfaceRaised", clip: true) {
+    Text("Controls and typography", font: "@font_heading", lineHeight: "@line_heading", foreground: "@text")
+    Text("One state model, shared light and dark tokens.", minViewportWidth: 640, font: "@font_body", lineHeight: "@line_body", foreground: "@mutedText")
+    Text("Shared light and dark states.", maxViewportWidth: 640, font: "@font_body", lineHeight: "@line_body", foreground: "@mutedText")
+    Separator(height: 1, background: "@controlOutline")
+    HStack(height: 52, spacing: "@space_md", align: "center") {
+        Text("Default", width: 110, font: "@font_body", lineHeight: "@line_body", foreground: "@text")
+        InteractionTarget(action: "default", enabled: true, width: 166, height: "@control_hit_height", justify: "center") {
+            Visual(background: "@controlFocus", cornerRadius: "@control_state_radius", opacity: 0)
+                .state(when: "focusVisible", scope: "target", opacity: 1)
+            Visual(inset: "@control_focus_inset", height: "@control_height", background: "@controlPrimary", cornerRadius: "@control_state_radius", align: "center", justify: "center") {
+                Text("Save", anchor: "center", font: "@font_body", lineHeight: "@line_body", foreground: "@controlPrimaryText")
+                    .state(when: "disabled", scope: "target", foreground: "@controlDisabledText")
+            }.state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+              .state(when: "pressed", scope: "target", background: "@controlPrimaryPressed")
+              .state(when: "disabled", scope: "target", background: "@controlDisabled")
+        }
+        Text("Ready to save", font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText", clip: true, flex: 1, minViewportWidth: 640)
+    }
+    HStack(height: 52, spacing: "@space_md", align: "center") {
+        Text("Hover", width: 110, font: "@font_body", lineHeight: "@line_body", foreground: "@text")
+        InteractionTarget(action: "hover", enabled: true, width: 166, height: "@control_hit_height", justify: "center") {
+            Visual(background: "@controlFocus", cornerRadius: "@control_state_radius", opacity: 0)
+                .state(when: "focusVisible", scope: "target", opacity: 1)
+            Visual(inset: "@control_focus_inset", height: "@control_height", background: "@controlPrimary", cornerRadius: "@control_state_radius", align: "center", justify: "center") {
+                Text("Save", anchor: "center", font: "@font_body", lineHeight: "@line_body", foreground: "@controlPrimaryText")
+                    .state(when: "disabled", scope: "target", foreground: "@controlDisabledText")
+            }.state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+              .state(when: "pressed", scope: "target", background: "@controlPrimaryPressed")
+              .state(when: "disabled", scope: "target", background: "@controlDisabled")
+        }
+        Text("Pointer feedback", font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText", clip: true, flex: 1, minViewportWidth: 640)
+    }
+    HStack(height: 52, spacing: "@space_md", align: "center") {
+        Text("Pressed", width: 110, font: "@font_body", lineHeight: "@line_body", foreground: "@text")
+        InteractionTarget(action: "pressed", enabled: true, width: 166, height: "@control_hit_height", justify: "center") {
+            Visual(background: "@controlFocus", cornerRadius: "@control_state_radius", opacity: 0)
+                .state(when: "focusVisible", scope: "target", opacity: 1)
+            Visual(inset: "@control_focus_inset", height: "@control_height", background: "@controlPrimary", cornerRadius: "@control_state_radius", align: "center", justify: "center") {
+                Text("Save", anchor: "center", font: "@font_body", lineHeight: "@line_body", foreground: "@controlPrimaryText")
+                    .state(when: "disabled", scope: "target", foreground: "@controlDisabledText")
+            }.state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+              .state(when: "pressed", scope: "target", background: "@controlPrimaryPressed")
+              .state(when: "disabled", scope: "target", background: "@controlDisabled")
+        }
+        Text("Release to activate", font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText", clip: true, flex: 1, minViewportWidth: 640)
+    }
+    HStack(height: 52, spacing: "@space_md", align: "center") {
+        Text("Keyboard focus", width: 110, font: "@font_body", lineHeight: "@line_body", foreground: "@text")
+        InteractionTarget(action: "focus", enabled: true, width: 166, height: "@control_hit_height", justify: "center") {
+            Visual(background: "@controlFocus", cornerRadius: "@control_state_radius", opacity: 0)
+                .state(when: "focusVisible", scope: "target", opacity: 1)
+            Visual(inset: "@control_focus_inset", height: "@control_height", background: "@controlPrimary", cornerRadius: "@control_state_radius", align: "center", justify: "center") {
+                Text("Save", anchor: "center", font: "@font_body", lineHeight: "@line_body", foreground: "@controlPrimaryText")
+                    .state(when: "disabled", scope: "target", foreground: "@controlDisabledText")
+            }.state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+              .state(when: "pressed", scope: "target", background: "@controlPrimaryPressed")
+              .state(when: "disabled", scope: "target", background: "@controlDisabled")
+        }
+        Text("Visible focus outline", font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText", clip: true, flex: 1, minViewportWidth: 640)
+    }
+    HStack(height: 52, spacing: "@space_md", align: "center") {
+        Text("Disabled", width: 110, font: "@font_body", lineHeight: "@line_body", foreground: "@text")
+        InteractionTarget(action: "disabled", enabled: false, width: 166, height: "@control_hit_height", justify: "center") {
+            Visual(background: "@controlFocus", cornerRadius: "@control_state_radius", opacity: 0)
+                .state(when: "focusVisible", scope: "target", opacity: 1)
+            Visual(inset: "@control_focus_inset", height: "@control_height", background: "@controlPrimary", cornerRadius: "@control_state_radius", align: "center", justify: "center") {
+                Text("Save", anchor: "center", font: "@font_body", lineHeight: "@line_body", foreground: "@controlPrimaryText")
+                    .state(when: "disabled", scope: "target", foreground: "@controlDisabledText")
+            }.state(when: "hovered", scope: "target", background: "@controlPrimaryHover")
+              .state(when: "pressed", scope: "target", background: "@controlPrimaryPressed")
+              .state(when: "disabled", scope: "target", background: "@controlDisabled")
+        }
+        Text("Waiting for changes", font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText", clip: true, flex: 1, minViewportWidth: 640)
+    }
+    Separator(height: 1, background: "@controlOutline")
+    Text("Input and validation", font: "@font_title", lineHeight: "@line_title", foreground: "@text")
+    HStack(height: 40, spacing: "@space_md") {
+        TextField("Design notes.md", action: "edit", flex: 1, font: "@font_body", lineHeight: "@line_body",
+                  padding: 8, background: "@controlField", foreground: "@text", cornerRadius: "@control_state_radius",
+                  borderWidth: 1, borderColor: "@controlOutline")
+        TextField("", action: "invalid", flex: 1, font: "@font_body", lineHeight: "@line_body",
+                  padding: 8, background: "@controlField", foreground: "@text", cornerRadius: "@control_state_radius",
+                  borderWidth: 1, borderColor: "@controlError")
+    }
+    Text("A filename is required. Content is kept.", font: "@font_caption", lineHeight: "@line_caption", foreground: "@controlError")
+    Text("Paragraph rhythm\nExplicit lines share the same rhythm.", font: "@font_body", lineHeight: "@line_body", foreground: "@mutedText")
+}

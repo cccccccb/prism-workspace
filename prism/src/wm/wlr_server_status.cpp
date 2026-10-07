@@ -64,6 +64,9 @@ ipc::EffectsWorkMessage ToEffects(const SurfaceEffects::WorkCounters &counters)
     message.damage_history_fallbacks = counters.damage_history_fallbacks;
     message.partial_damage_cache_hits = counters.partial_damage_cache_hits;
     message.capture_nodes = counters.capture_nodes;
+    message.mask_builds = counters.mask_builds;
+    message.mask_cache_hits = counters.mask_cache_hits;
+    message.mask_failures = counters.mask_failures;
     return message;
 }
 } // namespace

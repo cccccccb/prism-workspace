@@ -1,0 +1,69 @@
+Card(material: "window", padding: 24, spacing: 0) {
+    VStack(spacing: 8) {
+        Text("Audio", height: 28, font: "@font_heading", foreground: "@text")
+        Card(height: $anchorLead)
+        HStack(height: 36, spacing: 0) {
+            Card(width: $anchorLeft)
+            Button("Sound", action: "sound", width: 88, height: 36, paddingX: 12,
+                   justify: "center", font: "@font_body", foreground: "@text",
+                   background: "@controlSecondary", cornerRadius: "@control_state_radius")
+        }
+    }
+    Popup("sound", width: 280, height: 244, padding: 16, material: "panel") {
+        Contour(recipe: "attachedPanel", radius: "@panel_radius",
+                neckWidth: "@space_section", neckHeight: "@space_sm", fallback: "detached")
+        VStack(spacing: 8) {
+            HStack(height: 28, spacing: 8, align: "center") {
+                Icon("volume", width: 20, height: 20, foreground: "@text")
+                Text("Sound", flex: 1, font: "@font_heading", foreground: "@text")
+                Text("62%", font: "@font_heading", foreground: "@text")
+            }
+            Text("Desktop speakers · Default device", height: 18,
+                 font: "@font_caption", foreground: "@mutedText")
+            Slider(action: "volume", value: 0.62, height: 32) {
+                Visual(sliderPart: "track", height: 4, cornerRadius: "@progress_radius",
+                       background: "@controlDisabled")
+                Visual(sliderPart: "fill", height: 4, cornerRadius: "@progress_radius",
+                       background: "@controlPrimary")
+                Visual(sliderPart: "thumb", width: 12, height: 12,
+                       cornerRadius: "@control_state_radius", background: "@text")
+            }
+            Text("Output", height: 18, font: "@font_caption", foreground: "@mutedText")
+            SegmentGroup(action: "output", selectedKey: "speakers", height: 36,
+                         padding: 3, spacing: 4, cornerRadius: "@control_state_radius",
+                         background: "@controlField") {
+                Segment("speakers", flex: 1, height: 30) {
+                    Visual(background: "@controlPrimary", cornerRadius: "@control_state_radius",
+                           opacity: 0).state(when: "selected", scope: "target", opacity: 1)
+                    Visual(justify: "center") {
+                        Text("Speakers", anchor: "center", font: "@font_body", foreground: "@text")
+                            .state(when: "selected", scope: "target", foreground: "@controlPrimaryText")
+                    }
+                }
+                Segment("headphones", flex: 1, height: 30) {
+                    Visual(background: "@controlPrimary", cornerRadius: "@control_state_radius",
+                           opacity: 0).state(when: "selected", scope: "target", opacity: 1)
+                    Visual(justify: "center") {
+                        Text("Headphones", anchor: "center", font: "@font_body", foreground: "@text")
+                            .state(when: "selected", scope: "target", foreground: "@controlPrimaryText")
+                    }
+                }
+            }
+            Checkbox(action: "mute", checked: $muted, height: 28) {
+                Visual(justify: "center") {
+                    HStack(height: 20, spacing: 8, align: "center") {
+                        Visual(width: 18, height: 18, background: "@controlField", borderWidth: 1,
+                               borderColor: "@controlOutline", cornerRadius: "@indicator_radius") {
+                            Visual(visible: $muted, background: "@controlPrimary",
+                                   cornerRadius: "@indicator_radius") {
+                                Icon("check", width: 14, height: 14, anchor: "center",
+                                     foreground: "@controlPrimaryText")
+                            }
+                        }
+                        Text("Mute audio", font: "@font_body", foreground: "@text")
+                    }
+                }
+            }
+        }
+    }
+}

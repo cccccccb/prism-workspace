@@ -1,5 +1,9 @@
 #include "surface_effects_internal.hpp"
 
+#include <new>
+#include <span>
+#include <stdexcept>
+
 namespace prism::wm {
 SurfaceEffects::Impl::Impl(wl_display *display, wlr_renderer *r, wlr_allocator *a)
     : renderer(r), allocator(a)
@@ -13,8 +17,8 @@ SurfaceEffects::Impl::Impl(wl_display *display, wlr_renderer *r, wlr_allocator *
         }
         supported = context.current && blur && material;
     }
-    global = wl_global_create(display, &prism_surface_effect_manager_v1_interface, 1, this, Bind);
-    PRISM_LOG_INFO("SURFACE-EFFECT", "GPU backdrop capability=%d (typed protocol v1)", supported);
+    global = wl_global_create(display, &prism_surface_effect_manager_v1_interface, 3, this, Bind);
+    PRISM_LOG_INFO("SURFACE-EFFECT", "GPU backdrop capability=%d (typed protocol v3)", supported);
 }
 
 SurfaceEffects::Impl::~Impl()
@@ -60,34 +64,84 @@ void SurfaceEffects::Impl::Destroy(wl_client *, wl_resource *resource)
 
 void SurfaceEffects::Impl::Clear(wl_client *, wl_resource *resource)
 {
-    if (auto *s = Get(resource)) {
-        s->pending.clear();
-        s->dirty = true;
+    auto *s = Get(resource);
+    if (!s) {
+        wl_resource_post_error(resource, PRISM_SURFACE_EFFECT_V1_ERROR_SURFACE_GONE,
+                               "Surface has been destroyed");
+        return;
     }
+
+    s->pending.clear();
+    s->dirty = true;
 }
 
-void SurfaceEffects::Impl::Add(wl_client *, wl_resource *resource, wl_fixed_t x, wl_fixed_t y,
+void SurfaceEffects::Impl::Add(wl_client *client, wl_resource *resource, wl_fixed_t x, wl_fixed_t y,
                                wl_fixed_t w, wl_fixed_t h, wl_fixed_t radius,
                                wl_fixed_t blur_radius)
 {
     auto *s = Get(resource);
     if (!s) {
-        wl_resource_post_error(resource, 1, "Surface has been destroyed");
+        wl_resource_post_error(resource, PRISM_SURFACE_EFFECT_V1_ERROR_SURFACE_GONE,
+                               "Surface has been destroyed");
         return;
     }
-    Region r{{wl_fixed_to_double(x), wl_fixed_to_double(y), wl_fixed_to_double(w),
-              wl_fixed_to_double(h)},
-             wl_fixed_to_double(radius),
-             wl_fixed_to_double(blur_radius)};
-    if (s->pending.size() >= 8 || std::abs(r.bounds.x) > 8192 || std::abs(r.bounds.y) > 8192 ||
-        r.bounds.width <= 0 || r.bounds.height <= 0 || r.bounds.width > 8192 ||
-        r.bounds.height > 8192 || r.corner_radius < 0 || r.corner_radius > 256 ||
-        r.blur_radius < 0 || r.blur_radius > 48) {
-        wl_resource_post_error(resource, 0, "Invalid surface effect region");
+
+    try {
+        Region region{{wl_fixed_to_double(x), wl_fixed_to_double(y), wl_fixed_to_double(w),
+                       wl_fixed_to_double(h)},
+                      wl_fixed_to_double(radius),
+                      wl_fixed_to_double(blur_radius)};
+        contracts::ValidateSurfaceEffectRegion(region);
+        if (s->pending.size() >= 8) {
+            throw std::invalid_argument("Excessive surface effect regions");
+        }
+
+        s->pending.push_back(std::move(region));
+        s->dirty = true;
+    } catch (const std::bad_alloc &) {
+        wl_client_post_no_memory(client);
+    } catch (const std::exception &error) {
+        wl_resource_post_error(resource, PRISM_SURFACE_EFFECT_V1_ERROR_INVALID_REGION, "%s",
+                               error.what());
+    } catch (...) {
+        wl_resource_post_error(resource, PRISM_SURFACE_EFFECT_V1_ERROR_INVALID_REGION,
+                               "Surface effect region rejected");
+    }
+}
+
+void SurfaceEffects::Impl::AddContour(wl_client *client, wl_resource *resource,
+                                      wl_fixed_t blur_radius, wl_array *payload)
+{
+    auto *s = Get(resource);
+    if (!s) {
+        wl_resource_post_error(resource, PRISM_SURFACE_EFFECT_V1_ERROR_SURFACE_GONE,
+                               "Surface has been destroyed");
         return;
     }
-    s->pending.push_back(r);
-    s->dirty = true;
+
+    try {
+        if (!s->owner->supported || s->pending.size() >= 8 || !payload || !payload->data ||
+            payload->size < 32 || payload->size > 8 + contracts::ContourVertexLimit * 8) {
+            throw std::invalid_argument("Invalid or unsupported surface effect contour");
+        }
+        const auto bytes =
+            std::span(static_cast<const std::uint8_t *>(payload->data), payload->size);
+        auto contour = contracts::DecodeContour(bytes);
+        Region region{contracts::ContourBounds(contour), 0, wl_fixed_to_double(blur_radius),
+                      std::move(contour)};
+        contracts::ValidateSurfaceEffectRegion(region);
+
+        s->pending.push_back(std::move(region));
+        s->dirty = true;
+    } catch (const std::bad_alloc &) {
+        wl_client_post_no_memory(client);
+    } catch (const std::exception &error) {
+        wl_resource_post_error(resource, PRISM_SURFACE_EFFECT_V1_ERROR_INVALID_REGION, "%s",
+                               error.what());
+    } catch (...) {
+        wl_resource_post_error(resource, PRISM_SURFACE_EFFECT_V1_ERROR_INVALID_REGION,
+                               "Surface effect contour rejected");
+    }
 }
 
 void SurfaceEffects::Impl::EffectGone(wl_resource *resource)
@@ -98,7 +152,11 @@ void SurfaceEffects::Impl::EffectGone(wl_resource *resource)
         s->resource = nullptr;
         s->pending.clear();
         s->dirty = true;
-        s->owner->MarkDirty();
+        try {
+            s->owner->MarkDirty();
+        } catch (...) {
+            PRISM_LOG_ERROR("SURFACE-EFFECT", "effect destroy wake callback failed");
+        }
     }
 }
 
@@ -107,9 +165,19 @@ void SurfaceEffects::Impl::Commit(wl_listener *listener, void *)
     auto *s =
         reinterpret_cast<State *>(reinterpret_cast<char *>(listener) - offsetof(State, commit));
     if (s->dirty) {
-        s->current = s->pending;
-        s->dirty = false;
-        s->owner->MarkDirty();
+        try {
+            auto next = s->pending;
+            s->current.swap(next);
+            s->dirty = false;
+            s->owner->MarkDirty();
+        } catch (const std::bad_alloc &) {
+            wl_resource_post_no_memory(s->surface->resource);
+        } catch (const std::exception &error) {
+            PRISM_LOG_ERROR("SURFACE-EFFECT", "commit callback: %s", error.what());
+            wl_resource_post_error(s->surface->resource, 0, "Effect commit failed");
+        } catch (...) {
+            wl_resource_post_error(s->surface->resource, 0, "Effect commit failed");
+        }
     }
 }
 
@@ -130,37 +198,60 @@ void SurfaceEffects::Impl::SurfaceGone(wl_listener *listener, void *)
         owner->paints.erase(it);
     }
     owner->states.erase(surface);
-    owner->MarkDirty();
+    try {
+        owner->MarkDirty();
+    } catch (...) {
+        PRISM_LOG_ERROR("SURFACE-EFFECT", "surface destroy wake callback failed");
+    }
 }
 
 void SurfaceEffects::Impl::NewEffect(wl_client *client, wl_resource *manager, uint32_t id,
                                      wl_resource *surface_resource)
 {
-    auto *owner = static_cast<Impl *>(wl_resource_get_user_data(manager));
-    auto *surface = wlr_surface_from_resource(surface_resource);
-    auto &state = owner->states[surface];
-    if (!state) {
-        state = std::make_unique<State>();
-        state->owner = owner;
-        state->surface = surface;
-        state->commit.notify = Commit;
-        state->destroy.notify = SurfaceGone;
-        wl_signal_add(&surface->events.commit, &state->commit);
-        wl_signal_add(&surface->events.destroy, &state->destroy);
-    }
-    if (state->resource) {
-        wl_resource_post_error(manager, 0, "Surface already has an effect object");
-        return;
-    }
-    auto *resource = wl_resource_create(client, &prism_surface_effect_v1_interface, 1, id);
-    if (!resource) {
+    try {
+        auto *owner = static_cast<Impl *>(wl_resource_get_user_data(manager));
+        auto *surface = wlr_surface_from_resource(surface_resource);
+        auto found = owner->states.find(surface);
+        if (found == owner->states.end()) {
+            auto prepared = std::make_unique<State>();
+            prepared->owner = owner;
+            prepared->surface = surface;
+            prepared->commit.notify = Commit;
+            prepared->destroy.notify = SurfaceGone;
+            found = owner->states.emplace(surface, std::move(prepared)).first;
+            wl_signal_add(&surface->events.commit, &found->second->commit);
+            wl_signal_add(&surface->events.destroy, &found->second->destroy);
+        }
+        auto &state = found->second;
+        if (state->resource) {
+            wl_resource_post_error(manager, 0, "Surface already has an effect object");
+            return;
+        }
+
+        const auto version = std::min(wl_resource_get_version(manager), 3);
+        auto *resource =
+            wl_resource_create(client, &prism_surface_effect_v1_interface, version, id);
+        if (!resource) {
+            wl_client_post_no_memory(client);
+            return;
+        }
+        try {
+            owner->objects.insert(resource);
+        } catch (...) {
+            wl_resource_destroy(resource);
+            throw;
+        }
+
+        static const struct prism_surface_effect_v1_interface impl{Destroy, Clear, Add, AddContour};
+        state->resource = resource;
+        wl_resource_set_implementation(resource, &impl, state.get(), EffectGone);
+    } catch (const std::bad_alloc &) {
         wl_client_post_no_memory(client);
-        return;
+    } catch (const std::exception &error) {
+        wl_resource_post_error(manager, 0, "Cannot create effect: %s", error.what());
+    } catch (...) {
+        wl_resource_post_error(manager, 0, "Cannot create effect");
     }
-    static const struct prism_surface_effect_v1_interface impl{Destroy, Clear, Add};
-    state->resource = resource;
-    owner->objects.insert(resource);
-    wl_resource_set_implementation(resource, &impl, state.get(), EffectGone);
 }
 
 void SurfaceEffects::Impl::ManagerGone(wl_resource *resource)
@@ -171,16 +262,33 @@ void SurfaceEffects::Impl::ManagerGone(wl_resource *resource)
 void SurfaceEffects::Impl::Bind(wl_client *client, void *data, uint32_t version, uint32_t id)
 {
     auto *owner = static_cast<Impl *>(data);
-    auto *resource =
-        wl_resource_create(client, &prism_surface_effect_manager_v1_interface, version, id);
+    auto *resource = wl_resource_create(client, &prism_surface_effect_manager_v1_interface,
+                                        std::min(version, 3u), id);
     if (!resource) {
         wl_client_post_no_memory(client);
         return;
     }
     static const struct prism_surface_effect_manager_v1_interface impl{Destroy, NewEffect};
-    owner->managers.insert(resource);
+    try {
+        owner->managers.insert(resource);
+    } catch (const std::bad_alloc &) {
+        wl_resource_destroy(resource);
+        wl_client_post_no_memory(client);
+        return;
+    } catch (...) {
+        wl_resource_destroy(resource);
+        wl_client_post_no_memory(client);
+        return;
+    }
     wl_resource_set_implementation(resource, &impl, owner, ManagerGone);
     prism_surface_effect_manager_v1_send_capabilities(resource, owner->supported);
+    if (wl_resource_get_version(resource) >= 2) {
+        prism_surface_effect_manager_v1_send_contour_capabilities(resource, owner->supported);
+    }
+    if (wl_resource_get_version(resource) >= 3) {
+        prism_surface_effect_manager_v1_send_popup_backdrop_capabilities(resource,
+                                                                         owner->supported);
+    }
 }
 
 SurfaceEffects::SurfaceEffects(wl_display *d, wlr_renderer *r, wlr_allocator *a)
@@ -244,9 +352,10 @@ const SurfaceEffects::WorkCounters &SurfaceEffects::Counters() const
 
 SurfaceEffects::UpdateResult SurfaceEffects::Update(wlr_scene *s, std::span<WlrXdgView *const> v,
                                                     WlrXdgView *f,
-                                                    const contracts::ThemeSnapshot *t)
+                                                    const contracts::ThemeSnapshot *t,
+                                                    std::span<const Target> popups)
 {
-    return impl_->Update(s, v, f, t);
+    return impl_->Update(s, v, f, t, popups);
 }
 
 } // namespace prism::wm

@@ -4,6 +4,7 @@
 #include "prism/runtime/render_tree.hpp"
 #include "prism/runtime/scene_snapshot.hpp"
 #include "prism/runtime/theme_tokens.hpp"
+#include "scene_contour_p.hpp"
 #include "scene_p.hpp"
 #include <algorithm>
 #include <cmath>
@@ -68,7 +69,8 @@ Scene::Node *Scene::Find(contracts::NodeId id) const
 bool Scene::IsVisible(const Node &node) const
 {
     for (const Node *current = &node; current; current = current->parent) {
-        if (!current->style.visible || !current->style.FitsViewport(viewport_)) {
+        if ((IsPopupKind(current->kind) && !current->popup_token) || !current->style.visible ||
+            !current->style.FitsViewport(viewport_)) {
             return false;
         }
     }
@@ -105,6 +107,7 @@ bool Scene::AcceptsBinding(std::string_view name, const PropertyValue &value) co
     }
     for (const auto &target : it->second) {
         if (!scene_detail::ValidPropertyValue(target.property, value) ||
+            !ValidChoiceAssignment(*target.node, target.property, value) ||
             (target.property == DslProperty::Text &&
              !scene_detail::ValidEditorText(target.node->kind, value))) {
             return false;
@@ -121,6 +124,7 @@ bool Scene::SetBinding(std::string_view name, PropertyValue value)
     }
     for (const auto &target : it->second) {
         if (!scene_detail::ValidPropertyValue(target.property, value) ||
+            !ValidChoiceAssignment(*target.node, target.property, value) ||
             (target.property == DslProperty::Text &&
              !scene_detail::ValidEditorText(target.node->kind, value))) {
             return false;
@@ -144,6 +148,7 @@ bool Scene::SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyVa
 {
     Node *node = Find(id);
     if (!node || property == DslProperty::Material ||
+        !ValidChoiceAssignment(*node, property, value) ||
         !(node->allowed_properties & PropertyBit(property)) ||
         (node->decorative &&
          (property == DslProperty::Action || property == DslProperty::BackdropBlur ||
@@ -156,11 +161,15 @@ bool Scene::SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyVa
     if (property == DslProperty::Text && !scene_detail::ValidEditorText(node->kind, value)) {
         return false;
     }
+    if (property == DslProperty::Enabled) {
+        return SetEnabled(id, std::get<bool>(value));
+    }
+
     const auto previous = CurrentProperty(*node, property);
     if (previous == value) {
         return false;
     }
-    if (property == DslProperty::Action) {
+    if (property == DslProperty::Action || property == DslProperty::SelectedKey) {
         PrepareInputGeometry();
         input_snapshot_dirty_ = true;
     }
@@ -173,6 +182,9 @@ bool Scene::SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyVa
     std::erase_if(node->theme_refs,
                   [property](const ThemeRef &ref) { return ref.target == property; });
     ApplyCachedProperty(*node, property, value);
+    if (property == DslProperty::SelectedKey || property == DslProperty::Checked) {
+        state_styles_dirty_ = true;
+    }
     if (state_property) {
         ResolveNodeStateTargets(*node, now, true);
     }
@@ -186,12 +198,15 @@ bool Scene::SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyVa
     // A child becoming locally visible under a hidden parent stays concealed.
     if (!was_visible && !IsVisible(*node)) {
         ++node->revision;
+        ReconcilePopup();
         return true;
     }
     if (was_visible && !IsVisible(*node)) {
         CancelHiddenAnimations();
     }
-    if (property == DslProperty::Visible) {
+    if (property == DslProperty::Visible || property == DslProperty::Checked ||
+        property == DslProperty::SelectedKey ||
+        (node->kind == Kind::Slider && property == DslProperty::Value)) {
         ReconcileInput();
     } else if (property == DslProperty::Action) {
         RefreshInputGeometry();
@@ -272,6 +287,7 @@ bool Scene::ImageReady(contracts::ResourceId image, contracts::LogicalSize intri
 
 std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
 {
+    ReconcilePopup();
     ResolveInteractionStyles();
     ++build_calls_;
     if (!root_ || !window || !scene_detail::ValidSize(viewport_)) {
@@ -286,55 +302,38 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
     if (hit_geometry_dirty_) {
         PrepareInputGeometry();
     }
-    SceneSnapshot snapshot;
-    if (theme_) {
-        snapshot.controls = theme_->controls;
-    }
-    snapshot.root = root_->id;
-    snapshot.nodes.resize(nodes_.size());
-    for (std::size_t i = 0; i < snapshot.nodes.size(); ++i) {
-        snapshot.nodes[i].id = {static_cast<std::uint32_t>(i), 0};
-        snapshot.nodes[i].style.visible = false;
-    }
-    for (const Node *node : nodes_) {
-        if (!node) {
-            continue;
-        }
-        SnapshotNode item;
-        item.id = node->id;
-        item.kind = node->kind;
-        item.style = node->style;
-        item.style.visible = IsVisible(*node);
-        item.text = node->text;
-        item.icon = node->icon;
-        item.value = node->value;
-        item.checked = node->checked;
-        item.interaction = State(node->id);
-        item.presentation = node->presentation;
-        item.image = node->image;
-        item.intrinsic_size = node->intrinsic_size;
-        item.image_ready = node->image_ready;
-        item.bounds = node->bounds;
-        item.shaped = node->shaped;
-        item.revision = node->revision;
-        ApplyPresentation(*node, item);
-        for (const auto &child : node->children) {
-            item.children.push_back(child->id);
-        }
-        snapshot.nodes[node->id.index] = std::move(item);
-    }
-    if (Has(dirty_, Dirty::Layout)) {
+    SceneSnapshot snapshot = CaptureResolvedSnapshot();
+    const bool layout_changed = Has(dirty_, Dirty::Layout);
+    if (layout_changed) {
         LayoutEngine::Compute(snapshot, viewport_, shaper_);
+    }
+
+    PrepareSceneContours(snapshot);
+    if (layout_changed) {
         ++layout_count_;
         input_dirty_ = true;
-        for (const auto &item : snapshot.nodes) {
-            if (!item.id) {
-                continue;
-            }
-            Node *node = nodes_[item.id.index];
+    }
+    for (const auto &item : snapshot.nodes) {
+        if (!item.id) {
+            continue;
+        }
+        Node *node = nodes_[item.id.index];
+        node->contour = item.contour;
+        node->contour_request = item.contour_request;
+        node->contour_prepared = item.contour_prepared;
+        node->popup_placement = item.popup_placement;
+        if (layout_changed) {
             node->bounds = item.bounds;
+            node->scroll_offset = item.scroll_offset;
+            node->scroll_content_height = item.scroll_content_height;
             node->shaped = item.shaped;
         }
+    }
+
+    if (const auto *popup = Find(active_popup_);
+        popup && (popup->bounds.width <= 0 || popup->bounds.height <= 0)) {
+        snapshot.Get(popup->id).style.visible = false;
+        ClosePopup(PopupCloseReason::Unavailable);
     }
 
     if (hit_geometry_dirty_) {
@@ -358,10 +357,27 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
         }
     }
     UpdateInputSnapshot();
+    ApplyPopupScrollOffsets(snapshot);
+    ApplyScrollVisuals(snapshot);
+    ApplySliderVisuals(snapshot);
 
+    auto popup_snapshot = HasPopupSurfaceAdoption()
+                              ? std::make_shared<const SceneSnapshot>(snapshot)
+                              : std::shared_ptr<const SceneSnapshot>{};
+    if (HasPopupSurfaceAdoption()) {
+        snapshot.Get(active_popup_).style.visible = false;
+    }
     auto next = RenderTreeBuilder::Build(snapshot, render_tree_.get());
     auto list = DisplayListBuilder::Build(next, window, font_, generation_ + 1);
+    if (active_popup_ && !popup_snapshot) {
+        popup_snapshot = std::make_shared<const SceneSnapshot>(std::move(snapshot));
+    }
     render_tree_ = std::make_unique<RenderTree>(std::move(next));
+    popup_snapshot_ = std::move(popup_snapshot);
+    popup_surface_source_.reset();
+    popup_snapshot_window_ = window;
+    popup_snapshot_revision_ = transaction_revision_;
+    popup_snapshot_pixels_revision_ = pixels_revision_;
     ++generation_;
 
     dirty_ = Has(dirty_, Dirty::Composite) ? Dirty::Composite : Dirty::None;

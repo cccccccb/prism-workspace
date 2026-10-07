@@ -1,6 +1,21 @@
 #include "client_application_p.hpp"
 
 namespace prism::sdk {
+namespace {
+std::uint64_t OrderedInputSequence(const runtime::RenderEvent &event)
+{
+    if (const auto *popup = std::get_if<runtime::PopupConfigureEvent>(&event)) {
+        return popup->sequence;
+    }
+    if (const auto *popup = std::get_if<runtime::PopupClosedEvent>(&event)) {
+        return popup->sequence;
+    }
+    if (const auto *popup = std::get_if<runtime::PopupInputEvent>(&event)) {
+        return popup->sequence;
+    }
+    return std::get<runtime::SequencedWindowEvent>(event).sequence;
+}
+} // namespace
 
 void ClientApplication::Impl::ProcessRenderEvents(bool deliver)
 {
@@ -37,6 +52,15 @@ void ClientApplication::Impl::ProcessRenderEvents(bool deliver)
             HandlePresentation(*presentation);
             continue;
         }
+        if (const auto *submitted = std::get_if<runtime::PopupSubmittedEvent>(&*event)) {
+            HandlePopupSubmitted(*submitted);
+            continue;
+        }
+        if (std::holds_alternative<runtime::PopupPresentationEvent>(*event)) {
+            // Child feedback belongs to its native target. It cannot satisfy
+            // the root UI/Preview/Master presentation milestone.
+            continue;
+        }
         if (const auto *ready = std::get_if<runtime::FrameOpportunityEvent>(&*event)) {
             // A configure can retire an unanswered opportunity and issue a
             // replacement before the UI drains the reverse queue. Keep the
@@ -45,14 +69,32 @@ void ClientApplication::Impl::ProcessRenderEvents(bool deliver)
             continue;
         }
 
-        const auto &window = std::get<runtime::SequencedWindowEvent>(*event);
-        if (!scene || !window.sequence || window.sequence <= last_processed_window_sequence) {
+        const auto sequence = OrderedInputSequence(*event);
+        if (!scene || !sequence || sequence <= last_processed_window_sequence) {
             bridge->terminal.Fail(runtime::TerminalReason::EventQueueFailure);
             FailFrontend();
             break;
         }
-        last_processed_window_sequence = window.sequence;
-        processed_window_sequence = window.sequence;
+        last_processed_window_sequence = sequence;
+        processed_window_sequence = sequence;
+
+        if (const auto *configured = std::get_if<runtime::PopupConfigureEvent>(&*event)) {
+            HandlePopupConfigure(*configured);
+            continue;
+        }
+        if (const auto *closed_popup = std::get_if<runtime::PopupClosedEvent>(&*event)) {
+            HandlePopupClosed(*closed_popup);
+            continue;
+        }
+        if (const auto *input = std::get_if<runtime::PopupInputEvent>(&*event)) {
+            if (runtime::Has(scene->PendingDirty(), runtime::Dirty::Layout)) {
+                PublishFramePacket();
+            }
+            HandlePopupInput(*input);
+            continue;
+        }
+
+        const auto &window = std::get<runtime::SequencedWindowEvent>(*event);
 
         // Input belongs to the UI load observed by the protocol owner. A
         // queued press from a replaced load must never target the new Scene.
@@ -105,6 +147,7 @@ void ClientApplication::Impl::HandleWindowEvent(
             throw std::runtime_error("Out-of-order Wayland configure event");
         }
 
+        ResetPopupSurface();
         ui_metrics = configure->metrics;
         ui_configure_count = configure->configure_count;
         scene->SetViewport(configure->metrics.logical_size);
@@ -123,7 +166,23 @@ void ClientApplication::Impl::HandleWindowEvent(
         return;
     }
     const auto input_ui = installed_ui;
-    const auto result = scene->HandleInput(event, input);
+    const bool popup_key =
+        std::holds_alternative<contracts::KeyEvent>(event) && scene->HasPopupSurfaceAdoption() &&
+        ui_popup_submitted_frame && ui_popup_submitted_frame->ui == installed_ui &&
+        ui_popup_submitted_frame->plan && input &&
+        input->scene == ui_popup_submitted_frame->plan->request.scene &&
+        input->popup_token == scene->PopupToken() &&
+        ui_popup_submitted_frame->plan->request.popup_token == scene->PopupToken();
+    const auto result =
+        popup_key ? scene->HandlePopupSurfaceInput(event, ui_popup_submitted_identity,
+                                                   ui_popup_submitted_frame->plan->input_snapshot)
+                  : scene->HandleInput(event, input);
+    CompleteInteractionResult(result, input_ui);
+}
+
+void ClientApplication::Impl::CompleteInteractionResult(const runtime::InteractionResult &result,
+                                                        runtime::UiLoadId input_ui)
+{
     if (result.changed) {
         queued_frame.reset();
         QueueRenderUpdate(true);
@@ -133,7 +192,10 @@ void ClientApplication::Impl::HandleWindowEvent(
         // Stopping waits until PublishFramePacket retains the final pixels.
         SyncAnimationSampling();
     }
-    DeliverGestureEvents();
+    if (result.control_edit) {
+        control_delivery.Enqueue(input_ui, *result.control_edit);
+    }
+    DeliverInteractionEvents();
     if (result.text_edit && on_text_edit && input_ui == installed_ui && !closed && !failed) {
         on_text_edit(result.text_edit->action, result.text_edit->text);
     }
@@ -188,12 +250,16 @@ void ClientApplication::Impl::HandleSubmitted(const runtime::SubmittedFrameEvent
         }
     }
 
+    if (event.metadata_prepared && event.ui == installed_ui) {
+        ui_root_metadata_frame = event.frame;
+    }
+
     // A later Scene, theme or pixel update must not be acknowledged by an
     // older State/None/Pixels result waiting in the reverse queue.
     if (event.metadata_prepared && scene && event.ui == installed_ui &&
         event.scene_revision == scene->TransactionRevision() &&
         event.pixels_revision == scene->PixelsRevision() &&
-        event.theme_generation == (theme ? theme->generation : 0)) {
+        event.theme_generation == (theme ? theme->generation : 0) && !HasUnsubmittedPopupPixels()) {
         scene->AcknowledgeComposite();
     }
     if (event.kind == runtime::SubmittedKind::Pixels && on_ui_submitted) {

@@ -1,5 +1,5 @@
 add_library(prism_module_session STATIC module_session.cpp module_work.cpp module_work_job.cpp
-    layout_control_bridge.cpp module_control.cpp)
+    layout_control_bridge.cpp module_control.cpp module_control_value.cpp)
 target_link_libraries(prism_module_session PUBLIC prism_launch prism_task_scheduler)
 if(TARGET prism_client_app)
     add_library(prism_app_host_runtime STATIC

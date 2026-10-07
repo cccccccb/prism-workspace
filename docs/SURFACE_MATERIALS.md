@@ -16,13 +16,22 @@ DisplayList 每帧清为透明。Color/PNG 输入为 straight alpha，CPU BGRA88
 
 Scene 产生 SurfaceInputRegion；平台按逻辑像素生成 wl_region，随下一次 surface commit 生效。Topbar/Dock 的透明留白不吞鼠标事件。祖先 clip 限制子内容命中；圆角边缘不接受不可见的点击。Hover、Tab/Enter/Space 状态由通用 SDK 管理，不把测试逻辑或应用分支混入 WM。
 
-## 3. prism-surface-effects-v1
+## 3. prism-surface-effects-v1（interface v1 / v2）
+
+2026-10-06，本轮源码将 interface 升至 v2，保留旧请求并增加独立轮廓能力事件和
+`add_contour` 请求。C++ 的 SurfaceEffectRegion 可携带已准备的 Contour；WM 校验
+payload、保存自己的点数据，并在 commit 原子应用。矩形与轮廓合计最多八个。
+无 v2 或轮廓能力时，客户端只省略轮廓效果，不放大为矩形。完整规范见
+[通用轮廓契约](SURFACE_CONTOUR_CONTRACT.md)。4g 源码新增组件内的 typed `Contour`
+几何声明，局部面板和 Popup/Menu 可显式使用，绘制、输入与 effect 复用准备结果。
+它不改变窗口外围装饰，不允许搭配 `material: "window"`；未声明时仍使用矩形/圆角。
+已安装 v22 不支持该语法；按锚点自动生成连接颈和同 surface 正文模糊仍待后续。
 
 协议源：protocols/prism-surface-effects-v1.xml。Manager capabilities 明确报告真实 GPU backdrop 能力；当前需要 wlroots GLES2 renderer 与成功创建的 shader。无扩展/能力为零时，客户端保留正常 alpha/tint，不伪造已启用毛玻璃。
 
 每个 wl_surface 最多一个 effect 对象。clear/add_region 修改 pending 状态，仅随该 surface 下一次 commit 原子更新 current；destroy 清空 pending，surface 销毁立即终止其效果。Effect 对象与 surface 必须属于同一 Wayland client，不能描述其他客户端 surface。
 
-每个 surface 最多八个圆角矩形区域，单位为 surface-local logical pixels，坐标范围 ±8192、宽高 0..8192（不含零）、圆角 0..256、blur 0..48。SDK 限制非法 DSL 和过量区域；WM 再做协议校验。区域数据只有 bounds/radius/blur，不包含控件或业务语义。
+v1 每个 surface 最多八个圆角矩形区域，单位为 surface-local logical pixels，坐标范围 ±8192、宽高 0..8192（不含零）、圆角 0..256、blur 0..48。SDK 限制非法 DSL 和过量区域；WM 再做协议校验。v1 区域数据只有 bounds/radius/blur；v2 增加纯轮廓点数据，两版都不包含控件或业务语义。
 
 SDK 提交之前与 viewport/祖先 clip 求交，完全不可见的区域跳过；v1 只接受可准确表达的统一圆角矩形交集。非对称曲线交集或非法最终范围产生明确诊断，不发送近似掩码或非法 Wayland 请求。
 
@@ -30,10 +39,16 @@ SDK 提交之前与 viewport/祖先 clip 求交，完全不可见的区域跳过
 
 1. 按真实场景顺序遍历目标 surface 以下的可见节点；到目标 view 时终止，排除该 surface 自己的全部效果节点。
 2. 将低层纹理与几何 GPU 合成到带扩展采样边界的离屏 buffer。保留 source box、transform、opacity 与真实位置。
-3. 在一半分辨率执行水平/垂直 Gaussian 采样，然后按圆角区域回写完整尺寸材质 buffer；外部绘制主题阴影和边线。
+3. 在一半分辨率执行水平/垂直 Gaussian 采样，然后按圆角或通用轮廓覆盖回写完整尺寸材质 buffer；外层窗口装饰另按主题绘制阴影和边线。
 4. 效果节点位于对应 view 之前；其后由常规 wlr_scene 合成客户端 tint/前景以及更高层 surface。
 
 结果是实时读取下方合成内容，不模糊客户端自己的画面、不复制一张预先处理的壁纸作为替代。Effects 保持 wlroots presentation/frame_done/output 提交流程。缓存键记录低层 buffer、surface commit seq、几何、状态和区域参数，低层内容改变时刷新；这属于 compositor 材料结果缓存，不引入延后的客户端节点增量布局或 DisplayList 分块缓存。
+
+通用轮廓采用单独的 alpha 遮罩缓存：四个纵向子采样与水平区间面积覆盖，仅几何、
+尺寸或分数原点变化时重新生成并上传。背景变化复用遮罩，只修复材质结果；完整材质
+缓存也比较每个顶点，不能只比较 bounds。单遮罩最多 16 MiB，超预算或上传失败关闭
+该效果，保留客户端着色。`effects_work.mask_builds/mask_cache_hits/mask_failures`
+为 typed 状态计数，不是帧率或 GPU 耗时。
 
 生产路径使用 wlroots allocator、GLES render pass 与采样纹理，模糊不做 CPU 像素读回。Capture 测试工具可以读回截图，但位于 tests 或临时工具目录，不安装到生产包。此处不宣称零拷贝已验收。
 

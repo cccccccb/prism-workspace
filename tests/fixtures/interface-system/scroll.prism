@@ -1,0 +1,50 @@
+VStack(padding: 16, spacing: 8, background: "@surfaceRaised", clip: true) {
+ Text("Preferences", height: 28, font: "@font_heading", foreground: "@text")
+ Separator(height: 1, background: "@controlOutline")
+ ScrollView(flex: 1, scrollSpeed: 1) {
+  VStack(spacing: 8, padding: 12) {
+   Text("General", height: 24, font: "@font_body", foreground: "@mutedText")
+   InteractionTarget(action: "Appearance", height: 40, justify: "center", paddingX: 12, background: "@controlDisabled", cornerRadius: "@control_state_radius") {
+    Text("Appearance", anchor: "left", font: "@font_body", foreground: "@text")
+    Icon("chevron", anchor: "right", width: 16, height: 16, foreground: "@mutedText")
+   }
+   InteractionTarget(action: "Language", height: 40, justify: "center", paddingX: 12, background: "@controlDisabled", cornerRadius: "@control_state_radius") {
+    Text("Language", anchor: "left", font: "@font_body", foreground: "@text")
+    Icon("chevron", anchor: "right", width: 16, height: 16, foreground: "@mutedText")
+   }
+   InteractionTarget(action: "Startup", height: 40, justify: "center", paddingX: 12, background: "@controlDisabled", cornerRadius: "@control_state_radius") {
+    Text("Startup", anchor: "left", font: "@font_body", foreground: "@text")
+    Icon("chevron", anchor: "right", width: 16, height: 16, foreground: "@mutedText")
+   }
+   Text("Workspace", height: 24, font: "@font_body", foreground: "@mutedText")
+   InteractionTarget(action: "Window layout", height: 40, justify: "center", paddingX: 12, background: "@controlDisabled", cornerRadius: "@control_state_radius") {
+    Text("Window layout", anchor: "left", font: "@font_body", foreground: "@text")
+    Icon("chevron", anchor: "right", width: 16, height: 16, foreground: "@mutedText")
+   }
+   InteractionTarget(action: "Keyboard shortcuts", height: 40, justify: "center", paddingX: 12, background: "@controlDisabled", cornerRadius: "@control_state_radius") {
+    Text("Keyboard shortcuts", anchor: "left", font: "@font_body", foreground: "@text")
+    Icon("chevron", anchor: "right", width: 16, height: 16, foreground: "@mutedText")
+   }
+   InteractionTarget(action: "Notifications", height: 40, justify: "center", paddingX: 12, background: "@controlDisabled", cornerRadius: "@control_state_radius") {
+    Text("Notifications", anchor: "left", font: "@font_body", foreground: "@text")
+    Icon("chevron", anchor: "right", width: 16, height: 16, foreground: "@mutedText")
+   }
+   Text("System", height: 24, font: "@font_body", foreground: "@mutedText")
+   InteractionTarget(action: "Performance", height: 40, justify: "center", paddingX: 12, background: "@controlDisabled", cornerRadius: "@control_state_radius") {
+    Text("Performance", anchor: "left", font: "@font_body", foreground: "@text")
+    Icon("chevron", anchor: "right", width: 16, height: 16, foreground: "@mutedText")
+   }
+   InteractionTarget(action: "Storage", height: 40, justify: "center", paddingX: 12, background: "@controlDisabled", cornerRadius: "@control_state_radius") {
+    Text("Storage", anchor: "left", font: "@font_body", foreground: "@text")
+    Icon("chevron", anchor: "right", width: 16, height: 16, foreground: "@mutedText")
+   }
+   InteractionTarget(action: "About Prism", height: 40, justify: "center", paddingX: 12, background: "@controlDisabled", cornerRadius: "@control_state_radius") {
+    Text("About Prism", anchor: "left", font: "@font_body", foreground: "@text")
+    Icon("chevron", anchor: "right", width: 16, height: 16, foreground: "@mutedText")
+   }
+  }
+  Visual(scrollPart: "thumb", width: 4, height: 24, inset: 3, cornerRadius: 2, background: "@controlOutline")
+ }
+ Separator(height: 1, background: "@controlOutline")
+ Text("Settings are saved automatically", height: 20, font: "@font_caption", foreground: "@mutedText")
+}

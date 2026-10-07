@@ -1,3 +1,4 @@
+#include "prism/platform/wayland_egl_context.hpp"
 #include "prism/platform/wayland_egl_surface.hpp"
 #include "prism/platform/wayland_window.hpp"
 #include "prism/render_skia/gles_renderer.hpp"
@@ -818,6 +819,7 @@ void RunNative(RasterRenderer &commands, const std::vector<Frame> &frames,
     EglDisplay reference_display;
     std::unique_ptr<GpuTarget> reference;
     prism::platform::WaylandWindow window;
+    prism::platform::WaylandEglContext egl_context;
     prism::platform::WaylandEglSurface egl;
     std::unique_ptr<GlesRenderer> renderer;
     BufferDamageHistory history;
@@ -841,6 +843,7 @@ void RunNative(RasterRenderer &commands, const std::vector<Frame> &frames,
             renderer.reset();
         }
         egl.Close();
+        egl_context.Close();
     };
     window.SetSubmitHandlers(
         [&](const SubmitRequest &request) {
@@ -856,7 +859,8 @@ void RunNative(RasterRenderer &commands, const std::vector<Frame> &frames,
                                       static_cast<std::uint32_t>(request.height)};
                 if (!egl.Ready()) {
                     Require(
-                        egl.Open(request.display, request.surface, request.width, request.height),
+                        egl_context.Open(request.display) &&
+                            egl.Open(egl_context, request.surface, request.width, request.height),
                         "native EGL initialization failed");
                     Require(egl.GlRenderer().find("V3D") != std::string::npos,
                             "native pixel validation requires the actual V3D driver");

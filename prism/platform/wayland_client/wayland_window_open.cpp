@@ -149,10 +149,11 @@ bool WaylandWindow::Open(const std::string &socket_name, const std::string &app_
                          const std::string &title, int preferred_width, int preferred_height,
                          WaylandOpenOptions options)
 {
-    if (display_ || OpenStopped(options)) {
+    if (display_ || dispatching_ || closing_ || deferred_close_ || OpenStopped(options)) {
         return false;
     }
     failed_ = false;
+    close_requested_ = false;
     preferred_width_ = std::clamp(preferred_width, 1, 4096);
     preferred_height_ = std::clamp(preferred_height, 1, 4096);
     display_ = wl_display_connect(socket_name.empty() ? nullptr : socket_name.c_str());

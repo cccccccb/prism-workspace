@@ -385,6 +385,7 @@ InteractionTarget(width: 96, height: 40, action: "panel:toggle", justify: "cente
 | `pressed` | 有效按下；同属性优先级 300 |
 | `captured` | 指针序列仍被该目标捕获；同属性优先级 200，移出后也可保持 |
 | `hovered` | 指针在该目标内；同属性优先级 100 |
+| `selected` | 本轮新增：Checkbox checked 或 Radio/Segment 组的权威选择；同属性优先级 75 |
 | `focused` / `focusVisible` | 焦点与键盘焦点提示；使用独立属性通道 |
 
 普通条件可覆盖同一属性，按上述优先级选择；不匹配时回到当前基础值。focused 或
@@ -569,3 +570,21 @@ WindowGesture 使用明确的窗口 node ID，真实 Down proof 必须与选定 
 释放前提交、伪造目标或过期修订都不能改变窗口。窗口级请求 wire v2 和 snapshot v3
 采用追加字段，旧组/分隔线请求继续编码为 v1。C ABI 尾部按 struct_size 检查。
 完整规则及本阶段验证见 [布局控制计划第 12 节](LAYOUT_CONTROL_IMPLEMENTATION_PLAN.md#12-第五步窗口级鼠标控制源码交付2026-10-04)。
+
+## 界面系统第一步：DSL enabled（v22 之后源码）
+
+`enabled: true/false/$binding` 与 `Scene::SetEnabled` 统一控制本地启用值，
+所有祖先的禁用限制继续有效。支持容器与叶节点，默认 true；禁用保留布局、撤销捕获
+和失效焦点，旧提交快照不能重新激活已禁用目标。重复赋值不产生新失效。
+属性不支持 `.state` 写入或 `.transition`，禁用视觉仍使用现有 disabled 规则与主题。
+本地 enabled 值进入 Blueprint 保存路径，主题安装/子树事务不能丢失该属性。
+完整设计、差异及后续顺序见 [界面系统执行计划](INTERFACE_SYSTEM_PLAN.md)。
+
+
+### 2026-10-05：值控件选择状态
+
+Checkbox、Radio、Segment 可作为 Visual 子树的交互状态所有者。`selected` 来自业务
+确认后的值，与 focused/focusVisible 分离；不能在 .state 写 checked/selectedKey。
+值变化会使对应状态配方重新求值，沿用现有动画与快照链。RadioGroup/SegmentGroup
+持有业务值，选项负责输入与呈现，组本身不是独立 Tab 停靠点。
+完整声明、优先级与限制见 [值控件契约](CONTROL_VALUE_CONTRACT.md)。

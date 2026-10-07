@@ -1,5 +1,6 @@
 #pragma once
 
+#include "prism/contracts/contour.hpp"
 #include "prism/contracts/types.hpp"
 #include <array>
 #include <cstdint>
@@ -161,10 +162,39 @@ struct PopOpacity {
     bool operator==(const PopOpacity &) const noexcept = default;
 };
 
+struct FillContour {
+    Contour contour;
+    Color color{};
+    bool operator==(const FillContour &) const noexcept = default;
+};
+
+// Width is measured inward from the boundary. Zero draws no border.
+struct StrokeContour {
+    Contour contour;
+    double width{1};
+    Color color{};
+    bool operator==(const StrokeContour &) const noexcept = default;
+};
+
+struct ContourShadow {
+    Contour contour;
+    double blur{0}; // Gaussian sigma in logical pixels
+    double offset_y{0};
+    Color color{};
+    bool inset{false};
+    bool operator==(const ContourShadow &) const noexcept = default;
+};
+
+struct PushClipContour {
+    Contour contour;
+    bool operator==(const PushClipContour &) const noexcept = default;
+};
+
 using DrawCommand =
     std::variant<FillRect, FillRoundedRect, StrokeRoundedRect, RoundedRectShadow, DrawIcon,
                  DrawImage, DrawGlyphRun, PushClipRect, PushClipRoundedRect, PopClip, PushTransform,
-                 PopTransform, PushOpacity, PopOpacity>;
+                 PopTransform, PushOpacity, PopOpacity, FillContour, StrokeContour, ContourShadow,
+                 PushClipContour>;
 
 // In-process, ordered renderer input. Logical coordinates map to the target canvas;
 // caller owns any output scale. Clips/transforms/opacity use matched, nested pairs.

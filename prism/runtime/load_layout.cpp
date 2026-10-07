@@ -41,9 +41,15 @@ public:
         } else if (placeholder) {
             CheckInert(node);
         }
-        for (std::size_t i = 0; i < node.children.size(); ++i) {
-            path.push_back(i);
-            Convert(node.children[i], path, placeholder, visual);
+        std::size_t visual_index = 0;
+        for (auto &child : node.children) {
+            // Geometry declarations do not survive as prepared visual children.
+            // Slot paths address that prepared tree, not raw syntax positions.
+            if (child.name == "Contour") {
+                continue;
+            }
+            path.push_back(visual_index++);
+            Convert(child, path, placeholder, visual);
             path.pop_back();
         }
     }

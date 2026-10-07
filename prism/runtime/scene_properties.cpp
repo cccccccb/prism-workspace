@@ -4,6 +4,36 @@ namespace prism::runtime {
 void Scene::ApplyCachedProperty(Node &node, DslProperty id, const PropertyValue &value)
 {
     switch (id) {
+    case DslProperty::PopupFor:
+        node.popup_for = std::get<std::string>(value);
+        break;
+    case DslProperty::ScrollSpeed:
+        node.scroll_speed = std::get<double>(value);
+        break;
+    case DslProperty::ScrollPart:
+        node.scroll_part = std::get<std::string>(value);
+        break;
+    case DslProperty::Minimum:
+        node.number_domain.minimum = std::get<double>(value);
+        break;
+    case DslProperty::Maximum:
+        node.number_domain.maximum = std::get<double>(value);
+        break;
+    case DslProperty::Step:
+        node.number_domain.step = std::get<double>(value);
+        break;
+    case DslProperty::SliderPart:
+        node.slider_part = std::get<std::string>(value);
+        break;
+    case DslProperty::SelectedKey:
+        if (node.selected_key != std::get<std::string>(value)) {
+            ++node.control_revision;
+        }
+        node.selected_key = std::get<std::string>(value);
+        break;
+    case DslProperty::OptionKey:
+        node.option_key = std::get<std::string>(value);
+        break;
     case DslProperty::TranslateX:
         node.presentation.translate_x = std::get<double>(value);
         break;
@@ -37,6 +67,9 @@ void Scene::ApplyCachedProperty(Node &node, DslProperty id, const PropertyValue 
     case DslProperty::MaxViewportHeight:
         node.style.max_viewport_height = std::get<double>(value);
         break;
+    case DslProperty::Enabled:
+        node.enabled = std::get<bool>(value);
+        break;
     case DslProperty::Visible:
         node.style.visible = std::get<bool>(value);
         break;
@@ -45,6 +78,9 @@ void Scene::ApplyCachedProperty(Node &node, DslProperty id, const PropertyValue 
         break;
     case DslProperty::Height:
         node.style.height = std::get<double>(value);
+        break;
+    case DslProperty::LineHeight:
+        node.style.line_height = std::get<double>(value);
         break;
     case DslProperty::Font:
         node.style.font_size = std::get<double>(value);
@@ -137,9 +173,15 @@ void Scene::ApplyCachedProperty(Node &node, DslProperty id, const PropertyValue 
         node.icon = std::get<std::string>(value);
         break;
     case DslProperty::Value:
+        if (node.kind == Kind::Slider && node.value != std::get<double>(value)) {
+            ++node.control_revision;
+        }
         node.value = std::get<double>(value);
         break;
     case DslProperty::Checked:
+        if (node.checked != std::get<bool>(value)) {
+            ++node.control_revision;
+        }
         node.checked = std::get<bool>(value);
         break;
     case DslProperty::ImageFit: {
@@ -160,6 +202,24 @@ void Scene::ApplyCachedProperty(Node &node, DslProperty id, const PropertyValue 
 PropertyValue Scene::CurrentProperty(const Node &node, DslProperty id) const
 {
     switch (id) {
+    case DslProperty::PopupFor:
+        return node.popup_for;
+    case DslProperty::ScrollSpeed:
+        return node.scroll_speed;
+    case DslProperty::ScrollPart:
+        return node.scroll_part;
+    case DslProperty::Minimum:
+        return node.number_domain.minimum;
+    case DslProperty::Maximum:
+        return node.number_domain.maximum;
+    case DslProperty::Step:
+        return node.number_domain.step;
+    case DslProperty::SliderPart:
+        return node.slider_part;
+    case DslProperty::SelectedKey:
+        return node.selected_key;
+    case DslProperty::OptionKey:
+        return node.option_key;
     case DslProperty::TranslateX:
         return node.presentation.translate_x;
     case DslProperty::TranslateY:
@@ -182,12 +242,16 @@ PropertyValue Scene::CurrentProperty(const Node &node, DslProperty id) const
         return node.style.min_viewport_height;
     case DslProperty::MaxViewportHeight:
         return node.style.max_viewport_height;
+    case DslProperty::Enabled:
+        return node.enabled;
     case DslProperty::Visible:
         return node.style.visible;
     case DslProperty::Width:
         return node.style.width;
     case DslProperty::Height:
         return node.style.height;
+    case DslProperty::LineHeight:
+        return node.style.line_height;
     case DslProperty::Font:
         return node.style.font_size;
     case DslProperty::Spacing:

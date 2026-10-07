@@ -26,6 +26,31 @@ v21 的界面未获用户认可，不作为视觉基线。图标主导不等于�
 背景、边线和间距，不能把功能测试通过写成视觉已认可。重新确定整体风格时遵循
 [视觉方案与密度验收](references/visual-approval.md)，再进入实现与部署。
 
+## 界面系统后续基准
+
+控件、浮层、文件任务和反馈设计参考 [界面系统执行计划](../../INTERFACE_SYSTEM_PLAN.md)。
+该设计补充 Concept B；能力表明确区分已有接口与提案。`enabled` 已接入本轮源码的
+Boolean 属性/绑定，旧 v22 不支持；系统文件服务和透视翻转仍待实现。
+不要把截图尺寸当逻辑尺寸，不要把图中的文案或外观当成系统权限。
+Popup 与 Menu 已接入本轮输入；MenuItem/MenuBack 支持替换面板式子菜单。
+子菜单声明置于 Scene 根末尾，必须有明确返回入口。Host 按能力选择 native 子层或
+原窗口呈现，侧向级联仍未接入；应用不自行选择 target 或创建前端进程。
+含浮层的窗口将普通内容 clip 与根末尾 Popup/Menu 分开，根保持 window 材质；
+具体组合见视觉设计规范 3.1，不能要求 Host 忽略祖先裁剪来取得 native。
+开发前核对 [浮层契约](../../POPUP_MENU_CONTRACT.md) 的当前状态，不用 Card 冒充完整菜单。
+
+文字行高与控件组合见 [状态配方](../../INTERFACE_CONTROLS_AND_TYPOGRAPHY.md)。
+新增 `lineHeight` 与 `space_*`/`line_*`/`controlPrimary*` 等 token 需配套本轮 Host/主题；
+不代表自动折行或字体回退已实现。
+
+值控件接入见 [值交互契约](../../CONTROL_VALUE_CONTRACT.md)：本轮 Checkbox 使用
+`checked` 绑定与 `on_control_value` 回调，Visual 子树通过同一绑定呈现选中状态。
+RadioGroup/Radio 与 SegmentGroup/Segment 使用组级 `selectedKey` 和选项固定 key，
+以只读 `selected` 状态呈现选择。水平 Slider 已接入：固定 minimum/maximum/step，
+value 绑定；三个 sliderPart Visual 分别定义轨道、填充与滑块，业务区分 Preview/Commit/Cancel。
+不要用 on_action 接收值，也不要把 Preview 当作已确认状态写回 value。示例和限制见契约第 11 节。
+
+
 ## 按任务阅读
 
 - **新建应用或连接业务**：阅读 [开发指南](references/app-development.md)，选择状态、
@@ -83,3 +108,39 @@ v21 的界面未获用户认可，不作为视觉基线。图标主导不等于�
 
 交付时说明文件、支持的功能、验证范围和实质限制。编写技能或应用不会自动授权安装
 第三方包、切换正在运行的桌面会话或改动用户环境；这些动作遵循本次任务已有授权。
+
+长设置页与短窗口使用纵向 `ScrollView`，固定标题/底栏放在视口外；开发前阅读
+[滚动容器契约](../../SCROLL_VIEW_CONTRACT.md)。指示条目前仅呈现，不能设计成可拖动操作；
+编辑器仍使用自身滚动。内容使用紧凑自然高度，不靠拉大空隙填充页面。
+
+涉及浮层圆角/裁剪/模糊时核对 [轮廓契约](../../ROUNDED_REGION_CONTRACT.md)。
+外阴影不作命中区，外点关闭屏障不作菜单命令区。连接颈的
+[通用轮廓契约](../../SURFACE_CONTOUR_CONTRACT.md)已贯通纯几何、payload、Skia DrawList、
+Wayland v2、WM 遮罩以及 Scene/DSL、实时/快照命中和输入交集。局部容器或 Popup/Menu
+可声明 `Contour(space: "local") { Move(...) Line(...) Cubic(...) }`，使用具名数值字面量；
+这是独立几何元数据，不占布局子项或 Slot 索引。阅读契约中的完整配方与预算后使用。
+轮廓覆盖 cornerRadius 的形状语义，不随尺寸自动缩放；拒绝 window 材质、生成式控件
+部件、动态绑定、normalized 空间和当前不能精确表达的 blur 裁剪。
+4h 新增 Popup/Menu 的 `Contour(recipe: "attachedPanel", radius: "@panel_radius",
+neckWidth: "@space_section", neckHeight: "@space_sm", fallback: "detached")`。三数值
+必填，可引用主题 Number；根据最终 Below/Above 定位生成单一轮廓，Square 保持直角。
+正文尺寸/padding 不重复预留颈部，颈尖距锚点 8；空间不足按显式 detached 回退。
+v25 增加 `neckShape: "roundedTriangle"`，以圆润三角代替平顶；宽/高可引用
+`@panel_neck_width`/`@panel_neck_height`。省略形状保持旧 softTab，Square 使用直线。
+参见轮廓契约的圆润三角节；字段自v25支持，用户选定的C造型需要v26 Host及匹配
+主题，不能向更旧版本声明新增字段。
+请读契约中的缓存、主题候选、输入和配方限制；不要自行在应用中拼接重叠背景。
+4i—4k3 由 Host 管理同连接子层、共享 Context/Ganesh 与各 target WSI、输入和提交
+基线。scale=1、能准确导出局部布局时按能力自动 native；首个 child Pixels 成功才撤
+原窗口面板。背景效果使用 v3 独立 popup capability；需要 Contour 时同时要求 contour
+能力。首次 blur 等 root 实际提交撤下 fallback 后，以 child State 开启，避免采到旧面板。
+blur-only 更新不要求像素重绘；业务动作和值回调保持原接口。旧 compositor、编辑器和
+不支持的裁剪/变换保留 root。不要按主题名称猜测能力，也不要新建 ClientApplication、
+调用 Wayland 或启动业务进程来绕过回退。
+开发浮层时阅读 [子层生命周期](../../POPUP_TARGET_LIFECYCLE.md)、
+[背景采样契约](../../POPUP_BACKDROP_CONTRACT.md)和
+[Popup/Menu 契约](../../POPUP_MENU_CONTRACT.md)，核对匹配 Host；本步没有新增 DSL 属性。
+同 surface 正文模糊仍待实现，native popup 的父正文采样不能视作它已经完成。
+匹配这些接口的 `0.1.0-26` Host/WM 已部署到 Pi 正式远程会话，旧 v22 不支持。
+部署与实际菜单检查见 [最新记录](../../PI_REMOTE_DESKTOP.md)；最终视觉仍待用户确认，
+测试图和自动检查不代替用户验收。

@@ -4,7 +4,7 @@
 
 - 坐标使用窗口内逻辑像素，原点在左上，X 向右、Y 向下。矩形为 `x/y/width/height`；宽高非负。当前 CPU 与 GLES 回放都按目标画布的 1:1 坐标执行；窗口输出缩放由平台层负责，尚未纳入命令本身。
 - `Color` 是非预乘的 sRGB RGBA 字节；绘制采用 Skia 的 source-over 合成。回放开始时清为透明（RGBA 0），随后严格按命令顺序绘制。CPU BGRA8888 诊断目标与 GLES RGBA8888 输出均为预乘 alpha；颜色与 PNG 解码输入保持非预乘，由 Skia 转换。客户端默认不声明不透明区域，圆角之外可透出 compositor 的真实下层。图片支持 `fill/contain/cover`，采用线性采样；cover 在回放层按资源实际尺寸居中裁源，contain 居中留透明边。尚无九宫格和颜色空间转换选项。
-- 裁剪、仿射变换与组透明度按命令顺序入栈、出栈，遵循嵌套作用域。`PushClipRect`、`PushClipRoundedRect` 均只允许以 `PopClip` 结束；`PushTransform` 只允许以 `PopTransform` 结束；`PushOpacity` 只允许以 `PopOpacity` 结束。三类作用域不可交叉关闭，总深度最多 256。矩阵为行主序六元组 `[a,c,tx,b,d,ty]`，对应 `x'=ax+cy+tx`、`y'=bx+dy+ty`。回放前校验栈配对、数值有限和资源是否就绪；无效列表不会写入目标画布。
+- 裁剪、仿射变换与组透明度按命令顺序入栈、出栈，遵循嵌套作用域。`PushClipRect`、`PushClipRoundedRect`、`PushClipContour` 均只允许以 `PopClip` 结束；`PushTransform` 只允许以 `PopTransform` 结束；`PushOpacity` 只允许以 `PopOpacity` 结束。三类作用域不可交叉关闭，总深度最多 256。矩阵为行主序六元组 `[a,c,tx,b,d,ty]`，对应 `x'=ax+cy+tx`、`y'=bx+dy+ty`。回放前校验栈配对、数值有限和资源是否就绪；无效列表不会写入目标画布。
 - `ResourceId` 是一个客户端运行期本地 ID，0 无效。字体 ID 必须注册到字体表，图片 ID 必须注册到图片表；两种资源分别按命令类型查找。文字 shaping 产生的 glyph ID 必须来自该命令引用的同一字体文件。资源应在回放完成前保持有效。当前字体注册后不卸载，图片注册后可由同一 ID 更新。
 - CPU 和 GLES 都通过同一个 Skia 回放器解释命令，差别仅在目标画布和 GPU 提交。结构验证由共享回放器完成；像素差异仍受光栅化、采样和颜色格式影响。
 
@@ -48,3 +48,11 @@ CPU 与 GLES 共享 Skia `saveLayerAlphaf` 回放。后端从相同的字体、�
 错切、镜像或奇异矩阵继续完整修复；命令结构、显式 clip 和资源版本变化也保守回退。
 硬矩形 clip 在保持轴对齐矩形的变换下映射到设备坐标后向外取整，回放和损伤分析采用
 相同覆盖语义。详见[渲染调度与损伤规范](RENDER_SCHEDULING_AND_INVALIDATION.md)。
+
+## 通用轮廓命令（2026-10-05）
+
+`FillContour`、`StrokeContour`、`ContourShadow` 和 `PushClipContour` 消费已准备的
+单一简单闭合多边形。曲线仅在准备阶段展平一次，顶点量化到 1/256，最大 256 个；
+描边宽度向内计算，阴影使用 Gaussian sigma。轮廓命令沿用变换、分组透明度与损伤
+语义；裁剪变化保守整帧修复。详细 API、二值几何、payload 及后续协议边界见
+[通用轮廓契约](SURFACE_CONTOUR_CONTRACT.md)。当前仅 C++ DrawList 可用，尚非 DSL 属性。

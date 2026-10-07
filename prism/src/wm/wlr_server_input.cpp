@@ -291,16 +291,14 @@ void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t
 
     WlrXdgView *pointed = nullptr;
     if (seat_->pointer_state.focused_surface) {
-        auto *surface = wlr_surface_get_root_surface(seat_->pointer_state.focused_surface);
-        auto *top = wlr_xdg_toplevel_try_from_wlr_surface(surface);
-        for (auto &view : xdg_views_) {
-            if (view->toplevel == top && view->visible && !view->shell_role) {
-                pointed = view.get();
-            }
+        auto *owner = XdgOwner(seat_->pointer_state.focused_surface);
+        if (owner && owner->visible && !owner->shell_role) {
+            pointed = owner;
         }
     }
     auto *keyboard = wlr_seat_get_keyboard(seat_);
     if (button == 272 && state == WLR_BUTTON_PRESSED && pointed && !pointed->fullscreen &&
+        !FindXdgPopup(seat_->pointer_state.focused_surface) && !wlr_seat_pointer_has_grab(seat_) &&
         keyboard && (wlr_keyboard_get_modifiers(keyboard) & WLR_MODIFIER_LOGO)) {
         FocusXdgView(pointed);
         layout_controls_.CancelInput(contracts::LayoutInputKind::Pointer, 0);
@@ -333,12 +331,8 @@ void WlrServer::HandleCursorButton(uint32_t time_msec, uint32_t button, uint32_t
         return;
     }
     if (state == WLR_BUTTON_PRESSED && seat_->pointer_state.focused_surface) {
-        auto *top = wlr_xdg_toplevel_try_from_wlr_surface(seat_->pointer_state.focused_surface);
-        for (auto &view : xdg_views_) {
-            if (view->toplevel == top) {
-                FocusXdgView(view.get());
-                break;
-            }
+        if (auto *owner = XdgOwner(seat_->pointer_state.focused_surface)) {
+            FocusXdgView(owner);
         }
     }
     auto *surface = seat_->pointer_state.focused_surface;

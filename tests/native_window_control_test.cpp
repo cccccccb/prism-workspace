@@ -303,7 +303,16 @@ void TestWindow(wm::WlrServer &server, ControlPeer &peer)
     f.Key(KEY_1);
     w.Open();
     f.first->Stop();
-    Until(server, [&] { return f.first->Reaped(); });
+    // Process exit does not acknowledge dispatch of its Wayland disconnect.
+    // Observe the owner leaving the server tree before checking control cleanup.
+    Until(server, [&] {
+        const auto snapshot = server.GetLayoutSnapshot();
+        return f.first->Reaped() &&
+               std::none_of(snapshot->nodes.begin(), snapshot->nodes.end(), [&f](const auto &node) {
+                   return node.kind == contracts::LayoutNodeKind::View &&
+                          node.instance == f.first_permit.instance;
+               });
+    });
     assert(!server.GetLayoutSnapshot()->control_handle.node);
 }
 

@@ -88,11 +88,13 @@ Scene::HandleInputButton(const contracts::PointerButtonEvent &event,
         if (current->captured || !IsInteractive(current->hovered)) {
             return std::nullopt;
         }
+        CancelControlCapture(current->hovered);
         current->gesture =
             StartGesture(current->hovered, event.source, false, 0, event.protocol_serial,
                          event.position, event.time_ns, snapshot);
         current->captured = current->hovered;
-        current->action = Find(current->captured)->action;
+        current->action = InputAction(*Find(current->captured));
+        current->control_revision = ControlRevision(*Find(current->captured));
         SetInputFocus(current->captured, event.source.seat, false);
         return std::nullopt;
     }
@@ -102,7 +104,8 @@ Scene::HandleInputButton(const contracts::PointerButtonEvent &event,
     std::optional<Activation> activation;
     const auto *node = Find(current->captured);
     if (!dragged && IsInteractive(current->captured) && current->hovered == current->captured &&
-        node->action == current->action) {
+        InputAction(*node) == current->action &&
+        (!IsControlTarget(node->kind) || ControlRevision(*node) == current->control_revision)) {
         if (!current->action.empty()) {
             activation = Activation{node->id, current->action};
         }
@@ -152,6 +155,10 @@ std::optional<Activation> Scene::HandleInputKey(const contracts::KeyEvent &event
         MoveInputFocus(event.source.seat, event.modifiers.shift, snapshot, submitted);
         return std::nullopt;
     }
+    if (down && (event.physical_key == 0x4a || event.physical_key == 0x4d ||
+                 (event.physical_key >= 0x4f && event.physical_key <= 0x52))) {
+        return HandleChoiceKey(event, snapshot, submitted);
+    }
     if (event.physical_key != EnterKey && event.physical_key != SpaceKey) {
         return std::nullopt;
     }
@@ -169,8 +176,14 @@ std::optional<Activation> Scene::HandleInputKey(const contracts::KeyEvent &event
             !IsInteractive(focus->node) || (submitted && !IsInteractive(focus->node, snapshot))) {
             return std::nullopt;
         }
+        const auto *node = Find(focus->node);
+        if (node->kind == Kind::Checkbox && event.physical_key != SpaceKey) {
+            return std::nullopt;
+        }
+        CancelControlCapture(focus->node);
         focus->visible = true;
-        keys.push_back({event.source, focus->node, event.physical_key, Find(focus->node)->action});
+        keys.push_back({event.source, focus->node, event.physical_key,
+                        std::string(InputAction(*node)), ControlRevision(*node)});
         return std::nullopt;
     }
     if (current == keys.end() || current->key != event.physical_key) {
@@ -180,7 +193,8 @@ std::optional<Activation> Scene::HandleInputKey(const contracts::KeyEvent &event
     std::optional<Activation> activation;
     const auto *node = Find(current->node);
     if (focus != input_state_->focus.end() && focus->node == current->node &&
-        IsInteractive(current->node) && node->action == current->action &&
+        IsInteractive(current->node) && InputAction(*node) == current->action &&
+        (!IsControlTarget(node->kind) || ControlRevision(*node) == current->control_revision) &&
         (!submitted || IsInteractive(current->node, snapshot))) {
         if (!current->action.empty()) {
             activation = Activation{node->id, current->action};
@@ -198,6 +212,9 @@ InteractionResult Scene::HandleInput(const contracts::WindowEvent &event)
 InteractionResult Scene::HandleInput(const contracts::WindowEvent &event,
                                      const std::shared_ptr<const InputSnapshot> &snapshot)
 {
+    if (snapshot && snapshot->scene != input_scene_id_) {
+        return {};
+    }
     return DispatchInput(event, snapshot, true);
 }
 
@@ -206,8 +223,24 @@ InteractionResult Scene::DispatchInput(const contracts::WindowEvent &event,
                                        bool submitted)
 {
     InteractionResult result;
+    const auto previous_pixels = pixels_revision_;
+    if (HandlePopupInput(event, snapshot, submitted)) {
+        result.changed = ReconcileInput() || pixels_revision_ != previous_pixels;
+        ResolveInteractionStyles();
+        return result;
+    }
+    if (HandleScrollInput(event, snapshot, submitted)) {
+        result.changed = ReconcileInput() || pixels_revision_ != previous_pixels;
+        ResolveInteractionStyles();
+        return result;
+    }
+    if (HandleSliderInput(event, snapshot, submitted)) {
+        result.changed = ReconcileInput() || pixels_revision_ != previous_pixels;
+        ResolveInteractionStyles();
+        return result;
+    }
     if (HandleTextInput(event, result, snapshot, submitted)) {
-        result.changed = ReconcileInput() || result.changed;
+        result.changed = ReconcileInput() || result.changed || pixels_revision_ != previous_pixels;
         return result;
     }
     if (const auto *motion = std::get_if<contracts::PointerMotionEvent>(&event)) {
@@ -236,14 +269,39 @@ InteractionResult Scene::DispatchInput(const contracts::WindowEvent &event,
     } else if (const auto *cancel = std::get_if<contracts::TouchCancelEvent>(&event)) {
         CancelTouchInput(cancel->source, cancel->time_ns);
     } else if (const auto *focus = std::get_if<contracts::FocusEvent>(&event)) {
-        if (!focus->focused) {
+        // Root and native popup share a Scene and seat. An internal keyboard
+        // transfer in either direction must preserve its pointer capture.
+        if (!focus->focused && (!focus->internal_transfer || !HasPopupSurfaceAdoption())) {
             CancelSeatInput(focus->source.seat);
         }
     } else if (std::holds_alternative<contracts::CloseRequestedEvent>(event)) {
         result.changed = CancelInput();
     }
 
-    result.changed = ReconcileInput() || result.changed;
+    if (result.activation &&
+        HandlePopupActivation(*result.activation, std::visit(
+                                                      [](const auto &input) -> std::uint64_t {
+                                                          if constexpr (requires {
+                                                                            input.source.seat;
+                                                                        }) {
+                                                              return input.source.seat;
+                                                          }
+                                                          return 0;
+                                                      },
+                                                      event))) {
+        result.activation.reset();
+    }
+    if (result.activation) {
+        const auto *node = Find(result.activation->node);
+        if (node && IsControlTarget(node->kind)) {
+            if (!std::holds_alternative<contracts::TouchUpEvent>(event)) {
+                result.control_edit = CommitControl(*result.activation);
+            }
+            result.activation.reset();
+        }
+    }
+
+    result.changed = ReconcileInput() || result.changed || pixels_revision_ != previous_pixels;
     ResolveInteractionStyles();
     return result;
 }

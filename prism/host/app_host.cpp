@@ -371,6 +371,7 @@ void AppHost::Close()
         self.frontend->OnUiSubmitted({});
         self.frontend->OnAction({});
         self.frontend->OnTextEdit({});
+        self.frontend->OnControlValue({});
         self.frontend->OnCloseRequested({});
         self.frontend->OnGesture({});
     }

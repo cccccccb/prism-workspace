@@ -1,0 +1,27 @@
+VStack(padding: 16, spacing: 8, background: "@surfaceRaised", clip: true) {
+ Text("Music", height: 28, font: "@font_heading", foreground: "@text")
+ Button("Sound", action: "sound", width: 96, height: 36, justify: "center", paddingX: 12, foreground: "@text", background: "@controlSecondary", cornerRadius: "@control_state_radius")
+ Text("Output controls", height: 22, font: "@font_body", foreground: "@mutedText")
+ Popup("sound", width: 280, height: 260, padding: 16,
+       background: "@controlSecondary", borderWidth: 1, borderColor: "@controlOutline",
+       cornerRadius: "@control_state_radius", shadowBlur: 12, shadowY: 4, shadowColor: #00000026) {
+  ScrollView {
+   VStack(spacing: 8, paddingX: 8) {
+    Card(height: 24, justify: "center") {
+     Text("Sound", anchor: "left", font: "@font_body", foreground: "@text")
+     Text("62%", anchor: "right", font: "@font_body", foreground: "@controlPrimary")
+    }
+    Text("Desktop speakers", height: 22, font: "@font_caption", foreground: "@mutedText")
+    Slider(action: "volume", value: 0.62, height: 44) {
+     Visual(sliderPart: "track", height: 4, cornerRadius: 2, background: "@controlDisabled")
+     Visual(sliderPart: "fill", height: 4, cornerRadius: 2, background: "@controlPrimary")
+     Visual(sliderPart: "thumb", width: 16, height: 16, cornerRadius: "@control_state_radius", background: "@text")
+    }
+    Separator(height: 1, background: "@controlOutline")
+    Button("Output settings", action: "output", height: 36, justify: "center", foreground: "@text", font: "@font_body")
+    Text("Click outside to close", height: 20, font: "@font_caption", foreground: "@mutedText")
+   }
+   Visual(scrollPart: "thumb", width: 3, height: 20, inset: 1, cornerRadius: 1, background: "@controlOutline")
+  }
+ }
+}

@@ -29,3 +29,9 @@ DisplayList 通道负责裁剪/提交。无光标常驻 timer 或固定刷新循
 完整的界面契约、操作和当前 Unicode/输入法/剪贴板边界见
 [记事本说明](../prism-notepad/README.md)。应用模块仅链接纯契约、纯文本值逻辑及
 nlohmann JSON 的 typed CBOR 编解码，Host 管理文件 work 的取消和 join。
+
+## 显式行框（v22 之后源码）
+
+TextField/TextArea 新增 `lineHeight`（0..512，支持 Number token/binding）。正值设置
+最小行框并垂直居中字形，光标、选区与鼠标选位共用该行框。0 保留默认排版；
+不引入自动折行、字体回退或输入法。详见 [排版与状态配方](INTERFACE_CONTROLS_AND_TYPOGRAPHY.md)。

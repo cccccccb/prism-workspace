@@ -12,6 +12,7 @@
 #include <iterator>
 #include <map>
 #include <poll.h>
+#include <set>
 #include <string>
 #include <variant>
 #include <vector>
@@ -159,25 +160,43 @@ void AwaitReady(prism::sdk::ModuleSession &module)
 struct ActionNode {
     prism::contracts::NodeId node;
     std::string action;
+    bool opens_popup{false};
 };
 
+void CollectPopupTriggers(const prism::runtime::Blueprint &blueprint,
+                          std::set<std::string, std::less<>> &triggers)
+{
+    if (prism::runtime::IsPopupKind(blueprint.kind)) {
+        for (const auto &property : blueprint.properties) {
+            if (property.id == prism::runtime::DslProperty::PopupFor) {
+                assert(triggers.insert(std::get<std::string>(property.value)).second);
+            }
+        }
+    }
+    for (const auto &child : blueprint.children) {
+        CollectPopupTriggers(child, triggers);
+    }
+}
+
 void CollectActions(const prism::runtime::Blueprint &blueprint, std::uint64_t &id,
-                    std::vector<ActionNode> &actions, std::vector<ActionNode> &controls)
+                    std::vector<ActionNode> &actions, std::vector<ActionNode> &controls,
+                    const std::set<std::string, std::less<>> &popup_triggers)
 {
     const auto own = id++;
     std::string action;
     for (const auto &property : blueprint.properties) {
         if (property.id == prism::runtime::DslProperty::Action) {
             action = std::get<std::string>(property.value);
-            actions.push_back(
-                {prism::contracts::NodeId{static_cast<std::uint32_t>(own), 1}, action});
+            actions.push_back({prism::contracts::NodeId{static_cast<std::uint32_t>(own), 1}, action,
+                               popup_triggers.contains(action)});
         }
     }
     if (blueprint.kind == prism::runtime::Kind::InteractionTarget) {
-        controls.push_back({prism::contracts::NodeId{static_cast<std::uint32_t>(own), 1}, action});
+        controls.push_back({prism::contracts::NodeId{static_cast<std::uint32_t>(own), 1}, action,
+                            popup_triggers.contains(action)});
     }
     for (const auto &child : blueprint.children) {
-        CollectActions(child, id, actions, controls);
+        CollectActions(child, id, actions, controls, popup_triggers);
     }
 }
 
@@ -223,6 +242,24 @@ void CheckShellControls(prism::runtime::Scene &scene, const std::vector<ActionNo
             scene.HandleInput(PointerButtonEvent{window, position, PointerButton::Primary,
                                                  ButtonState::Released, 0, clock.now, pointer});
         assert(up.changed);
+        if (target.opens_popup) {
+            // Popup triggers are consumed by the frontend. Opening and closing
+            // legitimately lays out the panel, then restores the root controls.
+            assert(!up.activation && scene.PopupToken());
+            SettleShellMotion(scene, clock, false);
+            assert(scene.ClosePopup(prism::runtime::PopupCloseReason::Escape));
+            SettleShellMotion(scene, clock, false);
+            scene.HandleInput(PointerLeaveEvent{window, clock.now, pointer});
+            SettleShellMotion(scene, clock, false);
+
+            assert(!scene.PopupToken());
+            assert(!scene.State(target.node).hovered && !scene.State(target.node).pressed &&
+                   !scene.State(target.node).captured);
+            assert(scene.Bounds(target.node) == bounds);
+            assert(scene.InputRegions() == regions);
+            assert(!scene.Build(window));
+            continue;
+        }
         if (target.action.empty()) {
             assert(!up.activation);
         } else {
@@ -289,7 +326,9 @@ int main(int argc, char **argv)
         std::uint64_t id{};
         std::vector<ActionNode> actions;
         std::vector<ActionNode> controls;
-        CollectActions(content.blueprint, id, actions, controls);
+        std::set<std::string, std::less<>> popup_triggers;
+        CollectPopupTriggers(content.blueprint, popup_triggers);
+        CollectActions(content.blueprint, id, actions, controls, popup_triggers);
         if (n == 1 || n == 2) {
             assert(controls.size() == (n == 1 ? 1 : 2));
         } else if (n == 3 || n == 4) {

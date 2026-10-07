@@ -21,6 +21,7 @@ bool IsScope(const contracts::DrawCommand &command)
 {
     return std::holds_alternative<contracts::PushClipRect>(command) ||
            std::holds_alternative<contracts::PushClipRoundedRect>(command) ||
+           std::holds_alternative<contracts::PushClipContour>(command) ||
            std::holds_alternative<contracts::PopClip>(command);
 }
 } // namespace

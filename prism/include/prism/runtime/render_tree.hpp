@@ -1,5 +1,6 @@
 #pragma once
 #include "prism/runtime/scene_snapshot.hpp"
+#include <memory>
 #include <variant>
 
 namespace prism::runtime {
@@ -67,6 +68,7 @@ using Visual =
 struct RenderNode {
     contracts::NodeId id{};
     contracts::LogicalRect bounds{};
+    std::shared_ptr<const contracts::Contour> contour;
     bool visible{true};
     bool clip{false};
     double clip_radius{0};

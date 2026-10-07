@@ -98,6 +98,7 @@ void WlrServer::ArrangeGroupTransition()
     std::vector<WlrXdgView *> views;
     for (const auto &view : xdg_views_) {
         if (!view->shell_role && view->mapped && view->visible) {
+            CloseXdgPopups(view.get());
             views.push_back(view.get());
         }
     }

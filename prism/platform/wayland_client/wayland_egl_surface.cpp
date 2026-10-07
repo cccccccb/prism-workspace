@@ -1,35 +1,15 @@
 #include "prism/platform/wayland_egl_surface.hpp"
+#include "prism/platform/wayland_egl_context.hpp"
 #include <GLES3/gl3.h>
 #include <algorithm>
-#include <cctype>
 #include <cstdint>
 #include <limits>
-#include <string_view>
 #include <vector>
+#include <wayland-client-core.h>
 #include <wayland-egl.h>
 
 namespace prism::platform {
 namespace {
-bool HasExtension(std::string_view extensions, std::string_view extension)
-{
-    std::size_t offset = 0;
-    while (offset < extensions.size()) {
-        while (offset < extensions.size() &&
-               std::isspace(static_cast<unsigned char>(extensions[offset]))) {
-            ++offset;
-        }
-        const auto begin = offset;
-        while (offset < extensions.size() &&
-               !std::isspace(static_cast<unsigned char>(extensions[offset]))) {
-            ++offset;
-        }
-        if (extensions.substr(begin, offset - begin) == extension) {
-            return true;
-        }
-    }
-    return false;
-}
-
 bool ConvertDamage(const contracts::DamageRegion &damage, int width, int height,
                    std::vector<EGLint> &rectangles)
 {
@@ -75,65 +55,41 @@ WaylandEglSurface::~WaylandEglSurface()
     Close();
 }
 
-bool WaylandEglSurface::Open(wl_display *display, wl_surface *surface, int width, int height)
+bool WaylandEglSurface::Open(WaylandEglContext &owner, wl_surface *surface, int width, int height)
 {
-    if (!display || !surface || width <= 0 || height <= 0 || width > 4096 || height > 4096 ||
-        Ready()) {
+    if (!owner.Ready() || owner.closing_ || owner_ || !surface || width <= 0 || height <= 0 ||
+        width > 4096 || height > 4096 ||
+        wl_proxy_get_display(reinterpret_cast<wl_proxy *>(surface)) != owner.native_display_) {
         return false;
     }
-    egl_display_ = eglGetDisplay(reinterpret_cast<EGLNativeDisplayType>(display));
-    if (egl_display_ == EGL_NO_DISPLAY || !eglInitialize(egl_display_, nullptr, nullptr)) {
-        Close();
-        return false;
-    }
-    if (!eglBindAPI(EGL_OPENGL_ES_API)) {
-        Close();
-        return false;
-    }
-    const EGLint attributes[] = {EGL_SURFACE_TYPE,
-                                 EGL_WINDOW_BIT,
-                                 EGL_RENDERABLE_TYPE,
-                                 EGL_OPENGL_ES3_BIT,
-                                 EGL_RED_SIZE,
-                                 8,
-                                 EGL_GREEN_SIZE,
-                                 8,
-                                 EGL_BLUE_SIZE,
-                                 8,
-                                 EGL_ALPHA_SIZE,
-                                 8,
-                                 EGL_NONE};
-    EGLConfig config = nullptr;
-    EGLint count = 0;
-    if (!eglChooseConfig(egl_display_, attributes, &config, 1, &count) || count != 1) {
-        Close();
-        return false;
-    }
-    const EGLint context_attributes[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
-    egl_context_ = eglCreateContext(egl_display_, config, EGL_NO_CONTEXT, context_attributes);
-    if (egl_context_ == EGL_NO_CONTEXT) {
-        Close();
-        return false;
-    }
+
+    owner_ = &owner;
     egl_window_ = wl_egl_window_create(surface, width, height);
     if (!egl_window_) {
         Close();
         return false;
     }
-    egl_surface_ = eglCreateWindowSurface(
-        egl_display_, config, reinterpret_cast<EGLNativeWindowType>(egl_window_), nullptr);
+    egl_surface_ =
+        eglCreateWindowSurface(owner.egl_display_, owner.egl_config_,
+                               reinterpret_cast<EGLNativeWindowType>(egl_window_), nullptr);
     if (egl_surface_ == EGL_NO_SURFACE) {
         Close();
         return false;
     }
     width_ = width;
     height_ = height;
-    if (!MakeCurrent()) {
+    if (!owner.RegisterSurface(*this) || !MakeCurrent()) {
         Close();
         return false;
     }
     DiscoverDamageCapabilities();
     return true;
+}
+
+bool WaylandEglSurface::Ready() const noexcept
+{
+    return owner_ && owner_->Ready() && egl_surface_ != EGL_NO_SURFACE &&
+           static_cast<bool>(target_identity_);
 }
 
 bool WaylandEglSurface::Resize(int width, int height)
@@ -144,12 +100,14 @@ bool WaylandEglSurface::Resize(int width, int height)
     if (width != width_ || height != height_) {
         // Changing the native size after declaring a partial region makes its
         // contents undefined. Keep the old size and let the caller close it.
-        if (damage_region_set_ || frame_failed_) {
+        if (damage_region_set_ || frame_failed_ ||
+            target_identity_.resize_generation == std::numeric_limits<std::uint64_t>::max()) {
             return false;
         }
         wl_egl_window_resize(egl_window_, width, height, 0, 0);
         width_ = width;
         height_ = height;
+        ++target_identity_.resize_generation;
         frame_buffer_age_.reset();
         frame_dimensions_match_ = false;
         force_full_buffer_age_ = true;
@@ -159,45 +117,36 @@ bool WaylandEglSurface::Resize(int width, int height)
 
 bool WaylandEglSurface::MakeCurrent()
 {
-    return Ready() &&
-           eglMakeCurrent(egl_display_, egl_surface_, egl_surface_, egl_context_) == EGL_TRUE;
+    if (!Ready() || eglMakeCurrent(owner_->egl_display_, egl_surface_, egl_surface_,
+                                   owner_->egl_context_) != EGL_TRUE) {
+        return false;
+    }
+    // Shared context state survives a surface switch. WSI draws into this
+    // surface's default framebuffer, independently of any prior scratch FBO.
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return true;
 }
 
 bool WaylandEglSurface::QueryDimensions(EGLint &width, EGLint &height) const
 {
-    return Ready() && eglQuerySurface(egl_display_, egl_surface_, EGL_WIDTH, &width) == EGL_TRUE &&
-           eglQuerySurface(egl_display_, egl_surface_, EGL_HEIGHT, &height) == EGL_TRUE &&
+    return Ready() &&
+           eglQuerySurface(owner_->egl_display_, egl_surface_, EGL_WIDTH, &width) == EGL_TRUE &&
+           eglQuerySurface(owner_->egl_display_, egl_surface_, EGL_HEIGHT, &height) == EGL_TRUE &&
            width > 0 && height > 0;
 }
 
 void WaylandEglSurface::DiscoverDamageCapabilities()
 {
-    const auto *extension_string = eglQueryString(egl_display_, EGL_EXTENSIONS);
-    const std::string_view extensions = extension_string ? extension_string : "";
-    const bool partial_update = HasExtension(extensions, "EGL_KHR_partial_update");
-    if (HasExtension(extensions, "EGL_KHR_swap_buffers_with_damage")) {
-        swap_damage_ = reinterpret_cast<PFNEGLSWAPBUFFERSWITHDAMAGEKHRPROC>(
-            eglGetProcAddress("eglSwapBuffersWithDamageKHR"));
-    }
-    if (!swap_damage_ && HasExtension(extensions, "EGL_EXT_swap_buffers_with_damage")) {
-        swap_damage_ = reinterpret_cast<PFNEGLSWAPBUFFERSWITHDAMAGEKHRPROC>(
-            eglGetProcAddress("eglSwapBuffersWithDamageEXT"));
-    }
-    capabilities_.swap_damage = swap_damage_ != nullptr;
-    if (partial_update) {
-        set_damage_region_ = reinterpret_cast<PFNEGLSETDAMAGEREGIONKHRPROC>(
-            eglGetProcAddress("eglSetDamageRegionKHR"));
-    }
+    capabilities_.swap_damage = owner_->swap_damage_ != nullptr;
     EGLint swap_behavior = EGL_NONE;
-    capabilities_.partial_update = set_damage_region_ &&
-                                   eglQuerySurface(egl_display_, egl_surface_, EGL_SWAP_BEHAVIOR,
-                                                   &swap_behavior) == EGL_TRUE &&
+    capabilities_.partial_update = owner_->partial_update_ && owner_->set_damage_region_ &&
+                                   eglQuerySurface(owner_->egl_display_, egl_surface_,
+                                                   EGL_SWAP_BEHAVIOR, &swap_behavior) == EGL_TRUE &&
                                    swap_behavior == EGL_BUFFER_DESTROYED;
     // Without EXT, KHR only preserves pixels outside the declared repair. If
     // SetDamage cannot be used, its default full region leaves no preserved
     // pixels; returning a positive age would incorrectly permit partial draw.
-    capabilities_.buffer_age =
-        HasExtension(extensions, "EGL_EXT_buffer_age") || capabilities_.partial_update;
+    capabilities_.buffer_age = owner_->ext_buffer_age_ || capabilities_.partial_update;
 }
 
 std::optional<int> WaylandEglSurface::QueryBufferAge()
@@ -209,7 +158,7 @@ std::optional<int> WaylandEglSurface::QueryBufferAge()
         return frame_buffer_age_;
     }
     EGLint width = 0, height = 0, age = 0;
-    if (eglQuerySurface(egl_display_, egl_surface_, EGL_BUFFER_AGE_EXT, &age) != EGL_TRUE ||
+    if (eglQuerySurface(owner_->egl_display_, egl_surface_, EGL_BUFFER_AGE_EXT, &age) != EGL_TRUE ||
         age < 0 || !QueryDimensions(width, height)) {
         return std::nullopt;
     }
@@ -220,12 +169,14 @@ std::optional<int> WaylandEglSurface::QueryBufferAge()
     return frame_buffer_age_;
 }
 
+DamageRegionResult WaylandEglSurface::FailFrame() noexcept
+{
+    frame_failed_ = true;
+    return DamageRegionResult::Failed;
+}
+
 DamageRegionResult WaylandEglSurface::SetDamage(const contracts::DamageRegion &repair)
 {
-    const auto failed = [this] {
-        frame_failed_ = true;
-        return DamageRegionResult::Failed;
-    };
     if (!Ready() || frame_failed_) {
         return DamageRegionResult::Failed;
     }
@@ -233,24 +184,24 @@ DamageRegionResult WaylandEglSurface::SetDamage(const contracts::DamageRegion &r
         return DamageRegionResult::Unsupported;
     }
     if (!MakeCurrent() || damage_region_set_) {
-        return failed();
+        return FailFrame();
     }
     const auto age = QueryBufferAge();
     if (!age || (!repair.full && (*age == 0 || !frame_dimensions_match_))) {
-        return failed();
+        return FailFrame();
     }
     std::vector<EGLint> rectangles;
     if (!ConvertDamage(repair, width_, height_, rectangles)) {
-        return failed();
+        return FailFrame();
     }
     // No GL draw/clear may precede this call. The renderer owns that ordering
     // and must clear/replay the entire repair region, even on implementations
     // which only expose the KHR age semantics (repair contents are undefined).
     damage_region_set_ = true;
-    if (set_damage_region_(egl_display_, egl_surface_,
-                           rectangles.empty() ? nullptr : rectangles.data(),
-                           static_cast<EGLint>(rectangles.size() / 4)) != EGL_TRUE) {
-        return failed();
+    if (owner_->set_damage_region_(owner_->egl_display_, egl_surface_,
+                                   rectangles.empty() ? nullptr : rectangles.data(),
+                                   static_cast<EGLint>(rectangles.size() / 4)) != EGL_TRUE) {
+        return FailFrame();
     }
     return DamageRegionResult::Applied;
 }
@@ -265,17 +216,18 @@ bool WaylandEglSurface::Swap(const contracts::DamageRegion &content_damage)
         return false;
     }
     bool full = content_damage.full || force_full_buffer_age_;
-    if (!full && swap_damage_) {
+    if (!full && owner_->swap_damage_) {
         EGLint width = 0, height = 0;
         if (!QueryDimensions(width, height)) {
             return false;
         }
         full = width != width_ || height != height_;
     }
-    const EGLBoolean result = swap_damage_ && !full
-                                  ? swap_damage_(egl_display_, egl_surface_, rectangles.data(),
-                                                 static_cast<EGLint>(rectangles.size() / 4))
-                                  : eglSwapBuffers(egl_display_, egl_surface_);
+    const EGLBoolean result =
+        owner_->swap_damage_ && !full
+            ? owner_->swap_damage_(owner_->egl_display_, egl_surface_, rectangles.data(),
+                                   static_cast<EGLint>(rectangles.size() / 4))
+            : eglSwapBuffers(owner_->egl_display_, egl_surface_);
     if (result != EGL_TRUE) {
         // Never retry a failed posting operation: the buffer/frame boundary is
         // unknown, and a second swap could submit another frame.
@@ -294,31 +246,23 @@ bool WaylandEglSurface::Swap()
     return Swap(contracts::DamageRegion::Full());
 }
 
-void WaylandEglSurface::Close()
+void WaylandEglSurface::Close() noexcept
 {
-    if (egl_display_ != EGL_NO_DISPLAY) {
-        eglMakeCurrent(egl_display_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    if (owner_) {
+        owner_->DetachSurface(*this);
         if (egl_surface_ != EGL_NO_SURFACE) {
-            eglDestroySurface(egl_display_, egl_surface_);
-        }
-        if (egl_context_ != EGL_NO_CONTEXT) {
-            eglDestroyContext(egl_display_, egl_context_);
+            eglDestroySurface(owner_->egl_display_, egl_surface_);
         }
     }
     if (egl_window_) {
         wl_egl_window_destroy(egl_window_);
     }
-    if (egl_display_ != EGL_NO_DISPLAY) {
-        eglTerminate(egl_display_);
-    }
     egl_surface_ = EGL_NO_SURFACE;
-    egl_context_ = EGL_NO_CONTEXT;
-    egl_display_ = EGL_NO_DISPLAY;
+    owner_ = nullptr;
+    target_identity_ = {};
     egl_window_ = nullptr;
     width_ = height_ = 0;
     capabilities_ = {};
-    swap_damage_ = nullptr;
-    set_damage_region_ = nullptr;
     frame_buffer_age_.reset();
     frame_dimensions_match_ = false;
     force_full_buffer_age_ = true;
@@ -328,22 +272,28 @@ void WaylandEglSurface::Close()
 
 std::string WaylandEglSurface::GlVendor() const
 {
-    auto *value =
-        Ready() && eglGetCurrentContext() == egl_context_ ? glGetString(GL_VENDOR) : nullptr;
+    auto *value = Ready() && eglGetCurrentDisplay() == owner_->egl_display_ &&
+                          eglGetCurrentContext() == owner_->egl_context_
+                      ? glGetString(GL_VENDOR)
+                      : nullptr;
     return value ? reinterpret_cast<const char *>(value) : "";
 }
 
 std::string WaylandEglSurface::GlRenderer() const
 {
-    auto *value =
-        Ready() && eglGetCurrentContext() == egl_context_ ? glGetString(GL_RENDERER) : nullptr;
+    auto *value = Ready() && eglGetCurrentDisplay() == owner_->egl_display_ &&
+                          eglGetCurrentContext() == owner_->egl_context_
+                      ? glGetString(GL_RENDERER)
+                      : nullptr;
     return value ? reinterpret_cast<const char *>(value) : "";
 }
 
 std::string WaylandEglSurface::GlVersion() const
 {
-    auto *value =
-        Ready() && eglGetCurrentContext() == egl_context_ ? glGetString(GL_VERSION) : nullptr;
+    auto *value = Ready() && eglGetCurrentDisplay() == owner_->egl_display_ &&
+                          eglGetCurrentContext() == owner_->egl_context_
+                      ? glGetString(GL_VERSION)
+                      : nullptr;
     return value ? reinterpret_cast<const char *>(value) : "";
 }
 } // namespace prism::platform

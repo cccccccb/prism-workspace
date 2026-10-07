@@ -1,0 +1,69 @@
+VStack(padding: "@space_section", spacing: "@space_sm", background: "@surfaceRaised", clip: true) {
+    Text("Appearance", font: "@font_heading", lineHeight: "@line_heading", foreground: "@text")
+    Text("Color scheme", font: "@font_body", lineHeight: "@line_body", foreground: "@mutedText")
+    RadioGroup(action: "scheme", selectedKey: $scheme, spacing: 0) {
+        Radio("light", height: "@control_hit_height") {
+            Visual(borderWidth: 2, borderColor: "@controlFocus", cornerRadius: "@control_state_radius", opacity: 0)
+                .state(when: "focusVisible", scope: "target", opacity: 1)
+            Visual(paddingX: "@space_sm", justify: "center") {
+                HStack(height: 24, spacing: "@space_md", align: "center") {
+                    Visual(width: 20, height: 20, cornerRadius: 10, background: "@controlField", borderWidth: 1, borderColor: "@controlOutline", justify: "center") {
+                        Visual(width: 10, height: 10, cornerRadius: 5, anchor: "center", background: "@controlPrimary", opacity: 0)
+                            .state(when: "selected", scope: "target", opacity: 1)
+                    }
+                    Text("Light", font: "@font_body", lineHeight: "@line_body", foreground: "@text")
+                }
+            }.state(when: "pressed", scope: "target", opacity: 0.7)
+        }
+        Radio("dark", height: "@control_hit_height") {
+            Visual(borderWidth: 2, borderColor: "@controlFocus", cornerRadius: "@control_state_radius", opacity: 0)
+                .state(when: "focusVisible", scope: "target", opacity: 1)
+            Visual(paddingX: "@space_sm", justify: "center") {
+                HStack(height: 24, spacing: "@space_md", align: "center") {
+                    Visual(width: 20, height: 20, cornerRadius: 10, background: "@controlField", borderWidth: 1, borderColor: "@controlOutline", justify: "center") {
+                        Visual(width: 10, height: 10, cornerRadius: 5, anchor: "center", background: "@controlPrimary", opacity: 0)
+                            .state(when: "selected", scope: "target", opacity: 1)
+                    }
+                    Text("Dark", font: "@font_body", lineHeight: "@line_body", foreground: "@text")
+                }
+            }.state(when: "pressed", scope: "target", opacity: 0.7)
+        }
+        Radio("system", height: "@control_hit_height", enabled: false) {
+            Visual(paddingX: "@space_sm", justify: "center") {
+                HStack(height: 24, spacing: "@space_md", align: "center") {
+                    Visual(width: 20, height: 20, cornerRadius: 10, background: "@controlDisabled", borderWidth: 1, borderColor: "@controlOutline", justify: "center") {
+                        Visual(width: 10, height: 10, cornerRadius: 5, anchor: "center", background: "@controlDisabledText", opacity: 0)
+                            .state(when: "selected", scope: "target", opacity: 1)
+                    }
+                    Text("Automatic · unavailable", font: "@font_body", lineHeight: "@line_body", foreground: "@controlDisabledText")
+                }
+            }
+        }
+    }
+    Separator(height: 1, background: "@controlOutline")
+    Text("Content density", font: "@font_body", lineHeight: "@line_body", foreground: "@mutedText")
+    SegmentGroup(action: "mode", selectedKey: $mode, background: "@controlSecondary", cornerRadius: "@control_state_radius", spacing: "@space_xs", padding: "@space_xs") {
+        Segment("compact", flex: 1, height: "@control_hit_height") {
+            Visual(background: "@controlPrimary", cornerRadius: "@control_state_radius", opacity: 0)
+                .state(when: "selected", scope: "target", opacity: 1)
+            Visual(borderWidth: 2, borderColor: "@controlFocus", cornerRadius: "@control_state_radius", opacity: 0)
+                .state(when: "focusVisible", scope: "target", opacity: 1)
+            Visual(justify: "center") {
+                Text("Compact", anchor: "center", font: "@font_body", lineHeight: "@line_body", foreground: "@text")
+                    .state(when: "selected", scope: "target", foreground: "@controlPrimaryText")
+            }.state(when: "pressed", scope: "target", opacity: 0.7)
+        }
+        Segment("comfortable", flex: 1, height: "@control_hit_height") {
+            Visual(background: "@controlPrimary", cornerRadius: "@control_state_radius", opacity: 0)
+                .state(when: "selected", scope: "target", opacity: 1)
+            Visual(borderWidth: 2, borderColor: "@controlFocus", cornerRadius: "@control_state_radius", opacity: 0)
+                .state(when: "focusVisible", scope: "target", opacity: 1)
+            Visual(justify: "center") {
+                Text("Comfortable", anchor: "center", font: "@font_body", lineHeight: "@line_body", foreground: "@text")
+                    .state(when: "selected", scope: "target", foreground: "@controlPrimaryText")
+            }.state(when: "pressed", scope: "target", opacity: 0.7)
+        }
+    }
+    Text("Arrow keys select; Tab moves between groups.", font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText", minViewportWidth: 640)
+    Text("Use arrows to select, Tab to move on.", font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText", maxViewportWidth: 640)
+}

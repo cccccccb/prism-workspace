@@ -1,11 +1,23 @@
-Card(material: "window", padding: "@window_padding", clip: true) {
-    VStack(spacing: 8) {
+Card(material: "window", padding: "@window_padding") {
+    VStack(spacing: 8, clip: true) {
         Card(height: 80, paddingX: 14, minViewportWidth: 600) {
             VStack(height: 80, spacing: 12) {
                 HStack(height: 32, spacing: 12, align: "center") {
                     Icon("settings", width: 26, height: 26, foreground: "@text")
                     Text("Preferences", font: 24, foreground: "@text", flex: 1, overflow: "clip")
-                    IconButton("refresh", "sys:refresh", width: 32, height: 32, padding: 5, foreground: "@text")
+                    InteractionTarget(action: "prefs:menu:wide", width: 80, height: 32) {
+                        Visual(background: "@controlSecondary", borderWidth: 1, borderColor: "@controlOutline", cornerRadius: "@control_state_radius", paddingX: 10, justify: "center") {
+                            HStack(height: 20, spacing: 8, align: "center") {
+                                Icon("grid", width: 18, height: 18, foreground: "@text")
+                                Text("View", font: "@font_body", foreground: "@text", flex: 1, overflow: "clip")
+                            }
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
                 }
                 HStack(width: 416, height: 36, spacing: 8) {
                     VStack(flex: 1, spacing: 0) {
@@ -64,7 +76,19 @@ Card(material: "window", padding: "@window_padding", clip: true) {
                 HStack(height: 32, spacing: 12, align: "center") {
                     Icon("settings", width: 26, height: 26, foreground: "@text")
                     Text("Preferences", font: 24, foreground: "@text", flex: 1, overflow: "clip")
-                    IconButton("refresh", "sys:refresh", width: 32, height: 32, padding: 5, foreground: "@text")
+                    InteractionTarget(action: "prefs:menu:compact", width: 80, height: 32) {
+                        Visual(background: "@controlSecondary", borderWidth: 1, borderColor: "@controlOutline", cornerRadius: "@control_state_radius", paddingX: 10, justify: "center") {
+                            HStack(height: 20, spacing: 8, align: "center") {
+                                Icon("grid", width: 18, height: 18, foreground: "@text")
+                                Text("View", font: "@font_body", foreground: "@text", flex: 1, overflow: "clip")
+                            }
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
                 }
                 HStack(width: 416, height: 36, spacing: 8) {
                     VStack(flex: 1, spacing: 0) {
@@ -976,6 +1000,142 @@ Card(material: "window", padding: "@window_padding", clip: true) {
         VStack(flex: 1, spacing: 8, visible: $theme_error_visible) {
             Text($theme_status, height: 20, font: "@font_body", foreground: "@text", overflow: "clip")
             Button("Back", "error:dismiss", height: 32, material: "control", foreground: "@text")
+        }
+    }
+    Menu("prefs:menu:wide", width: 280, height: 264, padding: 16, material: "panel") {
+        Contour(recipe: "attachedPanel", radius: "@panel_radius", neckWidth: "@panel_neck_width", neckHeight: "@panel_neck_height", neckShape: "roundedTriangle", fallback: "detached")
+        ScrollView {
+            VStack(height: 230, spacing: 8) {
+                VStack(height: 36, spacing: 4) {
+                    Text("Preferences", font: "@font_body", height: 18, foreground: "@text", overflow: "clip")
+                    Text("Pages and monitoring", font: "@font_caption", height: 14, foreground: "@mutedText", overflow: "clip")
+                }
+                Separator(height: 1, background: "@controlOutline")
+                VStack(height: 124, spacing: 8) {
+                    MenuItem(action: "page:performance", height: 36) {
+                        Visual(background: "@controlField", borderWidth: 1, borderColor: "@controlOutline", cornerRadius: "@control_state_radius", paddingX: 10, justify: "center") {
+                            HStack(height: 20, spacing: 8, align: "center") {
+                                Icon("monitor", width: 18, height: 18, foreground: "@text")
+                                Text("Overview", font: "@font_body", foreground: "@text", flex: 1, overflow: "clip")
+                            }
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    MenuItem(action: "page:appearance", height: 36) {
+                        Visual(background: "@controlField", borderWidth: 1, borderColor: "@controlOutline", cornerRadius: "@control_state_radius", paddingX: 10, justify: "center") {
+                            HStack(height: 20, spacing: 8, align: "center") {
+                                Icon("brush", width: 18, height: 18, foreground: "@text")
+                                Text("Appearance", font: "@font_body", foreground: "@text", flex: 1, overflow: "clip")
+                            }
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    MenuItem(action: "page:system", height: 36) {
+                        Visual(background: "@controlField", borderWidth: 1, borderColor: "@controlOutline", cornerRadius: "@control_state_radius", paddingX: 10, justify: "center") {
+                            HStack(height: 20, spacing: 8, align: "center") {
+                                Icon("activity", width: 18, height: 18, foreground: "@text")
+                                Text("Monitoring", font: "@font_body", foreground: "@text", flex: 1, overflow: "clip")
+                            }
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                }
+                Separator(height: 1, background: "@controlOutline")
+                MenuItem(action: "sys:refresh", height: 36) {
+                    Visual(background: "@controlField", borderWidth: 1, borderColor: "@controlOutline", cornerRadius: "@control_state_radius", paddingX: 10, justify: "center") {
+                        HStack(height: 20, spacing: 8, align: "center") {
+                            Icon("refresh", width: 18, height: 18, foreground: "@text")
+                            Text("Refresh data", font: "@font_body", foreground: "@text", flex: 1, overflow: "clip")
+                        }
+                    }
+                    .state(when: "hovered", scope: "target", background: "@hover")
+                    .state(when: "pressed", scope: "target", background: "@accentSoft")
+                    .transition(property: "background", motion: "control.feedback")
+                    Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                    .state(when: "focusVisible", scope: "target", opacity: 1)
+                }
+            }
+            Visual(scrollPart: "thumb", width: 3, height: 24, inset: 2, cornerRadius: 1.5, background: "@controlOutline")
+        }
+    }
+    Menu("prefs:menu:compact", width: 280, height: 264, padding: 16, material: "panel") {
+        Contour(recipe: "attachedPanel", radius: "@panel_radius", neckWidth: "@panel_neck_width", neckHeight: "@panel_neck_height", neckShape: "roundedTriangle", fallback: "detached")
+        ScrollView {
+            VStack(height: 230, spacing: 8) {
+                VStack(height: 36, spacing: 4) {
+                    Text("Preferences", font: "@font_body", height: 18, foreground: "@text", overflow: "clip")
+                    Text("Pages and monitoring", font: "@font_caption", height: 14, foreground: "@mutedText", overflow: "clip")
+                }
+                Separator(height: 1, background: "@controlOutline")
+                VStack(height: 124, spacing: 8) {
+                    MenuItem(action: "page:performance", height: 36) {
+                        Visual(background: "@controlField", borderWidth: 1, borderColor: "@controlOutline", cornerRadius: "@control_state_radius", paddingX: 10, justify: "center") {
+                            HStack(height: 20, spacing: 8, align: "center") {
+                                Icon("monitor", width: 18, height: 18, foreground: "@text")
+                                Text("Overview", font: "@font_body", foreground: "@text", flex: 1, overflow: "clip")
+                            }
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    MenuItem(action: "page:appearance", height: 36) {
+                        Visual(background: "@controlField", borderWidth: 1, borderColor: "@controlOutline", cornerRadius: "@control_state_radius", paddingX: 10, justify: "center") {
+                            HStack(height: 20, spacing: 8, align: "center") {
+                                Icon("brush", width: 18, height: 18, foreground: "@text")
+                                Text("Appearance", font: "@font_body", foreground: "@text", flex: 1, overflow: "clip")
+                            }
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                    MenuItem(action: "page:system", height: 36) {
+                        Visual(background: "@controlField", borderWidth: 1, borderColor: "@controlOutline", cornerRadius: "@control_state_radius", paddingX: 10, justify: "center") {
+                            HStack(height: 20, spacing: 8, align: "center") {
+                                Icon("activity", width: 18, height: 18, foreground: "@text")
+                                Text("Monitoring", font: "@font_body", foreground: "@text", flex: 1, overflow: "clip")
+                            }
+                        }
+                        .state(when: "hovered", scope: "target", background: "@hover")
+                        .state(when: "pressed", scope: "target", background: "@accentSoft")
+                        .transition(property: "background", motion: "control.feedback")
+                        Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                        .state(when: "focusVisible", scope: "target", opacity: 1)
+                    }
+                }
+                Separator(height: 1, background: "@controlOutline")
+                MenuItem(action: "sys:refresh", height: 36) {
+                    Visual(background: "@controlField", borderWidth: 1, borderColor: "@controlOutline", cornerRadius: "@control_state_radius", paddingX: 10, justify: "center") {
+                        HStack(height: 20, spacing: 8, align: "center") {
+                            Icon("refresh", width: 18, height: 18, foreground: "@text")
+                            Text("Refresh data", font: "@font_body", foreground: "@text", flex: 1, overflow: "clip")
+                        }
+                    }
+                    .state(when: "hovered", scope: "target", background: "@hover")
+                    .state(when: "pressed", scope: "target", background: "@accentSoft")
+                    .transition(property: "background", motion: "control.feedback")
+                    Visual(cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlFocus", opacity: 0)
+                    .state(when: "focusVisible", scope: "target", opacity: 1)
+                }
+            }
+            Visual(scrollPart: "thumb", width: 3, height: 24, inset: 2, cornerRadius: 1.5, background: "@controlOutline")
         }
     }
 }

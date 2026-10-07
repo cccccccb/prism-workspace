@@ -2,6 +2,7 @@
 #include "prism/contracts/gesture.hpp"
 #include "prism/contracts/theme.hpp"
 #include "prism/contracts/types.hpp"
+#include "prism/runtime/control_value.hpp"
 #include "prism/runtime/prepared_component.hpp"
 #include "prism/runtime/prepared_regions.hpp"
 #include "prism/runtime/property.hpp"
@@ -82,6 +83,10 @@ struct ClientPlatformStatus {
     std::uint64_t wait_duration_ns{};
     std::uint64_t surface_state_commits{}, surface_pixel_commits{};
     std::uint64_t surface_submission_failures{}, surface_noops{};
+    // Diagnostic values only; none is a submission or input permission.
+    std::uint64_t popup_lifetime{}, popup_configure_generation{};
+    std::uint64_t popup_pixel_commits{}, popup_configures{}, popup_closes{};
+    contracts::LogicalRect popup_window_bounds{};
 };
 
 // Public methods run on the UI/Host owner thread. The internal render worker
@@ -139,6 +144,7 @@ public:
     bool ApplyTheme(const contracts::ThemeSnapshot &, std::string *diagnostic = nullptr);
     std::uint64_t ThemeGeneration() const;
     void OnCloseRequested(std::function<bool()> callback);
+    void OnControlValue(std::function<void(const runtime::ControlEdit &)> callback);
     void OnTextEdit(std::function<void(std::string_view, std::string_view)> callback);
     void OnAction(std::function<void(std::string_view)> callback);
     // Owner-thread continuous gestures; cancellation values survive UI replacement.

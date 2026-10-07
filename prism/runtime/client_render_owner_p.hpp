@@ -1,6 +1,8 @@
 #pragma once
 
-#include "prism/platform/wayland_egl_surface.hpp"
+#include "client_render_surface_p.hpp"
+#include "prism/platform/wayland_egl_context.hpp"
+#include "prism/platform/wayland_popup.hpp"
 #include "prism/platform/wayland_window.hpp"
 #include "prism/render_skia/gles_renderer.hpp"
 #include "prism/render_skia/raster_renderer.hpp"
@@ -63,6 +65,11 @@ private:
     void AnswerFrameOpportunity(runtime::AnswerFrameOpportunityCommand command);
     bool IssueFrameOpportunity();
     void ResetFrameOpportunity() noexcept;
+    void ApproveFrame(std::shared_ptr<const runtime::FramePacket> frame);
+    void ConsumeApprovedRoot(const std::shared_ptr<const runtime::FramePacket> &frame) noexcept;
+    void
+    ConsumeApprovedPopup(const std::shared_ptr<const runtime::PopupFramePacket> &frame) noexcept;
+    void FinishApprovedFrame() noexcept;
     bool RegisterImage(runtime::RegisterImageCommand command);
     bool ReleaseImage(runtime::ReleaseImageCommand command);
     bool AdvanceImageUploads();
@@ -73,6 +80,19 @@ private:
     platform::SubmitResult PrepareSubmit(const platform::SubmitRequest &request);
     bool CommitPixels();
     void Submitted(platform::SubmitResult result) noexcept;
+    bool AdvancePopup();
+    void ReconcilePopup();
+    void ClosePopup(bool block = false) noexcept;
+    void ReleasePopupGpu() noexcept;
+    void QueuePopupEvent(const platform::WaylandPopupEvent &) noexcept;
+    void QueuePopupInput(const platform::WaylandPopupInput &) noexcept;
+    void QueuePopupPresentation(const platform::WaylandPopupPresentation &) noexcept;
+    runtime::PopupSurfaceIdentity PopupIdentity(platform::WaylandPopupTarget target) const noexcept;
+    bool PopupFrameMatches(const runtime::PopupFramePacket &) const noexcept;
+    bool CommitPopupPixels();
+    bool PopupImagesUploaded(const runtime::PopupFramePacket &);
+    void AdoptPopupCleanParent(const runtime::FramePacket &) noexcept;
+    void RetirePopupImage(runtime::ImageVersion);
 
     ClientConfig config_;
     runtime::PollableQueue<runtime::RenderCommand> &commands_;
@@ -87,31 +107,34 @@ private:
     // All fields below are touched only by worker_ after Start.
     std::unique_ptr<render_skia::RasterRenderer> damage_commands_;
     platform::WaylandWindow window_;
-    platform::WaylandEglSurface egl_;
+    platform::WaylandEglContext egl_context_;
+    ClientRenderSurfaceState root_target_;
+    platform::WaylandPopup popup_;
+    ClientRenderSurfaceState popup_target_;
+    runtime::UiLoadId popup_ui_{};
+    std::shared_ptr<const runtime::PopupSurfaceRequest> popup_request_, blocked_popup_request_;
+    std::shared_ptr<const runtime::PopupFramePacket> popup_frame_, popup_committed_frame_;
+    runtime::PopupSurfaceIdentity popup_input_identity_{};
+    std::uint64_t next_popup_adoption_sequence_{};
+    std::uint64_t popup_pixel_commits_{}, popup_configures_{}, popup_closes_{};
+    bool popup_force_pixels_{};
+    bool popup_clean_parent_{}, popup_effects_ready_{};
     std::unique_ptr<render_skia::GlesRenderer> renderer_;
     std::map<std::uint64_t, RenderImage> render_images_;
     std::deque<contracts::ResourceId> upload_queue_;
     std::set<std::uint64_t> queued_uploads_;
     runtime::UiLoadId installed_ui_{};
-    runtime::UiLoadId input_ui_{};
-    std::shared_ptr<const runtime::InputSnapshot> input_snapshot_;
     runtime::RenderWorkerGeneration worker_generation_{};
     std::optional<runtime::FrameOpportunityEvent> frame_opportunity_;
     std::shared_ptr<const runtime::FramePacket> approved_frame_;
+    bool approved_root_consumed_{}, approved_popup_consumed_{};
     std::uint64_t next_frame_opportunity_id_{};
     std::uint64_t opportunity_candidate_sequence_{};
     bool animation_sampling_active_{};
     bool spontaneous_animation_frame_allowed_{};
-    std::shared_ptr<const runtime::FramePacket> render_frame_, committed_frame_, prepared_frame_;
-    std::uint64_t committed_damage_resource_epoch_{};
-    runtime::BufferDamageHistory damage_history_;
-    std::optional<runtime::BufferDamagePlan> prepared_damage_;
-    std::uint64_t prepared_content_area_{};
     std::uint64_t issued_event_sequence_{}, processed_event_sequence_{};
-    runtime::RenderBackendStats backend_stats_{};
     runtime::RenderStartupStats startup_stats_{};
     std::string gl_renderer_;
-    int presented_{};
     bool egl_init_sampled_{}, ganesh_init_sampled_{}, render_sampled_{}, swap_sampled_{};
     bool failed_{};
 };

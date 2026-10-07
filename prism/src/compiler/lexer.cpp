@@ -95,6 +95,8 @@ Token Lexer::ScanString()
             char next = Advance();
             if (next == 'n') {
                 text += '\n';
+            } else if (next == 'r') {
+                text += '\r';
             } else if (next == 't') {
                 text += '\t';
             } else {

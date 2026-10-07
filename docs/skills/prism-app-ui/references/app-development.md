@@ -1,8 +1,10 @@
 # Prism 第三方应用开发指南
 
-更新：2026-10-04；已部署基线 `0.1.0-19`，工作区新增文本编辑能力单独注明。本文是
+更新：2026-10-07；已部署基线 `0.1.0-26`，实际记录见
+[Pi 远程部署](../../../PI_REMOTE_DESKTOP.md)，最终视觉仍待用户确认。本文是
 [`prism-app-ui` SKILL](../SKILL.md) 的开发参考，也是第三方开发者和其他 AI 的交接规范。
-源码新增的动画接口需要用相应版本的 Host/SDK 构建和运行；不能假定旧版已安装包可用。
+使用动画、值控件与原生浮层接口需匹配 Host/SDK/主题；不能从当前源码推断旧运行包
+具备相同能力，旧 v22 不支持本轮新增接口。
 未来扩展以更新后的契约和源码为准。
 
 ## 目录
@@ -82,7 +84,7 @@ Wayland/EGL/Skia 前端、不运行第二个 SDK 主循环。若框架缺通用�
 Progress、Toggle、InteractionTarget、Visual、typed binding、visible、主题材料与 token、light/dark、组件加载图、
 critical/deferred、稳定 Slot、Host work、取消、one-shot tick 与平台启动/主题事件。
 
-**当前能力边界：** 没有可直接使用的 Slider 拖动、TextInput、Scroll、Repeater/List
+**当前能力边界：** 水平 Slider 已由本轮 Host 支持（见值控件契约第 11 节）；没有 TextInput、Scroll、Repeater/List
 动态列表、任意自定义向量文件控件、完整无障碍语义 API。动画源码支持 Progress.value、
 Text/Icon/IconButton/Progress/Toggle 的 foreground，以及 Visual 的背景、局部平移/缩放/
 整体 opacity 时长过渡；固定 InteractionTarget 向装饰子树提供局部状态。通用 `.gesture`
@@ -368,6 +370,7 @@ deferred 加载失败使用对应诊断及保留内容，不把准备成功、�
 | --- | --- | --- |
 | create | Host 所有者 | 建状态、复制短期借用数据、发布初值、提交耗时任务；失败返回 nullptr |
 | on_action | Host 所有者 | 验证 action、更新业务、发布 binding，及时返回 |
+| on_control_value | Host 所有者 | 本轮新增可选尾字段；Checkbox 的 typed Commit，校验 action/type 后发布 binding；见 [值控件契约](../../../CONTROL_VALUE_CONTRACT.md) |
 | on_tick | Host 所有者 | 需要时处理一次性计时，再决定是否续订 |
 | on_theme/launch/instance_event | Host 所有者 | 依据实际平台确认更新状态 |
 | work | 共享 worker | 复制输入、CPU/IO、有界结果；不接触实例/Host API |

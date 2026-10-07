@@ -160,6 +160,7 @@ void WlrServer::HandleXdgMap(WlrXdgView *view)
 
 void WlrServer::HandleXdgUnmap(WlrXdgView *view)
 {
+    CloseXdgPopups(view);
     if (group_geometry_ && group_geometry_->ForView(view)) {
         group_geometry_.reset();
     }
@@ -197,6 +198,7 @@ void WlrServer::HandleXdgUnmap(WlrXdgView *view)
 
 void WlrServer::HandleXdgDestroy(WlrXdgView *view)
 {
+    CloseXdgPopups(view);
     if (group_geometry_ && group_geometry_->ForView(view)) {
         group_geometry_.reset();
     }
@@ -234,6 +236,7 @@ void WlrServer::SetXdgFullscreen(WlrXdgView *view, bool enabled)
     if (view->fullscreen == enabled) {
         return;
     }
+    CloseXdgPopups(view);
     group_geometry_.reset();
     auto motion = std::move(surface_geometry_);
     if (motion && motion->View() != view) {
@@ -368,6 +371,9 @@ void WlrServer::ArrangeXdgViews()
         } else {
             view->visible = false;
         }
+        if (!view->visible) {
+            CloseXdgPopups(view.get());
+        }
         wlr_scene_node_set_enabled(&view->scene_tree->node, view->visible);
         if (!view->visible) {
             CancelLayoutControlsForSurface(view->toplevel->base->surface);
@@ -380,6 +386,9 @@ void WlrServer::ArrangeXdgViews()
         const int y = static_cast<int>(std::round(bounds.y));
         const int w = std::max(1, static_cast<int>(std::round(bounds.width)));
         const int h = std::max(1, static_cast<int>(std::round(bounds.height)));
+        if (view->x != x || view->y != y || view->width != w || view->height != h) {
+            CloseXdgPopups(view.get());
+        }
         view->x = x;
         view->y = y;
         if (view->managed) {
@@ -501,7 +510,7 @@ void WlrServer::FocusXdgView(WlrXdgView *view)
         wlr_xdg_toplevel_set_activated(view->toplevel, true);
     }
     if (auto *keyboard = wlr_seat_get_keyboard(seat_);
-        keyboard &&
+        keyboard && !wlr_seat_keyboard_has_grab(seat_) &&
         (changed || seat_->keyboard_state.focused_surface != view->toplevel->base->surface)) {
         wlr_seat_keyboard_notify_enter(seat_, view->toplevel->base->surface, keyboard->keycodes,
                                        keyboard->num_keycodes, &keyboard->modifiers);

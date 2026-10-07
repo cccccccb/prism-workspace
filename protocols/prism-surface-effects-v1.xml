@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <protocol name="prism_surface_effects_v1">
   <copyright>Copyright 2026 Prism contributors. MIT license.</copyright>
-  <interface name="prism_surface_effect_manager_v1" version="1">
+  <interface name="prism_surface_effect_manager_v1" version="3">
     <description summary="typed compositor background effects">
-      Describes logical surface-local rounded rectangles. Effects sample only
+      Describes logical surface-local rounded rectangles and bounded contours. Effects sample only
       scene content below this surface. State is double buffered and applies
       with the next wl_surface.commit. Unsupported compositors leave client
       alpha/tint unchanged. No DSL, draw list or business action is transmitted.
@@ -14,8 +14,27 @@
       <arg name="surface" type="object" interface="wl_surface"/>
     </request>
     <event name="capabilities"><arg name="backdrop" type="uint"/></event>
+    <event name="contour_capabilities" since="2">
+      <description summary="bounded contour backdrop support">
+        A nonzero value means add_contour is supported. This supplements the
+        original backdrop capability; version 1 clients receive only that event.
+        Unsupported clients omit contour effects without a rectangular fallback.
+      </description>
+      <arg name="supported" type="uint"/>
+    </event>
+    <event name="popup_backdrop_capabilities" since="3">
+      <description summary="native popup parent-body backdrop support">
+        A nonzero value declares effects on xdg_popup surfaces. Sampling includes
+        committed parent content and lower scene nodes, excluding this popup and
+        all higher nodes. Coordinates remain logical wl_surface-local, including
+        surface padding outside xdg window geometry. Version 1 and 2 do not
+        declare this capability. Clients retain root fallback when it is required
+        but unavailable; ordinary backdrop capability alone is insufficient.
+      </description>
+      <arg name="supported" type="uint"/>
+    </event>
   </interface>
-  <interface name="prism_surface_effect_v1" version="1">
+  <interface name="prism_surface_effect_v1" version="3">
     <enum name="error"><entry name="invalid_region" value="0" summary="invalid or excessive region"/><entry name="surface_gone" value="1" summary="surface no longer exists"/></enum>
     <request name="destroy" type="destructor"/>
     <request name="clear"/>
@@ -28,6 +47,22 @@
       <arg name="x" type="fixed"/><arg name="y" type="fixed"/>
       <arg name="width" type="fixed"/><arg name="height" type="fixed"/>
       <arg name="corner_radius" type="fixed"/><arg name="blur_radius" type="fixed"/>
+    </request>
+    <request name="add_contour" since="2">
+      <description summary="append a canonical pending contour">
+        Payload format v1 uses an 8-byte little-endian header: uint16 version 1,
+        uint16 count 3..256, uint16 flags 0 and uint16 reserved 0; followed by
+        count signed int32 Q24.8 x/y pairs. Total length is exactly 8+count*8.
+        Coordinates are within +/-8192 and bounds are at most 8192 per axis.
+        One implicitly closed simple polygon, without holes, self-intersection,
+        self-touching, zero-length edges or degenerate area, is required.
+        Both winding directions use even-odd fill. Blur radius is 0..48.
+        Rounded rectangles and contours share the maximum eight pending regions.
+        Validation precedes mutation; state becomes visible atomically on commit.
+        The contour capability must be supported; no bounding-box fallback is used.
+      </description>
+      <arg name="blur_radius" type="fixed"/>
+      <arg name="payload" type="array"/>
     </request>
   </interface>
 </protocol>

@@ -1,0 +1,81 @@
+VStack(padding: 16, spacing: 8, background: "@surfaceRaised", clip: true) {
+ Text("Files", height: 28, font: "@font_heading", foreground: "@text")
+ Button("View", action: "files", width: 96, height: 36, justify: "center", paddingX: 12, foreground: "@text", background: "@controlSecondary", cornerRadius: "@control_state_radius")
+ Menu("files", width: 280, height: 250, padding: 16, background: "@controlSecondary", borderWidth: 1, borderColor: "@controlOutline", cornerRadius: "@control_state_radius", shadowBlur: 12, shadowY: 4, shadowColor: #00000026) {
+  ScrollView {
+   VStack(spacing: 8, paddingX: 8) {
+    Text("Files and view", height: 24, font: "@font_body", foreground: "@text")
+    Separator(height: 1, background: "@controlOutline")
+   MenuItem(action: "open", height: 36, justify: "center") {
+    Visual(background: "@controlField", cornerRadius: "@control_state_radius")
+      .state(when: "hovered", scope: "target", background: "@controlDisabled")
+    Visual(borderWidth: 1, borderColor: "@controlFocus", cornerRadius: "@control_state_radius", opacity: 0)
+      .state(when: "focusVisible", scope: "target", opacity: 1)
+    Visual(paddingX: 10, justify: "center") {
+    Text("Open file", anchor: "left", font: "@font_body", foreground: "@text")
+    Icon("document", anchor: "right", width: 16, height: 16, foreground: "@mutedText")
+    }
+   }
+   MenuItem(action: "sort", height: 36, justify: "center") {
+    Visual(background: "@controlField", cornerRadius: "@control_state_radius")
+      .state(when: "hovered", scope: "target", background: "@controlDisabled")
+    Visual(borderWidth: 1, borderColor: "@controlFocus", cornerRadius: "@control_state_radius", opacity: 0)
+      .state(when: "focusVisible", scope: "target", opacity: 1)
+    Visual(paddingX: 10, justify: "center") {
+    Text("Sort by", anchor: "left", font: "@font_body", foreground: "@text")
+    Icon("chevron", anchor: "right", width: 16, height: 16, foreground: "@mutedText")
+    }
+   }
+   MenuItem(action: "paste", enabled: false, height: 36, justify: "center") {
+    Visual(background: "@controlField", cornerRadius: "@control_state_radius")
+      .state(when: "hovered", scope: "target", background: "@controlDisabled")
+    Visual(borderWidth: 1, borderColor: "@controlFocus", cornerRadius: "@control_state_radius", opacity: 0)
+      .state(when: "focusVisible", scope: "target", opacity: 1)
+    Visual(paddingX: 10, justify: "center") {
+    Text("Paste · unavailable", anchor: "left", font: "@font_body", foreground: "@controlDisabledText")
+    }
+   }
+   }
+   Visual(scrollPart: "thumb", width: 3, height: 20, inset: 1, cornerRadius: 1, background: "@controlOutline")
+  }
+ }
+ Menu("sort", width: 280, height: 250, padding: 16, background: "@controlSecondary", borderWidth: 1, borderColor: "@controlOutline", cornerRadius: "@control_state_radius", shadowBlur: 12, shadowY: 4, shadowColor: #00000026) {
+  ScrollView {
+   VStack(spacing: 8, paddingX: 8) {
+    Text("Sort by", height: 24, font: "@font_body", foreground: "@text")
+    Separator(height: 1, background: "@controlOutline")
+   MenuBack(height: 36, justify: "center") {
+    Visual(background: "@controlField", cornerRadius: "@control_state_radius")
+      .state(when: "hovered", scope: "target", background: "@controlDisabled")
+    Visual(borderWidth: 1, borderColor: "@controlFocus", cornerRadius: "@control_state_radius", opacity: 0)
+      .state(when: "focusVisible", scope: "target", opacity: 1)
+    Visual(paddingX: 10, justify: "center") {
+    HStack(height: 20, spacing: 8, align: "center") {
+     Icon("arrow-left", width: 16, height: 16, foreground: "@mutedText")
+     Text("Back to view", font: "@font_body", foreground: "@text")
+    }
+    }
+   }
+   MenuItem(action: "name", height: 36, justify: "center") {
+    Visual(background: "@controlField", cornerRadius: "@control_state_radius")
+      .state(when: "hovered", scope: "target", background: "@controlDisabled")
+    Visual(borderWidth: 1, borderColor: "@controlFocus", cornerRadius: "@control_state_radius", opacity: 0)
+      .state(when: "focusVisible", scope: "target", opacity: 1)
+    Visual(paddingX: 10, justify: "center") {
+    Text("Name", anchor: "left", font: "@font_body", foreground: "@text")
+    }
+   }
+   MenuItem(action: "date", height: 36, justify: "center") {
+    Visual(background: "@controlField", cornerRadius: "@control_state_radius")
+      .state(when: "hovered", scope: "target", background: "@controlDisabled")
+    Visual(borderWidth: 1, borderColor: "@controlFocus", cornerRadius: "@control_state_radius", opacity: 0)
+      .state(when: "focusVisible", scope: "target", opacity: 1)
+    Visual(paddingX: 10, justify: "center") {
+    Text("Date modified", anchor: "left", font: "@font_body", foreground: "@text")
+    }
+   }
+   }
+   Visual(scrollPart: "thumb", width: 3, height: 20, inset: 1, cornerRadius: 1, background: "@controlOutline")
+  }
+ }
+}

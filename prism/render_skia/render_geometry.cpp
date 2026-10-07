@@ -1,5 +1,6 @@
 #include "render_geometry_p.hpp"
 
+#include "contour_renderer_p.hpp"
 #include "include/core/SkBlurTypes.h"
 #include "include/core/SkFont.h"
 #include "include/core/SkMaskFilter.h"
@@ -86,6 +87,23 @@ bool InkBounds(const contracts::DrawCommand &command, const detail::ResourceTabl
         }
         raw.offset(0, shadow->offset_y);
         paint = ShadowPaint(*shadow);
+    } else if (const auto *fill = std::get_if<contracts::FillContour>(&command)) {
+        raw = ToSkRect(contracts::ContourBounds(fill->contour));
+        paint = ColorPaint(fill->color);
+    } else if (const auto *stroke = std::get_if<contracts::StrokeContour>(&command)) {
+        if (stroke->width > 0) {
+            // Replay clips the doubled centered stroke to the canonical contour.
+            *ink = ToSkRect(contracts::ContourBounds(stroke->contour));
+        }
+        return ink->isFinite();
+    } else if (const auto *shadow = std::get_if<contracts::ContourShadow>(&command)) {
+        raw = ToSkRect(contracts::ContourBounds(shadow->contour));
+        if (shadow->inset) {
+            *ink = raw;
+            return ink->isFinite();
+        }
+        raw.offset(0, shadow->offset_y);
+        paint = ContourShadowPaint(*shadow);
     } else if (const auto *icon = std::get_if<contracts::DrawIcon>(&command)) {
         return IconInkBounds(*icon, ink);
     } else if (const auto *image = std::get_if<contracts::DrawImage>(&command)) {
@@ -145,10 +163,20 @@ bool DeviceInkBounds(const contracts::DrawCommand &command, const ResourceTable 
     }
     *ink = matrix.mapRect(local);
 
+    SkRect raw;
+    bool outer_blur = false;
     if (const auto *shadow = std::get_if<contracts::RoundedRectShadow>(&command);
         shadow && !shadow->inset && shadow->blur > 0) {
-        auto raw = ToSkRect(shadow->bounds);
+        raw = ToSkRect(shadow->bounds);
         raw.offset(0, shadow->offset_y);
+        outer_blur = true;
+    } else if (const auto *shadow = std::get_if<contracts::ContourShadow>(&command);
+               shadow && !shadow->inset && shadow->blur > 0) {
+        raw = ToSkRect(contracts::ContourBounds(shadow->contour));
+        raw.offset(0, shadow->offset_y);
+        outer_blur = true;
+    }
+    if (outer_blur) {
         // Skia's mask blur maps sigma radially. Mapping the local expanded
         // rectangle alone can underestimate the smaller axis of a nonuniform
         // scale. Derive the margin from the same paint, then bound its device

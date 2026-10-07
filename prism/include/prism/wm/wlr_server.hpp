@@ -7,6 +7,7 @@
 #include "prism/wm/compositor.hpp"
 #include "prism/wm/layout_control.hpp"
 #include "prism/wm/performance.hpp"
+#include "prism/wm/surface_effects.hpp"
 #include "prism/wm/theme.hpp"
 
 #include "prism/launch/control_protocol.hpp"
@@ -39,6 +40,7 @@ struct wlr_scene_node;
 struct wlr_xdg_shell;
 struct wlr_xdg_surface;
 struct wlr_xdg_toplevel;
+struct wlr_xdg_popup;
 struct wlr_seat;
 struct wlr_cursor;
 struct wlr_xcursor_manager;
@@ -85,6 +87,7 @@ struct OutputInfo {
 
 class WlrServer;
 struct WlrXdgView;
+struct WlrXdgPopup;
 struct WlrKeyboardBinding;
 struct WlrTouchBinding;
 struct WlrPointerBinding;
@@ -128,6 +131,7 @@ struct WlrServerSignals {
     struct wl_listener new_virtual_keyboard;
     struct wl_listener new_virtual_pointer;
     struct wl_listener new_xdg_toplevel;
+    struct wl_listener new_xdg_popup;
     struct wl_listener new_surface;
     struct wl_listener cursor_motion;
     struct wl_listener cursor_motion_absolute;
@@ -228,6 +232,7 @@ public:
     void HandleNewVirtualKeyboard(struct wlr_virtual_keyboard_v1 *keyboard);
     void HandleNewVirtualPointer(struct wlr_virtual_pointer_v1_new_pointer_event *event);
     void HandleNewXdgToplevel(struct wlr_xdg_toplevel *toplevel);
+    void HandleNewXdgPopup(struct wlr_xdg_popup *popup);
     void HandleXdgMap(WlrXdgView *view);
     void HandleXdgCommit(WlrXdgView *view);
     void HandleXdgUnmap(WlrXdgView *view);
@@ -326,6 +331,14 @@ private:
     void ArrangeXdgViews();
     void SynchronizeXdgFocus();
     void SetXdgFullscreen(WlrXdgView *view, bool enabled);
+    friend struct WlrXdgPopup;
+    WlrXdgView *XdgOwner(wlr_surface *surface) const;
+    WlrXdgPopup *FindXdgPopup(wlr_surface *surface) const;
+    void ConfigureXdgPopup(WlrXdgPopup *popup);
+    void DismissXdgPopup(WlrXdgPopup *popup);
+    void RemoveXdgPopup(WlrXdgPopup *popup);
+    void CloseXdgPopups(WlrXdgView *owner = nullptr);
+    void RestorePopupFocus();
     void UpdateXdgPointerFocus(uint32_t time_msec);
     void AttachTouchDevice(wlr_touch *);
     void CancelTouchDevice(WlrTouchBinding *);
@@ -335,6 +348,7 @@ private:
     enum class FrameReason { Layout, Effects, Mode };
     void ScheduleFrames(FrameReason reason);
     void InvalidateEffects();
+    std::vector<SurfaceEffects::Target> PopupEffectTargets() const;
     bool UpdateSurfaceEffects();
 
     WlrServerSignals signals_{};
@@ -402,6 +416,7 @@ private:
 
     std::vector<std::unique_ptr<WlrOutput>> outputs_;
     std::vector<std::unique_ptr<WlrXdgView>> xdg_views_;
+    std::vector<std::unique_ptr<WlrXdgPopup>> xdg_popups_;
     std::unique_ptr<SurfaceEffects> surface_effects_;
     std::map<wlr_surface *, std::unique_ptr<WlrSurfaceWatch>> surface_watches_;
     FrameWorkCounters frame_work_;

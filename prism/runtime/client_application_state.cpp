@@ -21,6 +21,12 @@ void ClientApplication::Impl::ApplyRenderStatus(const runtime::RenderStatusEvent
             .surface_pixel_commits = platform.surface_pixel_commits,
             .surface_submission_failures = platform.surface_submission_failures,
             .surface_noops = platform.surface_noops,
+            .popup_lifetime = platform.popup_lifetime,
+            .popup_configure_generation = platform.popup_configure_generation,
+            .popup_pixel_commits = platform.popup_pixel_commits,
+            .popup_configures = platform.popup_configures,
+            .popup_closes = platform.popup_closes,
+            .popup_window_bounds = platform.popup_window_bounds,
         };
     }
 

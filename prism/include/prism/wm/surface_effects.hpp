@@ -11,6 +11,7 @@ struct wlr_allocator;
 struct wlr_scene;
 struct wlr_surface;
 struct wlr_scene_node;
+struct wlr_scene_tree;
 
 namespace prism::wm {
 struct WlrXdgView;
@@ -40,6 +41,13 @@ public:
         std::uint64_t content_revisions{}, metadata_commits{}, damage_history_fallbacks{};
         // Successful cache hits whose observations advanced past outside damage.
         std::uint64_t partial_damage_cache_hits{}, capture_nodes{};
+        // Mask uploads are independent of background content invalidation.
+        std::uint64_t mask_builds{}, mask_cache_hits{}, mask_failures{};
+    };
+
+    struct Target {
+        wlr_surface *surface{};
+        wlr_scene_tree *tree{};
     };
 
     struct UpdateResult {
@@ -64,7 +72,7 @@ public:
     std::vector<wlr_scene_node *> PresentationNodes(wlr_surface *) const;
     const WorkCounters &Counters() const;
     UpdateResult Update(wlr_scene *, std::span<WlrXdgView *const>, WlrXdgView *focused,
-                        const contracts::ThemeSnapshot *theme);
+                        const contracts::ThemeSnapshot *theme, std::span<const Target> popups = {});
 
 private:
     struct Impl;

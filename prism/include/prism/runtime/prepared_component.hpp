@@ -66,6 +66,8 @@ struct PreparedNode {
     std::vector<TransitionSpec> transitions;
     std::vector<StateRule> state_rules;
     std::optional<GestureSpec> gesture;
+    std::optional<contracts::Contour> contour;
+    std::optional<AttachedPanelRecipe> contour_recipe;
     std::uint64_t allowed_properties{UINT64_MAX};
     std::vector<PreparedNode> children;
     int line{1};

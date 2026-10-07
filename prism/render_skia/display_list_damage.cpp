@@ -43,9 +43,12 @@ public:
                 return false;
             }
             clip = HardClipBounds(rect->bounds, state_.matrix);
+        } else if (const auto *rounded = std::get_if<contracts::PushClipRoundedRect>(&command)) {
+            clip = state_.matrix.mapRect(ToSkRect(rounded->bounds));
+            clip.outset(2, 2);
         } else {
-            const auto &rounded = std::get<contracts::PushClipRoundedRect>(command);
-            clip = state_.matrix.mapRect(ToSkRect(rounded.bounds));
+            const auto &contour = std::get<contracts::PushClipContour>(command);
+            clip = state_.matrix.mapRect(ToSkRect(contracts::ContourBounds(contour.contour)));
             clip.outset(2, 2);
         }
         if (!clip.isFinite()) {
@@ -116,7 +119,8 @@ contracts::DamageRegion CompareDisplayListDamage(const contracts::DisplayList &p
         }
 
         const bool clip = std::holds_alternative<contracts::PushClipRect>(current) ||
-                          std::holds_alternative<contracts::PushClipRoundedRect>(current);
+                          std::holds_alternative<contracts::PushClipRoundedRect>(current) ||
+                          std::holds_alternative<contracts::PushClipContour>(current);
         if (clip && old != current) {
             return contracts::DamageRegion::Full();
         }

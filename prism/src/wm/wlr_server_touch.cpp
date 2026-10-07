@@ -126,12 +126,8 @@ void WlrServer::HandleTouchDown(WlrTouchBinding *binding, const wlr_touch_down_e
         return;
     }
 
-    auto *root = wlr_surface_get_root_surface(surface);
-    for (const auto &view : xdg_views_) {
-        if (view->toplevel->base->surface == root) {
-            FocusXdgView(view.get());
-            break;
-        }
+    if (auto *owner = XdgOwner(surface)) {
+        FocusXdgView(owner);
     }
     if (!SurfacePosition(scene_, surface, lx, ly, sx, sy)) {
         return;

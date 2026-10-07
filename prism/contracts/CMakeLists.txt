@@ -46,8 +46,18 @@ add_library(prism_theme_contract STATIC theme.cpp motion.cpp)
 target_link_libraries(prism_theme_contract PUBLIC prism_contracts)
 
 # Structural drawing validation has no resource registry or backend dependency.
+add_library(prism_contour_contract STATIC contour.cpp contour_prepare.cpp contour_codec.cpp panel_contour.cpp
+    contour_raster.cpp)
+target_link_libraries(prism_contour_contract PUBLIC prism_contracts)
+
+add_library(prism_surface_effect_contract STATIC surface_effect.cpp)
+target_link_libraries(prism_surface_effect_contract PUBLIC prism_contour_contract)
+
+add_library(prism_popup_positioner_contract STATIC popup_positioner.cpp)
+target_link_libraries(prism_popup_positioner_contract PUBLIC prism_contracts)
+
 add_library(prism_display_list_contract STATIC display_list_validation.cpp)
-target_link_libraries(prism_display_list_contract PUBLIC prism_contracts)
+target_link_libraries(prism_display_list_contract PUBLIC prism_contracts prism_contour_contract)
 
 add_library(prism_layout_contract STATIC layout_snapshot.cpp layout_snapshot_validation.cpp
     layout_display_name.cpp layout_control.cpp)

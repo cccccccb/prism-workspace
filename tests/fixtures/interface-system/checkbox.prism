@@ -1,0 +1,30 @@
+VStack(padding: "@space_section", spacing: "@space_sm", background: "@surfaceRaised", clip: true) {
+    Text("Notifications", font: "@font_heading", lineHeight: "@line_heading", foreground: "@text")
+    Text("Choose what appears on your desktop.", font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText")
+    Separator(height: 1, background: "@controlOutline")
+    Checkbox(action: "notify", checked: $notifications, height: "@control_hit_height") {
+        Visual(borderWidth: 2, borderColor: "@controlFocus", cornerRadius: "@control_state_radius", opacity: 0)
+            .state(when: "focusVisible", scope: "target", opacity: 1)
+        Visual(paddingX: "@space_sm", justify: "center") {
+            HStack(spacing: "@space_md", height: 24, align: "center") {
+                Visual(width: 22, height: 22, background: "@controlField", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline") {
+                    Visual(visible: $notifications, background: "@controlPrimary", cornerRadius: "@control_state_radius") {
+                        Icon("check", width: 16, height: 16, anchor: "center", foreground: "@controlPrimaryText")
+                    }
+                }.state(when: "hovered", scope: "target", background: "@controlSecondary")
+                Text("Desktop notifications", flex: 1, font: "@font_body", lineHeight: "@line_body", foreground: "@text")
+            }
+        }.state(when: "pressed", scope: "target", opacity: 0.7)
+    }
+    Checkbox(action: "managed", checked: true, enabled: false, height: "@control_hit_height") {
+        Visual(paddingX: "@space_sm", justify: "center") {
+            HStack(spacing: "@space_md", height: 24, align: "center") {
+                Visual(width: 22, height: 22, background: "@controlDisabled", cornerRadius: "@control_state_radius", borderWidth: 1, borderColor: "@controlOutline") {
+                    Icon("check", width: 16, height: 16, anchor: "center", foreground: "@controlDisabledText")
+                }
+                Text("Required alerts", flex: 1, font: "@font_body", lineHeight: "@line_body", foreground: "@controlDisabledText")
+            }
+        }
+    }
+    Text("Required alerts are managed by policy.", font: "@font_caption", lineHeight: "@line_caption", foreground: "@mutedText")
+}

@@ -2,6 +2,7 @@
 #include "client_application_install_p.hpp"
 #include "client_render_owner_p.hpp"
 #include "prism/render_skia/raster_renderer.hpp"
+#include "prism/runtime/control_value_delivery.hpp"
 #include "prism/runtime/dsl_frontend.hpp"
 #include "prism/runtime/frame_packet.hpp"
 #include "prism/runtime/png_codec.hpp"
@@ -125,10 +126,25 @@ struct ClientApplication::Impl {
     void ProcessRenderEvents(bool deliver);
     void CollectGestureEvents();
     void DeliverGestureEvents();
+    void DeliverInteractionEvents();
+    void CollectControlEvents();
+    runtime::ValueCancelReason ValidateControlDelivery(runtime::UiLoadId ui,
+                                                       const runtime::ControlEdit &edit) const;
     void ApplyRenderStatus(const runtime::RenderStatusEvent &status);
     void HandleWindowEvent(const contracts::WindowEvent &event,
                            const std::shared_ptr<const runtime::InputSnapshot> &input);
     void HandleSubmitted(const runtime::SubmittedFrameEvent &event);
+    void HandlePopupConfigure(const runtime::PopupConfigureEvent &event);
+    void HandlePopupClosed(const runtime::PopupClosedEvent &event);
+    void HandlePopupInput(const runtime::PopupInputEvent &event);
+    void HandlePopupSubmitted(const runtime::PopupSubmittedEvent &event);
+    void CapturePopupFrame(runtime::FramePacket &packet);
+    void RejectPopup(const runtime::PopupSurfaceIdentity &identity);
+    void ResetPopupSurface();
+    void CompleteInteractionResult(const runtime::InteractionResult &result,
+                                   runtime::UiLoadId input_ui);
+    std::shared_ptr<const std::vector<runtime::ImageVersion>>
+    CollectImageUses(const contracts::DisplayList &list) const;
     void PublishFramePacket();
     std::shared_ptr<const runtime::FramePacket>
     CaptureFramePacket(bool pixels, contracts::BufferSize size, double scale, int configure_count);
@@ -138,6 +154,7 @@ struct ClientApplication::Impl {
     void AdvanceAnimationDeadline();
     int AnimationTimeoutMs(int timeout_ms) const noexcept;
     bool HasUnsubmittedPixels() const noexcept;
+    bool HasUnsubmittedPopupPixels() const noexcept;
     bool PollResources();
     void FailFrontend();
     std::set<std::uint64_t> scene_images;
@@ -176,6 +193,12 @@ struct ClientApplication::Impl {
     std::shared_ptr<const contracts::DisplayList> last_list;
     std::shared_ptr<const std::vector<runtime::ImageVersion>> last_image_uses;
     std::shared_ptr<const runtime::FramePacket> queued_frame, ui_submitted_frame;
+    std::shared_ptr<const runtime::FramePacket> ui_root_metadata_frame;
+    std::optional<runtime::PopupConfigureEvent> popup_configuration;
+    std::shared_ptr<const runtime::PopupFramePacket> ui_popup_submitted_frame;
+    runtime::PopupSurfaceIdentity ui_popup_submitted_identity{};
+    std::optional<runtime::PopupSurfaceIdentity> rejected_popup_identity;
+    std::shared_ptr<const runtime::PopupSurfaceRequest> rejected_popup_request;
     std::uint64_t next_frame_sequence{};
     std::optional<std::uint64_t> animation_deadline_ns;
     std::optional<std::uint64_t> pending_animation_finish_sequence;
@@ -184,6 +207,7 @@ struct ClientApplication::Impl {
     bool force_frame_capture{};
     std::function<bool()> on_close_requested;
     std::function<void(std::string_view)> on_action;
+    runtime::ControlValueDelivery control_delivery;
     std::function<void(std::string_view, std::string_view)> on_text_edit;
     std::function<void(const contracts::GestureEvent &)> on_gesture;
 

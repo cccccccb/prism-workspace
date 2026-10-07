@@ -8,7 +8,10 @@ void Scene::PrepareTextVisual(Node &node, SnapshotNode &item)
     auto &editor = node.editor;
     const auto &text = editor.Text();
     const double padding = node.style.padding;
-    const double height = std::max(1.0, node.style.font_size * 1.5);
+    const double font_height = shaper_("Mg", node.style.font_size).height;
+    const double requested =
+        node.style.line_height > 0 ? node.style.line_height : node.style.font_size * 1.5;
+    const double height = std::max({1.0, font_height, requested});
     const double space = std::max(1.0, shaper_(" ", node.style.font_size).width);
     const double width = std::max(1.0, node.bounds.width - 2 * padding);
     const double view_height = std::max(height, node.bounds.height - 2 * padding);
@@ -83,6 +86,9 @@ void Scene::PrepareTextVisual(Node &node, SnapshotNode &item)
         for (auto glyph : shaped.glyphs) {
             glyph.origin.x += cell.x;
             glyph.origin.y += cell.y;
+            if (node.style.line_height > 0) {
+                glyph.origin.y += (height - shaped.height) / 2;
+            }
             item.shaped.glyphs.push_back(glyph);
         }
     }

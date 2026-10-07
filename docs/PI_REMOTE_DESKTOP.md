@@ -1,7 +1,7 @@
 # Pi 远程桌面：Headless Prism + WayVNC
 
 此方案创建独立的 Prism headless 会话，供 Windows 上的 TigerVNC 通过 SSH 隧道访问。
-已安装 v18 的现场输出 `HEADLESS-1` 为 1280×720、90 Hz。
+当前正式会话的输出 `HEADLESS-1` 为 1280×720、90 Hz；最新部署记录见本文末尾。
 它不是 HDMI 画面的镜像。`prism-demo@.service` 物理显示单元保持原样；同一用户启动
 `prism-remote@.service` 时，systemd 的 `Conflicts=` 会停止该用户的物理 demo 单元。
 不要同时从显示管理器或命令行另起同一用户的 Prism 会话；固定的 Wayland socket 和
@@ -255,3 +255,30 @@ loopback 5900 和 Viewer 本地箭头。工作区 1 为 Music + Preferences 双�
 相关模块预算测试与代码规范检查通过；更广泛负载下的启动可靠性不据此作保证。
 构建、失败日志、最终启动日志、窗口树、状态及截图位于
 `dist/validation/prism-v22-deploy/`。
+
+### v26 界面系统与C连接颈部署（2026-10-07）
+
+正式包：`dist/deb/prism-wm_0.1.0-26_arm64.deb`，SHA-256：
+`a9369b9a6ae4cd9d097d4279d9f1bc81e0facc634027c8cc18a6d61a641104d7`。
+此包包含4k3原生Popup背景效果、续帧/内部焦点输入修复、Preferences真实View菜单
+及用户选定的[圆润收尖C配方](design/interface-system/README.md)。主题默认连接颈
+为64×20，三圆润材质使用连续曲线，Square的radius=0使用直线三角。
+
+部署过程：v23发现根裁剪影响原生菜单导出，v24将普通内容clip与浮层分开；用户
+认为平顶太扁，未认可外观。v25新增形状接口但实机仍过尖；三份提案中选定C后，
+v26重做整段曲线。以上自动验证与提案选择不替代最终实机视觉确认。
+
+相关CTest **11/11**、代码规范及Skill校验通过。生产包不含测试/probe/ImGui，
+安装的DSL与四主题和源码一致；WM依赖/符号边界审计通过，`dpkg -V prism-wm`
+无差异。旧进程和socket已回收；两个remote服务active/enabled，Shell与Music、
+Preferences完成V3D首帧，工作区1保留Music和Preferences双窗。
+
+继续使用1280×720@90Hz、WayVNC上限120FPS、loopback5900、Windows本地箭头和
+原SSH隧道。实际RFB检查Glass明暗、Square、Menu命令/外点/Esc正常；最终呈现
+Glass Dark的C菜单。WM commit_failures、effect failed_regions/invalid_regions、
+mask_failures均为0，mask_builds=6。此记录是功能检查，不是FPS测量。
+
+headless启动仍有wlroots的`Failed to get backend DRM FD`日志，V3D实际首帧正常。
+右输出边缘的菜单阴影仍受屏幕边界限制；本次未重做定位避让。最终颈部外观等待
+用户确认。安装、检查、状态、启动日志及实际截图位于
+`dist/validation/prism-v26-deploy/`。

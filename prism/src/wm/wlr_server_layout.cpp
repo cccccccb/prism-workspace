@@ -173,6 +173,7 @@ void WlrServer::HandleOutputLayoutChange(wl_listener *listener, void *)
 {
     auto *signals =
         WlContainerOf<WlrServerSignals>(listener, offsetof(WlrServerSignals, output_layout_change));
+    signals->server->CloseXdgPopups();
     signals->server->ArrangeXdgViews();
 }
 

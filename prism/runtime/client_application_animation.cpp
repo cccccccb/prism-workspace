@@ -14,10 +14,43 @@ void PushAnimationCommand(ClientRenderBridge &bridge, runtime::RenderCommand com
     bridge.terminal.Fail(runtime::TerminalReason::CommandQueueFailure);
     throw std::runtime_error("Animation render command queue unavailable");
 }
+
+bool SameImageUses(const std::shared_ptr<const std::vector<runtime::ImageVersion>> &a,
+                   const std::shared_ptr<const std::vector<runtime::ImageVersion>> &b) noexcept
+{
+    return a == b || (a && b && *a == *b);
+}
 } // namespace
+
+bool ClientApplication::Impl::HasUnsubmittedPopupPixels() const noexcept
+{
+    const auto next = queued_frame ? queued_frame->popup_surface_frame : nullptr;
+    if (!next || !next->plan || !next->plan->display_list) {
+        return false;
+    }
+    const auto old = ui_popup_submitted_frame;
+    if (!old || !old->plan || !old->plan->display_list) {
+        return true;
+    }
+
+    return next->ui != old->ui || next->worker != old->worker ||
+           next->identity.worker != old->identity.worker ||
+           next->identity.target != old->identity.target ||
+           next->identity.lifetime != old->identity.lifetime ||
+           next->identity.configure_generation != old->identity.configure_generation ||
+           next->resource_epoch != old->resource_epoch ||
+           next->plan->buffer_size.width != old->plan->buffer_size.width ||
+           next->plan->buffer_size.height != old->plan->buffer_size.height ||
+           next->plan->window_geometry != old->plan->window_geometry ||
+           next->plan->display_list->commands != old->plan->display_list->commands ||
+           !SameImageUses(next->image_uses, old->image_uses);
+}
 
 bool ClientApplication::Impl::HasUnsubmittedPixels() const noexcept
 {
+    if (HasUnsubmittedPopupPixels()) {
+        return true;
+    }
     if (!queued_frame || !queued_frame->display_list) {
         return false;
     }
@@ -25,9 +58,12 @@ bool ClientApplication::Impl::HasUnsubmittedPixels() const noexcept
         return true;
     }
 
+    const auto metadata = ui_root_metadata_frame ? ui_root_metadata_frame : ui_submitted_frame;
     return queued_frame->ui != ui_submitted_frame->ui ||
-           queued_frame->configure_count != ui_submitted_frame->configure_count ||
-           queued_frame->pixels_revision != ui_submitted_frame->pixels_revision ||
+           queued_frame->configure_count != metadata->configure_count ||
+           queued_frame->display_list != ui_submitted_frame->display_list ||
+           queued_frame->resource_epoch != ui_submitted_frame->resource_epoch ||
+           !SameImageUses(queued_frame->image_uses, ui_submitted_frame->image_uses) ||
            queued_frame->buffer_size.width != ui_submitted_frame->buffer_size.width ||
            queued_frame->buffer_size.height != ui_submitted_frame->buffer_size.height ||
            queued_frame->scale != ui_submitted_frame->scale;

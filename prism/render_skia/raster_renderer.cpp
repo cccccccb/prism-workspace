@@ -1,4 +1,5 @@
 #include "prism/render_skia/raster_renderer.hpp"
+#include "contour_renderer_p.hpp"
 #include "image_provider_p.hpp"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkFont.h"
@@ -278,6 +279,12 @@ bool RasterRenderer::Replay(const contracts::DisplayList &list, SkCanvas *canvas
             }
         } else if (auto *icon = std::get_if<contracts::DrawIcon>(&command)) {
             ReplayIcon(canvas, *icon);
+        } else if (auto *fill = std::get_if<contracts::FillContour>(&command)) {
+            detail::ReplayContour(canvas, *fill);
+        } else if (auto *stroke = std::get_if<contracts::StrokeContour>(&command)) {
+            detail::ReplayContour(canvas, *stroke);
+        } else if (auto *shadow = std::get_if<contracts::ContourShadow>(&command)) {
+            detail::ReplayContour(canvas, *shadow);
         } else if (auto *run = std::get_if<contracts::DrawGlyphRun>(&command)) {
             SkFont font(resources.Font(run->font), static_cast<SkScalar>(run->font_size));
             auto paint = ColorPaint(run->color);
@@ -347,6 +354,8 @@ bool RasterRenderer::Replay(const contracts::DisplayList &list, SkCanvas *canvas
             SkRRect rounded;
             rounded.setRectXY(ToSkRect(clip->bounds), clip->radius, clip->radius);
             canvas->clipRRect(rounded, true);
+        } else if (auto *clip = std::get_if<contracts::PushClipContour>(&command)) {
+            detail::ReplayContourClip(canvas, *clip);
         } else if (auto *transform = std::get_if<contracts::PushTransform>(&command)) {
             canvas->save();
             canvas->concat(detail::TransformMatrix(*transform));

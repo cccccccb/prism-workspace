@@ -16,7 +16,7 @@ endforeach()
 pkg_check_modules(PRISM_FONTCONFIG REQUIRED IMPORTED_TARGET fontconfig)
 pkg_check_modules(PRISM_SKIA_PNG REQUIRED IMPORTED_TARGET libpng)
 add_library(prism_skia_raster STATIC raster_renderer.cpp resource_table.cpp
-    render_geometry.cpp display_list_damage.cpp opacity_layers.cpp)
+    render_geometry.cpp display_list_damage.cpp opacity_layers.cpp contour_renderer.cpp)
 target_include_directories(prism_skia_raster PRIVATE "${PRISM_SKIA_ROOT}")
 target_include_directories(prism_skia_raster PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
 target_link_libraries(prism_skia_raster PUBLIC prism_client_scene prism_display_list_contract

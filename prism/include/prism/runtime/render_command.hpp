@@ -2,6 +2,7 @@
 
 #include "prism/runtime/frame_packet.hpp"
 #include "prism/runtime/image_resources.hpp"
+#include "prism/runtime/popup_frame.hpp"
 #include "prism/runtime/render_resource.hpp"
 #include "prism/runtime/render_worker_lifecycle.hpp"
 
@@ -75,7 +76,8 @@ struct AcceptCloseCommand {};
 using RenderCommand =
     std::variant<FrameCommand, InstallUiCommand, InvalidateFrameCommand, RequestRenderCommand,
                  UiEventsProcessedCommand, RegisterImageCommand, ReleaseImageCommand,
-                 SetAnimationSamplingCommand, AnswerFrameOpportunityCommand, AcceptCloseCommand>;
+                 SetAnimationSamplingCommand, AnswerFrameOpportunityCommand, RejectPopupCommand,
+                 AcceptCloseCommand>;
 
 inline bool ReplaceFrameTail(const RenderCommand &older, const RenderCommand &newer) noexcept
 {

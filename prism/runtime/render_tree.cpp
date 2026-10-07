@@ -1,4 +1,5 @@
 #include "prism/runtime/render_tree.hpp"
+#include "prism/contracts/rounded_region.hpp"
 #include <algorithm>
 #include <stdexcept>
 
@@ -7,6 +8,12 @@ namespace {
 bool SameBounds(contracts::LogicalRect a, contracts::LogicalRect b)
 {
     return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
+}
+
+bool SameContour(const std::shared_ptr<const contracts::Contour> &a,
+                 const std::shared_ptr<const contracts::Contour> &b)
+{
+    return a == b || (a && b && *a == *b);
 }
 
 void CollectVisibility(const SceneSnapshot &snapshot, std::vector<bool> &visible,
@@ -45,18 +52,26 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot &snapshot, const RenderT
         }
         if (old && old->source_revision == source.revision &&
             SameBounds(old->bounds, source.bounds) && old->children == source.children &&
-            old->visible == visible[source.id.index] && old->presentation == source.presentation) {
+            old->visible == visible[source.id.index] && old->presentation == source.presentation &&
+            SameContour(old->contour, source.contour)) {
             tree.nodes.push_back(*old);
+            tree.nodes.back().contour = source.contour;
             continue;
         }
+        const auto radius =
+            source.contour ? 0
+                           : contracts::NormalizeRoundedRegion({source.bounds, source.style.radius})
+                                 .corner_radius;
         RenderNode node;
         node.id = source.id;
         node.bounds = source.bounds;
+        node.contour = source.contour;
         node.visible = visible[source.id.index];
-        node.clip =
-            source.style.clip || source.kind == Kind::TextField || source.kind == Kind::TextArea;
+        node.clip = source.style.clip || IsPopupKind(source.kind) ||
+                    source.kind == Kind::ScrollView || source.kind == Kind::TextField ||
+                    source.kind == Kind::TextArea;
         node.clip = node.clip || source.style.overflow == "clip";
-        node.clip_radius = source.style.radius;
+        node.clip_radius = radius;
         node.presentation_scope = source.kind == Kind::Visual;
         node.presentation = source.presentation;
         node.children = source.children;
@@ -68,36 +83,35 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot &snapshot, const RenderT
             continue;
         }
         if (source.style.shadow_color.a && source.style.shadow_blur > 0) {
-            node.visuals.emplace_back(ShadowVisual{source.style.radius, source.style.shadow_blur,
+            node.visuals.emplace_back(ShadowVisual{radius, source.style.shadow_blur,
                                                    source.style.shadow_y, source.style.shadow_color,
                                                    false});
         }
         if (source.style.background.a || source.kind == Kind::Visual) {
-            if (source.style.radius > 0) {
-                node.visuals.emplace_back(
-                    RoundedRectVisual{source.style.radius, source.style.background});
+            if (radius > 0) {
+                node.visuals.emplace_back(RoundedRectVisual{radius, source.style.background});
             } else {
                 node.visuals.emplace_back(RectVisual{source.style.background});
             }
         }
-        if (source.kind != Kind::InteractionTarget && source.interaction.hovered &&
-            snapshot.controls.hover.a) {
-            node.visuals.emplace_back(
-                RoundedRectVisual{source.style.radius, snapshot.controls.hover});
+        if (!IsPopupKind(source.kind) && !IsInteractionOwner(source.kind) &&
+            source.interaction.hovered && snapshot.controls.hover.a) {
+            node.visuals.emplace_back(RoundedRectVisual{radius, snapshot.controls.hover});
         }
         if (source.style.inner_shadow_color.a && source.style.inner_shadow_blur > 0) {
-            node.visuals.emplace_back(
-                ShadowVisual{source.style.radius, source.style.inner_shadow_blur,
-                             source.style.inner_shadow_y, source.style.inner_shadow_color, true});
+            node.visuals.emplace_back(ShadowVisual{radius, source.style.inner_shadow_blur,
+                                                   source.style.inner_shadow_y,
+                                                   source.style.inner_shadow_color, true});
         }
         if (source.style.border_width > 0 && source.style.border_color.a) {
-            node.visuals.emplace_back(BorderVisual{source.style.radius, source.style.border_width,
-                                                   source.style.border_color});
+            node.visuals.emplace_back(
+                BorderVisual{radius, source.style.border_width, source.style.border_color});
         }
-        if (source.kind != Kind::InteractionTarget && source.interaction.focusVisible &&
-            snapshot.controls.focus_width > 0 && snapshot.controls.focus.a) {
-            node.visuals.emplace_back(BorderVisual{
-                source.style.radius, snapshot.controls.focus_width, snapshot.controls.focus});
+        if (!IsPopupKind(source.kind) && !IsInteractionOwner(source.kind) &&
+            source.interaction.focusVisible && snapshot.controls.focus_width > 0 &&
+            snapshot.controls.focus.a) {
+            node.visuals.emplace_back(
+                BorderVisual{radius, snapshot.controls.focus_width, snapshot.controls.focus});
         }
 
         const bool editor = source.kind == Kind::TextField || source.kind == Kind::TextArea;
@@ -138,7 +152,7 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot &snapshot, const RenderT
         }
         if (source.kind == Kind::Progress) {
             node.visuals.emplace_back(
-                ProgressVisual{source.value, source.style.radius, source.style.foreground});
+                ProgressVisual{source.value, radius, source.style.foreground});
         }
         if (source.kind == Kind::Toggle) {
             node.visuals.emplace_back(

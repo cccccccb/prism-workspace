@@ -1,5 +1,6 @@
 #pragma once
 #include "prism/contracts/damage.hpp"
+#include "prism/contracts/gpu_target.hpp"
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <optional>
@@ -10,6 +11,7 @@ struct wl_surface;
 struct wl_egl_window;
 
 namespace prism::platform {
+class WaylandEglContext;
 
 struct EglDamageCapabilities {
     // Usable preservation, not merely an advertised query attribute. KHR-only
@@ -21,15 +23,18 @@ struct EglDamageCapabilities {
 
 enum class DamageRegionResult { Applied, Unsupported, Failed };
 
-// WSI owns GPU buffers and wl_buffer handoff. Use only on the Wayland/UI thread.
+// WSI owns GPU buffers and wl_buffer handoff. It borrows the shared context;
+// all operations remain on that context's render owner thread.
 class WaylandEglSurface {
 public:
     WaylandEglSurface() = default;
     ~WaylandEglSurface();
     WaylandEglSurface(const WaylandEglSurface &) = delete;
     WaylandEglSurface &operator=(const WaylandEglSurface &) = delete;
+    WaylandEglSurface(WaylandEglSurface &&) = delete;
+    WaylandEglSurface &operator=(WaylandEglSurface &&) = delete;
 
-    bool Open(wl_display *display, wl_surface *surface, int width, int height);
+    bool Open(WaylandEglContext &, wl_surface *, int width, int height);
     bool Resize(int width, int height);
     bool MakeCurrent();
 
@@ -52,29 +57,31 @@ public:
     // must not be retried with a second posting operation.
     bool Swap(const contracts::DamageRegion &content_damage);
     bool Swap();
-    void Close();
+    void Close() noexcept;
     std::string GlVendor() const;
     std::string GlRenderer() const;
     std::string GlVersion() const;
 
-    bool Ready() const
+    bool Ready() const noexcept;
+
+    contracts::GpuTargetIdentity TargetIdentity() const noexcept
     {
-        return egl_surface_ != EGL_NO_SURFACE;
+        return target_identity_;
     }
 
 private:
+    friend class WaylandEglContext;
     bool QueryDimensions(EGLint &width, EGLint &height) const;
     void DiscoverDamageCapabilities();
+    DamageRegionResult FailFrame() noexcept;
 
-    EGLDisplay egl_display_{EGL_NO_DISPLAY};
-    EGLContext egl_context_{EGL_NO_CONTEXT};
+    WaylandEglContext *owner_{};
+    contracts::GpuTargetIdentity target_identity_{};
     EGLSurface egl_surface_{EGL_NO_SURFACE};
     wl_egl_window *egl_window_{nullptr};
     int width_{0};
     int height_{0};
     EglDamageCapabilities capabilities_{};
-    PFNEGLSWAPBUFFERSWITHDAMAGEKHRPROC swap_damage_{nullptr};
-    PFNEGLSETDAMAGEREGIONKHRPROC set_damage_region_{nullptr};
     std::optional<int> frame_buffer_age_;
     bool frame_dimensions_match_{false};
     bool force_full_buffer_age_{true};

@@ -23,6 +23,11 @@ add_library(prism_wayland_client STATIC
     wayland_window_events.cpp
     wayland_window_keyboard.cpp
     wayland_window_touch.cpp
+    wayland_popup.cpp
+    wayland_popup_submit.cpp
+    wayland_popup_input.cpp
+    wayland_popup_effects.cpp
+    wayland_window_input_target.cpp
     "${PRESENTATION_HEADER}"
     "${PRESENTATION_CODE}"
     "${XDG_CLIENT_HEADER}"
@@ -34,13 +39,26 @@ target_include_directories(prism_wayland_client PUBLIC
     ${XKBCOMMON_INCLUDE_DIRS}
     PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(prism_wayland_client PUBLIC prism_contracts
-    prism_surface_protocol ${WAYLAND_CLIENT_LIBRARIES} ${XKBCOMMON_LIBRARIES})
+    prism_popup_positioner_contract
+    prism_surface_effect_contract prism_surface_protocol
+    ${WAYLAND_CLIENT_LIBRARIES} ${XKBCOMMON_LIBRARIES})
 
 if(PRISM_ENABLE_GLES)
+    pkg_check_modules(PRISM_EGL_WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
+    include(CheckSymbolExists)
+    include(CMakePushCheckState)
+    cmake_push_check_state(RESET)
+    set(CMAKE_REQUIRED_LIBRARIES PkgConfig::PRISM_EGL_WAYLAND_CLIENT)
+    check_symbol_exists(wl_proxy_get_display "wayland-client-core.h"
+        PRISM_HAS_WL_PROXY_GET_DISPLAY)
+    cmake_pop_check_state()
+    if(NOT PRISM_HAS_WL_PROXY_GET_DISPLAY)
+        message(FATAL_ERROR "Prism GLES requires wl_proxy_get_display for surface connection validation")
+    endif()
     pkg_check_modules(PRISM_WAYLAND_EGL REQUIRED IMPORTED_TARGET wayland-egl)
     pkg_check_modules(PRISM_EGL REQUIRED IMPORTED_TARGET egl)
     pkg_check_modules(PRISM_GLES REQUIRED IMPORTED_TARGET glesv2)
-    add_library(prism_wayland_egl STATIC wayland_egl_surface.cpp)
+    add_library(prism_wayland_egl STATIC wayland_egl_context.cpp wayland_egl_surface.cpp)
     target_include_directories(prism_wayland_egl PUBLIC "${CMAKE_SOURCE_DIR}/prism/include")
     target_link_libraries(prism_wayland_egl PUBLIC
         prism_wayland_client PkgConfig::PRISM_EGL PkgConfig::PRISM_WAYLAND_EGL PkgConfig::PRISM_GLES)

@@ -48,6 +48,12 @@ def run(build, evidence, gates=()):
                                             env["WAYLAND_DISPLAY"]]),
                     ("sdk-input-animation", [str(build / "tests/sdk_input_animation_probe"),
                                              env["WAYLAND_DISPLAY"]]),
+                    ("shared-gpu-targets", [str(build / "tests/wayland_shared_egl_probe"),
+                                            env["WAYLAND_DISPLAY"]]),
+                    ("scene-popup-surface", [str(build / "tests/scene_popup_surface_probe"),
+                                            env["WAYLAND_DISPLAY"], str(root)]),
+                    ("sdk-popup-surface", [str(build / "tests/sdk_popup_surface_probe"),
+                                          env["WAYLAND_DISPLAY"], str(root)]),
                 ]
                 if gates:
                     names = {name for name, _ in commands}

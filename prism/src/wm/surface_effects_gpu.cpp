@@ -42,10 +42,17 @@ std::unique_ptr<Buffer> SurfaceEffects::Impl::Allocate(int width, int height)
 }
 
 bool SurfaceEffects::Impl::Draw(Buffer &target, Buffer &source, GLuint program, int width,
-                                int height, const Region *region, double padding,
-                                const contracts::ThemeDecoration *decoration)
+                                int height, const Region *region, double origin_x, double origin_y,
+                                const contracts::ThemeDecoration *decoration, Paint *paint)
 {
     ++counters.material_pass_attempts;
+    if (region && region->contour) {
+        if (!paint || !paint->mask || !paint->mask->texture) {
+            ++counters.mask_failures;
+            return false;
+        }
+    }
+
     auto *pass = wlr_renderer_begin_buffer_pass(renderer, target.buffer, nullptr);
     if (!pass) {
         return false;
@@ -69,8 +76,17 @@ bool SurfaceEffects::Impl::Draw(Buffer &target, Buffer &source, GLuint program, 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glUniform1i(glGetUniformLocation(program, "image"), 0);
     if (region) {
+        const bool contour = region->contour.has_value();
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, contour ? paint->mask->texture : 0);
+        glUniform1i(glGetUniformLocation(program, "contour_mask"), 1);
+        glUniform1f(glGetUniformLocation(program, "contour_enabled"), contour ? 1 : 0);
+        glActiveTexture(GL_TEXTURE0);
         glUniform2f(glGetUniformLocation(program, "size"), width, height);
-        glUniform4f(glGetUniformLocation(program, "box"), padding, padding, region->bounds.width,
+        glUniform2f(glGetUniformLocation(program, "image_uv_scale"),
+                    double(width) / (2 * source.buffer->width),
+                    double(height) / (2 * source.buffer->height));
+        glUniform4f(glGetUniformLocation(program, "box"), origin_x, origin_y, region->bounds.width,
                     region->bounds.height);
         glUniform1f(
             glGetUniformLocation(program, "radius"),
@@ -97,6 +113,9 @@ bool SurfaceEffects::Impl::Draw(Buffer &target, Buffer &source, GLuint program, 
     glDisableVertexAttribArray(0);
 
     glUseProgram(0);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, 0);
 
     bool ok = glGetError() == GL_NO_ERROR;

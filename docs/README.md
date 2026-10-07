@@ -19,10 +19,15 @@
 Skill 与参考资料只有一份正文，统一在仓库维护。人和 AI 使用相同规范；详细指南区分
 当前已支持的接口与待实现能力，开发时仍需核对所使用版本的契约和 schema。
 
+[文字行高与控件状态配方](INTERFACE_CONTROLS_AND_TYPOGRAPHY.md)：lineHeight、共享状态 token 与独立验证样例。
+
 ## 当前契约与实现规范
 
 | 领域 | 文档 |
 | --- | --- |
+| 界面系统设计与执行计划 | [INTERFACE_SYSTEM_PLAN](INTERFACE_SYSTEM_PLAN.md)（控件状态、浮层、文件任务、动效与能力差异） |
+| 界面系统视觉参考 | [图01—05与连接颈C方案](design/interface-system/README.md)（用户参考稿、修订选择及实机验收边界） |
+| 值控件交互契约 | [CONTROL_VALUE_CONTRACT](CONTROL_VALUE_CONTRACT.md)（值核心、Checkbox 与 Radio/Segment 已接入；Slider 待实现） |
 | 代码规范 | [CODING_STYLE](CODING_STYLE.md) |
 | 应用启动与进程边界 | [APP_LAUNCH_CONTRACT](APP_LAUNCH_CONTRACT.md)、[PROCESS_CONTRACTS](PROCESS_CONTRACTS.md) |
 | 统一 Host 与业务模块 | [APP_HOST_RUNTIME](APP_HOST_RUNTIME.md) |
@@ -32,6 +37,10 @@ Skill 与参考资料只有一份正文，统一在仓库维护。人和 AI 使�
 | 主题编写与切换 | [THEME_AUTHORING](THEME_AUTHORING.md)、[DSL_THEME_RUNTIME](DSL_THEME_RUNTIME.md) |
 | 材质与图片资源 | [SURFACE_MATERIALS](SURFACE_MATERIALS.md)、[IMAGE_RESOURCES](IMAGE_RESOURCES.md) |
 | 渲染调度与失效传播 | [RENDER_SCHEDULING_AND_INVALIDATION](RENDER_SCHEDULING_AND_INVALIDATION.md) |
+| 多 surface GPU 所有权 | [MULTI_SURFACE_GPU_CONTRACT](MULTI_SURFACE_GPU_CONTRACT.md)（共享 Context/Ganesh、独立 WSI/损伤/提交基线；Host 自动 child 随后接入） |
+| Popup surface 计划 | [POPUP_SURFACE_PLAN_CONTRACT](POPUP_SURFACE_PLAN_CONTRACT.md)（不可变导出、最终配置局部布局与功能 geometry/阴影 buffer 分离） |
+| Popup 原生背景效果 | [POPUP_BACKDROP_CONTRACT](POPUP_BACKDROP_CONTRACT.md)（v3 能力、父正文采样、坐标/损伤与首次清洁正文屏障） |
+| Popup 子层生命周期 | [POPUP_TARGET_LIFECYCLE](POPUP_TARGET_LIFECYCLE.md)（自动 native、可信输入、独立提交与聚合动画许可） |
 | 动画运行时与 DSL 契约 | [ANIMATION_RUNTIME_SPEC](ANIMATION_RUNTIME_SPEC.md)（Paint Transition、StateRule 与装饰呈现；保留层后续实施） |
 | 通用交互状态与桌面控制区 | [INTERACTION_AND_PRESENTATION_SPEC](INTERACTION_AND_PRESENTATION_SPEC.md)（固定 InteractionTarget、Visual、状态规则与 Shell 接入；成功提交输入快照、鼠标组沉浸与恢复；鼠标分隔线及窗口控制见专项计划，触屏交互延期） |
 | 独立动效文件与呈现适配 | [MOTION_PRESENTATION_SPEC](MOTION_PRESENTATION_SPEC.md)（MotionSet、Theme schema 3、命名 Transition、面板开合、单窗全屏/恢复及鼠标映射；共享边界协调与原生组沉浸过渡） |
@@ -72,3 +81,14 @@ Skill 与参考资料只有一份正文，统一在仓库维护。人和 AI 使�
 
 - [Concept B 已确认视觉基准](design/prism-concept-b/README.md)
 - [DSL 视口条件显示](DSL_VIEWPORT_CONDITIONS.md)
+
+纵向内容视口、裁剪、嵌套滚轮与焦点显露参见 [ScrollView 契约](SCROLL_VIEW_CONTRACT.md)。
+
+[Popup/Menu 定位与生命周期契约](POPUP_MENU_CONTRACT.md)：同窗口浮层、主题轮廓与
+4i 标准 xdg_popup 传输基础；Host 多 surface GPU/输入导出仍按阶段接入。
+4j 的 GPU 资源基础见[多 surface GPU 契约](MULTI_SURFACE_GPU_CONTRACT.md)。
+
+[圆角轮廓一致性](ROUNDED_REGION_CONTRACT.md)：逻辑命中、输入栅格、抗锯齿与 v1 模糊边界。
+
+[通用轮廓契约](SURFACE_CONTOUR_CONTRACT.md)：有界多边形、曲线准备、参数化面板配方、payload 和
+Skia 绘制/裁剪、Wayland v2 与 WM 遮罩，以及 Scene/DSL 局部路径、快照命中与输入交集。

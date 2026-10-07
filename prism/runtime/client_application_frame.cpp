@@ -1,12 +1,12 @@
 #include "client_application_p.hpp"
+#include "prism/runtime/popup_surface.hpp"
 #include <limits>
 #include <set>
 #include <variant>
 
 namespace prism::sdk {
-namespace {
 std::shared_ptr<const std::vector<runtime::ImageVersion>>
-CollectImageUses(const contracts::DisplayList &list, const runtime::ImageResources &resources)
+ClientApplication::Impl::CollectImageUses(const contracts::DisplayList &list) const
 {
     std::set<std::uint64_t> seen;
     std::vector<runtime::ImageVersion> uses;
@@ -24,7 +24,6 @@ CollectImageUses(const contracts::DisplayList &list, const runtime::ImageResourc
     }
     return std::make_shared<const std::vector<runtime::ImageVersion>>(std::move(uses));
 }
-} // namespace
 
 std::shared_ptr<const runtime::FramePacket>
 ClientApplication::Impl::CaptureFramePacket(bool pixels, contracts::BufferSize size, double scale,
@@ -43,7 +42,8 @@ ClientApplication::Impl::CaptureFramePacket(bool pixels, contracts::BufferSize s
     packet.buffer_size = size;
     packet.scale = scale;
 
-    if (pixels) {
+    if (pixels || runtime::Has(scene->PendingDirty(), runtime::Dirty::Layout) ||
+        runtime::Has(scene->PendingDirty(), runtime::Dirty::Paint)) {
         const auto dirty = scene->PendingDirty();
         if (!last_list || runtime::Has(dirty, runtime::Dirty::Layout) ||
             runtime::Has(dirty, runtime::Dirty::Paint)) {
@@ -53,8 +53,10 @@ ClientApplication::Impl::CaptureFramePacket(bool pixels, contracts::BufferSize s
                 next = scene->Build(contracts::WindowId{1});
             }
             if (next) {
-                last_list = std::make_shared<const contracts::DisplayList>(std::move(*next));
-                last_image_uses = CollectImageUses(*last_list, resources);
+                if (!last_list || last_list->commands != next->commands) {
+                    last_list = std::make_shared<const contracts::DisplayList>(std::move(*next));
+                }
+                last_image_uses = CollectImageUses(*last_list);
             }
         }
         if (!last_list) {
@@ -66,6 +68,21 @@ ClientApplication::Impl::CaptureFramePacket(bool pixels, contracts::BufferSize s
     // can consume this same immutable view without returning to the live Scene.
     packet.display_list = last_list;
     packet.image_uses = last_image_uses;
+    CapturePopupFrame(packet);
+    // A rejected native export can revoke an earlier adoption. Resolve its
+    // restored root fallback before publishing this same immutable sample.
+    if (runtime::Has(scene->PendingDirty(), runtime::Dirty::Layout) ||
+        runtime::Has(scene->PendingDirty(), runtime::Dirty::Paint)) {
+        if (auto next = scene->Build(contracts::WindowId{1})) {
+            if (!last_list || last_list->commands != next->commands) {
+                last_list = std::make_shared<const contracts::DisplayList>(std::move(*next));
+            }
+            last_image_uses = CollectImageUses(*last_list);
+        }
+        packet.display_list = last_list;
+        packet.image_uses = last_image_uses;
+        CapturePopupFrame(packet);
+    }
     packet.surface_effects = scene->SurfaceEffects();
     packet.input_regions = scene->InputRegions();
     packet.input_snapshot = scene->CaptureInputSnapshot();
