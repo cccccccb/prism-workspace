@@ -30,6 +30,11 @@ bool Scene::IsEnabled(const Node &node) const
 bool Scene::IsInteractive(contracts::NodeId id) const
 {
     const auto *node = Find(id);
+    for (const auto *parent = node; parent; parent = parent->parent) {
+        if (parent->kind == Kind::Tooltip) {
+            return false;
+        }
+    }
     return node && InOwnerModalScope(*node) && IsVisible(*node) && IsEnabled(*node) &&
            (!IsChoiceOption(node->kind) || !node->parent->selected_key.empty()) &&
            (!InputAction(*node).empty() || node->kind == Kind::InteractionTarget ||
@@ -251,6 +256,8 @@ void Scene::RefreshInputGeometry() noexcept
 bool Scene::CancelInput()
 {
     const auto previous_pixels = pixels_revision_;
+    HideTooltip();
+    tooltip_state_->blocked = {};
     for (std::size_t i = 0; i < input_state_->sliders.size(); ++i) {
         FinishSlider(i, ValueCancelReason::Unavailable);
     }
@@ -367,6 +374,7 @@ bool Scene::MoveInputFocus(std::uint64_t seat, bool reverse, const InputSnapshot
 
 bool Scene::FocusNext()
 {
+    tooltip_state_->prefer_keyboard = true;
     MoveInputFocus(0, false);
     return RefreshInputStates();
 }

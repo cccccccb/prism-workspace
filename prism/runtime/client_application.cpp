@@ -188,6 +188,7 @@ void ClientApplication::Impl::FailFrontend()
     RetireOwnerTasks(runtime::TaskCancelReason::FrontendFailed);
     RetireOwnerFeedback();
     if (scene) {
+        scene->HideTooltip();
         scene->CancelInput();
         CollectGestureEvents();
         CollectControlEvents();
@@ -280,6 +281,7 @@ bool ClientApplication::Pump(int timeout_ms, std::span<pollfd> wake_fds)
         }
         app.AdvanceAnimationDeadline();
         app.ReconcileOwnerFeedback();
+        app.ReconcileTooltip();
         app.PublishFramePacket();
         if (app.ui_work_turn_started) {
             timeout_ms = 0;
@@ -296,8 +298,9 @@ bool ClientApplication::Pump(int timeout_ms, std::span<pollfd> wake_fds)
         sources.push_back({app.bridge->terminal.Fd(), POLLIN, 0});
         sources.insert(sources.end(), wake_fds.begin(), wake_fds.end());
 
-        const int ready = poll(sources.data(), static_cast<nfds_t>(sources.size()),
-                               app.FeedbackTimeoutMs(app.AnimationTimeoutMs(timeout_ms)));
+        const int ready =
+            poll(sources.data(), static_cast<nfds_t>(sources.size()),
+                 app.TooltipTimeoutMs(app.FeedbackTimeoutMs(app.AnimationTimeoutMs(timeout_ms))));
         if (ready < 0 && errno != EINTR) {
             throw std::system_error(errno, std::generic_category(), "Client event poll");
         }
@@ -330,6 +333,7 @@ bool ClientApplication::Pump(int timeout_ms, std::span<pollfd> wake_fds)
         }
         app.AdvanceAnimationDeadline();
         app.ReconcileOwnerFeedback();
+        app.ReconcileTooltip();
         app.PublishFramePacket();
         return true;
     } catch (const std::exception &error) {

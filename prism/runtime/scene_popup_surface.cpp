@@ -64,6 +64,7 @@ SceneSnapshot Scene::CaptureResolvedSnapshot() const
         item.id = node->id;
         item.kind = node->kind;
         item.popup_anchor = node->popup_anchor;
+        item.tooltip_anchor = node->id == active_tooltip_ ? tooltip_anchor_ : contracts::NodeId{};
         item.parent = node->parent ? node->parent->id : contracts::NodeId{};
         item.style = node->style;
         item.style.visible = IsVisible(*node);

@@ -15,9 +15,9 @@
 此规范补充现有 Concept B 应用布局，不立即替换所有 Demo。设计图蓝色说明、
 Slider、跨窗口 Popup、系统文件服务及透视翻转均不能仅凭图示视为已支持。
 
-## 2. 源码能力核对（更新至6a）
+## 2. 源码能力核对（更新至6b1）
 
-以下为工作区源码能力；已安装的正式v26不包含5a—6a，部署记录另行确认。
+以下为工作区源码能力；已安装的正式v26不包含5a—6b1，部署记录另行确认。
 
 | 设计要求 | 当前依据 | 差距 / 实施入口 |
 | --- | --- | --- |
@@ -30,7 +30,8 @@ Slider、跨窗口 Popup、系统文件服务及透视翻转均不能仅凭图�
 | 应用内未保存确认 | OWNER_TASK_PROVIDER_CONTRACT、NOTEPAD_TASK_AND_CLOSE_CONTRACT | 共享Confirmation、owner局部模态及Notepad异步Close已接入 |
 | 系统文件任务 | FILE_TASK_PROVIDER_CONTRACT | 共享OpenFile/SaveFile/SelectDirectory单项选择已接入；业务仍负责真正读写，多选待实现 |
 | Owner轻量反馈 | OWNER_FEEDBACK_CONTRACT | 6a接入Info/Success/Error、恢复动作与可见期限；一条owner反馈，不是全局通知中心 |
-| 会话确认、Tooltip | 图04提案 | 6b独立定义受信入口与非抢焦点说明，不由反馈API取得系统权限 |
+| Tooltip | TOOLTIP_CONTRACT | 6b1独立只读DSL、悬停/键盘模式、一次截止、采用门禁；不创建Popup或模态 |
+| 会话确认 | SESSION_CONFIRMATION_CONTRACT | 6b1 typed关联与准备/采用契约；生产能力Unavailable，专用呈现与WM全会话屏障待接入 |
 | 下缘翻起与 owner 退后 | 有平移/缩放/透明度与 WM 呈现接口 | 透视、裁剪、命中、缓存和中断行为需新增能力；不得伪造 API |
 
 ## 3. 责任边界
@@ -1266,3 +1267,82 @@ diff及WM客户端符号/Qt依赖、Notepad模块前端依赖边界检查通过�
 正式版本仍为**0.1.0-26**。下一步6b先定义Tooltip与受信系统会话确认入口，再进入
 图05主题可定义的任务开合、owner退后/恢复和中断/reduced motion，继续复用现有
 时间驱动动画、任务身份与输入epoch，普通反馈不能代理系统会话授权。
+
+
+## 6b1：只读Tooltip与会话确认边界（2026-10-07）
+
+前序5a—6a已提交为`cfc7c2a`。按图04继续区分控件说明、业务反馈、owner局部确认
+与会话级确认，规范见[Tooltip](TOOLTIP_CONTRACT.md)和
+[会话确认](SESSION_CONFIRMATION_CONTRACT.md)。本步实现范围：
+
+1. 独立Tooltip DSL Kind与字面量唯一锚点、只读内容、准备/事务校验；与Popup/Menu
+   共用根末尾声明段，不继承PopupSession、原生surface或模态身份。
+2. Scene保留鼠标/键盘输入模式、单调一次截止与当前候选；等待真实采用的锚点几何。
+   输入层完全排除提示子树；绘制和窗口输入mask分别处理，不以无action代替穿透。
+3. Host沿现有Pump和不可变帧包推进，poll只取最早deadline，无固定tick、空帧循环
+   或另一个渲染线程。几何变化保持相同候选的绝对等待时间，实际位置变化再计时。
+4. Notepad新建/打开和Preferences View入口增加简短说明，图标、文字与页面布局
+   保持既有设计；只解释真实操作，不声明尚未实现的快捷键。
+5. 会话确认提供纯typed请求、呈现/输入epoch与双回执关联、单次终态和超时/退出
+   核心。当前生产availability恒为Unavailable；纯测试Ready不授予调用方权限，
+   ConfirmedIntent只记录意图，不等于授权结束会话或未保存内容已处理。
+6. DSL/直接Blueprint/事务、确定性时间与焦点、真实原生键鼠及安装边界分别验证。
+   native门槛使用独立临时WM和包；正式VNC仍为v26，结果不代替视觉/FPS验收。
+
+全会话确认后续由受信启动链发放专用presenter，接入WM输入屏障/撤销和身份有效的
+焦点恢复，复用supervisor私有通道及launcher已分配worker身份。同UID、app_id或
+模块自报role都不能代替受信admission；普通owner任务与反馈不增加会话权限。
+真实Ready要同时满足平台映射、屏障回执与匹配帧/输入采用。确认后的业务退出协商
+另行实现，不在本步连接关机、登出或强杀。图05任务开合/owner退后运动继续复用
+既有单调动画、任务身份及不可变快照，不以Tooltip的delay充当动画Timer。
+
+### 6b1验证结果
+
+生产目标、独立测试与原生probe构建通过。选定相关CTest **51/51**通过，包含新增
+DSL/Scene Tooltip和会话关联核心三项；不是全仓库CTest。Tooltip覆盖严格字面量、
+只读/UTF-8预算、主题/绑定事务、完整可读几何、夹紧/翻转定位、输入树与mask排除、
+鼠标/键盘模式、一次期限、旧快照、抑制跨布局、禁用/模态立即收回和generation隔离。
+真实Notepad的Slot准备可等待关键组件，最终Critical组合仍严格校验唯一锚点；缺失、
+重复或仅deferred区域提供锚点的组合明确拒绝，普通DSL准备不放宽校验。
+
+独立Wayland/V3D原生门槛 **23/23**通过：新增Tooltip **5**场景、真实Notepad文件/
+关闭 **4**场景、既有Provider **14**场景。Tooltip核对实际采用帧中的匹配glyph run、
+被动身份戳、整棵提示子树从输入节点排除、非空seat/编辑器焦点保持、不再点击即可
+继续输入、Esc抑制、Tab即时提示及原按钮恰好一次激活、真实文件任务优先与草稿保留。
+5次提示实际采用、1个非空焦点样本；不把内部active标志视为已经显示。原生使用
+Square Light、鼠标和键盘，未做全主题GPU视觉、触屏、用户外观或FPS验收。
+确定性测试负责精确期限，原生墙钟等待只检查抑制不复活。所有临时WM已回收。
+
+首次回归的Checkbox出现一次模块Start失败，原日志保留；未记录当时的具体诊断，
+因此不能断言原因。相同代码单项复测通过；补充失败诊断后，同组51项再次全部通过。
+本步没有更改生产模块加载/创建预算。初轮缺少测试链接、夹具先引用不存在的锚点和
+真实Notepad夹具缺主题的问题均已修正，保留初轮构建与测试记录，不以放宽正式校验
+来通过测试。
+
+最终规范检查 **473**生产/ **197**测试文件通过，最大生产文件734行；Skill和diff
+检查通过。只读审计21份安装脚本、62条来源及资源目录展开，无测试/probe/fixture
+混入安装；8份共享UI/应用DSL副本SHA匹配源。当前 **41**个有效静态archive的
+**255**个成员与独立对象一致，六个先前受影响对象及三个原生probe对象的readelf
+检查通过。WM无客户端前端符号/Qt依赖，Notepad模块无Wayland/EGL/GLES/Skia依赖。
+这些结果不证明前序派生产物损坏的环境原因已经根治，也不代替新deb的验证。
+
+证据在`dist/validation/interface-system-step6b1/`：`ctest-final.log`、三组原生
+`native-gates.json`、`style-final.log`、`package-audit.json`、archive及boundary审计。
+本步验证未执行打包或部署；正式VNC仍为 **0.1.0-26**。提交记录随后补入执行计划。
+
+### 后续主线的拆分
+
+6b2的受信会话呈现、WM输入屏障和焦点恢复独立推进；普通owner任务动效不依赖
+会话权限，下一主线进入图05的第7阶段，按以下顺序实现：
+
+1. **7a呈现生命周期**：区分任务业务状态与Opening/Open/Closing/Closed呈现状态。
+   完成/取消立即退休任务输入身份；需要退场时仅保留不可交互的视觉快照。定义快速
+   取消、重新打开、owner退出、尺寸/UI替换和主题切换的中断规则。
+2. **7b主题运动配方**：以主题或独立`.prism`声明面板开合、owner退后/恢复，复用
+   现有单调Clock、Pump、不可变帧与真实平移/缩放/透明度。稳定界面保持平直可读；
+   instant/reduced motion保留相同业务、输入与一次结果语义，不新增业务固定tick。
+3. **7c真实透视能力**：单独扩展projective变换、裁剪、逆映射、损伤与渲染后端契约，
+   再实现图稿翻起；2D缩放预备效果不能标记成透视已完成。复杂效果先核对实际帧时间。
+
+6b2接入前会话availability继续为Unavailable；真正登出/关机和业务退出协商仍是
+后续独立功能。每一步以匹配源码、对应测试和部署记录报告能力，保留已确认的图稿风格。

@@ -4,6 +4,12 @@ namespace prism::runtime {
 void Scene::ApplyCachedProperty(Node &node, DslProperty id, const PropertyValue &value)
 {
     switch (id) {
+    case DslProperty::TooltipFor:
+        node.tooltip_for = std::get<std::string>(value);
+        break;
+    case DslProperty::TooltipDelayMs:
+        node.tooltip_delay_ms = std::get<double>(value);
+        break;
     case DslProperty::PopupFor:
         node.popup_for = std::get<std::string>(value);
         break;
@@ -202,6 +208,10 @@ void Scene::ApplyCachedProperty(Node &node, DslProperty id, const PropertyValue 
 PropertyValue Scene::CurrentProperty(const Node &node, DslProperty id) const
 {
     switch (id) {
+    case DslProperty::TooltipFor:
+        return node.tooltip_for;
+    case DslProperty::TooltipDelayMs:
+        return node.tooltip_delay_ms;
     case DslProperty::PopupFor:
         return node.popup_for;
     case DslProperty::ScrollSpeed:

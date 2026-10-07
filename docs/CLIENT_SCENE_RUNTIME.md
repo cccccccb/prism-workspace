@@ -355,3 +355,13 @@ source.seat查询键盘焦点，不按focus记录的先后顺序选择编辑器�
 
 反馈内容替换使用独立ReplaceRegions，保持MountRegions只能首次安装的规则。事务先准备与验证再提交，保留正文节点与输入状态；复用空节点槽位并推进generation，旧输入不能激活新节点。
 细节与版本边界见[Owner轻量反馈契约](OWNER_FEEDBACK_CONTRACT.md)。
+
+
+## 6b1：只读Tooltip
+
+`Tooltip`独立于Popup/Menu。Scene维护被采用锚点、输入模式、当前候选与一次截止，
+`ReconcileTooltip(now)`使用单调时间；`NextTooltipDeadlineNs()`只在几何可用时返回
+等待期限，SDK现有poll与帧包负责调度。提示子树不进入InputSnapshot节点树、命中、
+焦点和surface输入区域；被动`tooltip_node/tooltip_anchor`只是呈现关联，不是可操作
+节点或权限。无法完整定位或阅读的提示不显示。开合、按下/取消、模态、尺寸/主题、
+节点generation与采用关系详见[Tooltip契约](TOOLTIP_CONTRACT.md)。

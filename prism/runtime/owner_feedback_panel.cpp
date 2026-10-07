@@ -8,7 +8,8 @@ namespace prism::runtime {
 namespace {
 void ValidateAction(const PropertyAssignment &property)
 {
-    if (property.id != DslProperty::Action && property.id != DslProperty::PopupFor) {
+    if (property.id != DslProperty::Action && property.id != DslProperty::PopupFor &&
+        property.id != DslProperty::TooltipFor) {
         return;
     }
     if (const auto *value = std::get_if<std::string>(&property.value);
@@ -19,7 +20,7 @@ void ValidateAction(const PropertyAssignment &property)
 
 void ValidateShared(const Blueprint &node, std::size_t &count, std::size_t depth = 1)
 {
-    if (++count > 8192 || depth > 64 || !node.region.empty() || IsPopupKind(node.kind) ||
+    if (++count > 8192 || depth > 64 || !node.region.empty() || IsFloatingKind(node.kind) ||
         node.kind == Kind::Image || node.gesture) {
         throw std::invalid_argument("Feedback panel requires a bounded resource-free tree");
     }
@@ -173,8 +174,9 @@ Blueprint ComposeOwnerFeedbackPanel(Blueprint app, const Blueprint &shared)
     wrapper.properties.push_back({DslProperty::Visible, false});
     wrapper.bindings.push_back({"__prism_feedback_visible", DslProperty::Visible});
     wrapper.children.push_back(PrepareShared(shared, nullptr, 0));
-    const auto popup = std::find_if(app.children.begin(), app.children.end(),
-                                    [](const Blueprint &child) { return IsPopupKind(child.kind); });
+    const auto popup =
+        std::find_if(app.children.begin(), app.children.end(),
+                     [](const Blueprint &child) { return IsFloatingKind(child.kind); });
     app.children.insert(popup, std::move(wrapper));
     std::size_t count = 0;
     ValidateBudget(app, count);

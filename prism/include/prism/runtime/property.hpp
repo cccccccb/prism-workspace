@@ -75,7 +75,9 @@ enum class DslProperty {
     ScrollSpeed,
     ScrollPart,
     PopupFor,
-    Last = PopupFor
+    TooltipFor,
+    TooltipDelayMs,
+    Last = TooltipDelayMs
 };
 using PropertyValue =
     std::variant<double, bool, std::string, contracts::Color, contracts::ResourceId>;

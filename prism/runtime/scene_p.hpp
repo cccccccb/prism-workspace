@@ -46,6 +46,8 @@ struct Scene::Node {
     NumberDomain number_domain;
     std::string slider_part;
     std::string popup_for;
+    std::string tooltip_for;
+    double tooltip_delay_ms{500};
     std::uint64_t popup_token{};
     contracts::NodeId popup_anchor;
     std::string scroll_part;
@@ -157,6 +159,24 @@ struct Scene::OwnerModalState {
     contracts::NodeId return_region;
     std::uint64_t token{}, seat{};
     std::vector<InputState::Focus> focus;
+};
+
+struct Scene::TooltipState {
+    struct Candidate {
+        contracts::NodeId tooltip, anchor;
+        contracts::InputSource source;
+        bool keyboard{};
+        bool operator==(const Candidate &) const = default;
+    };
+
+    Candidate candidate, blocked;
+    contracts::LogicalRect candidate_bounds{};
+    double candidate_delay_ms{};
+    std::optional<std::uint64_t> deadline;
+    std::uint64_t last_now{};
+    bool owner_available{true};
+    bool prefer_keyboard{};
+    bool mutating{};
 };
 
 struct Scene::AnimationState {

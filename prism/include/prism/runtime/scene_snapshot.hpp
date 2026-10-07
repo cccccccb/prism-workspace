@@ -13,6 +13,7 @@ struct SnapshotNode {
     contracts::NodeId id{};
     Kind kind{Kind::Box};
     contracts::NodeId popup_anchor;
+    contracts::NodeId tooltip_anchor;
     contracts::NodeId parent;
     Style style{};
     VisualPresentation presentation{};

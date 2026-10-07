@@ -7,6 +7,10 @@
 namespace prism::runtime {
 namespace {
 constexpr std::array properties{
+    PropertySpec{"tooltipFor", DslProperty::TooltipFor, DslValueType::String, Dirty::None,
+                 StoredValueType::String},
+    PropertySpec{"tooltipDelayMs", DslProperty::TooltipDelayMs, DslValueType::Number, Dirty::None,
+                 StoredValueType::Number, 0, 10000},
     PropertySpec{"popupFor", DslProperty::PopupFor, DslValueType::String, Dirty::None,
                  StoredValueType::String},
     PropertySpec{"scrollSpeed", DslProperty::ScrollSpeed, DslValueType::Number, Dirty::None,
@@ -155,6 +159,10 @@ constexpr auto visual =
     PropertyBit(DslProperty::Opacity) | PropertyBit(DslProperty::SliderPart) |
     PropertyBit(DslProperty::ScrollPart);
 constexpr std::array components{
+    ComponentSpec{"Tooltip", Kind::Tooltip, DslProperty::TooltipFor, true, true, false,
+                  container | PropertyBit(DslProperty::TooltipFor) |
+                      PropertyBit(DslProperty::TooltipDelayMs),
+                  0},
     ComponentSpec{"Menu", Kind::Menu, DslProperty::PopupFor, true, true, false,
                   container | PropertyBit(DslProperty::PopupFor), 0},
     ComponentSpec{"MenuItem", Kind::MenuItem, DslProperty::Action, false, true, false,
@@ -328,7 +336,7 @@ bool ValidPropertyValue(DslProperty id, const PropertyValue &value)
             return false;
         }
         if (id == DslProperty::OptionKey || id == DslProperty::SelectedKey ||
-            id == DslProperty::PopupFor) {
+            id == DslProperty::PopupFor || id == DslProperty::TooltipFor) {
             return text->size() <= 128 && text->find('\0') == std::string::npos &&
                    (id == DslProperty::SelectedKey || !text->empty());
         }

@@ -37,7 +37,9 @@ struct InputSnapshot {
     std::uint64_t scene{}; // Process-local Scene identity; node indices alone are not sufficient.
     std::uint64_t popup_token{};
     std::uint64_t owner_modal_epoch{}; // Advances on each owner-modal boundary, including close.
-    std::uint64_t version{};           // Nonzero and monotonic within one Scene.
+    // Passive presentation metadata. These nodes do not enter input geometry.
+    contracts::NodeId tooltip_node{}, tooltip_anchor{};
+    std::uint64_t version{}; // Nonzero and monotonic within one Scene.
     contracts::NodeId root{};
     contracts::LogicalSize viewport{};
     std::vector<InputSnapshotNode> nodes;

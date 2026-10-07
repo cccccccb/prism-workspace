@@ -1,6 +1,6 @@
 #include "prism/runtime/dsl_frontend.hpp"
 #include "dsl_contour_p.hpp"
-#include "load_plan_p.hpp"
+#include "dsl_tooltip_p.hpp"
 #include "prepared_component_p.hpp"
 #include "prism/compiler/error.hpp"
 #include "prism/contracts/motion.hpp"
@@ -320,7 +320,7 @@ private:
             }
         }
         if (spec->id == DslProperty::SliderPart || spec->id == DslProperty::ScrollPart ||
-            spec->id == DslProperty::PopupFor) {
+            spec->id == DslProperty::PopupFor || spec->id == DslProperty::TooltipFor) {
             const auto *part = std::get_if<std::string>(&value.data);
             if (!part || part->empty() || part->front() == '@') {
                 Error(line, "Visual part requires a literal role");
@@ -683,10 +683,30 @@ private:
 } // namespace
 
 PreparedComponent PrepareVisualSyntax(const SyntaxNode &syntax, ComponentSource source_info,
-                                      std::size_t source_bytes)
+                                      std::size_t source_bytes,
+                                      std::span<const PreparedRegionPlaceholder> pending_regions)
 {
     ComponentCompiler compiler(source_info);
     auto root = compiler.Convert(syntax);
+
+    for (const auto &placeholder : pending_regions) {
+        auto *node = &root;
+        for (const auto index : placeholder.node_path) {
+            if (index >= node->children.size()) {
+                throw LoadFailure({LoadStage::Semantic, source_info, node->line,
+                                   "Pending region path is outside the prepared tree"});
+            }
+            node = &node->children[index];
+        }
+        if (placeholder.region.empty() || node->kind != Kind::Box || !node->region.empty()) {
+            throw LoadFailure({LoadStage::Semantic, source_info, node->line,
+                               "Pending region requires a unique named Box"});
+        }
+        node->region = placeholder.region;
+        node->region_mounted = false;
+    }
+
+    ValidatePreparedTooltipTree(root, source_info, !pending_regions.empty());
     return PreparedComponentAccess::Make(std::move(source_info), std::move(root),
                                          compiler.TakeImages(), source_bytes, compiler.NodeCount());
 }

@@ -1,6 +1,6 @@
 # Prism 应用视觉设计参考
 
-更新：2026-10-04。依据当前主题包和客户端 DSL 契约编写。
+更新：2026-10-07。依据当前主题包和客户端 DSL 契约编写。
 设计尺度见 [字号、间距与页面配方](design-system.md)，动效与版本差异见
 [动效与坑点](motion-and-pitfalls.md)；普通设计任务无需先阅读旧应用源码。
 本文供应用作者与 AI 开发者设计界面使用，重点是视觉、布局与交互反馈；启动、模块
@@ -27,8 +27,9 @@ Prism 的默认方向是图标为主、文字为辅的简洁桌面。参考 mac-
 
 优先使用能解释动作的内建图标。例如 `play` 表示播放，`refresh` 表示刷新/重试，
 `heart` 表示收藏。陌生或有歧义的动作应附简短文字；纯图标不能替代操作含义。
-当前 DSL 没有 tooltip、ARIA、无障碍名称或自动本地化属性，不要声称相邻 Text 已
-自动成为 IconButton 的语义标签。
+6b1源码提供独立只读`Tooltip`，用于补充控件说明，依赖本步匹配Host/SDK；已安装v26
+不包含该能力。当前没有ARIA、无障碍名称或自动本地化属性，不要声称相邻Text或
+Tooltip已自动成为IconButton的语义标签。陌生和风险动作仍保留短标签。
 
 静态图标、清楚的选中标记与及时的结果反馈已足够表达首版交互。不要为了“精致”
 持续轮询、重复提交未变化内容或伪造 spinner 动画。
@@ -177,13 +178,41 @@ Card(material: "window", padding: "@window_padding", clip: true) {
 轮廓应与 WM `shape: "window"` 一致。局部按钮、封面装饰可以有自己的圆形/圆角，
 普通根覆写圆角则不能声称仍匹配全局窗口外框。
 
-有 root-last Popup/Menu 的窗口应把普通内容裁剪与浮层分开：根仍使用 `window`
-材质，普通内容容器声明 `clip: true`，Popup/Menu 放在其外、作为根末尾的兄弟。
+有 root-last Popup/Menu/Tooltip 的窗口应把普通内容裁剪与浮层分开：根仍使用 `window`
+材质，普通内容容器声明 `clip: true`，浮层放在其外、作为根末尾的兄弟。
 例如将上面的根改为 `Card(material: "window", padding: "@window_padding")`，
 其 `VStack` 改为 `VStack(spacing: 8, clip: true)`，再在 VStack 后声明 Menu。
 菜单自己的轮廓、内容裁剪和 ScrollView 保持。原生菜单可能连同阴影伸出父窗口；
 若继续裁剪整个根，Host 必须保留该裁剪语义并回退，不能为了 native 静默忽略它。
 检查真实菜单的最终 configure 导出及安装版本，不能仅用普通 Scene 截图判断能力。
+
+Tooltip始终留在本窗口Scene，不走native popup target，也不会增加surface输入区。
+它与Popup/Menu同属根末尾浮动段，普通内容须在该段前。提示仍尊重根clip和圆角；
+正文、当前字体或有效viewport无法完整容纳时隐藏，不压缩字号或回退成贴边交互面板。
+
+控件说明示例（一个根，action必须在整棵组合树中唯一）：
+
+```prism
+Card(material: "window", padding: "@window_padding") {
+    VStack {
+        IconButton("folder", action: "files:open", width: 32, height: 32, padding: 7,
+                   material: "control", foreground: "@text")
+        Text("Choose a document", font: "@font_body", foreground: "@mutedText")
+    }
+    Tooltip("files:open", width: 224, height: 44, tooltipDelayMs: 500, padding: 8,
+            background: "@surfaceRaised",
+            cornerRadius: "@control_state_radius", borderWidth: 1,
+            borderColor: "@controlOutline") {
+        Text("Open a UTF-8 text file", font: "@font_body", foreground: "@text")
+    }
+}
+```
+
+Tooltip不允许交互控件、action、Gesture、region、Contour、window材质或嵌套浮层。
+固定`tooltipFor`不能绑定或主题化；其全部Text合计最多256有效UTF-8字节。说明不自动
+折行；需要分行时用LF并提供完整尺寸。悬停使用一次性期限，键盘focusVisible触发，
+不抢焦点、不进Tab/命中树、不消费原控件点击。详细生命周期、尺寸与版本限制见
+[Tooltip契约](../../../TOOLTIP_CONTRACT.md)。
 
 圆润三角连接颈字段自v25支持；C造型需要匹配v26 Host及主题。声明
 `neckShape: "roundedTriangle"`，宽/高使用 `@panel_neck_width`/`@panel_neck_height`。
@@ -536,8 +565,11 @@ Card(height: 120, material: "card", padding: 8, clip: true) {
 | hover/pressed/capture/focus、Tab/Shift+Tab、Enter/Space | 源码已有统一状态；主按钮与键盘释放时激活，取消不触发 action；仍非完整无障碍系统 |
 | Interface v2 critical/deferred 与稳定 Slot | 已有；声明式加载顺序不是动画/滚动布局能力 |
 | 水平 Slider | 本轮源码可用；三个 sliderPart Visual、固定数值域，见值控件契约第 11 节 |
-| 通用滚动容器、虚拟列表 | 当前视觉 schema 未提供，不能写伪 API |
+| ScrollView、虚拟列表 | 源码支持纵向ScrollView，见滚动容器契约；不代表已有任意虚拟列表 |
 | TextField / TextArea | 工作区源码已补基础编辑；需新版 Host，v19 不包含；非完整 IME/系统剪贴板 |
+| Tooltip | 6b1源码已接入独立只读DSL/Scene；固定唯一锚点、显式宽高，需匹配Host/SDK；已安装v26不包含 |
+| 业务反馈与owner确认 | 共享Host typed接口，只具备owner范围；不会授权会话操作 |
+| 系统会话确认 | 6b1只有typed关联核心，生产availability始终Unavailable；普通应用没有创建入口，未接WM系统屏障或结束会话执行 |
 | CSS gradient/box-shadow、百分比尺寸、media query | 当前 DSL 未提供；使用现有类型化属性，Visual.opacity 也不是任意 CSS 样式 |
 | 自动换行/省略号/自动缩字、任意自定义字体属性 | 未提供对应声明式属性，不作隐式假设 |
 | Paint Transition 与单调帧时间 | 已有 Progress.value、指定 foreground，并扩展 Visual 的背景、平移/缩放/opacity；见[动画规范](../../../ANIMATION_RUNTIME_SPEC.md)，不代表旧部署包已有 |

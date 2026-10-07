@@ -1,4 +1,5 @@
 #include "prism/runtime/layout_engine.hpp"
+#include "prism/contracts/rounded_region.hpp"
 #include "prism/runtime/popup.hpp"
 #include <algorithm>
 #include <cmath>
@@ -22,7 +23,7 @@ double PadY(const Style &s)
 
 bool Container(Kind kind)
 {
-    return kind == Kind::Row || kind == Kind::Column || kind == Kind::Box || IsPopupKind(kind) ||
+    return kind == Kind::Row || kind == Kind::Column || kind == Kind::Box || IsFloatingKind(kind) ||
            IsInteractionOwner(kind) || IsChoiceGroup(kind) || kind == Kind::ScrollView ||
            kind == Kind::Visual;
 }
@@ -83,7 +84,8 @@ Size Measure(SceneSnapshot &snapshot, contracts::NodeId id, const ShapeText &sha
     } else {
         std::size_t visible_count = 0;
         for (auto child_id : node.children) {
-            if (!snapshot.Get(child_id).style.visible || IsPopupKind(snapshot.Get(child_id).kind)) {
+            if (!snapshot.Get(child_id).style.visible ||
+                IsFloatingKind(snapshot.Get(child_id).kind)) {
                 continue;
             }
             ++visible_count;
@@ -147,7 +149,7 @@ void Place(SceneSnapshot &snapshot, contracts::NodeId id, Rect bounds)
     }
     std::vector<contracts::NodeId> children;
     for (auto child : node.children) {
-        if (snapshot.Get(child).style.visible && !IsPopupKind(snapshot.Get(child).kind)) {
+        if (snapshot.Get(child).style.visible && !IsFloatingKind(snapshot.Get(child).kind)) {
             children.push_back(child);
         }
     }
@@ -179,7 +181,7 @@ void Place(SceneSnapshot &snapshot, contracts::NodeId id, Rect bounds)
         }
         return;
     }
-    if (node.kind == Kind::Box || IsPopupKind(node.kind) || IsInteractionOwner(node.kind) ||
+    if (node.kind == Kind::Box || IsFloatingKind(node.kind) || IsInteractionOwner(node.kind) ||
         node.kind == Kind::Visual) {
         double centered_width = 0;
         for (auto child_id : children) {
@@ -272,6 +274,151 @@ void Place(SceneSnapshot &snapshot, contracts::NodeId id, Rect bounds)
         cursor += lengths[i] + 2 * margin + gap;
     }
 }
+
+Rect ClippedAnchor(const SceneSnapshot &snapshot, contracts::NodeId id)
+{
+    auto anchor = snapshot.Get(id).bounds;
+    auto parent = snapshot.Get(id).parent;
+    while (parent) {
+        const auto &item = snapshot.Get(parent);
+        if (item.style.clip || item.style.overflow == "clip" || item.kind == Kind::ScrollView) {
+            const double right =
+                std::min(anchor.x + anchor.width, item.bounds.x + item.bounds.width);
+            const double bottom =
+                std::min(anchor.y + anchor.height, item.bounds.y + item.bounds.height);
+            anchor.x = std::max(anchor.x, item.bounds.x);
+            anchor.y = std::max(anchor.y, item.bounds.y);
+            anchor.width = std::max(0.0, right - anchor.x);
+            anchor.height = std::max(0.0, bottom - anchor.y);
+        }
+        parent = item.parent;
+    }
+    return anchor;
+}
+
+struct TooltipTransform {
+    double scale_x{1}, scale_y{1};
+    double translate_x{}, translate_y{};
+};
+
+Rect TransformBounds(Rect bounds, const TooltipTransform &transform)
+{
+    return {bounds.x * transform.scale_x + transform.translate_x,
+            bounds.y * transform.scale_y + transform.translate_y, bounds.width * transform.scale_x,
+            bounds.height * transform.scale_y};
+}
+
+bool TooltipContentsFit(const SceneSnapshot &snapshot, contracts::NodeId id,
+                        const SnapshotNode *parent = nullptr, TooltipTransform transform = {})
+{
+    const auto &node = snapshot.Get(id);
+    if (!node.style.visible) {
+        return true;
+    }
+    constexpr double epsilon = 0.001;
+    const auto parent_transform = transform;
+    if (node.kind == Kind::Visual) {
+        const auto &value = node.presentation;
+        const auto origin_x = node.bounds.x + node.bounds.width * value.origin_x;
+        const auto origin_y = node.bounds.y + node.bounds.height * value.origin_y;
+        transform.translate_x +=
+            transform.scale_x * (value.translate_x + origin_x * (1 - value.scale_x));
+        transform.translate_y +=
+            transform.scale_y * (value.translate_y + origin_y * (1 - value.scale_y));
+        transform.scale_x *= value.scale_x;
+        transform.scale_y *= value.scale_y;
+    }
+    const auto bounds = TransformBounds(node.bounds, transform);
+    if (bounds.width <= 0 || bounds.height <= 0) {
+        return false;
+    }
+    if (parent) {
+        const auto parent_bounds = TransformBounds(parent->bounds, parent_transform);
+        if (bounds.x + epsilon < parent_bounds.x || bounds.y + epsilon < parent_bounds.y ||
+            bounds.x + bounds.width > parent_bounds.x + parent_bounds.width + epsilon ||
+            bounds.y + bounds.height > parent_bounds.y + parent_bounds.height + epsilon) {
+            return false;
+        }
+        if (parent->kind == Kind::Tooltip || parent->style.clip ||
+            parent->style.overflow == "clip") {
+            const contracts::SurfaceInputRegion clip{parent->bounds, parent->style.radius};
+            for (const auto point :
+                 {contracts::LogicalPoint{bounds.x, bounds.y},
+                  contracts::LogicalPoint{bounds.x + bounds.width, bounds.y},
+                  contracts::LogicalPoint{bounds.x, bounds.y + bounds.height},
+                  contracts::LogicalPoint{bounds.x + bounds.width, bounds.y + bounds.height}}) {
+                const contracts::LogicalPoint local{
+                    (point.x - parent_transform.translate_x) / parent_transform.scale_x,
+                    (point.y - parent_transform.translate_y) / parent_transform.scale_y};
+                if (!contracts::RoundedRegionContains(local, clip, true)) {
+                    return false;
+                }
+            }
+        }
+    }
+    if (node.kind == Kind::Text &&
+        (node.shaped.width > node.bounds.width + epsilon ||
+         node.shaped.height > node.bounds.height + epsilon ||
+         (!node.text.empty() && (node.shaped.width <= 0 || node.shaped.height <= 0)))) {
+        return false;
+    }
+    for (const auto child : node.children) {
+        if (!TooltipContentsFit(snapshot, child, &node, transform)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool TooltipFitsRootClip(const SnapshotNode &root, Rect bounds)
+{
+    if (!root.style.clip && root.style.overflow != "clip") {
+        return true;
+    }
+    // Noninteractive hints cannot offer scrolling when an arbitrary authored
+    // polygon clips their content. Keep them hidden in that unsupported case.
+    if (root.contour_source || root.contour_spec) {
+        return false;
+    }
+    const contracts::SurfaceInputRegion clip{root.bounds, root.style.radius};
+    for (const auto point :
+         {contracts::LogicalPoint{bounds.x, bounds.y},
+          contracts::LogicalPoint{bounds.x + bounds.width, bounds.y},
+          contracts::LogicalPoint{bounds.x, bounds.y + bounds.height},
+          contracts::LogicalPoint{bounds.x + bounds.width, bounds.y + bounds.height}}) {
+        if (!contracts::RoundedRegionContains(point, clip, true)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void PlaceTooltip(SceneSnapshot &snapshot, contracts::NodeId id, const ShapeText &shaper)
+{
+    auto &tooltip = snapshot.Get(id);
+    if (!tooltip.tooltip_anchor) {
+        tooltip.style.visible = false;
+        return;
+    }
+    const auto size = Measure(snapshot, id, shaper);
+    PopupPlacementRequest request{snapshot.Get(snapshot.root).bounds,
+                                  ClippedAnchor(snapshot, tooltip.tooltip_anchor), size, size.width,
+                                  size.height};
+    request.horizontal_alignment = PopupHorizontalAlignment::Center;
+    const auto placement = PlacePopup(request);
+    if (!placement || placement->side == PopupSide::EdgePanel || placement->width_constrained ||
+        placement->height_constrained ||
+        !TooltipFitsRootClip(snapshot.Get(snapshot.root), placement->bounds)) {
+        tooltip.style.visible = false;
+        return;
+    }
+
+    Place(snapshot, id, placement->bounds);
+    if (!TooltipContentsFit(snapshot, id)) {
+        tooltip.bounds = {};
+        tooltip.style.visible = false;
+    }
+}
 } // namespace
 
 void LayoutEngine::Compute(SceneSnapshot &snapshot, contracts::LogicalSize viewport,
@@ -291,27 +438,16 @@ void LayoutEngine::Compute(SceneSnapshot &snapshot, contracts::LogicalSize viewp
            std::max(0.0, viewport.height - 2 * inset)});
     for (auto id : snapshot.Get(snapshot.root).children) {
         auto &popup = snapshot.Get(id);
+        if (popup.kind == Kind::Tooltip && popup.style.visible) {
+            PlaceTooltip(snapshot, id, shaper);
+            continue;
+        }
         if (!IsPopupKind(popup.kind) || !popup.style.visible) {
             continue;
         }
         const auto size = Measure(snapshot, id, shaper);
-        auto anchor = snapshot.Get(popup.popup_anchor).bounds;
-        auto parent = snapshot.Get(popup.popup_anchor).parent;
-        while (parent) {
-            const auto &item = snapshot.Get(parent);
-            if (item.style.clip || item.style.overflow == "clip" || item.kind == Kind::ScrollView) {
-                const double right =
-                    std::min(anchor.x + anchor.width, item.bounds.x + item.bounds.width);
-                const double bottom =
-                    std::min(anchor.y + anchor.height, item.bounds.y + item.bounds.height);
-                anchor.x = std::max(anchor.x, item.bounds.x);
-                anchor.y = std::max(anchor.y, item.bounds.y);
-                anchor.width = std::max(0.0, right - anchor.x);
-                anchor.height = std::max(0.0, bottom - anchor.y);
-            }
-            parent = item.parent;
-        }
-        PopupPlacementRequest request{snapshot.Get(snapshot.root).bounds, anchor, size,
+        PopupPlacementRequest request{snapshot.Get(snapshot.root).bounds,
+                                      ClippedAnchor(snapshot, popup.popup_anchor), size,
                                       std::min(160.0, size.width), std::min(80.0, size.height)};
         if (popup.contour_spec) {
             request.gap += contracts::PanelNeckHeight(*popup.contour_spec);

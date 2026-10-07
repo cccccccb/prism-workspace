@@ -28,7 +28,7 @@ std::unique_ptr<Scene::Node> Scene::MakeShallowNode(Blueprint blueprint, std::si
     Node *raw = node.get();
     nodes_.push_back(raw);
     node_generations_.push_back(1);
-    if (blueprint.kind < Kind::Row || blueprint.kind > Kind::MenuBack) {
+    if (blueprint.kind < Kind::Row || blueprint.kind > Kind::Tooltip) {
         throw std::invalid_argument("Invalid Blueprint node kind");
     }
     node->kind = blueprint.kind;

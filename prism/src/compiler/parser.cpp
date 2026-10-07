@@ -163,6 +163,11 @@ std::shared_ptr<AstNode> Parser::ParseNode()
     const Token &tag_token =
         Consume(TokenType::Identifier,
                 "Expected component identifier (e.g. VStack, Text, TilingDecoration)");
+    if (tag_token.text == "Tooltip") {
+        throw std::runtime_error(
+            "Tooltip requires the client DSL runtime; legacy .prismb is unsupported");
+    }
+
     auto node = std::make_shared<AstNode>();
     node->name = tag_token.text;
     node->type = ResolveNodeType(tag_token.text);

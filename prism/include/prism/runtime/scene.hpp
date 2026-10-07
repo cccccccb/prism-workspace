@@ -160,6 +160,21 @@ public:
     void ResolveInteractionStyles();
     std::optional<std::uint64_t> NextAnimationDeadlineNs(std::uint64_t now) const noexcept;
 
+    // Passive owner-local explanation; never changes focus or input scope.
+    bool ReconcileTooltip(std::uint64_t now);
+    std::optional<std::uint64_t> NextTooltipDeadlineNs() const noexcept;
+    bool HideTooltip(bool suppress_current = false) noexcept;
+
+    contracts::NodeId TooltipNode() const noexcept
+    {
+        return active_tooltip_;
+    }
+
+    contracts::NodeId TooltipAnchor() const noexcept
+    {
+        return tooltip_anchor_;
+    }
+
     AnimationSampleStamp AnimationSample() const noexcept
     {
         return animation_sample_;
@@ -306,6 +321,7 @@ private:
     struct AnimationState;
     struct InputState;
     struct OwnerModalState;
+    struct TooltipState;
 
     struct EmptyConstruction {};
 
@@ -401,6 +417,13 @@ private:
     bool ValidSliderAssignment(const Node &, DslProperty, const PropertyValue &) const;
     void ValidateSliderTree(Node &node);
     void ValidatePopupTree() const;
+    void ValidateTooltipTree() const;
+    void ObserveTooltipInput(const contracts::WindowEvent &,
+                             const std::shared_ptr<const InputSnapshot> &, bool);
+    void InvalidateTooltipGeometry() noexcept;
+    bool ReconcileTooltipAvailability() noexcept;
+    bool SetTooltipPresentation(contracts::NodeId, contracts::NodeId) noexcept;
+    contracts::NodeId TooltipForAnchor(contracts::NodeId) const;
     void ReconcilePopup();
     bool HandlePopupInput(const contracts::WindowEvent &,
                           const std::shared_ptr<const InputSnapshot> &, bool);
@@ -483,6 +506,8 @@ private:
     std::unique_ptr<PopupSession> popup_session_;
     contracts::NodeId active_popup_;
     std::uint64_t popup_seat_{};
+    contracts::NodeId active_tooltip_, tooltip_anchor_;
+    std::unique_ptr<TooltipState> tooltip_state_;
 
     struct PopupRelease {
         contracts::InputSource source;

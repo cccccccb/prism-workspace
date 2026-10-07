@@ -227,6 +227,7 @@ InteractionResult Scene::DispatchInput(const contracts::WindowEvent &event,
 {
     InteractionResult result;
     const auto previous_pixels = pixels_revision_;
+    ObserveTooltipInput(event, snapshot, submitted);
     if (HandleOwnerModalInput(event, snapshot, submitted)) {
         result.changed = ReconcileInput() || pixels_revision_ != previous_pixels;
         ResolveInteractionStyles();

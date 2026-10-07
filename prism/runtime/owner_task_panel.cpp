@@ -9,7 +9,8 @@ namespace prism::runtime {
 namespace {
 void ValidateAction(const PropertyAssignment &assignment)
 {
-    if (assignment.id != DslProperty::Action && assignment.id != DslProperty::PopupFor) {
+    if (assignment.id != DslProperty::Action && assignment.id != DslProperty::PopupFor &&
+        assignment.id != DslProperty::TooltipFor) {
         return;
     }
     if (const auto *text = std::get_if<std::string>(&assignment.value);
@@ -20,7 +21,7 @@ void ValidateAction(const PropertyAssignment &assignment)
 
 void ValidateSharedPanel(const Blueprint &node)
 {
-    if (!node.region.empty() || IsPopupKind(node.kind) || node.kind == Kind::Image) {
+    if (!node.region.empty() || IsFloatingKind(node.kind) || node.kind == Kind::Image) {
         throw std::invalid_argument("Shared task panel requires an ordinary resource-free tree");
     }
     for (const auto &binding : node.bindings) {
@@ -169,8 +170,9 @@ Blueprint ComposeOwnerTaskPanel(Blueprint app, const Blueprint &shared)
     if (!counts.messages || !counts.titles || !counts.labels[0] || !counts.labels[1]) {
         throw std::invalid_argument("Shared task panel requires title, message and choice views");
     }
-    const auto popup = std::find_if(app.children.begin(), app.children.end(),
-                                    [](const Blueprint &child) { return IsPopupKind(child.kind); });
+    const auto popup =
+        std::find_if(app.children.begin(), app.children.end(),
+                     [](const Blueprint &child) { return IsFloatingKind(child.kind); });
     app.children.insert(popup, std::move(wrapper));
 
     std::size_t count = 0;

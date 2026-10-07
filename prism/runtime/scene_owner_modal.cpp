@@ -43,14 +43,14 @@ std::optional<std::uint64_t> Scene::BeginOwnerModal(contracts::NodeId id, std::u
 {
     const auto *root = Find(id);
     if (owner_modal_ || !root || root->decorative || root->kind == Kind::Visual ||
-        IsPopupKind(root->kind) || !IsVisible(*root) || !IsEnabled(*root) ||
+        IsFloatingKind(root->kind) || !IsVisible(*root) || !IsEnabled(*root) ||
         Has(dirty_, Dirty::Layout) || owner_modal_closures_.size() >= 256 ||
         owner_modal_escape_.size() >= 256 ||
         owner_modal_epoch_ >= std::numeric_limits<std::uint64_t>::max() - 1) {
         return std::nullopt;
     }
     for (const auto *parent = root->parent; parent; parent = parent->parent) {
-        if (IsPopupKind(parent->kind)) {
+        if (IsFloatingKind(parent->kind)) {
             return std::nullopt;
         }
     }

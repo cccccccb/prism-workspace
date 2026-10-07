@@ -196,6 +196,7 @@ void ClientApplication::Impl::CompleteInteractionResult(const runtime::Interacti
 {
     ReconcileOwnerTask();
     ReconcileOwnerFeedback();
+    ReconcileTooltip();
     if (result.changed) {
         queued_frame.reset();
         QueueRenderUpdate(true);
@@ -272,6 +273,7 @@ void ClientApplication::Impl::HandleSubmitted(const runtime::SubmittedFrameEvent
     if (event.metadata_prepared && event.ui == installed_ui) {
         ui_root_metadata_frame = event.frame;
         AdoptOwnerFeedbackInput(event.frame->input_snapshot, event.ui);
+        ReconcileTooltip();
     }
 
     // A later Scene, theme or pixel update must not be acknowledged by an

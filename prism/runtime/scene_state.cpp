@@ -137,6 +137,7 @@ void Scene::BindInteractionTree(Node &node, Node *owner, bool decorative) noexce
 void Scene::PrepareInteractionTree()
 {
     ValidatePopupTree();
+    ValidateTooltipTree();
     ValidateScrollTree(*root_);
     ValidateSliderTree(*root_);
     ValidateChoiceTree(*root_);

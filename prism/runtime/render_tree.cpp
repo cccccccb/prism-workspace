@@ -67,7 +67,7 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot &snapshot, const RenderT
         node.bounds = source.bounds;
         node.contour = source.contour;
         node.visible = visible[source.id.index];
-        node.clip = source.style.clip || IsPopupKind(source.kind) ||
+        node.clip = source.style.clip || IsFloatingKind(source.kind) ||
                     source.kind == Kind::ScrollView || source.kind == Kind::TextField ||
                     source.kind == Kind::TextArea;
         node.clip = node.clip || source.style.overflow == "clip";
@@ -94,7 +94,7 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot &snapshot, const RenderT
                 node.visuals.emplace_back(RectVisual{source.style.background});
             }
         }
-        if (!IsPopupKind(source.kind) && !IsInteractionOwner(source.kind) &&
+        if (!IsFloatingKind(source.kind) && !IsInteractionOwner(source.kind) &&
             source.interaction.hovered && snapshot.controls.hover.a) {
             node.visuals.emplace_back(RoundedRectVisual{radius, snapshot.controls.hover});
         }
@@ -107,7 +107,7 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot &snapshot, const RenderT
             node.visuals.emplace_back(
                 BorderVisual{radius, source.style.border_width, source.style.border_color});
         }
-        if (!IsPopupKind(source.kind) && !IsInteractionOwner(source.kind) &&
+        if (!IsFloatingKind(source.kind) && !IsInteractionOwner(source.kind) &&
             source.interaction.focusVisible && snapshot.controls.focus_width > 0 &&
             snapshot.controls.focus.a) {
             node.visuals.emplace_back(

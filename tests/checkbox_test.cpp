@@ -3,6 +3,7 @@
 #include "prism/sdk/module_session.hpp"
 #include <cassert>
 #include <functional>
+#include <iostream>
 
 using namespace prism;
 using namespace prism::runtime;
@@ -82,7 +83,12 @@ void PointerAndBusiness(const char *module_path)
 
     sdk::ModuleSession module(module_path, "checkbox.fixture", 1,
                               std::bind_front(&Scene::SetBinding, &scene));
-    assert(module.Start() && module.BackendReady());
+    const bool started = module.Start();
+    if (!started) {
+        std::cerr << module.StartDiagnostic() << " (load_ns=" << module.LoadDurationNs()
+                  << ", create_ns=" << module.CreateDurationNs() << ")\n";
+    }
+    assert(started && module.BackendReady());
     module.ControlValue(*result.control_edit);
     assert(!scene.IsCurrentControlEdit(*result.control_edit));
     assert(scene.Build({1}));

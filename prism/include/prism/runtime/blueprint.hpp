@@ -39,12 +39,18 @@ enum class Kind {
     Popup,
     Menu,
     MenuItem,
-    MenuBack
+    MenuBack,
+    Tooltip
 };
 
 constexpr bool IsPopupKind(Kind kind)
 {
     return kind == Kind::Popup || kind == Kind::Menu;
+}
+
+constexpr bool IsFloatingKind(Kind kind)
+{
+    return IsPopupKind(kind) || kind == Kind::Tooltip;
 }
 
 constexpr bool IsMenuRow(Kind kind)

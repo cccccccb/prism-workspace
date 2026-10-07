@@ -18,7 +18,9 @@ Scene::~Scene() = default;
 
 void Scene::Invalidate(Dirty affected)
 {
-
+    if (Has(affected, Dirty::Layout)) {
+        InvalidateTooltipGeometry();
+    }
     dirty_ = dirty_ | affected;
     if (Has(affected, Dirty::Layout)) {
         hit_geometry_dirty_ = true;
@@ -46,8 +48,8 @@ Scene::Scene(Blueprint root, ShapeText shaper, contracts::ResourceId font,
 
 Scene::Scene(EmptyConstruction, ShapeText shaper, contracts::ResourceId font,
              std::optional<contracts::ThemeSnapshot> theme)
-    : shaper_(std::move(shaper)), font_(font), input_state_(std::make_unique<InputState>()),
-      theme_(std::move(theme))
+    : tooltip_state_(std::make_unique<TooltipState>()), shaper_(std::move(shaper)), font_(font),
+      input_state_(std::make_unique<InputState>()), theme_(std::move(theme))
 {
     if (!shaper_) {
         throw std::invalid_argument("Scene requires a text shaper");
@@ -69,8 +71,9 @@ Scene::Node *Scene::Find(contracts::NodeId id) const
 bool Scene::IsVisible(const Node &node) const
 {
     for (const Node *current = &node; current; current = current->parent) {
-        if ((IsPopupKind(current->kind) && !current->popup_token) || !current->style.visible ||
-            !current->style.FitsViewport(viewport_)) {
+        if ((IsPopupKind(current->kind) && !current->popup_token) ||
+            (current->kind == Kind::Tooltip && current->id != active_tooltip_) ||
+            !current->style.visible || !current->style.FitsViewport(viewport_)) {
             return false;
         }
     }
@@ -147,7 +150,7 @@ bool Scene::SetPropertyAt(contracts::NodeId id, DslProperty property, PropertyVa
                           std::uint64_t now)
 {
     Node *node = Find(id);
-    if (!node || property == DslProperty::Material ||
+    if (!node || property == DslProperty::Material || property == DslProperty::TooltipFor ||
         !ValidChoiceAssignment(*node, property, value) ||
         !(node->allowed_properties & PropertyBit(property)) ||
         (node->decorative &&
@@ -289,6 +292,7 @@ bool Scene::ImageReady(contracts::ResourceId image, contracts::LogicalSize intri
 
 std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
 {
+    ReconcileTooltipAvailability();
     ReconcileOwnerModal();
     ReconcilePopup();
     ResolveInteractionStyles();
@@ -330,6 +334,12 @@ std::optional<contracts::DisplayList> Scene::Build(contracts::WindowId window)
         popup && (popup->bounds.width <= 0 || popup->bounds.height <= 0)) {
         snapshot.Get(popup->id).style.visible = false;
         ClosePopup(PopupCloseReason::Unavailable);
+    }
+    if (const auto *tooltip = Find(active_tooltip_);
+        tooltip && (!snapshot.Get(tooltip->id).style.visible || tooltip->bounds.width <= 0 ||
+                    tooltip->bounds.height <= 0)) {
+        snapshot.Get(tooltip->id).style.visible = false;
+        HideTooltip(true);
     }
 
     if (hit_geometry_dirty_) {

@@ -1037,3 +1037,30 @@ if(TARGET prism_client_app)
     target_compile_options(client_confirmation_test PRIVATE -UNDEBUG -fno-access-control)
     add_test(NAME client_confirmation_test COMMAND client_confirmation_test)
 endif()
+
+add_executable(scene_tooltip_dsl_test scene_tooltip_dsl_test.cpp)
+target_link_libraries(scene_tooltip_dsl_test PRIVATE prism_client_scene prism_client_dsl prism_aot_tools prism_load_plan prism_theme_compiler)
+target_compile_options(scene_tooltip_dsl_test PRIVATE -UNDEBUG -fno-access-control)
+add_test(NAME scene_tooltip_dsl_test COMMAND scene_tooltip_dsl_test "${CMAKE_SOURCE_DIR}")
+
+add_executable(scene_tooltip_test scene_tooltip_test.cpp)
+target_link_libraries(scene_tooltip_test PRIVATE prism_client_scene prism_client_dsl)
+target_include_directories(scene_tooltip_test PRIVATE "${CMAKE_SOURCE_DIR}/prism/runtime")
+target_compile_options(scene_tooltip_test PRIVATE -UNDEBUG)
+add_test(NAME scene_tooltip_test COMMAND scene_tooltip_test)
+
+add_executable(session_confirmation_test session_confirmation_test.cpp)
+target_link_libraries(session_confirmation_test PRIVATE prism_session_confirmation_core)
+target_compile_options(session_confirmation_test PRIVATE -UNDEBUG -fno-access-control)
+add_test(NAME session_confirmation_test COMMAND session_confirmation_test)
+
+if(TARGET prism_app_host_runtime)
+    add_executable(tooltip_native_probe probes/tooltip_native_probe.cpp
+        ${VIRTUAL_INPUT_PROTOCOL_SOURCES})
+    target_include_directories(tooltip_native_probe PRIVATE "${VIRTUAL_INPUT_PROTOCOL_DIR}"
+        "${CMAKE_SOURCE_DIR}/prism/host" "${CMAKE_SOURCE_DIR}/prism/runtime")
+    target_link_libraries(tooltip_native_probe PRIVATE prism_app_host_runtime
+        nlohmann_json::nlohmann_json ${WAYLAND_CLIENT_LIBRARIES})
+    target_compile_options(tooltip_native_probe PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fno-access-control>)
+    add_dependencies(tooltip_native_probe prism_notepad_module)
+endif()

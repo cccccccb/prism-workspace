@@ -194,6 +194,7 @@ void Scene::ValidateCandidate(Scene &candidate, const BindingValues &values) con
             candidate.SetBinding(name, value);
         }
     }
+    candidate.ValidateTooltipTree();
     if (scene_detail::ValidSize(viewport_)) {
         candidate.SetViewport(viewport_);
         candidate.dirty_ = candidate.dirty_ | Dirty::Layout | Dirty::Paint;
@@ -320,6 +321,8 @@ void Scene::CommitValues(const std::vector<std::pair<Node *, Node *>> &pairs) no
             ++live->control_revision;
         }
         live->popup_for.swap(candidate->popup_for);
+        live->tooltip_for.swap(candidate->tooltip_for);
+        live->tooltip_delay_ms = candidate->tooltip_delay_ms;
         live->popup_token = candidate->popup_token;
         live->popup_anchor = candidate->popup_anchor;
         live->scroll_offset = candidate->scroll_offset;

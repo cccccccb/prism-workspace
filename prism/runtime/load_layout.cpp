@@ -192,7 +192,12 @@ PreparedLayout PrepareLayout(std::string_view text, const LoadPlan &plan, Compon
     compiler.Convert(syntax, path);
     auto data = std::make_shared<PreparedLayout::Data>();
     data->slots = compiler.Finish();
-    data->body = PrepareVisualSyntax(syntax, metadata, text.size());
+    std::vector<PreparedRegionPlaceholder> pending_regions;
+    pending_regions.reserve(data->slots.size());
+    for (const auto &slot : data->slots) {
+        pending_regions.push_back({slot.component, slot.node_path});
+    }
+    data->body = PrepareVisualSyntax(syntax, metadata, text.size(), pending_regions);
     ValidateUnitBindings(plan, data->body->Root(), metadata);
     return PreparedLayout(std::move(data));
 }

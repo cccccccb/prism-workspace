@@ -45,12 +45,21 @@ void Scene::UpdateInputSnapshot()
     InputSnapshot snapshot;
     snapshot.scene = input_scene_id_;
     snapshot.popup_token = PopupToken();
+    snapshot.tooltip_node = active_tooltip_;
+    snapshot.tooltip_anchor = tooltip_anchor_;
     snapshot.owner_modal_epoch = owner_modal_epoch_;
     snapshot.root = root_->id;
     snapshot.viewport = viewport_;
     snapshot.nodes.resize(nodes_.size());
     for (const auto *node : nodes_) {
         if (!node || node->decorative || node->kind == Kind::Visual) {
+            continue;
+        }
+        bool tooltip = false;
+        for (const auto *parent = node; parent; parent = parent->parent) {
+            tooltip = tooltip || parent->kind == Kind::Tooltip;
+        }
+        if (tooltip) {
             continue;
         }
         auto &item = snapshot.nodes[node->id.index];
@@ -74,12 +83,14 @@ void Scene::UpdateInputSnapshot()
         item.action = InputAction(*node);
         item.gesture = node->gesture;
         for (const auto &child : node->children) {
-            if (!child->decorative && child->kind != Kind::Visual) {
+            if (!child->decorative && child->kind != Kind::Visual && child->kind != Kind::Tooltip) {
                 item.children.push_back(child->id);
             }
         }
     }
     if (input_snapshot_ && input_snapshot_->popup_token == snapshot.popup_token &&
+        input_snapshot_->tooltip_node == snapshot.tooltip_node &&
+        input_snapshot_->tooltip_anchor == snapshot.tooltip_anchor &&
         input_snapshot_->owner_modal_epoch == snapshot.owner_modal_epoch &&
         input_snapshot_->root == snapshot.root && input_snapshot_->viewport == snapshot.viewport &&
         input_snapshot_->nodes == snapshot.nodes) {

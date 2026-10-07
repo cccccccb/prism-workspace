@@ -1,3 +1,4 @@
+#include "dsl_tooltip_p.hpp"
 #include "load_plan_p.hpp"
 #include <algorithm>
 #include <unordered_map>
@@ -57,6 +58,7 @@ public:
         }
         std::vector<std::size_t> path;
         auto root = Copy(layout_.Body().Root(), layout_.Body(), path, 0, true);
+        ValidatePreparedTooltipTree(root, plan_.source);
         auto result = PreparedComponentAccess::Make(plan_.source, std::move(root),
                                                     std::move(images_), source_bytes_, node_count_);
         return result.WithRetention(std::move(retention));

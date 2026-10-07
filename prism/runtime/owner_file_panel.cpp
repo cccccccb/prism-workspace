@@ -27,7 +27,7 @@ bool FileAction(std::string_view action)
 void ValidateFileTree(const Blueprint &node, const BindingValues &bindings, std::size_t &count,
                       std::size_t depth)
 {
-    if (++count > 2048 || depth > 32 || !node.region.empty() || IsPopupKind(node.kind) ||
+    if (++count > 2048 || depth > 32 || !node.region.empty() || IsFloatingKind(node.kind) ||
         node.kind == Kind::Image || node.gesture) {
         throw std::invalid_argument("File panel requires a bounded resource-free ordinary tree");
     }
@@ -275,7 +275,7 @@ Blueprint ComposeOwnerTaskPanels(Blueprint app, const Blueprint *confirmation,
         wrapper.children.push_back(std::move(content));
         const auto popup =
             std::find_if(app.children.begin(), app.children.end(),
-                         [](const Blueprint &child) { return IsPopupKind(child.kind); });
+                         [](const Blueprint &child) { return IsFloatingKind(child.kind); });
         app.children.insert(popup, std::move(wrapper));
     }
     nodes = 0;

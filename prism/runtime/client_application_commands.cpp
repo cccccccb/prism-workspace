@@ -35,6 +35,9 @@ bool ClientApplication::Impl::AcceptClose()
 
     RetireOwnerTasks(runtime::TaskCancelReason::OwnerClosed);
     RetireOwnerFeedback();
+    if (scene) {
+        scene->HideTooltip();
+    }
     if (!PushControl(bridge->render_commands, bridge->terminal,
                      runtime::RenderCommand(runtime::AcceptCloseCommand{}))) {
         return false;

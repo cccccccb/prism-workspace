@@ -77,7 +77,7 @@ void Scene::CollectSurfaceEffects(const Node &node, std::vector<Shape> &clips,
         (placement && placement->close_popup && IsPopupKind(node.kind))) {
         return;
     }
-    const bool clipped = IsPopupKind(node.kind) || node.kind == Kind::ScrollView ||
+    const bool clipped = IsFloatingKind(node.kind) || node.kind == Kind::ScrollView ||
                          node.style.clip || node.style.overflow == "clip";
     if (clipped) {
         clips.push_back(RegionShape(node, placement));
@@ -168,12 +168,13 @@ void Scene::CollectInputRegions(const Node &node, std::vector<Shape> &clips,
                                 std::vector<RoundedShape> &output,
                                 const SceneRegionPlacement *placement) const
 {
-    if (node.kind == Kind::Visual || !IsVisible(node) || node.bounds.width <= 0 ||
-        node.bounds.height <= 0 || (HasPopupSurfaceAdoption() && node.id == active_popup_) ||
+    if (node.kind == Kind::Visual || node.kind == Kind::Tooltip || !IsVisible(node) ||
+        node.bounds.width <= 0 || node.bounds.height <= 0 ||
+        (HasPopupSurfaceAdoption() && node.id == active_popup_) ||
         (placement && placement->close_popup && IsPopupKind(node.kind))) {
         return;
     }
-    const bool clipped = IsPopupKind(node.kind) || node.kind == Kind::ScrollView ||
+    const bool clipped = IsFloatingKind(node.kind) || node.kind == Kind::ScrollView ||
                          node.style.clip || node.style.overflow == "clip";
     if (clipped) {
         clips.push_back(RegionShape(node, placement));

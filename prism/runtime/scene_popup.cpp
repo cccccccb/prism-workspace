@@ -9,7 +9,7 @@ void Scene::ValidatePopupTree() const
     bool declarations = false;
     std::set<std::string> anchors;
     for (const auto &child : root_->children) {
-        if (IsPopupKind(child->kind)) {
+        if (IsFloatingKind(child->kind)) {
             declarations = true;
         } else if (declarations) {
             throw std::invalid_argument("Popup declarations must follow root content");

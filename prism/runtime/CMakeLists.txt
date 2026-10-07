@@ -23,6 +23,9 @@ target_compile_features(prism_owner_task_core PUBLIC cxx_std_20)
 add_library(prism_owner_feedback_core STATIC owner_feedback_session.cpp)
 target_link_libraries(prism_owner_feedback_core PUBLIC prism_contracts)
 
+add_library(prism_session_confirmation_core STATIC session_confirmation.cpp)
+target_link_libraries(prism_session_confirmation_core PUBLIC prism_session_confirmation_contract)
+
 add_library(prism_client_scene STATIC
     owner_file_panel.cpp
     owner_task_panel.cpp
@@ -46,6 +49,9 @@ add_library(prism_client_scene STATIC
     scene_popup_adoption.cpp
     scene_popup_scroll.cpp
     scene_popup_input.cpp
+    scene_tooltip.cpp
+    scene_tooltip_input.cpp
+    scene_tooltip_tree.cpp
     scene_scroll.cpp
     scene_scroll_input.cpp
     scene_slider.cpp
@@ -85,6 +91,7 @@ target_compile_features(prism_client_scene PUBLIC cxx_std_20)
 # renderer never need to include AST, parser, or legacy prism_core headers.
 add_library(prism_client_dsl STATIC
     dsl_frontend.cpp
+    dsl_tooltip.cpp
     dsl_contour.cpp
     dsl_contour_recipe.cpp
     prepared_component.cpp)
@@ -134,6 +141,7 @@ if(PRISM_ENABLE_GLES AND PRISM_SKIA_ROOT)
         client_application_file_panel.cpp
         client_application_feedback.cpp
         client_application_feedback_input.cpp
+        client_application_tooltip.cpp
         client_application_scene.cpp
         client_application_state.cpp
         client_application_resources.cpp

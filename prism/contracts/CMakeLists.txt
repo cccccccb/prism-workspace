@@ -47,6 +47,9 @@ target_link_libraries(prism_owner_task_contract PUBLIC prism_contracts)
 add_library(prism_owner_feedback_contract STATIC owner_feedback.cpp)
 target_link_libraries(prism_owner_feedback_contract PUBLIC prism_contracts)
 
+add_library(prism_session_confirmation_contract STATIC session_confirmation.cpp)
+target_link_libraries(prism_session_confirmation_contract PUBLIC prism_contracts)
+
 # The binary theme transport is a backend independent value codec.
 add_library(prism_theme_contract STATIC theme.cpp motion.cpp)
 target_link_libraries(prism_theme_contract PUBLIC prism_contracts)

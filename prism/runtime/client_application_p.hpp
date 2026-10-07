@@ -171,6 +171,8 @@ struct ClientApplication::Impl {
     bool HandleOwnerFeedbackAction(const runtime::Activation &activation);
     bool OwnerFeedbackPaused() const;
     int FeedbackTimeoutMs(int timeout_ms) const noexcept;
+    void ReconcileTooltip();
+    int TooltipTimeoutMs(int timeout_ms) const noexcept;
     runtime::Blueprint ComposeOwnerPanels(runtime::Blueprint blueprint) const;
     runtime::BindingValues OwnerPanelDefaults() const;
     std::shared_ptr<const std::vector<runtime::ImageVersion>>

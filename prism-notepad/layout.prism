@@ -4,4 +4,14 @@ Card(material: "window", padding: "@window_padding", clip: true) {
         Slot(component: "editor", flex: 1)
         Slot(component: "status", height: 18)
     }
+    Tooltip("new", width: 168, height: 44, tooltipDelayMs: 500, padding: 8,
+            background: "@surfaceRaised", borderWidth: 1, borderColor: "@controlOutline",
+            cornerRadius: "@control_state_radius", justify: "center") {
+        Text("New document", font: "@font_body", foreground: "@text")
+    }
+    Tooltip("open-panel", width: 224, height: 44, tooltipDelayMs: 500, padding: 8,
+            background: "@surfaceRaised", borderWidth: 1, borderColor: "@controlOutline",
+            cornerRadius: "@control_state_radius", justify: "center") {
+        Text("Open a UTF-8 text file", font: "@font_body", foreground: "@text")
+    }
 }

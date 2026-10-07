@@ -1002,6 +1002,16 @@ Card(material: "window", padding: "@window_padding") {
             Button("Back", "error:dismiss", height: 32, material: "control", foreground: "@text")
         }
     }
+    Tooltip("prefs:menu:wide", width: 224, height: 44, tooltipDelayMs: 500, padding: 8,
+            minViewportWidth: 600, background: "@surfaceRaised", borderWidth: 1,
+            borderColor: "@controlOutline", cornerRadius: "@control_state_radius", justify: "center") {
+        Text("Pages and monitoring", font: "@font_body", foreground: "@text")
+    }
+    Tooltip("prefs:menu:compact", width: 224, height: 44, tooltipDelayMs: 500, padding: 8,
+            maxViewportWidth: 600, background: "@surfaceRaised", borderWidth: 1,
+            borderColor: "@controlOutline", cornerRadius: "@control_state_radius", justify: "center") {
+        Text("Pages and monitoring", font: "@font_body", foreground: "@text")
+    }
     Menu("prefs:menu:wide", width: 280, height: 308, padding: 16, material: "panel") {
         Contour(recipe: "attachedPanel", radius: "@panel_radius", neckWidth: "@panel_neck_width", neckHeight: "@panel_neck_height", neckShape: "roundedTriangle", fallback: "detached")
         ScrollView {

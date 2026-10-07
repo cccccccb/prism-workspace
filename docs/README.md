@@ -98,3 +98,6 @@ Skill 与参考资料只有一份正文，统一在仓库维护。人和 AI 使�
 Skia 绘制/裁剪、Wayland v2 与 WM 遮罩，以及 Scene/DSL 局部路径、快照命中与输入交集。
 
 - [Owner轻量反馈（6a）](OWNER_FEEDBACK_CONTRACT.md)：有类型请求、非模态输入、可见时间期限与文件恢复边界。
+
+- [只读Tooltip（6b1）](TOOLTIP_CONTRACT.md)：唯一锚点、悬停/键盘说明、采用与一次截止。
+- [会话确认边界（6b1）](SESSION_CONFIRMATION_CONTRACT.md)：受信入口、双回执关联与Unavailable阶段。

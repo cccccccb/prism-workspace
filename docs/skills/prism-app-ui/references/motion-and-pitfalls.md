@@ -1,6 +1,6 @@
 # 主题动效、版本边界与常见陷阱
 
-适用日期：2026-10-04。目标是仅凭这份 skill 和匹配版本的 SDK/Host 编写应用，源码
+适用日期：2026-10-07。目标是仅凭这份 skill 和匹配版本的 SDK/Host 编写应用，源码
 链接用于维护和深入审计，不是完成普通 UI 的前置阅读要求。
 
 ## 1. 先声明所需能力
@@ -10,11 +10,20 @@
 | 已部署 v19 | Interface v2、typed bindings、Host 业务 work、主题 schema 3、命名 Transition、InteractionTarget/Visual/.state、鼠标手势 |
 | 系统空间运动 | 单输出单窗全屏、普通 BSP 组沉浸往返、窗口控制面板开合；由 WM 执行 |
 | 工作区新增文本能力 | TextField/TextArea、typed edit/close 回调及 document/save 等新图标；需要匹配此次源码构建，不能假定 v19 已包含 |
-| 尚不能假定存在 | 通用滚动/虚拟列表、viewport binding/断点、tooltip、自动无障碍名称、通用 modal、完整 IME/系统剪贴板、声明式 spring/keyframes、自动入场退场动画 |
+| 当前源码的布局 | min/maxViewport尺寸条件及纵向ScrollView已有；业务viewport binding与任意虚拟列表不能据此推断 |
+| Tooltip（6b1源码） | 独立只读Kind；根末尾、固定唯一action锚点、显式宽高、最多256 UTF-8字节；依赖本步匹配Host/SDK，已安装v26不包含 |
+| 系统会话确认 | 6b1只有typed关联核心；CurrentSessionConfirmationAvailability始终Unavailable，无普通模块ABI入口、真实WM session barrier或结束会话执行器 |
+| 尚不能假定存在 | 自动无障碍名称、任意通用modal、完整IME/系统剪贴板、声明式spring/keyframes、自动入场退场动画、图05任务透视翻转 |
 
 发布说明必须注明测试过的 Host/包版本以及 theme/motion 依赖。Interface(version:2)
 只声明加载格式，不能证明运行环境包含之后新增的控件。C ABI 尾字段用 struct_size 和
 非空函数指针检查；DSL 未知组件在准备期失败，不会被 C ABI 能力检查自动修复。
+
+Tooltip使用前读[契约](../../../TOOLTIP_CONTRACT.md)，在包的DSL兼容性中明确要求本步
+Host/SDK；不要因为旧Host支持反馈尾字段就向它发送Tooltip声明。反馈API不模拟提示，
+Tooltip也不承担权限、保存失败恢复或确认任务。系统会话确认边界见
+[关联契约](../../../SESSION_CONFIRMATION_CONTRACT.md)：Ready仅记录匹配平台回执，
+ConfirmedIntent是意图receipt，不是终止授权、安全判定或已经结束会话。
 
 ## 2. 主题、动效、业务的所有权
 
@@ -52,6 +61,7 @@ Preferences 暂无独立 motion 选择器。应用作者不要要求用户手工
 | 选中 | 4px 横线或清晰背景 | bool binding + visible，保留指示槽尺寸 |
 | 任务进行中 | 静态状态图标/真实进度，必要时轻过渡 | 有真实数据才发布 value，不伪造循环 |
 | 结果更新 | 保留布局，局部状态变化 | 字符串替换不自动成为数字滚动或文字交叉淡化 |
+| 控件说明 | 稳定的小型只读提示，不挤动正文 | 使用Tooltip生命周期与主题样式；不加业务固定tick或自行延迟删除 |
 
 完整可用的固定目标示例见 [compact-library.prism](../assets/examples/compact-library.prism)。
 其外层 InteractionTarget 32×32 永远不缩小，内部 Visual 18×18 变化；foreground
@@ -81,7 +91,7 @@ Paint/DisplayList/Skia 回放成本，不等同 GPU 保留层合成动画。
 | 隐藏视觉后点击仍生效 | 区分 visible 与 opacity；业务也需拒绝 pending/失效动作，不能仅靠淡色 |
 | Text 周围 padding 没效果 | Text 无 padding；用容器负责留白 |
 | clip 后以为内容可滚动 | overflow:clip 只裁剪；新 TextArea 的内部滚动也不代表普通 Card 能滚动 |
-| 想用 CSS、百分比、字体加粗 | 使用真实属性与布局盒；不发明 fontWeight、lineHeight、百分比 width |
+| 想用 CSS、百分比、字体加粗 | 使用真实属性与布局盒；不发明fontWeight或百分比width，lineHeight按既有文字契约使用 |
 | 改主题后应用自己恢复旧色 | 应用不复制全局色表，不用应用级缓存覆盖 Host 新快照 |
 | 请求主题后立刻高亮新项 | 等 Current/Applied；Rejected 保留实际旧选择 |
 | 图标名拼对意思却报错 | 只用合法名称；业务 binding 更新后也必须合法 |
@@ -91,6 +101,10 @@ Paint/DisplayList/Skia 回放成本，不等同 GPU 保留层合成动画。
 | work 完成后窗口已关闭 | 使用 Host work 的复制数据、取消与 owner 完成回调；不捕获悬空实例或直接操作 Scene |
 | 选中条切换导致布局跳动 | 保留固定高度槽，仅隐藏槽里的条 |
 | 中文显示方块 | 检查实际字体覆盖；文本编码有效不能代替字形和 IME 验证 |
+| Tooltip不显示 | 检查唯一静态action、根末尾声明、显式尺寸、256字节预算、真实字体/clip及当前任务/菜单；不能缩字或加可点击“更多”绕过只读限制 |
+| Esc后说明立刻重开 | 保留框架的候选抑制生命周期，不用业务binding/tick复制；实际离开或焦点目标改变才重新触发 |
+| 想用提示替换危险操作文字 | 陌生和风险动作保留短标签，必要说明留在正文；Tooltip不是无障碍名称或权限界面 |
+| 应用画出结束会话确认 | 视觉不授予权限；生产会话能力Unavailable，不能用owner任务或任意action获得系统模态/终止授权 |
 
 ## 5. 第三方交付验收
 
