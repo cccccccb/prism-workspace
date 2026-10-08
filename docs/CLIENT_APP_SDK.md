@@ -38,6 +38,9 @@ Scene 输入状态机；contact 单独捕获，不伪造鼠标点击或持久 ho
 交互第二阶段的 `InteractionTarget`、`Visual` 与 `.state` 由同一 UI 线程 Scene 消费，
 无需新增业务 ABI、周期 tick 或 Shell 专用回调。输入状态解析出有效目标后，现有单调
 动画时钟与 frame opportunity 驱动 Paint 样本；不可变帧携带绘制数据、版本与只读输入快照。
+7b2中的标准Owner任务轨迹复用同一个Scene时钟与SDK driver；即使Scene自身没有活动
+Transition，任务轨迹也参与活动性、frame opportunity和完成期限。渲染线程只消费包中
+冻结的数值与绘制命令，不求值活Scene，也不另建任务Timer或业务tick。
 Visual 子树不参与输入，它的平移、缩放、整体 opacity 以及 background 动画不改变父目标
 的感应范围，不向 WM 发送布局或全屏请求。具体 DSL、优先级和安全范围见
 [交互与呈现规范第 13 节](INTERACTION_AND_PRESENTATION_SPEC.md)。
@@ -303,3 +306,86 @@ AcceptCloseCommand；重复调用不重复排队。业务模块只调用Host com
 
 ConfigureOwnerFeedbackPanel配置资源free共享DSL，ShowOwnerFeedback/DismissOwnerFeedback管理一条owner反馈，TakeOwnerFeedbackAction只取用户业务动作。外观属于主题，替换生成新节点身份，不抢焦点。
 细节与版本边界见[Owner轻量反馈契约](OWNER_FEEDBACK_CONTRACT.md)。
+
+## 7a1：Owner任务呈现
+
+`OwnerTaskPresentation() const noexcept`返回当前可选typed呈现状态。没有周期时为空；
+结束后保留最近Closed关联直到下一次Begin。这是Host/SDK诊断接口，不增加模块ABI、
+业务结果来源或输入权限。TaskSession与局部模态继续使用已有接口和Ready门禁。
+
+Opening/Open/Closing/Closed关联到实际采用的FramePacket；同任务Refresh保留cycle
+和phase，新的输入/主题/配置投影必须重新采用。完成、取消先收回输入和共享面板，
+立即可取terminal，不等待Closing。采用与中断以及只读退场片段边界见
+[任务呈现契约](OWNER_TASK_PRESENTATION_CONTRACT.md)。7a1最初只接零时长路径，当前
+标准provider的非零适配见下述7b2；正式v26不包含这些源码能力。
+
+## 7a2：独立只读任务绘制值
+
+生产SDK仅为当前UI的标准Confirmation/File provider，在最终解析帧中导出独立
+`TaskPaintFragment`候选；同包Open stamp通过真实采用门禁后才登记为唯一权威缓存。
+绘制值拥有任务子树与祖先clip/transform/opacity、shaped glyphs、图标和阴影，源关联
+包含task/UI/cycle/projection/sequence及配置、主题、资源epoch；没有Scene、旧输入身份、
+action或modal token。普通`BeginOwnerTask(region)`不自动导出。
+
+同环境且仍支持独立导出的未采用Refresh保留同cycle最后已采用的值；新采用候选不支持
+时清除旧缓存，7b2的导出支持性失效也会立即降级。关闭只选择
+仍符合UI/配置/主题/资源环境的已采用片段，输入与terminal立即退休。Closed终值包
+不重放旧面板；Closed实际采用后释放缓存。正文继续生成当前帧，不能冻结整窗。
+
+7a2最初提供`ComposeTaskPaint(body, paint)`值组合接口，没有非零退场；7b2已将带
+reveal的组合接入受支持provider关闭帧，不增加DSL属性、业务模块ABI、固定tick或
+延迟回调。glyph依托本应用固定字体
+生命期；Image、任务及祖先backdrop、已采用native popup均降级为无片段。Glass的window
+祖先模糊也保守拒绝；失败捕获不阻碍业务与输入退休。匹配源码、验证及未来资源范围见
+[任务呈现契约第8节](OWNER_TASK_PRESENTATION_CONTRACT.md#8-7a2独立只读任务绘制片段)。
+本轮未部署，正式v26不包含该能力。
+
+## 7b1：任务开合协议与时序核心
+
+TaskPresentationStamp增加sample_kind：Intermediate实际采用只记录sequence和已采用
+证据，保持Opening/Closing；Terminal才推进Open/Closed。同projection的终值发布后
+不再发布中间值，采用门禁按第一张Terminal sequence核对kind，不能把中间帧改标终值。
+默认Publish仍为Terminal，兼容没有任务轨迹的调用；业务Ready与输入权限独立。
+
+`TaskMotionTimeline`复用AnimationClock/ScalarTimeline，按绝对单调时间输出[0,1]数值；
+关闭从调用者提供的最后实际采用值开始。`ResolveTaskMotionSpec`解析task.open/task.close，
+旧包缺项逐项instant降级，畸形非空包拒绝。三套资源已有独立开/关Timing，不新增syntax
+或模块ABI。7b1完成时该核心尚未接入SDK，当前接入方式如下；完整规则见
+[任务开合运动契约](OWNER_TASK_MOTION_CONTRACT.md)。正式v26未替换。
+
+## 7b2：标准任务采样、输入门禁与像素组合
+
+当前源码仅为标准Confirmation/File provider适配任务开合。`task.open`与`task.close`
+按语义名分别解析，缺项逐项instant；合法旧主题的空MotionSet也是instant。普通
+`BeginOwnerTask(region)`不自动导出绘制值、添加任务运动或套用Opening输入门禁。
+
+不可变`FramePacket::task_motion`是可选typed `TaskMotionFrameStamp`，含task/UI/cycle
+identity、运动generation、样本revision，以及reveal、endpoint、Intermediate/Terminal
+与单调`time_ns`。同包`task_presentation`继续携带projection和采用sequence；这些字段
+描述求值与关联，不能当作业务结果、输入授权或compositor Presented。
+
+Opening保持布局及命中几何不动，以任务子树整体opacity呈现reveal。Preparing按真实
+输入快照采用推进Ready；Intermediate可以使业务Ready，但呈现仍为Opening。标准
+provider的鼠标、滚动、操作按键在匹配Terminal实际采用前不激活控件，Esc仍可取消。
+仅仅求得reveal=1、发布终值或等够duration均不能解锁输入；State与经检查的相同值
+None也可以完成真实采用，不要求像素必须变化。
+
+完成/取消先退休任务输入、隐藏活provider并交付terminal。Closing以“最新owner正文 +
+最后真正已采用的独立原始任务绘制值”构造帧，从该已采用样本的reveal到0；不取尚未
+采用的较晚求值，不把已乘opacity的像素再次衰减。中间关闭帧采用只更新呈现样本，
+不替换或清除原始片段；匹配Closed Terminal实际采用后才清理缓存和轨迹。
+
+任务与Scene动画共用时钟、frame opportunity、活动性和期限；数值改变强制捕获新包，
+相同值不强迫重绘。末值求出后仍保留待采用的终值包，采用完成后停止采样。没有新增
+线程、Timer、固定帧率循环或业务schedule_tick。
+
+Image、子树或祖先backdrop、已采用native popup等无法独立导出的情况立即降级。
+初始Glass的window祖先blur也采用即时路径；instant、旧包或初始不支持时`task_motion`
+可以为空，但`task_presentation`仍发布Terminal并遵守实际采用门禁。UI替换、退出和
+失败立即退休；theme/configure/buffer/scale/resource环境变化撤下旧源，开场直接归位，
+关闭发布安全终值或Interrupt，不重播入场。同环境且仍受支持的未采用语义Refresh可
+保留同cycle最后已采用的片段和运动，不冻结正文。当前不含透视翻转、GPU保留层或
+通用资源lease。
+
+本节记录当前源码能力；7b2测试结果、原生验证和部署须分别记录。已安装VNC仍为v26，
+未据此文档声明新动画已经部署或获得视觉认可。

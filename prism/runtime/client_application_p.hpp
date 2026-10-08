@@ -1,5 +1,6 @@
 #pragma once
 #include "client_application_install_p.hpp"
+#include "client_application_task_motion_p.hpp"
 #include "client_render_owner_p.hpp"
 #include "prism/render_skia/raster_renderer.hpp"
 #include "prism/runtime/control_value_delivery.hpp"
@@ -153,6 +154,27 @@ struct ClientApplication::Impl {
     void ReconcileOwnerTask();
     void CancelCurrentOwnerTask(runtime::TaskCancelReason reason);
     void RevokeOwnerTaskScope();
+    void CaptureOwnerTaskPresentation(runtime::FramePacket &packet);
+    void AdoptOwnerTaskPresentation(const runtime::FramePacket &packet);
+    void InterruptOwnerTaskPresentation(runtime::TaskPresentationInterruptReason reason);
+    void InvalidateOwnerTaskPresentation(runtime::TaskPresentationInterruptReason reason);
+    std::optional<runtime::TaskPaintFragment>
+    CaptureOwnerTaskPaint(const runtime::FramePacket &packet);
+    void AdoptOwnerTaskPaint(const runtime::FramePacket &packet);
+    std::shared_ptr<const runtime::TaskPaintFragment> ClosingOwnerTaskPaint() const;
+    bool IsStandardOwnerTask() const;
+    void PrepareOwnerTaskMotion(runtime::FramePacket &packet, bool paint_available);
+    void ApplyOwnerTaskMotionPaint(runtime::FramePacket &packet);
+    void BeginClosingOwnerTaskMotion();
+    void ResetOwnerTaskMotion();
+    void FallBackOwnerTaskMotion();
+    bool AdvanceOwnerTaskMotion(std::uint64_t now);
+    bool MatchesOwnerTaskMotionFrame(const runtime::FramePacket &) const;
+    void AdoptOwnerTaskMotion(const runtime::FramePacket &packet);
+    bool HasPendingTaskMotionEndpoint() const noexcept;
+    bool HasActiveAnimations() const noexcept;
+    bool AdvanceAnimations(std::uint64_t now);
+    std::optional<std::uint64_t> NextAnimationDeadlineNs(std::uint64_t now) const noexcept;
     void AdoptOwnerTaskInput(const std::shared_ptr<const runtime::InputSnapshot> &input,
                              runtime::UiLoadId ui);
     void RetireOwnerTasks(runtime::TaskCancelReason reason);
@@ -212,10 +234,20 @@ struct ClientApplication::Impl {
         runtime::TaskIdentity identity;
         runtime::UiLoadId ui;
         std::uint64_t token{};
+        contracts::NodeId root{};
+        runtime::TaskPresentationIdentity presentation;
     };
 
     std::unique_ptr<runtime::TaskSession> owner_tasks;
     std::optional<OwnerTaskScope> owner_task_scope;
+    runtime::TaskPresentationSession owner_task_presentation;
+    // One authoritative adopted subtree. In-flight packet candidates are not
+    // adopted evidence and do not retain a live Scene or former whole frame.
+    std::shared_ptr<const runtime::TaskPaintFragment> owner_task_paint;
+    std::unique_ptr<OwnerTaskMotion> owner_task_motion;
+    std::optional<runtime::TaskPresentationIdentity> owner_task_instant;
+    std::uint64_t last_owner_task_motion_generation{};
+    std::shared_ptr<const contracts::DisplayList> last_task_motion_list;
     bool owner_tasks_retired{};
     std::optional<runtime::PreparedComponent> owner_task_panel_template;
     std::optional<runtime::PreparedComponent> owner_file_panel_template;

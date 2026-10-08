@@ -360,12 +360,12 @@ bool ClientApplication::SetBinding(std::string_view name, runtime::PropertyValue
     const bool changed = app.scene->SetBinding(name, std::move(value));
     app.ReconcileOwnerTask();
     if (changed &&
-        (app.scene->PendingDirty() != runtime::Dirty::None || app.scene->HasActiveAnimations())) {
+        (app.scene->PendingDirty() != runtime::Dirty::None || app.HasActiveAnimations())) {
         app.InvalidateQueuedFrame();
     }
-    if (changed && (app.scene->HasActiveAnimations() || app.animation_worker_active)) {
+    if (changed && (app.HasActiveAnimations() || app.animation_worker_active)) {
         app.SyncAnimationSampling();
-        if (app.scene->HasActiveAnimations()) {
+        if (app.HasActiveAnimations()) {
             app.QueueRenderUpdate(true);
         }
     }
@@ -379,10 +379,15 @@ bool ClientApplication::ApplyTheme(const contracts::ThemeSnapshot &theme, std::s
     try {
         contracts::ValidateTheme(theme);
         std::optional<contracts::ThemeSnapshot> prepared(theme);
+        const bool identity_changed = app.theme != prepared;
         if (app.scene && !app.scene->ApplyTheme(theme, diagnostic)) {
             return false;
         }
         app.theme.swap(prepared);
+        if (identity_changed) {
+            app.InvalidateOwnerTaskPresentation(
+                runtime::TaskPresentationInterruptReason::ThemeChanged);
+        }
         if (app.scene) {
             app.ReconcileOwnerTask();
             app.UpdateOwnerConfirmationText();

@@ -1,6 +1,6 @@
 # 主题动效、版本边界与常见陷阱
 
-适用日期：2026-10-07。目标是仅凭这份 skill 和匹配版本的 SDK/Host 编写应用，源码
+适用日期：2026-10-08。目标是仅凭这份 skill 和匹配版本的 SDK/Host 编写应用，源码
 链接用于维护和深入审计，不是完成普通 UI 的前置阅读要求。
 
 ## 1. 先声明所需能力
@@ -12,8 +12,11 @@
 | 工作区新增文本能力 | TextField/TextArea、typed edit/close 回调及 document/save 等新图标；需要匹配此次源码构建，不能假定 v19 已包含 |
 | 当前源码的布局 | min/maxViewport尺寸条件及纵向ScrollView已有；业务viewport binding与任意虚拟列表不能据此推断 |
 | Tooltip（6b1源码） | 独立只读Kind；根末尾、固定唯一action锚点、显式宽高、最多256 UTF-8字节；依赖本步匹配Host/SDK，已安装v26不包含 |
+| Owner任务呈现（7a1基础） | 独立Opening/Open/Closing/Closed与typed帧关联，按实际采用推进；不新增业务ABI；7a1最初仅即时路径，当前适配见7b2，正式v26不包含 |
+| 任务只读绘制值（7a2基础） | 标准Confirmation/File provider独立子树候选、实际采用后唯一缓存；当前用于受支持Closing，Image/backdrop/native popup降级，正式v26不包含 |
+| 任务开合（7b2当前源码） | 同一时钟与SDK driver、可选typed task_motion、固定几何整体opacity、Opening输入门禁与终值采用清理；只适配受支持标准provider，正式v26不包含 |
 | 系统会话确认 | 6b1只有typed关联核心；CurrentSessionConfirmationAvailability始终Unavailable，无普通模块ABI入口、真实WM session barrier或结束会话执行器 |
-| 尚不能假定存在 | 自动无障碍名称、任意通用modal、完整IME/系统剪贴板、声明式spring/keyframes、自动入场退场动画、图05任务透视翻转 |
+| 尚不能假定存在 | 自动无障碍名称、任意通用modal、完整IME/系统剪贴板、声明式spring/keyframes、任意组件自动入场退场、图05任务透视翻转 |
 
 发布说明必须注明测试过的 Host/包版本以及 theme/motion 依赖。Interface(version:2)
 只声明加载格式，不能证明运行环境包含之后新增的控件。C ABI 尾字段用 struct_size 和
@@ -44,10 +47,16 @@ Preferences 暂无独立 motion 选择器。应用作者不要要求用户手工
 | panel.visibility | 适用属性上的内容显隐反馈；系统控制面板开合 | 不会自动监听组件 mount/unmount 或延迟 visible=false |
 | window.geometry | 系统单窗全屏/恢复 | 普通业务无布局权限 |
 | group.geometry | 系统组沉浸过渡 | 普通业务无组控制权限 |
+| task.open / task.close | 标准Confirmation/File provider开合时序；7b2源码已接入受支持任务层 | 普通region或组件mount/unmount不自动接入，不提供模态或业务权限 |
 
 命名引用缺失会导致 Scene 准备或主题事务失败，不能暗中回退另一曲线。跨自定义主题
 交付时把所需名称列入契约；有意使用独立时长可以采用旧字面量形式，但应说明为什么
 不跟随系统。一次 transition 不能同时写 motion 与 durationMs/easing。
+任务宿主解析task.open/task.close的缺项则按[专用契约](../../../OWNER_TASK_MOTION_CONTRACT.md)
+逐项instant降级，以兼容旧motion包；这不改变Scene通用命名Transition缺项即失败的规则。
+本轮资源时序为Prism开180/关140ms，Subtle开120/关100ms，Instant均为0；生产SDK
+已在受支持标准provider中消费这些时序。业务结果和输入退休不能等待这些duration；
+正式v26仍未替换，不能把资源名称或源码接口当作运行环境已有能力。
 
 ## 3. 推荐动效幅度与实现方法
 
@@ -74,7 +83,44 @@ shadow、资源 source、visible 不是当前通用 Transition 目标。Visual �
 
 visible=false 会立即退出布局、绘制和命中；opacity=0 不会自动禁用外层点击区。
 不能写一个 opacity transition 就声称有可靠退出动画。需要真实退场生命周期时应设计
-通用呈现完成/输入撤销接口，不能在业务中硬等 120ms 再删界面。
+通用呈现完成/输入撤销接口，不能在业务中硬等120ms再删界面。当前标准provider按
+[任务呈现契约](../../../OWNER_TASK_PRESENTATION_CONTRACT.md)及
+[开合运动契约](../../../OWNER_TASK_MOTION_CONTRACT.md)在结果前退休输入、收回活
+provider；Closing独立等待关闭终值采用，不延迟业务回调。
+Refresh保留同一呈现周期，不重播入场；通用BeginOwnerTask不会自动隐藏应用region。
+SDK的OwnerTaskPresentation仅用于诊断，不是业务能力、结果或CompositorPresented。
+7a2源码已为标准Confirmation/File provider捕获独立只读子树绘制值，同包Open stamp
+真实采用后才登记。同环境且仍受支持的未采用Refresh仍可关闭至同cycle最后已采用值；
+新采用帧不支持片段时清除旧缓存，导出支持性失效也立即降级。普通任务region不自动
+导出，绘制值不携带action、输入或modal token。
+
+7b2当前源码共用Scene的AnimationClock与SDK frame opportunity/answer、活动性和
+完成期限，不新增任务Timer、线程或业务tick。只有任务运动活跃时仍可驱动不可变包；
+数值变化强制捕获新包，相同值不强迫重绘。FramePacket的可选typed task_motion含
+task/UI/cycle identity、运动generation、样本revision及reveal/endpoint/
+Intermediate或Terminal/time_ns；关联projection/sequence仍由task_presentation
+携带。这是Host/SDK的内部呈现证据，不是模块可写binding或任务结果。
+
+Opening以固定几何的任务子树整体opacity显示reveal。真实输入快照采用即可使任务
+Preparing进入Ready，Ready可与Opening同时存在；标准provider此时仍拦截鼠标、
+滚动和操作按键，Esc仍可取消。只有匹配Open Terminal实际采用才解锁；仅求值到1、
+发布帧、等够duration均不授予操作。State/checked-identical None也可完成采用，
+像素无变化不等于没有采用，但任意None回执不能替代后端已检查的元数据证据。
+
+Closing每帧组合最新正文与最后真正已采用的原始任务片段，从相应已采用reveal到0。
+不取更晚未采用样本，不缓存整窗，也不对已衰减内容再乘opacity。关闭中间回执保留
+原始片段，Closed终值包只有最新正文；匹配Closed Terminal实际采用后释放片段和
+轨迹。末值已经求出仍需完成采用链，不能提前停采样或清理；结果交付和旧输入退休
+仍然立即完成。正文编辑、状态与监控更新可独立继续。
+
+首版glyph只使用应用固定字体，UI/configure/buffer/scale/theme/resource epoch变化使
+片段失效；未实现通用资源lease。Image、子树或祖先backdrop、已采用native popup降级
+为无片段。Glass的window祖先有blur，即使任务card无blur也保守拒绝，不要为取得片段
+去掉window材料。instant、合法旧空包与初始不支持的Glass等走即时路径，task_motion
+可缺省，但task_presentation仍为Terminal并遵守实际采用门禁。环境变化立即撤下旧
+源：Opening归位，Closing发布安全终值或Interrupt，不重播入场；UI替换、退出或
+失败立即退休。捕获失败不推迟输入退休或业务结果；不能冻结整FramePacket或正文。
+后续整面板2D移动必须处理Visual绘制与固定命中不对齐的问题，再开放对应输入。
 
 首次组件安装通常直接呈现初值，deferred 完成不自动触发入场。主题切换按既有事务
 取消/归位，不把“所有颜色平滑跨主题渐变”当作已实现能力。当前客户端局部动画仍有
@@ -89,6 +135,8 @@ Paint/DisplayList/Skia 回放成本，不等同 GPU 保留层合成动画。
 | 模糊区域过多、移动时成本高 | 根尽量只请求一份背景效果，内容用 card/control；当前每 surface 最多 8 区域不是推荐数量 |
 | 缩放按钮后点不中/抖动 | 固定 InteractionTarget，Visual 只负责装饰运动 |
 | 隐藏视觉后点击仍生效 | 区分 visible 与 opacity；业务也需拒绝 pending/失效动作，不能仅靠淡色 |
+| 任务已Ready但按钮尚不可操作 | 标准provider的Opening门禁独立；等匹配Terminal实际采用，不用业务tick或强制enable绕过 |
+| Glass任务没有淡入淡出 | 当前祖先blur使独立片段不受支持，即时降级是约定行为；不移除window材质凑动画 |
 | Text 周围 padding 没效果 | Text 无 padding；用容器负责留白 |
 | clip 后以为内容可滚动 | overflow:clip 只裁剪；新 TextArea 的内部滚动也不代表普通 Card 能滚动 |
 | 想用 CSS、百分比、字体加粗 | 使用真实属性与布局盒；不发明fontWeight或百分比width，lineHeight按既有文字契约使用 |

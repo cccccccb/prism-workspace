@@ -15,9 +15,9 @@
 此规范补充现有 Concept B 应用布局，不立即替换所有 Demo。设计图蓝色说明、
 Slider、跨窗口 Popup、系统文件服务及透视翻转均不能仅凭图示视为已支持。
 
-## 2. 源码能力核对（更新至6b1）
+## 2. 源码能力核对（更新至7a1）
 
-以下为工作区源码能力；已安装的正式v26不包含5a—6b1，部署记录另行确认。
+以下为工作区源码能力；已安装的正式v26不包含5a—7a1，部署记录另行确认。
 
 | 设计要求 | 当前依据 | 差距 / 实施入口 |
 | --- | --- | --- |
@@ -32,7 +32,7 @@ Slider、跨窗口 Popup、系统文件服务及透视翻转均不能仅凭图�
 | Owner轻量反馈 | OWNER_FEEDBACK_CONTRACT | 6a接入Info/Success/Error、恢复动作与可见期限；一条owner反馈，不是全局通知中心 |
 | Tooltip | TOOLTIP_CONTRACT | 6b1独立只读DSL、悬停/键盘模式、一次截止、采用门禁；不创建Popup或模态 |
 | 会话确认 | SESSION_CONFIRMATION_CONTRACT | 6b1 typed关联与准备/采用契约；生产能力Unavailable，专用呈现与WM全会话屏障待接入 |
-| 下缘翻起与 owner 退后 | 有平移/缩放/透明度与 WM 呈现接口 | 透视、裁剪、命中、缓存和中断行为需新增能力；不得伪造 API |
+| 下缘翻起与 owner 退后 | OWNER_TASK_PRESENTATION_CONTRACT；已有动画与 WM 呈现接口 | 7a1独立开合状态及零时长帧采用；退场片段、主题运动、透视与运动命中仍待接入 |
 
 ## 3. 责任边界
 
@@ -1330,6 +1330,9 @@ Square Light、鼠标和键盘，未做全主题GPU视觉、触屏、用户外�
 `native-gates.json`、`style-final.log`、`package-audit.json`、archive及boundary审计。
 本步验证未执行打包或部署；正式VNC仍为 **0.1.0-26**。提交记录随后补入执行计划。
 
+6b1已提交为`786cec8`（`feat(ui): add passive tooltips and session confirmation contracts`）。
+本步由该提交后的干净工作区继续。
+
 ### 后续主线的拆分
 
 6b2的受信会话呈现、WM输入屏障和焦点恢复独立推进；普通owner任务动效不依赖
@@ -1346,3 +1349,254 @@ Square Light、鼠标和键盘，未做全主题GPU视觉、触屏、用户外�
 
 6b2接入前会话availability继续为Unavailable；真正登出/关机和业务退出协商仍是
 后续独立功能。每一步以匹配源码、对应测试和部署记录报告能力，保留已确认的图稿风格。
+
+## 7a1：Owner任务呈现生命周期与零时长采用（2026-10-07）
+
+前序6b1已提交为`786cec8`。本步按图05进入任务动效准备，规范见
+[任务呈现生命周期](OWNER_TASK_PRESENTATION_CONTRACT.md)，实现与验证分开记录。
+
+1. 新增纯typed `TaskPresentationSession`，独立于`TaskSession`的Preparing/Ready/Working。
+   每个SDK实例最多一份当前状态，以task/UI/cycle/projection关联，不保存Scene、计时器、
+   回调或渲染资源。SDK查询仅用于诊断，不增加业务模块C ABI。
+2. 生产SDK成功建立模态后进入Opening，并将同次Scene输入、surface配置、已接受主题和
+   sequence写入不可变FramePacket。匹配的实际Submitted metadata采用推进Open；
+   State/checked-identical None可采用，不强制新Swap，不声称compositor Presented。
+3. Refresh换epoch并保留cycle和当前phase；已Open面板更新列表时不重播Opening。
+   尺寸/主题变化使活动投影失效；失败主题候选保持旧关联。旧回执不能确认新投影。
+4. 完成、取消或失败先退休输入/捕获、恢复焦点并隐藏共享provider，再发布Closing终值。
+   Host结果立即按已有单次terminal交付，不等待关闭采用；新任务可替代旧Closing，
+   旧关闭回执不得影响successor。未曾有效采用便取消直接Closed，避免闪现未展示内容。
+5. owner退出、前端失败、UI替换和作用域失效直接Interrupt/Closed；Closing遇主题或
+   surface几何变化也立即中断。代际耗尽拒绝复用，并保证输入和呈现可以安全退休。
+6. 采用门禁额外检查当前live输入几何。`SetBinding`修改布局而尚未Publish时，旧帧
+   可以仍被旧业务输入门禁接受，但不能完成新呈现终值；TaskReady的原有语义保持。
+
+本步是零时长生命周期，无开合运动或退出视觉。通用`BeginOwnerTask(region)`结束
+只退休任务关联，不自动隐藏应用region；标准provider负责收回共享面板。正式VNC仍为
+**0.1.0-26**，本轮使用独立临时WM验证。
+
+### 下一步7a2与后续运动顺序
+
+7a2先从实际采用的任务子树导出独立只读paint片段，保留必要祖先clip/transform/
+opacity、真实shaped text、图标与阴影，最大一份；不得持有整窗FramePacket或活Scene
+来冻结正文。关闭后片段没有action、输入区域或旧modal token，正文继续更新。缺少图片
+lease/backdrop关联时明确省略退出片段，沿即时关闭路径收敛，不阻塞业务终态。
+
+随后7b用主题或独立`.prism`定义开合及owner退后，复用既有单调Clock、Pump、帧机会和
+不可变提交。先明确交互运动的命中策略：当前Visual变换不会自动改变hit geometry，
+不能让移动按钮使用原位置输入。最后7c再扩展真实projective/裁剪/逆映射与后端损伤。
+
+### 7a1验证结果（2026-10-08）
+
+生产和独立测试构建通过；最终相关CTest**34/34**，不是全仓库测试。新增纯核心与
+SDK适配各11组具名用例，覆盖实际采用门禁、刷新不重播、业务Working独立、输入先
+退休、快取消、successor、UI/owner退出、主题/尺寸中断、代际耗尽与陈旧live几何。
+SDK夹具控制metadata、不开原生worker；没有用它冒充真实GPU提交。
+
+独立Wayland/V3D原生**23/23**：Provider14、Notepad文件/关闭4、Tooltip5。前两组
+增加Open/Closed与实际metadata采用帧的精确关联，保持真实文件I/O、原生鼠标键盘、
+正文输入恢复、回调重入和旧输入拒绝。提前取消且未创建SDK面板的请求允许无呈现周期，
+但pending/模态/任务必须清空且正常输入实际采用；普通后续帧可以替代关闭帧。临时WM
+全部回收，Square Light范围；没有全主题GPU视觉、触摸屏、FPS或运动用户验收。
+
+初轮缺纯测试TaskSession链接依赖已补齐。原生初轮business-cancel因探针错误要求
+从未materialize的请求也须Closed而失败，修正的是检查范围，生产逻辑未为其放宽。
+两轮相关CTest各有一项control_value_abi_test加载超预算；第二轮捕获6.398774745秒
+load wall time及create_ns=0。计时包含dlopen/dlsym/entry/ABI复制，不能归因于某一步。
+原代码单项、补诊断后的既有两项及最终同组34项通过，失败-only线程CPU/缺页/上下文
+切换诊断已保留；未预热fixture、改断言或放大生产/测试预算。根因仍未确定，复测通过
+不表示环境问题已根治；历史MMC等待日志只保存为系统上下文，不据此归因。
+
+最终规范、Skill、安装与产物审计记录在`dist/validation/interface-system-step7a1/`。
+规范检查**476生产/199测试**通过，最大生产文件734行；安装21份脚本、62条来源和
+8份资源SHA检查通过，测试/probe保持安装隔离。最终**42个archive/257个成员**与
+独立对象一致；11个既有/新增对象readelf及WM/Notepad边界审计通过。
+
+原生验证后的审计再次发现一个旧派生`scene_nodes.cpp.o`与未变化的archive副本不同，
+63处字节差异且readelf报告重定位损坏，mtime未变化。初次本步审计曾全部一致；原因
+仍未确定，不归因于GPU、存储或硬件。已保留损坏对象/差异，从当前archive提取并
+严格核验有效成员后恢复独立对象，保持原mtime；源码、archive和已通过验证的可执行
+文件均未改变。恢复后的全archive审计通过，该对象额外readelf检查通过。当前产物
+一致不证明环境问题已根治；证据见`archive-diagnostic/recovery.json`及原始差异。
+
+当前源码改动未提交新commit或部署；正式VNC仍为**0.1.0-26**。下一主线为7a2独立
+只读退场paint片段，然后7b主题运动，最后7c真实透视。
+
+
+## 7a2：独立已采用任务绘制片段（2026-10-08）
+
+在7a1未提交源码之上继续，具体边界见
+[任务呈现契约第8节](OWNER_TASK_PRESENTATION_CONTRACT.md)。本步将绘制值的捕获与采用
+接入生产SDK，为7b开合运动提供来源；仍采用零时长关闭，不增加动画时钟或业务ABI。
+
+1. `Scene::CaptureTaskPaint`从最后解析的RenderTree导出任务子树，复用既有绘制遍历，
+   保留祖先clip、transform和opacity；不截取整窗command索引，不再次Build。glyph、
+   图标、轮廓和内外阴影随命令独立拥有，不保存活Node、Scene或原整窗FramePacket。
+2. FramePacket仅携带候选`TaskPaintFragment`。源信息包含task/UI/cycle/projection/
+   sequence、configure、buffer尺寸、scale、主题及资源epoch，不携带输入快照、动作
+   或modal token。只有匹配生产实际metadata采用且core Adopt成功的Open终值，才能
+   登记为SDK唯一权威片段；排队、准备或旧回执不能登记。
+3. Refresh尚未采用时保留同cycle最后已采用片段。新采用帧若不支持捕获，清除之前的
+   片段，避免回放更旧内容。配置、主题、资源或UI安全关联失效时不再使用旧片段；
+   新任务和owner退出/失败同样清理，迟到回执不能清理successor。
+4. 关闭先退休输入与共享provider，业务terminal沿原流程交付。Closing只能选择已采用
+   值，不从活Scene补采最新内容。当前零时长Closed终值包不画旧片段，Closed真实采用
+   后释放权威引用；正文持续生成新帧，不冻结整窗。
+5. `ComposeTaskPaint`是独立值组合接口，把片段加到调用方提供的最新正文DisplayList，
+   交给既有old/new损伤计算。它供7b非零退场使用，本步生产零时长关闭没有调用该组合
+   制造延迟。不能将Closed盖章与仍绘制退场面板放在同一终值帧。
+6. 首版SDK仅捕获匹配UI的标准Confirmation/File provider。通用任务region不导出；
+   图片、子树或祖先backdrop、native popup采用关联、未解析Layout/Paint均明确降级。
+   Glass的window祖先有blur，因此当前保守策略省略该主题片段。glyph仅依托应用固定
+   font生命周期及UI/config/theme/resource门禁，不代表通用font/image lease已完成。
+7. BackdropBlur可仅标记Composite，导出同时检查当前安全条件与解析树来源，不能仅按
+   pixels_revision复用旧候选。捕获失败按无片段降级，不阻塞终态、输入撤销或焦点恢复。
+
+### 7a2验证记录
+
+生产与独立验证程序构建通过；相关CTest **38/38**一次通过。新增Scene导出7组、
+SDK采用/退休14组与值组合/损伤4组具名检查，包含真实共享DSL和字体、未采用刷新、
+资源变更后的首次旧回执、关闭后正文更新，以及移动/撤下阴影的CPU完整/局部重放对照。
+SDK采用回执仍是受控夹具，不能代替原生提交或compositor Presented。
+
+独立Wayland/V3D **23/23**通过：Provider14、Notepad文件/关闭4、Tooltip5。
+前两组额外检查权威片段指针与实际metadata采用帧候选一致，源task/UI/cycle/projection/
+sequence、配置、尺寸、scale、主题及资源精确关联，正常恢复后缓存释放。保持真实
+点击、键盘、文件I/O、焦点恢复与回调重入场景；临时WM全部回收。范围仍为Square Light、
+鼠标/键盘，不代表全主题GPU视觉、触屏、非零开合运动、FPS或用户外观验收。
+
+规范检查 **480生产/202测试**通过，最大生产文件734行；Skill及diff检查通过。
+只读安装审计21份脚本、62条来源和8份资源SHA通过，无测试/probe/fixture混入安装。
+最终 **42个archive/260个成员**与独立对象一致，17份既有/新增/恢复对象的readelf
+检查通过，WM与Notepad模块依赖边界通过。记录在
+`dist/validation/interface-system-step7a2/`：`ctest-initial.log`、三组`native-gates.json`、
+`style-final.log`、`package-audit.json`、archive及boundary审计。
+
+首次构建仅验证夹具引用了不存在的InputSnapshot字段，已改为实际modal epoch关联及
+已退休Scene token检查；生产协议未为夹具更改。CTest后的初轮产物审计再次发现独立
+`client_application_state.cpp.o`与`scene_popup_scroll.cpp.o`分别有129/63处字节差异，
+readelf报告损坏重定位；原因仍未确定。保留原对象与差异，用相同当前源码/编译参数
+在证据目录单独复编，两份新对象SHA均与当前archive成员完全一致且readelf通过。
+据此恢复独立对象并保持原mtime；已验证的archive与六个关键二进制SHA均未改变，
+不重复运行同一批CTest冒充新证据。恢复后审计及原生验证后的最终审计均通过。
+`archive-diagnostic/recovery.json`保存完整来源、复编参数、哈希和差异；当前一致不能
+证明前序或本轮环境原因已经根治，不将对象差异归因于GPU、SD卡或硬件。
+
+源码继续保持未提交状态，正式VNC仍为 **0.1.0-26**；本步未打包或部署。生产关闭仍
+为零时长，值组合只是7b接口准备，不宣称非零动画或图05真实透视已经实现。
+
+下一步7b先定义独立开合采样与输入策略，再接主题/独立`.prism`运动配方；在交互元素
+发生真实平移/缩放前解决旧hit geometry问题。图片/backdrop退出需要先补资源保活及
+合成关联，不能以复制command或image_uses替代。7c再实现真实projective与逆映射。
+
+## Step 7b1：任务开合时序与中间帧协议（2026-10-08）
+
+本轮先将7b拆成可验证的三个步骤，并建立
+[Owner任务开合运动契约](OWNER_TASK_MOTION_CONTRACT.md)：7b1数值与采用协议，7b2
+输入/统一driver/像素组合，7b3原生与视觉验证。7b2/7b3是后续任务，不能把本步资源
+时序或核心测试写成正式桌面已经有非零开合动画。
+
+`TaskPresentationStamp::sample_kind`区分Intermediate与Terminal，默认Terminal保持
+已有SDK零时长调用。中间帧实际采用只更新sequence/ever-adopted，不推进Open或
+Closed；Terminal必须属于本投影已发布终值序列区间。同binding一旦发布Terminal，
+禁止重新发布Intermediate；Refresh或binding变化重建projection边界，Open不重播入场。
+中间采用后取消可进入Closing；仅排队过的中间帧不产生退场。旧周期、旧投影、改标
+sample_kind及重复回执继续拒绝，业务Ready、terminal与回调不依赖动画完成。
+
+独立`prism_task_motion_core`提供typed TaskMotionSpec/TaskMotionTimeline，借用现有
+AnimationClock/ScalarTimeline按绝对单调时间求[0,1]reveal，无Timer、线程或Scene资源。
+关闭起点由SDK适配器提供最后实际采用值，不能从后来计算或排队的值推导。
+task.open/task.close分别按名称解析；合法旧包缺项逐项instant，legacy空集合instant，
+畸形非空集合拒绝，包ID不参与选择。
+
+三套MotionSet v1资源添加独立taskEnter/taskExit：Prism180/140ms、Subtle120/100ms、
+Instant0/0，开EaseOutCubic、关EaseInCubic。时序通过现有Theme schema 3typed编码分发，
+不增加syntax或业务ABI，不覆盖panel.visibility等原语义。资源存在不代表已接像素链。
+
+已规范7b2门禁：Opening在Scene owner-modal输入入口封锁操作并保留Esc与清理，
+不能设enabled=false破坏模态准备；Open终值采用后再解锁。Closing立即退休旧输入并
+恢复当前正文输入；首版保持几何不变。Scene与任务轨迹合并活动判断和最小deadline，
+任务数值变化须独立使包失效，终值仍等待真实采用。Glass祖先blur、图片、native popup
+等不支持来源使用即时路径，不能移除正常材质或冻结正文绕过。
+
+### 7b1验证记录
+
+选定生产Host/WM与独立验证目标构建通过，相关CTest **12/12**通过：新增TaskMotion
+15组fake-clock检查、任务呈现核心新增6组（共17组），以及既有Clock、主题/传输、
+帧机会、worker、绘制组合与SDK呈现/缓存门槛。验证密集/稀疏采样一致、精确终值、
+迟到时间不复活终态、最后采用值续关、合法旧包逐项降级、非法参数/改标原子拒绝、
+中间取消、Refresh、successor和计数耗尽。未以求值到期替代实际采用。
+
+独立Wayland/V3D Provider **14/14**通过，临时WM已回收。范围为Square Light、
+真实鼠标/键盘、共享Confirmation/File provider、原有零时长Ready/Open/Closed实际
+采用、取消/重入及独立绘制缓存；不代表非零任务像素、全主题动效、触屏、FPS或视觉
+认可。非零轨迹尚未接入SDK，后续7b2须重新验证实际中间/终值样本与输入门禁。
+
+规范检查 **482生产/203测试**通过，最大生产文件734行；Skill及diff检查通过。
+只读安装检查21份脚本、62条来源及11份资源SHA通过，含新增三套motion配置；
+测试/probe/fixture不进安装。构建后和原生验证后的archive检查均通过：**43个archive /
+261个成员**一致，18份新/既有/前序恢复对象readelf通过，WM及模块依赖边界通过。
+本轮未再发现前序独立对象差异；当前一致不能证明前序环境原因已根治。
+
+证据在`dist/validation/interface-system-step7b1/`，见`build.log`、`ctest.log`、
+`owner-task-native/native-gates.json`、`style.log`、`package-audit.json`及archive/boundary
+记录。本步未提交、打包或部署，正式VNC仍为 **0.1.0-26**。
+
+下一步 **7b2** 按开合运动契约接入Scene输入门禁、统一FrameOpportunity/Clock采样、
+不可变任务样本与固定几何的透明度过渡；同时验证最后采用值续关、即时降级、正文独立
+更新和终值实际采用后的完成。真实几何退后与透视按后续能力顺序实施。
+
+## Step 7b2：统一任务采样、入场门禁与透明度组合（2026-10-08）
+
+源码按[开合运动契约](OWNER_TASK_MOTION_CONTRACT.md)接入标准Confirmation/File provider，
+沿用现有Scene Clock、FrameOpportunity/Answer及render worker。任务与Scene动画合并
+活动性和最小期限，主线程按单调时间求值，渲染线程只消费冻结样本。task_motion记录
+identity/generation/revision及时间、reveal、目标和Intermediate/Terminal，不新增Timer
+或线程。相同语义数值不制造重绘；终值保留到有效metadata采用，即使无需新像素也
+不提前关闭driver或推进呈现phase。
+
+Scene通过精确modal token控制输入门禁，不改变enabled、布局或几何有效性。标准
+provider Begin先封锁普通鼠标、键盘、滚动与控件操作，当前owner的Esc及必要清理仍
+有效；业务Ready可以先于Open。真正匹配Open Terminal采用后才解锁；关闭立即
+EndModal、退休旧输入并恢复正文，不等待视觉退场或延迟业务结果。
+
+首版保持几何不变：入场在完整解析树的原始顺序上对目标子树添加group opacity；
+退场使用本帧新正文与最后实际采用的原始独立片段，从最后实际采用的reveal向0求值。
+未采用的刷新和更晚计算值不能冒充已显示来源；Closing Intermediate不释放缓存，
+Closing Terminal采用才释放。alpha0省略任务命令，alpha1保持原命令，损伤仍沿
+DisplayList与Skia回放。未实现GPU保留层或真实透视。
+
+普通应用region不自动导出或加入动画。初始不支持、instant/合法旧包的即时决策按
+完整cycle锁定，导出后来恢复也不重播入场；下一任务重新判断。Glass祖先blur、
+图片、native popup及失效来源继续保守降级。环境变更撤下旧资源并归位或Interrupt；
+可选opacity导出、组合和列表准备异常转为即时路径，计数耗尽仍明确失败。
+
+### 7b2验证进度与环境阻塞
+
+选定生产与验证目标已构建、链接。新增Scene门禁10组、SDK运动16组与透明度/损伤
+5组均通过。最终相关CTest **31/32**：此前通过的theme_compiler_test这次触发SIGILL，
+整组门槛仍失败，不能把此前不同轮的单项成功合并成32/32。旧schema夹具的命名反馈
+不兼容已改为零时长字面量；不放松生产主题校验。
+
+原生Provider首轮choice/cancel已记录同cycle的真实入场、退场正中间值及两端Terminal
+采用；escape揭示新增seat限制与原有all-seat局部模态契约冲突。现已恢复任一当前owner
+路由seat的Esc取消，seat仅决定初始焦点，并通过新增默认0/原生1及完整InputSource
+释放隔离回归。修复后已重新链接，完整原生Provider与Notepad复测尚未完成。
+
+本轮反复发现独立对象或archive成员字节不一致，坏对象/库已留存，并用同参数独立
+复编核对来源后恢复。其中一次恢复涉及客户端库6个成员，另有task_paint库成员再次
+变化。随后规范检查发现本轮未修改的demo_startup_probe.cpp出现suruct与非法UTF-8；
+与HEAD逐字节比较为同长度70处差异，全部是单个位变化。保留坏文件后仅恢复该文件
+的准确HEAD内容；规范检查485生产/206测试再次通过，最大生产文件734行。
+
+内核还记录mmc_rescan工作线程阻塞超过120秒，git/clang-format曾处于blk_mq_get_tag
+等待；这些观察不能确定存储、内存、供电或内核中的具体原因。最终SIGILL尚未定位，
+因此本步最终验收仍未完成，不继续用不稳定环境生成发布包。当前1080个工作区文件
+已在经确认的tmpfs保存快照、SHA清单、patch及诊断；归档与清单逐项核对一致，但
+快照包含当时已有的坏字节，不是无损基线。RAM副本必须在重启前复制到可靠存储。
+
+证据原目录为dist/validation/interface-system-step7b2/，最新源码恢复与CTest失败日志
+另保存在本轮RAM恢复目录。恢复环境后，先核对Git/备份与构建产物，再完成32项相关
+CTest、14项Provider和4项Notepad原生回归，最后进入7b3多材质与视觉验证。
+本轮作为源码检查点提交保存，供迁移到可靠机器后继续验证；最终验收仍未完成。
+正式VNC仍为**0.1.0-26**，本步未打包或部署。

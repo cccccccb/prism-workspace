@@ -156,6 +156,7 @@ void ClientApplication::Impl::HandleWindowEvent(
         ResetPopupSurface();
         ui_metrics = configure->metrics;
         ui_configure_count = configure->configure_count;
+        InvalidateOwnerTaskPresentation(runtime::TaskPresentationInterruptReason::GeometryChanged);
         scene->SetViewport(configure->metrics.logical_size);
         ReconcileOwnerTask();
         UpdateOwnerConfirmationText();
@@ -201,7 +202,7 @@ void ClientApplication::Impl::CompleteInteractionResult(const runtime::Interacti
         queued_frame.reset();
         QueueRenderUpdate(true);
     }
-    if (result.changed && scene->HasActiveAnimations()) {
+    if (result.changed && HasActiveAnimations()) {
         // Input state changes can start a timeline without a business binding.
         // Stopping waits until PublishFramePacket retains the final pixels.
         SyncAnimationSampling();
@@ -260,11 +261,12 @@ void ClientApplication::Impl::HandleSubmitted(const runtime::SubmittedFrameEvent
         // Adoption may be valid without changing pixels. The task readiness
         // gate checks the accepted identity rather than the visual-change result.
         AdoptOwnerTaskInput(event.frame->input_snapshot, event.ui);
+        AdoptOwnerTaskPresentation(*event.frame);
         if (changed) {
             // A stationary pointer is rehit only after the worker adopted geometry.
             InvalidateQueuedFrame();
             QueueRenderUpdate(true);
-            if (scene->HasActiveAnimations()) {
+            if (HasActiveAnimations()) {
                 SyncAnimationSampling();
             }
         }
@@ -287,8 +289,7 @@ void ClientApplication::Impl::HandleSubmitted(const runtime::SubmittedFrameEvent
     if (event.kind == runtime::SubmittedKind::Pixels && on_ui_submitted) {
         on_ui_submitted(event.ui);
     }
-    if (event.kind == runtime::SubmittedKind::Pixels && event.ui == installed_ui &&
-        pending_animation_finish_sequence &&
+    if (event.metadata_prepared && event.ui == installed_ui && pending_animation_finish_sequence &&
         event.frame_sequence >= *pending_animation_finish_sequence) {
         SyncAnimationSampling();
     }

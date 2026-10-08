@@ -1,8 +1,12 @@
 MotionSet("instant", version: 1) {
     Timing("spatial", durationMs: 0, easing: "easeInOutCubic")
     Timing("feedback", durationMs: 0, easing: "easeOutCubic")
+    Timing("taskEnter", durationMs: 0, easing: "easeOutCubic")
+    Timing("taskExit", durationMs: 0, easing: "easeInCubic")
     Transition("group.geometry", timing: "spatial")
     Transition("window.geometry", timing: "spatial")
     Transition("panel.visibility", timing: "feedback")
     Transition("control.feedback", timing: "feedback")
+    Transition("task.open", timing: "taskEnter")
+    Transition("task.close", timing: "taskExit")
 }

@@ -53,6 +53,7 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot &snapshot, const RenderT
         if (old && old->source_revision == source.revision &&
             SameBounds(old->bounds, source.bounds) && old->children == source.children &&
             old->visible == visible[source.id.index] && old->presentation == source.presentation &&
+            old->backdrop_blur == source.style.backdrop_blur &&
             SameContour(old->contour, source.contour)) {
             tree.nodes.push_back(*old);
             tree.nodes.back().contour = source.contour;
@@ -73,6 +74,7 @@ RenderTree RenderTreeBuilder::Build(const SceneSnapshot &snapshot, const RenderT
         node.clip = node.clip || source.style.overflow == "clip";
         node.clip_radius = radius;
         node.presentation_scope = source.kind == Kind::Visual;
+        node.backdrop_blur = source.style.backdrop_blur;
         node.presentation = source.presentation;
         node.children = source.children;
         node.source_revision = source.revision;

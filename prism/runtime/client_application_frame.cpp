@@ -68,6 +68,9 @@ ClientApplication::Impl::CaptureFramePacket(bool pixels, contracts::BufferSize s
     // can consume this same immutable view without returning to the live Scene.
     packet.display_list = last_list;
     packet.image_uses = last_image_uses;
+    // Build can retire a modal scope. Hide its shared provider before capturing
+    // the final pixels and input, rather than labeling an older sample Closed.
+    ReconcileOwnerTask();
     CapturePopupFrame(packet);
     // A rejected native export can revoke an earlier adoption. Resolve its
     // restored root fallback before publishing this same immutable sample.
@@ -92,6 +95,16 @@ ClientApplication::Impl::CaptureFramePacket(bool pixels, contracts::BufferSize s
     packet.scene_revision = scene->TransactionRevision();
     packet.pixels_revision = scene->PixelsRevision();
     packet.animation_sample = scene->AnimationSample();
+    auto task_paint = CaptureOwnerTaskPaint(packet);
+    PrepareOwnerTaskMotion(packet, task_paint.has_value());
+    ApplyOwnerTaskMotionPaint(packet);
+    CaptureOwnerTaskPresentation(packet);
+    if (task_paint && packet.task_presentation) {
+        task_paint->source.identity = packet.task_presentation->identity;
+        task_paint->source.projection = packet.task_presentation->projection;
+        packet.task_paint_candidate =
+            std::make_shared<const runtime::TaskPaintFragment>(std::move(*task_paint));
+    }
     return std::make_shared<const runtime::FramePacket>(std::move(packet));
 }
 

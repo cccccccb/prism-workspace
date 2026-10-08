@@ -28,6 +28,8 @@ Skill 与参考资料只有一份正文，统一在仓库维护。人和 AI 使�
 | 界面系统设计与执行计划 | [INTERFACE_SYSTEM_PLAN](INTERFACE_SYSTEM_PLAN.md)（控件状态、浮层、文件任务、动效与能力差异） |
 | 界面系统视觉参考 | [图01—05与连接颈C方案](design/interface-system/README.md)（用户参考稿、修订选择及实机验收边界） |
 | Owner任务与局部模态 | [OWNER_TASK_AND_MODAL_SCOPE](OWNER_TASK_AND_MODAL_SCOPE.md)（5a C++核心、提交输入门禁与生命周期） |
+| Owner任务呈现生命周期 | [OWNER_TASK_PRESENTATION_CONTRACT](OWNER_TASK_PRESENTATION_CONTRACT.md)（7a1 开合状态、帧采用与中断；7a2 独立只读绘制值、采用缓存与资源降级） |
+| Owner任务开合运动 | [OWNER_TASK_MOTION_CONTRACT](OWNER_TASK_MOTION_CONTRACT.md)（7b1 中间/终值协议、独立时序与数值核心；7b2 输入与统一driver接入规范） |
 | 任务Provider与业务ABI | [OWNER_TASK_PROVIDER_CONTRACT](OWNER_TASK_PROVIDER_CONTRACT.md)（5b Confirmation、Host真实归属与共享DSL面板） |
 | 文件任务与异步目录 | [FILE_TASK_PROVIDER_CONTRACT](FILE_TASK_PROVIDER_CONTRACT.md)（5c typed文件请求、工作线程模型、共享面板与覆盖重验） |
 | 文件业务与异步关闭 | [NOTEPAD_TASK_AND_CLOSE_CONTRACT](NOTEPAD_TASK_AND_CLOSE_CONTRACT.md)（5d Notepad真实读写、保存快照、typed Close ABI与取消恢复） |

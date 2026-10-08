@@ -8,6 +8,7 @@
 #include "prism/runtime/prepared_component.hpp"
 #include "prism/runtime/prepared_regions.hpp"
 #include "prism/runtime/property.hpp"
+#include "prism/runtime/task_presentation.hpp"
 #include "prism/runtime/task_session.hpp"
 #include "prism/runtime/ui_install.hpp"
 #include "prism/runtime/ui_load.hpp"
@@ -152,6 +153,8 @@ public:
     std::optional<runtime::TaskIdentity> BeginOwnerTask(std::string_view region,
                                                         std::uint64_t seat = 0);
     std::optional<runtime::TaskEntry> ActiveOwnerTask() const noexcept;
+    // Diagnostic lifecycle state; never authorizes input or delivers a result.
+    std::optional<runtime::TaskPresentationState> OwnerTaskPresentation() const noexcept;
     bool SetOwnerTaskWorking(runtime::TaskIdentity identity);
     bool ResumeOwnerTask(runtime::TaskIdentity identity);
     bool RefreshOwnerTask(runtime::TaskIdentity identity);

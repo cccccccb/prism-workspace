@@ -120,7 +120,12 @@ bool Scene::HasActiveAnimations() const noexcept
 
 std::uint64_t Scene::AnimationNowNs() const noexcept
 {
-    return animation_state_ ? animation_state_->clock.NowNs() : DefaultClock().NowNs();
+    return AnimationClockSource().NowNs();
+}
+
+const animation::AnimationClock &Scene::AnimationClockSource() const noexcept
+{
+    return animation_state_ ? animation_state_->clock : DefaultClock();
 }
 
 void Scene::RecordAnimationSample(std::uint64_t now) noexcept

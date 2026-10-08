@@ -28,6 +28,16 @@ bool Scene::HandleOwnerModalInput(const contracts::WindowEvent &event,
         }
     }
 
+    // The owner-local modal domain covers every routed seat. The initiating
+    // seat chooses initial focus; cancellation does not await opening adoption.
+    if (owner_modal_ && key && key->physical_key == 0x29) {
+        if (key->state == contracts::ButtonState::Pressed && !key->repeat) {
+            owner_modal_escape_.push_back(key->source);
+            FinishOwnerModal(OwnerModalCloseReason::Escape);
+        }
+        return true;
+    }
+
     if (const auto *focus = std::get_if<contracts::FocusEvent>(&event)) {
         if (owner_modal_ && focus->focused) {
             const auto current =
@@ -59,11 +69,9 @@ bool Scene::HandleOwnerModalInput(const contracts::WindowEvent &event,
         return false;
     }
 
-    if (key && key->physical_key == 0x29) {
-        if (key->state == contracts::ButtonState::Pressed && !key->repeat) {
-            owner_modal_escape_.push_back(key->source);
-            FinishOwnerModal(OwnerModalCloseReason::Escape);
-        }
+    if (!owner_modal_->input_ready) {
+        // Keep the modal domain live for preparation/adoption, but do not let
+        // text, controls, scrolling or gesture capture run before its endpoint.
         return true;
     }
     // The shared hit and interactive predicates reject every target outside

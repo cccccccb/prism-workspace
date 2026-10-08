@@ -159,6 +159,45 @@ bool Scene::EndOwnerModal(std::uint64_t expected_token)
     return true;
 }
 
+bool Scene::SetOwnerModalInputReady(std::uint64_t expected_token, bool ready)
+{
+    ReconcileOwnerModal();
+    if (!expected_token || expected_token != OwnerModalToken()) {
+        return false;
+    }
+    if (owner_modal_->input_ready == ready) {
+        return true;
+    }
+    if (ready) {
+        owner_modal_->input_ready = true;
+        return true;
+    }
+
+    // A later release cannot commit a stream started before the gate closed.
+    // Preserve the in-scope keyboard focus and its original restoration record.
+    input_state_->active.reserve(input_state_->active.size() + input_state_->focus.size());
+    auto focus = std::move(input_state_->focus);
+    try {
+        CancelInput();
+    } catch (...) {
+        input_state_->focus = std::move(focus);
+        for (const auto &saved : input_state_->focus) {
+            TrackInputTarget(saved.node);
+        }
+        RefreshInputStates();
+        throw;
+    }
+    input_state_->focus = std::move(focus);
+    for (const auto &saved : input_state_->focus) {
+        TrackInputTarget(saved.node);
+    }
+    owner_modal_->input_ready = false;
+    RefreshInputStates();
+    ResolveInteractionStyles();
+
+    return true;
+}
+
 std::optional<std::uint64_t> Scene::RefreshOwnerModal(std::uint64_t expected_token)
 {
     ReconcileOwnerModal();

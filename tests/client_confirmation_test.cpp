@@ -3,6 +3,7 @@
 #include "prism/runtime/load_plan.hpp"
 #include "prism/runtime/owner_task_panel.hpp"
 #include "prism/theme/compiler.hpp"
+#include "prism/theme/motion_compiler.hpp"
 
 #include <algorithm>
 #include <array>
@@ -28,6 +29,18 @@ using namespace prism;
 namespace {
 const std::filesystem::path source_root{PRISM_SOURCE_ROOT};
 constexpr contracts::WindowId window{1};
+
+// This suite verifies provider/lifecycle policy at zero duration. Nonzero
+// task motion has its own fake-clock FramePacket/adoption integration suite.
+contracts::ThemeSnapshot InstantTheme(const std::filesystem::path &theme_root, std::string_view id,
+                                      std::uint64_t generation = 0,
+                                      std::string_view scheme = "dark")
+{
+    auto snapshot = theme::LoadTheme(theme_root, id, generation, scheme);
+    snapshot.motion = theme::LoadMotion(theme_root.parent_path() / "motions", "instant");
+    return snapshot;
+}
+
 constexpr contracts::InputSource pointer{0, 1, 1};
 
 std::string Read(const std::filesystem::path &path)
@@ -183,7 +196,7 @@ struct Fixture {
     Fixture()
     {
         assert(app.FrontendReady());
-        const auto theme = theme::LoadTheme(source_root / "resources/themes", "glass", 1);
+        const auto theme = InstantTheme(source_root / "resources/themes", "glass", 1);
         assert(app.ApplyTheme(theme));
         const auto panel =
             runtime::PrepareComponent(Read(source_root / "resources/ui/owner-task-panel.prism"));
@@ -372,7 +385,7 @@ void CheckPreviewConfigurationAndBudgetMasterInstall()
 {
     sdk::ClientApplication app(Config());
     assert(app.FrontendReady());
-    assert(app.ApplyTheme(theme::LoadTheme(source_root / "resources/themes", "glass", 1)));
+    assert(app.ApplyTheme(InstantTheme(source_root / "resources/themes", "glass", 1)));
     auto &impl = *app.impl_;
     impl.opened_once = true;
     impl.ui_configure_count = 1;
@@ -492,7 +505,7 @@ void CheckLongTextResizeAndTheme()
     // Keep this successful theme projection in the same narrow/short profile.
     f.Resize(320, 204);
     f.CheckText(request);
-    auto theme = theme::LoadTheme(source_root / "resources/themes", "square", 2, "light");
+    auto theme = InstantTheme(source_root / "resources/themes", "square", 2, "light");
     for (auto &number : theme.numbers) {
         if (number.name == "font_body") {
             number.value = 16;
@@ -549,8 +562,7 @@ void CheckNewRequestResetsTextScroll()
     assert(f.Scene().ScrollInfo(body)->offset == body_info->maximum);
     assert(f.Scene().ScrollInfo(title)->offset == title_info->maximum);
 
-    assert(
-        f.app.ApplyTheme(theme::LoadTheme(source_root / "resources/themes", "glass", 2, "light")));
+    assert(f.app.ApplyTheme(InstantTheme(source_root / "resources/themes", "glass", 2, "light")));
     assert(f.Scene().ScrollInfo(body)->offset == body_info->maximum);
     assert(f.Scene().ScrollInfo(title)->offset == title_info->maximum);
     f.Resize(500, 420);

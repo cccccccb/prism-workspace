@@ -47,6 +47,23 @@ capability查询、typed request/cancel与on_task_completed。1—2个业务choi
 不能用action字符串假造文件服务。
 任务逻辑、输入作用域与主题运动分开；输入作用域不自动隐藏UI，标准provider负责
 面板收回。Preparing按真实输入快照采用推进Ready；模态期间拒绝全部Popup及嵌套任务。
+7a1任务呈现已在源码接入[生命周期契约](../../OWNER_TASK_PRESENTATION_CONTRACT.md)：
+Opening/Open/Closing/Closed独立于TaskPhase，零时长终值只按匹配帧实际采用推进。
+完成/取消先退休输入和provider，再交付结果；不等待Closing，不新增业务ABI。
+7a2源码进一步接入标准provider的独立只读绘制值候选与真实采用缓存；尚未采用的
+Refresh在同环境且仍受支持时保留最后已采用值，普通任务region不自动导出。资源降级
+及Glass祖先blur限制见
+[动效与坑点](references/motion-and-pitfalls.md)。不能缓存整窗冻结正文；正式v26不包含。
+7b1源码已定义Intermediate/Terminal采用协议与纯TaskMotionTimeline，独立motion包
+提供task.open/task.close；读取[开合运动契约](../../OWNER_TASK_MOTION_CONTRACT.md)。
+7b2当前源码将标准Confirmation/File provider接入同一个Scene时钟和SDK driver：
+Opening固定几何、整体opacity；Closing使用最新正文及最后真正已采用的原始任务
+片段/reveal，不冻结整窗。Ready与Opening独立，匹配Terminal实际采用后才解锁任务
+输入或清理关闭缓存；State/checked-identical None也可构成采用。普通region不自动
+加入运动或门禁。instant、合法旧包与初始不支持的Glass等走即时路径，task_motion
+可缺省但仍须终值采用。环境失效立即归位或退休，不重播；详细支持边界见动效引用。
+普通业务不管理任务运动、不等待动画交付结果，也不复制共享provider。已安装v26未
+替换；当前源码能力与资源时序不代表已部署动画或视觉获认可。
 子菜单声明置于 Scene 根末尾，必须有明确返回入口。Host 按能力选择 native 子层或
 原窗口呈现，侧向级联仍未接入；应用不自行选择 target 或创建前端进程。
 含浮层的窗口将普通内容 clip 与根末尾 Popup/Menu 分开，根保持 window 材质；

@@ -155,6 +155,7 @@ public:
     void EnableAnimations(const animation::AnimationClock *clock = nullptr);
     bool HasActiveAnimations() const noexcept;
     std::uint64_t AnimationNowNs() const noexcept;
+    const animation::AnimationClock &AnimationClockSource() const noexcept;
     bool AdvanceAnimations(std::uint64_t now);
     // Resolves local input state without changing authored bindings or theme references.
     void ResolveInteractionStyles();
@@ -218,6 +219,11 @@ public:
     bool SetBackground(contracts::NodeId id, contracts::Color color);
     bool ImageReady(contracts::ResourceId image, contracts::LogicalSize intrinsic_size);
     std::optional<contracts::DisplayList> Build(contracts::WindowId window);
+    // Value-owned paint from the latest resolved build, without actions or input.
+    // Dirty geometry/paint and unsupported resource dependencies return no fragment.
+    std::optional<contracts::DisplayList> CaptureTaskPaint(contracts::NodeId root) const;
+    std::optional<contracts::DisplayList> CaptureTaskOpacityFrame(contracts::NodeId root,
+                                                                  double reveal) const;
     std::optional<std::string> ActionAt(contracts::LogicalPoint point) const;
     std::optional<HitResult> HitTest(contracts::LogicalPoint point) const;
     std::optional<HitResult> HitTest(contracts::LogicalPoint point,
@@ -243,6 +249,8 @@ public:
     std::optional<std::uint64_t> BeginOwnerModal(contracts::NodeId root, std::uint64_t seat = 0);
     // Retains the domain and text focus, revokes captures and all old projection input.
     std::optional<std::uint64_t> RefreshOwnerModal(std::uint64_t expected_token);
+    // Blocks ordinary input without disabling the scope or its adopted geometry.
+    bool SetOwnerModalInputReady(std::uint64_t expected_token, bool ready);
     bool EndOwnerModal(std::uint64_t expected_token);
     std::uint64_t OwnerModalToken() const noexcept;
     std::uint64_t OwnerModalEpoch() const noexcept;
@@ -359,6 +367,7 @@ private:
     void ResolveNodeStateTargets(Node &, std::uint64_t now, bool animate) noexcept;
     void ApplySnapshotProperty(SnapshotNode &, DslProperty, const PropertyValue &) const;
     void RecordAnimationSample(std::uint64_t now) noexcept;
+    bool CanCaptureTaskPaint(contracts::NodeId root) const;
     void CancelAnimations() noexcept;
     void CancelHiddenAnimations() noexcept;
     void ReconcileCommittedAnimations(const std::vector<std::pair<Node *, Node *>> &pairs) noexcept;

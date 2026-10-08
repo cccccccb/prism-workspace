@@ -6,9 +6,13 @@
 #include "prism/runtime/input_snapshot.hpp"
 #include "prism/runtime/popup_surface.hpp"
 #include "prism/runtime/render_resource.hpp"
+#include "prism/runtime/task_motion.hpp"
+#include "prism/runtime/task_paint.hpp"
+#include "prism/runtime/task_presentation.hpp"
 #include "prism/runtime/ui_load.hpp"
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace prism::runtime {
@@ -36,6 +40,14 @@ struct FramePacket {
     std::vector<contracts::SurfaceEffectRegion> surface_effects;
     std::vector<contracts::SurfaceInputRegion> input_regions;
     std::shared_ptr<const InputSnapshot> input_snapshot;
+    // Owner-local lifecycle association. Only matching actual metadata adoption
+    // advances its endpoint; this is neither business readiness nor permission.
+    std::optional<TaskPresentationStamp> task_presentation;
+    std::optional<TaskMotionFrameStamp> task_motion;
+    // A prepared standard-provider subtree becomes authoritative only after
+    // this exact Open-target sample is adopted, including Intermediate samples.
+    // Closed-target packets reference retained paint only through the SDK owner.
+    std::shared_ptr<const TaskPaintFragment> task_paint_candidate;
     // Optional Host export intent from the same UI sample. It neither creates
     // a native child nor authorizes input/submission to an existing target.
     // Eligible Popup/Menu leave the root list only after an actual child

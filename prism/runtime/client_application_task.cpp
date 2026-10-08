@@ -11,8 +11,22 @@ void ClientApplication::Impl::RevokeOwnerTaskScope()
         scene->EndOwnerModal(binding->token);
         ClearOwnerConfirmation();
         ClearOwnerFilePanel();
+        if (!owner_task_presentation.BeginClose(binding->presentation, scene->OwnerModalEpoch())) {
+            owner_task_paint.reset();
+            owner_task_presentation.Interrupt(
+                binding->presentation, runtime::TaskPresentationInterruptReason::ScopeUnavailable);
+        }
+        if (!ClosingOwnerTaskPaint()) {
+            owner_task_paint.reset();
+        }
+        BeginClosingOwnerTaskMotion();
         CollectGestureEvents();
         CollectControlEvents();
+    } else if (binding) {
+        ResetOwnerTaskMotion();
+        owner_task_paint.reset();
+        owner_task_presentation.Interrupt(
+            binding->presentation, runtime::TaskPresentationInterruptReason::ScopeUnavailable);
     }
 }
 
@@ -24,6 +38,23 @@ void ClientApplication::Impl::CancelCurrentOwnerTask(runtime::TaskCancelReason r
         }
     }
     RevokeOwnerTaskScope();
+    switch (reason) {
+    case runtime::TaskCancelReason::UiReplaced:
+        InterruptOwnerTaskPresentation(runtime::TaskPresentationInterruptReason::UiReplaced);
+        break;
+    case runtime::TaskCancelReason::OwnerClosed:
+        InterruptOwnerTaskPresentation(runtime::TaskPresentationInterruptReason::OwnerRetired);
+        break;
+    case runtime::TaskCancelReason::FrontendFailed:
+        InterruptOwnerTaskPresentation(runtime::TaskPresentationInterruptReason::FrontendFailed);
+        break;
+    case runtime::TaskCancelReason::ScopeUnavailable:
+        InterruptOwnerTaskPresentation(runtime::TaskPresentationInterruptReason::ScopeUnavailable);
+        break;
+    case runtime::TaskCancelReason::User:
+    case runtime::TaskCancelReason::Escape:
+        break;
+    }
 }
 
 void ClientApplication::Impl::ReconcileOwnerTask()
@@ -130,8 +161,23 @@ std::optional<runtime::TaskIdentity> ClientApplication::BeginOwnerTask(std::stri
         return std::nullopt;
     }
 
-    app.owner_task_scope = Impl::OwnerTaskScope{*identity, app.installed_ui, *token};
+    const auto presentation = app.owner_task_presentation.Begin(*identity, app.installed_ui, *token,
+                                                                app.scene->OwnerModalEpoch(), root);
+    if (!presentation) {
+        app.scene->EndOwnerModal(*token);
+        app.owner_tasks->Cancel(*identity, runtime::TaskCancelReason::ScopeUnavailable);
+        app.owner_tasks->TakeTerminal();
+        return std::nullopt;
+    }
+
+    app.owner_task_scope =
+        Impl::OwnerTaskScope{*identity, app.installed_ui, *token, root, *presentation};
+    app.owner_task_paint.reset();
+    app.ResetOwnerTaskMotion();
     try {
+        if (app.IsStandardOwnerTask() && !app.scene->SetOwnerModalInputReady(*token, false)) {
+            throw std::runtime_error("Task opening input gate unavailable");
+        }
         app.PublishOwnerTaskChange();
     } catch (...) {
         // A cancelled input callback may synchronously finish this request
@@ -190,7 +236,7 @@ bool ClientApplication::CancelOwnerTask(runtime::TaskIdentity identity,
         return false;
     }
 
-    impl_->RevokeOwnerTaskScope();
+    impl_->CancelCurrentOwnerTask(reason);
     impl_->PublishOwnerTaskChange();
     return true;
 }

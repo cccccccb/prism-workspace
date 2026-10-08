@@ -20,6 +20,16 @@ add_library(prism_owner_task_core STATIC task_session.cpp)
 target_include_directories(prism_owner_task_core PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
 target_compile_features(prism_owner_task_core PUBLIC cxx_std_20)
 
+add_library(prism_task_presentation_core STATIC task_presentation.cpp task_paint.cpp)
+target_link_libraries(prism_task_presentation_core PUBLIC prism_contracts)
+target_include_directories(prism_task_presentation_core PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
+target_compile_features(prism_task_presentation_core PUBLIC cxx_std_20)
+
+add_library(prism_task_motion_core STATIC task_motion.cpp)
+target_link_libraries(prism_task_motion_core PUBLIC prism_animation_core prism_theme_contract)
+target_include_directories(prism_task_motion_core PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
+target_compile_features(prism_task_motion_core PUBLIC cxx_std_20)
+
 add_library(prism_owner_feedback_core STATIC owner_feedback_session.cpp)
 target_link_libraries(prism_owner_feedback_core PUBLIC prism_contracts)
 
@@ -75,6 +85,7 @@ add_library(prism_client_scene STATIC
     scene_transaction.cpp
     scene_properties.cpp
     scene_regions.cpp
+    scene_task_paint.cpp
     scene_snapshot.cpp
     layout_engine.cpp
     render_tree.cpp
@@ -137,6 +148,10 @@ if(PRISM_ENABLE_GLES AND PRISM_SKIA_ROOT)
         client_application_control.cpp
         client_application_task.cpp
         client_application_task_refresh.cpp
+        client_application_task_presentation.cpp
+        client_application_task_paint.cpp
+        client_application_task_motion.cpp
+        client_application_task_motion_frame.cpp
         client_application_confirmation.cpp
         client_application_file_panel.cpp
         client_application_feedback.cpp
@@ -158,7 +173,7 @@ if(PRISM_ENABLE_GLES AND PRISM_SKIA_ROOT)
         client_render_owner_popup_submit.cpp
         render_worker_lifecycle.cpp)
     target_include_directories(prism_client_app PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../include")
-    target_link_libraries(prism_client_app PUBLIC prism_owner_feedback_core prism_client_scene prism_client_dsl prism_owner_task_core prism_png_codec prism_text_shaper prism_skia_gles prism_wayland_egl)
+    target_link_libraries(prism_client_app PUBLIC prism_owner_feedback_core prism_client_scene prism_client_dsl prism_owner_task_core prism_task_presentation_core prism_task_motion_core prism_png_codec prism_text_shaper prism_skia_gles prism_wayland_egl)
 endif()
 
 # Pure Interface/Slot compilation and immutable critical composition.

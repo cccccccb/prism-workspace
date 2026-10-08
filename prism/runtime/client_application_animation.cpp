@@ -71,13 +71,13 @@ bool ClientApplication::Impl::HasUnsubmittedPixels() const noexcept
 
 void ClientApplication::Impl::SyncAnimationSampling()
 {
-    const bool active = scene && scene->HasActiveAnimations();
+    const bool active = HasActiveAnimations();
     if (active) {
         animation_deadline_ns.reset();
         pending_animation_finish_sequence.reset();
     } else {
         animation_deadline_ns.reset();
-        if (animation_worker_active && HasUnsubmittedPixels()) {
+        if (animation_worker_active && (HasUnsubmittedPixels() || HasPendingTaskMotionEndpoint())) {
             pending_animation_finish_sequence = queued_frame->sequence;
             return;
         }
@@ -106,19 +106,19 @@ void ClientApplication::Impl::HandleFrameOpportunity(const runtime::FrameOpportu
 
     animation_deadline_ns.reset();
     const auto now = scene->AnimationNowNs();
-    if (scene->AdvanceAnimations(now)) {
+    if (AdvanceAnimations(now)) {
         InvalidateQueuedFrame();
     }
 
     PublishFramePacket();
-    auto frame = HasUnsubmittedPixels() ? queued_frame : nullptr;
+    auto frame = HasUnsubmittedPixels() || HasPendingTaskMotionEndpoint() ? queued_frame : nullptr;
     PushAnimationCommand(*bridge,
                          runtime::RenderCommand(runtime::AnswerFrameOpportunityCommand{
                              event.ui, event.worker, event.configure_count, event.id, frame}));
 
-    if (scene->HasActiveAnimations()) {
+    if (HasActiveAnimations()) {
         if (!frame) {
-            animation_deadline_ns = scene->NextAnimationDeadlineNs(now);
+            animation_deadline_ns = NextAnimationDeadlineNs(now);
         }
     } else {
         SyncAnimationSampling();
@@ -137,15 +137,15 @@ void ClientApplication::Impl::AdvanceAnimationDeadline()
     }
 
     animation_deadline_ns.reset();
-    const bool changed = scene->AdvanceAnimations(now);
+    const bool changed = AdvanceAnimations(now);
     if (changed) {
         InvalidateQueuedFrame();
         PublishFramePacket();
     }
 
-    if (scene->HasActiveAnimations()) {
+    if (HasActiveAnimations()) {
         if (!changed) {
-            animation_deadline_ns = scene->NextAnimationDeadlineNs(now);
+            animation_deadline_ns = NextAnimationDeadlineNs(now);
         }
     } else {
         SyncAnimationSampling();

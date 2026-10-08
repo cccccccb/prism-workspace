@@ -73,6 +73,7 @@ struct RenderNode {
     bool clip{false};
     double clip_radius{0};
     bool presentation_scope{false};
+    double backdrop_blur{0};
     VisualPresentation presentation{};
     std::vector<Visual> visuals;
     std::vector<contracts::NodeId> children;

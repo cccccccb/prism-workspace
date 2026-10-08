@@ -2,9 +2,13 @@
 #include "client_application_p.hpp"
 #include "module_feedback_p.hpp"
 #include "owner_task_native_p.hpp"
+#include "prism/runtime/task_paint.hpp"
 #include "scene_p.hpp"
 
+#include <cmath>
+#include <functional>
 #include <limits>
+#include <map>
 #include <tuple>
 
 namespace {
@@ -24,6 +28,179 @@ struct NativeFocus {
     prism::contracts::NodeId node{};
     bool operator==(const NativeFocus &) const = default;
 };
+
+bool PaintAdopted(const prism::sdk::ClientApplication::Impl &app,
+                  const prism::runtime::FramePacket &frame)
+{
+    const auto &paint = app.owner_task_paint;
+    if (!paint || paint != frame.task_paint_candidate || !frame.task_presentation ||
+        paint->commands.empty()) {
+        return false;
+    }
+
+    const auto &source = paint->source;
+    const auto &stamp = *frame.task_presentation;
+    return source.identity == stamp.identity && source.identity.ui == app.installed_ui &&
+           source.projection == stamp.projection && source.frame_sequence == frame.sequence &&
+           source.configure_count == frame.configure_count &&
+           frame.configure_count == app.ui_configure_count &&
+           source.buffer_size.width == frame.buffer_size.width &&
+           source.buffer_size.height == frame.buffer_size.height &&
+           frame.buffer_size.width == app.ui_metrics.buffer_size.width &&
+           frame.buffer_size.height == app.ui_metrics.buffer_size.height &&
+           source.scale == frame.scale && frame.scale == app.ui_metrics.scale &&
+           source.theme_generation == frame.theme_generation &&
+           frame.theme_generation == (app.theme ? app.theme->generation : 0) &&
+           source.resource_epoch == frame.resource_epoch &&
+           frame.resource_epoch == app.commands.ResourceEpoch();
+}
+
+struct MotionAdoption {
+    std::uint64_t owner{}, request{}, ui_owner{}, ui_generation{}, cycle{}, projection{},
+        frame_sequence{}, generation{}, revision{}, time_ns{};
+    double reveal{};
+    std::string endpoint, sample_kind, phase, observation;
+    bool task_ready{}, input_retired{}, retained_paint{};
+};
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(MotionAdoption, owner, request, ui_owner, ui_generation, cycle,
+                                   projection, frame_sequence, generation, revision, time_ns,
+                                   reveal, endpoint, sample_kind, phase, observation, task_ready,
+                                   input_retired, retained_paint)
+
+struct MotionEvidence {
+    std::vector<MotionAdoption> adopted;
+    std::uint64_t opening_partial_adoptions{}, closing_partial_adoptions{},
+        open_terminal_adoptions{}, closed_terminal_adoptions{}, complete_cycles{};
+    bool nonzero_transition_verified{};
+};
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(MotionEvidence, adopted, opening_partial_adoptions,
+                                   closing_partial_adoptions, open_terminal_adoptions,
+                                   closed_terminal_adoptions, complete_cycles,
+                                   nonzero_transition_verified)
+
+MotionEvidence Evidence(const std::vector<MotionAdoption> &adopted)
+{
+    MotionEvidence evidence;
+    evidence.adopted = adopted;
+    using Track = std::tuple<std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t>;
+    using Cycle = std::tuple<std::uint64_t, std::uint64_t, std::uint64_t>;
+    std::map<Track, unsigned> tracks;
+    std::map<Cycle, unsigned> cycles;
+    for (const auto &sample : adopted) {
+        auto &track = tracks[{sample.owner, sample.request, sample.cycle, sample.generation}];
+        const bool terminal = sample.sample_kind == "Terminal";
+        const bool partial = !terminal && sample.reveal > 0 && sample.reveal < 1;
+        if (sample.endpoint == "Open") {
+            evidence.opening_partial_adoptions += partial;
+            evidence.open_terminal_adoptions += terminal;
+            track |= partial ? 1u : terminal ? 2u : 0u;
+        } else {
+            evidence.closing_partial_adoptions += partial;
+            evidence.closed_terminal_adoptions += terminal;
+            track |= partial ? 4u : terminal ? 8u : 0u;
+        }
+    }
+    for (const auto &[track, flags] : tracks) {
+        auto &cycle = cycles[{std::get<0>(track), std::get<1>(track), std::get<2>(track)}];
+        if ((flags & 3u) == 3u) {
+            cycle |= 1u;
+        }
+        if ((flags & 12u) == 12u) {
+            cycle |= 2u;
+        }
+    }
+    for (const auto &[cycle, flags] : cycles) {
+        evidence.complete_cycles += flags == 3u;
+    }
+    evidence.nonzero_transition_verified = evidence.complete_cycles > 0;
+    return evidence;
+}
+
+bool MotionAdopted(const prism::sdk::ClientApplication::Impl &app,
+                   const prism::runtime::FramePacket &frame)
+{
+    if (!frame.task_motion || !frame.task_presentation) {
+        return false;
+    }
+    const auto &motion = *frame.task_motion;
+    const auto &stamp = *frame.task_presentation;
+    if (!motion.generation || !motion.revision || motion.identity != stamp.identity ||
+        motion.sample.endpoint != stamp.endpoint || motion.sample.kind != stamp.sample_kind ||
+        !std::isfinite(motion.sample.reveal) || motion.sample.reveal < 0 ||
+        motion.sample.reveal > 1) {
+        return false;
+    }
+    if (stamp.endpoint == prism::runtime::TaskPresentationEndpoint::Closed &&
+        stamp.sample_kind == prism::runtime::TaskPresentationSampleKind::Terminal) {
+        return motion.sample.reveal == 0 && !app.owner_task_motion;
+    }
+    return app.owner_task_motion && app.owner_task_motion->adopted &&
+           *app.owner_task_motion->adopted == motion &&
+           app.owner_task_motion->current.generation == motion.generation;
+}
+
+bool TerminalMotionAdopted(const prism::sdk::ClientApplication::Impl &app,
+                           const prism::runtime::FramePacket &frame)
+{
+    if (!frame.task_motion) {
+        return !app.owner_task_motion;
+    }
+    return MotionAdopted(app, frame) &&
+           frame.task_motion->sample.kind == prism::runtime::TaskPresentationSampleKind::Terminal &&
+           frame.task_motion->sample.reveal ==
+               (frame.task_motion->sample.endpoint == prism::runtime::TaskPresentationEndpoint::Open
+                    ? 1
+                    : 0);
+}
+
+const char *PhaseName(prism::runtime::TaskPresentationPhase phase)
+{
+    switch (phase) {
+    case prism::runtime::TaskPresentationPhase::Opening:
+        return "Opening";
+    case prism::runtime::TaskPresentationPhase::Open:
+        return "Open";
+    case prism::runtime::TaskPresentationPhase::Closing:
+        return "Closing";
+    case prism::runtime::TaskPresentationPhase::Closed:
+        return "Closed";
+    }
+    return "Invalid";
+}
+
+void DumpMotion(std::string_view label,
+                const std::optional<prism::runtime::TaskMotionFrameStamp> &motion)
+{
+    if (!motion) {
+        std::cerr << ' ' << label << "=none";
+        return;
+    }
+    const auto &sample = motion->sample;
+    std::cerr << ' ' << label << "[generation=" << motion->generation
+              << ",revision=" << motion->revision << ",time_ns=" << sample.time_ns
+              << ",reveal=" << sample.reveal << ",kind=" << static_cast<int>(sample.kind)
+              << ",endpoint=" << static_cast<int>(sample.endpoint) << ']';
+}
+
+void DumpPaint(std::string_view label,
+               const std::shared_ptr<const prism::runtime::TaskPaintFragment> &paint)
+{
+    if (!paint) {
+        std::cerr << ' ' << label << "=none";
+        return;
+    }
+
+    const auto &source = paint->source;
+    std::cerr << ' ' << label << "[owner=" << source.identity.task.owner.value
+              << ",request=" << source.identity.task.request.value
+              << ",ui=" << source.identity.ui.owner << ':' << source.identity.ui.generation
+              << ",cycle=" << source.identity.cycle << ",projection=" << source.projection
+              << ",sequence=" << source.frame_sequence << ",commands=" << paint->commands.size()
+              << ",configure=" << source.configure_count << ",buffer=" << source.buffer_size.width
+              << 'x' << source.buffer_size.height << ",scale=" << source.scale
+              << ",theme=" << source.theme_generation << ",resources=" << source.resource_epoch
+              << ']';
+}
 
 class Owner {
 public:
@@ -90,10 +267,56 @@ public:
     bool Ready() const
     {
         const auto task = host.impl_->frontend->ActiveOwnerTask();
+        const auto presentation = host.impl_->frontend->OwnerTaskPresentation();
+        const auto &app = *host.impl_->frontend->impl_;
+        const auto &frame = app.ui_root_metadata_frame;
         const auto input = Adopted();
         return task && task->phase == prism::runtime::TaskPhase::Ready && input &&
                input->owner_modal_epoch &&
-               input->owner_modal_epoch == host.impl_->frontend->impl_->scene->OwnerModalEpoch();
+               input->owner_modal_epoch == app.scene->OwnerModalEpoch() && presentation &&
+               presentation->phase == prism::runtime::TaskPresentationPhase::Open &&
+               presentation->identity.task == task->identity && frame && frame->task_presentation &&
+               frame->task_presentation->endpoint ==
+                   prism::runtime::TaskPresentationEndpoint::Open &&
+               frame->task_presentation->sample_kind ==
+                   prism::runtime::TaskPresentationSampleKind::Terminal &&
+               presentation->identity == frame->task_presentation->identity &&
+               presentation->projection == frame->task_presentation->projection &&
+               presentation->binding == frame->task_presentation->binding &&
+               presentation->adopted_sequence == frame->sequence &&
+               frame->task_presentation->frame_sequence == frame->sequence &&
+               frame->task_presentation->binding.input_scene == input->scene &&
+               frame->task_presentation->binding.input_version == input->version &&
+               PaintAdopted(app, *frame) && TerminalMotionAdopted(app, *frame);
+    }
+
+    bool PresentationClosed() const
+    {
+        const auto &app = *host.impl_->frontend->impl_;
+        const auto state = host.impl_->frontend->OwnerTaskPresentation();
+        if (host.impl_->frontend->ActiveOwnerTask() || app.owner_task_scope ||
+            host.impl_->owner_task || app.owner_task_paint || !app.scene ||
+            app.scene->OwnerModalToken() || !Adopted()) {
+            return false;
+        }
+        const auto &frame = app.ui_root_metadata_frame;
+        if (!state) {
+            return !frame->task_presentation;
+        }
+        if (state->phase != prism::runtime::TaskPresentationPhase::Closed) {
+            return false;
+        }
+        // A later ordinary/Saved feedback frame can supersede the adopted Closed
+        // endpoint. When that endpoint is still present, verify its exact receipt.
+        if (!frame->task_presentation) {
+            return true;
+        }
+        const auto &stamp = *frame->task_presentation;
+        return stamp.endpoint == prism::runtime::TaskPresentationEndpoint::Closed &&
+               stamp.sample_kind == prism::runtime::TaskPresentationSampleKind::Terminal &&
+               state->identity == stamp.identity && state->projection == stamp.projection &&
+               state->binding == stamp.binding && state->adopted_sequence == frame->sequence &&
+               stamp.frame_sequence == frame->sequence && TerminalMotionAdopted(app, *frame);
     }
 
     void Pump()
@@ -102,13 +325,146 @@ public:
             Dump();
             Require(false, "Notepad native Host stopped unexpectedly");
         }
+        ObserveMotion();
+    }
+
+    void InstallMotionObserver()
+    {
+        previous_submitted = std::move(Frontend().impl_->on_ui_submitted);
+        Frontend().OnUiSubmitted(std::bind_front(&Owner::ObserveSubmitted, this));
+    }
+
+    void ObserveSubmitted(prism::runtime::UiLoadId ui)
+    {
+        if (host.impl_->frontend && ui == host.impl_->frontend->impl_->installed_ui) {
+            ObserveMotion("AtPixelsCallback");
+        }
+        if (previous_submitted) {
+            previous_submitted(ui);
+        }
+    }
+
+    void ObserveMotion(std::string_view observation = "AdoptedMetadataAfterPump")
+    {
+        if (!host.impl_->frontend) {
+            return;
+        }
+        const auto &app = *host.impl_->frontend->impl_;
+        const auto &frame = app.ui_root_metadata_frame;
+        const auto state = host.impl_->frontend->OwnerTaskPresentation();
+        const auto input = Adopted();
+        if (!frame || !frame->task_motion || !frame->task_presentation || !state || !input ||
+            state->identity != frame->task_presentation->identity ||
+            state->projection != frame->task_presentation->projection ||
+            state->binding != frame->task_presentation->binding ||
+            state->adopted_sequence != frame->sequence ||
+            frame->task_presentation->frame_sequence != frame->sequence ||
+            frame->task_presentation->binding.input_scene != input->scene ||
+            frame->task_presentation->binding.input_version != input->version ||
+            frame->configure_count != app.ui_configure_count ||
+            frame->buffer_size.width != app.ui_metrics.buffer_size.width ||
+            frame->buffer_size.height != app.ui_metrics.buffer_size.height ||
+            frame->scale != app.ui_metrics.scale ||
+            frame->theme_generation != (app.theme ? app.theme->generation : 0) ||
+            frame->resource_epoch != app.commands.ResourceEpoch() || !MotionAdopted(app, *frame)) {
+            return;
+        }
+        if (!motion_adoptions.empty() &&
+            motion_adoptions.back().frame_sequence == frame->sequence) {
+            return;
+        }
+
+        const auto &motion = *frame->task_motion;
+        const auto &sample = motion.sample;
+        const auto active = host.impl_->frontend->ActiveOwnerTask();
+        const bool retired = !active && !app.owner_task_scope && !app.scene->OwnerModalToken();
+        const bool closing = sample.endpoint == prism::runtime::TaskPresentationEndpoint::Closed;
+        const bool terminal = sample.kind == prism::runtime::TaskPresentationSampleKind::Terminal;
+        const auto expected_phase = closing    ? terminal
+                                                     ? prism::runtime::TaskPresentationPhase::Closed
+                                                     : prism::runtime::TaskPresentationPhase::Closing
+                                    : terminal ? prism::runtime::TaskPresentationPhase::Open
+                                               : prism::runtime::TaskPresentationPhase::Opening;
+        Require(state->phase == expected_phase,
+                "Actual motion adoption settled an Intermediate or failed to settle its Terminal");
+        Require(closing ||
+                    (app.scene->owner_modal_ && app.scene->owner_modal_->input_ready == terminal),
+                "Opening motion input gate disagrees with actual Terminal adoption");
+        Require(!closing || retired, "Closing motion retained task input or business state");
+        Require(!closing || sample.kind == prism::runtime::TaskPresentationSampleKind::Terminal ||
+                    bool(app.owner_task_paint),
+                "Adopted Closing intermediate released its retained paint prematurely");
+        Require(closing || PaintAdopted(app, *frame),
+                "Adopted opening motion has no matching retained paint source");
+        motion_adoptions.push_back(
+            {motion.identity.task.owner.value, motion.identity.task.request.value,
+             motion.identity.ui.owner, motion.identity.ui.generation, motion.identity.cycle,
+             frame->task_presentation->projection, frame->sequence, motion.generation,
+             motion.revision, sample.time_ns, sample.reveal, closing ? "Closed" : "Open",
+             sample.kind == prism::runtime::TaskPresentationSampleKind::Terminal ? "Terminal"
+                                                                                 : "Intermediate",
+             PhaseName(state->phase), std::string(observation),
+             active && active->phase == prism::runtime::TaskPhase::Ready, retired,
+             bool(app.owner_task_paint)});
     }
 
     void Dump() const
     {
         std::cerr << "notepad native diagnostic status=" << String("status")
                   << " details=" << String("details") << " busy=" << Boolean("busy")
-                  << " failure=" << host.GetUiState().failed << '\n';
+                  << " failure=" << host.GetUiState().failed;
+        if (host.impl_->frontend) {
+            const auto &app = *host.impl_->frontend->impl_;
+            const auto presentation = host.impl_->frontend->OwnerTaskPresentation();
+            std::cerr << " scope=" << bool(app.owner_task_scope)
+                      << " host_pending=" << bool(host.impl_->owner_task)
+                      << " presentation=" << bool(presentation);
+            if (presentation) {
+                std::cerr << " presentation[phase=" << static_cast<int>(presentation->phase)
+                          << ",owner=" << presentation->identity.task.owner.value
+                          << ",request=" << presentation->identity.task.request.value
+                          << ",ui=" << presentation->identity.ui.owner << ':'
+                          << presentation->identity.ui.generation
+                          << ",cycle=" << presentation->identity.cycle
+                          << ",projection=" << presentation->projection
+                          << ",adopted_sequence=" << presentation->adopted_sequence << ']';
+            }
+            DumpPaint("retained_paint", app.owner_task_paint);
+            if (app.owner_task_motion) {
+                DumpMotion("motion_current", app.owner_task_motion->current);
+                DumpMotion("motion_adopted", app.owner_task_motion->adopted);
+            }
+            if (const auto &frame = app.ui_root_metadata_frame) {
+                std::cerr << " metadata[sequence=" << frame->sequence << ",ui=" << frame->ui.owner
+                          << ':' << frame->ui.generation << ",configure=" << frame->configure_count
+                          << ",theme=" << frame->theme_generation << ']';
+                DumpPaint("paint_candidate", frame->task_paint_candidate);
+                DumpMotion("motion_frame", frame->task_motion);
+                if (const auto &input = frame->input_snapshot) {
+                    std::cerr << " input[scene=" << input->scene << ",version=" << input->version
+                              << ",epoch=" << input->owner_modal_epoch
+                              << ",adopted=" << bool(Adopted()) << ']';
+                }
+                if (const auto &stamp = frame->task_presentation) {
+                    std::cerr << " tag[endpoint=" << static_cast<int>(stamp->endpoint)
+                              << ",sample_kind=" << static_cast<int>(stamp->sample_kind)
+                              << ",owner=" << stamp->identity.task.owner.value
+                              << ",request=" << stamp->identity.task.request.value
+                              << ",cycle=" << stamp->identity.cycle
+                              << ",projection=" << stamp->projection
+                              << ",sequence=" << stamp->frame_sequence
+                              << ",scene=" << stamp->binding.input_scene
+                              << ",input_version=" << stamp->binding.input_version
+                              << ",token=" << stamp->binding.modal_token
+                              << ",epoch=" << stamp->binding.modal_epoch << ']';
+                } else {
+                    std::cerr << " tag=none";
+                }
+            } else {
+                std::cerr << " metadata=none";
+            }
+        }
+        std::cerr << '\n';
     }
 
     std::vector<NativeFocus> FocusSnapshot()
@@ -148,6 +504,8 @@ public:
 
     prism::sdk::AppHost host;
     std::string app_id;
+    std::function<void(prism::runtime::UiLoadId)> previous_submitted;
+    std::vector<MotionAdoption> motion_adoptions;
     std::uint64_t close_receipts{}, feedback_focus_checks{}, feedback_focus_samples{},
         feedback_focus_changes{};
 };
@@ -173,6 +531,7 @@ void Started(Owner &owner)
     Require(owner.Frontend().GlRenderer().find("V3D") != std::string::npos,
             "Notepad native gate requires hardware V3D");
     Require(owner.Frontend().SupportsOwnerFileTasks(), "Notepad shared file panel unavailable");
+    owner.InstallMotionObserver();
     owner.Frontend().OnCloseRequested(std::bind_front(&Owner::ObserveClose, &owner));
     Require(owner.Frontend().SupportsOwnerFeedback(), "Notepad shared feedback unavailable");
     owner.host.impl_->business->feedback_->submit =
@@ -245,9 +604,9 @@ void Restored(Owner &owner)
         owner,
         [&owner] {
             return !owner.Frontend().ActiveOwnerTask() && owner.Adopted() &&
-                   !owner.Frontend().impl_->scene->OwnerModalToken();
+                   !owner.Frontend().impl_->scene->OwnerModalToken() && owner.PresentationClosed();
         },
-        "Notepad did not restore normal input after task completion");
+        "Notepad did not adopt Closed presentation and restore normal task input");
 }
 
 void FileReady(Owner &owner)
@@ -377,6 +736,7 @@ void Closed(Owner &owner)
 {
     const auto deadline = Clock::now() + 8s;
     while (owner.host.Pump(10)) {
+        owner.ObserveMotion();
         if (Clock::now() >= deadline) {
             owner.Dump();
             Require(false, "Notepad asynchronous close did not continue automatically");
@@ -397,6 +757,7 @@ struct CaseReport {
         sdk_existing_focus_preserved{}, sdk_keyboard_without_refocus{};
     std::uint64_t adopted_tasks{}, pixel_commits{}, native_close_events{}, adopted_feedback{},
         native_feedback_actions{}, feedback_focus_checks{}, feedback_focus_samples{};
+    MotionEvidence motion;
 };
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(CaseReport, name, passed, native_pointer, native_keyboard,
                                    actual_business_io, real_wm_close, adopted_tasks, pixel_commits,
@@ -405,7 +766,8 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(CaseReport, name, passed, native_pointer, nat
                                    feedback_continued_editing, feedback_recovery_retained,
                                    feedback_close_retired, feedback_focus_checks,
                                    feedback_focus_samples, sdk_focus_feedback_adopted,
-                                   sdk_existing_focus_preserved, sdk_keyboard_without_refocus)
+                                   sdk_existing_focus_preserved, sdk_keyboard_without_refocus,
+                                   motion)
 
 void VerifySdkFeedbackFocus(Owner &owner, Input &input, const std::filesystem::path &directory,
                             CaseReport &report)
@@ -685,6 +1047,7 @@ CaseReport Run(const char *socket, const std::filesystem::path &package,
     report.feedback_focus_samples = owner.feedback_focus_samples;
     report.feedback_focus_unchanged = owner.feedback_focus_checks && !owner.feedback_focus_changes;
     report.feedback_focus_preserved = owner.feedback_focus_samples && !owner.feedback_focus_changes;
+    report.motion = Evidence(owner.motion_adoptions);
     report.passed = true;
     owner.host.Close();
     return report;

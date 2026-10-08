@@ -1,14 +1,38 @@
 #include "prism/theme/compiler.hpp"
 #include "prism/theme/motion_compiler.hpp"
+#include <array>
 #include <cassert>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iterator>
+#include <span>
 #include <stdexcept>
+#include <string>
+#include <vector>
+
 #include <unistd.h>
 using namespace prism;
 
 namespace {
+struct PackageExpectation {
+    const char *id;
+    std::uint32_t enter_ms;
+    std::uint32_t exit_ms;
+};
+
+void CheckTaskTiming(const contracts::MotionSet &motion, const PackageExpectation &expected)
+{
+    const auto *enter = contracts::FindMotion(motion, "task.open");
+    const auto *exit = contracts::FindMotion(motion, "task.close");
+    assert(enter && exit);
+    assert(enter->duration_ms == expected.enter_ms);
+    assert(exit->duration_ms == expected.exit_ms);
+    assert(enter->easing == contracts::MotionEasing::EaseOutCubic);
+    assert(exit->easing == contracts::MotionEasing::EaseInCubic);
+}
+
 void Reject(const std::function<void()> &call)
 {
     bool rejected{};
@@ -30,6 +54,8 @@ void CheckSource()
     assert(set.id == "fixture" && set.transitions.size() == 1);
     assert(contracts::FindMotion(set, "panel.visibility")->duration_ms == 120);
     assert(!contracts::FindMotion(set, "missing"));
+    assert(!contracts::FindMotion(set, "task.open"));
+    assert(!contracts::FindMotion(set, "task.close"));
     for (const auto *body :
          {"Timing(\"a\",durationMs:0.5,easing:\"linear\")",
           "Timing(\"a\",durationMs:10001,easing:\"linear\")",
@@ -46,12 +72,32 @@ void CheckSource()
     Reject([] { theme::CompileMotion(std::string(65537, ' ')); });
 }
 
+void CheckLegacyTaskTiming(const std::string &source, contracts::ThemeSnapshot snapshot,
+                           contracts::MotionSet motion)
+{
+    std::erase_if(motion.transitions, [](const contracts::MotionTransition &entry) {
+        return entry.name == "task.open" || entry.name == "task.close";
+    });
+    contracts::ValidateMotion(motion);
+    assert(theme::CompileTheme(source, 1, "dark", &motion).motion == motion);
+
+    snapshot.motion = motion;
+    const auto decoded = contracts::DecodeTheme(contracts::EncodeTheme(snapshot));
+    assert(decoded == snapshot);
+    assert(!contracts::FindMotion(decoded.motion, "task.open"));
+    assert(!contracts::FindMotion(decoded.motion, "task.close"));
+}
+
 void CheckPackages()
 {
     const auto root = std::filesystem::path(PRISM_SOURCE_ROOT) / "resources";
-    for (const auto *id : {"prism", "subtle", "instant"}) {
+    const std::array<PackageExpectation, 3> packages{
+        {{"prism", 180, 140}, {"subtle", 120, 100}, {"instant", 0, 0}}};
+    for (const auto &expected : packages) {
+        const auto *id = expected.id;
         const auto motion = theme::LoadMotion(root / "motions", id);
         assert(contracts::FindMotion(motion, "group.geometry"));
+        CheckTaskTiming(motion, expected);
         auto snapshot = theme::LoadTheme(root / "themes", "glass", 1);
         std::ifstream input(root / "themes/glass/theme.prism");
         std::string source((std::istreambuf_iterator<char>(input)), {});
@@ -64,7 +110,10 @@ void CheckPackages()
         Reject([&] { theme::CompileTheme(source, 1); });
         snapshot.motion = motion;
         const auto bytes = contracts::EncodeTheme(snapshot);
-        assert(contracts::DecodeTheme(bytes) == snapshot);
+        const auto decoded = contracts::DecodeTheme(bytes);
+        assert(decoded == snapshot);
+        CheckTaskTiming(decoded.motion, expected);
+        CheckLegacyTaskTiming(source, snapshot, motion);
         for (std::size_t i = bytes.size() - 10; i < bytes.size(); ++i) {
             Reject([&] { contracts::DecodeTheme(std::span(bytes).first(i)); });
         }

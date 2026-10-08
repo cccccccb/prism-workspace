@@ -1,5 +1,10 @@
 # Motion 文件与呈现适配规范
 
+2026-10-08补充：Owner任务的`task.open/task.close`独立时序、中间/终值采用协议见
+[任务开合运动契约](OWNER_TASK_MOTION_CONTRACT.md)。7b2当前源码已接统一SDK driver、
+标准provider输入门禁与受支持子树的固定几何opacity；资源降级及部署边界见第11节。
+已安装VNC仍为v26，源码接入不能当作已部署、性能结果或视觉验收。
+
 2026-10-04。本阶段实现独立 Motion 配置、主题分发、客户端引用、可重定向几何轨迹和
 控制面板透明度开合，以及单输出单窗全屏/恢复和组沉浸的 native buffer/装饰/鼠标适配；
 不得通过逐帧修改 BSP 或发 configure 冒充该适配。
@@ -80,6 +85,7 @@ wlroots buffer，不回读像素、不启动客户端、不接收输入。材料
 | `control.feedback` | Host 的 Visual/Scene | 交互背景色等已有可动画属性；控制面板与分隔线悬停已使用 |
 | `window.geometry` | WM 的 SurfaceGeometry | 单输出单窗全屏/恢复；已提交矩形逆映射鼠标 |
 | `group.geometry` | WM 的 GroupSurfaceGeometry | 普通分割布局与组沉浸往返；共享边与整组提交 |
+| `task.open` / `task.close` | SDK 标准Confirmation/File provider | 固定几何的任务子树整体opacity；采用终值控制门禁与清理，普通region不自动接入 |
 
 默认 `prism` 包空间运动 240 ms、反馈 120 ms；`subtle` 为 160/90 ms；`instant` 为零。
 它们是文件内容，不是引擎里的主题名称分支。Theme 根的使用示例：
@@ -293,3 +299,50 @@ buffer 在原轨迹中替换旧 buffer，不逐帧发送 configure；只有目�
 `session/group-session.json`。本步未重新打 deb、未替换已安装 VNC 桌面，未宣称物理
 显示验收、动画帧耗时优化或触控支持。整组失败提交的基线语义由核心测试覆盖，未注入
 真实 GPU/DRM 输出故障。
+
+## 11. Owner任务开合适配（7b2当前源码，2026-10-08）
+
+本适配复用ClientApplication的不可变FramePacket、frame opportunity/answer、采样活动性
+与完成期限。TaskMotionTimeline借用Scene已有AnimationClock；UI线程按当前绝对单调
+时间求值并准备绘制命令，worker只消费已封包值。Scene无活动Transition时，任务轨迹
+仍能驱动新包；重复相同样本不重绘，稀疏帧直接求当时值，不补帧、不逐帧改布局或configure。
+
+`FramePacket::task_motion`为可选typed stamp：identity关联task/UI/cycle，generation
+区分运动段，revision区分样本，sample携带[0,1]的reveal、目标endpoint、
+Intermediate/Terminal与单调time_ns。同包task_presentation记录projection/sequence；
+求值到终点不等于真实采用，更不等于compositor Presented。
+
+### 11.1 绘制与输入
+
+Opening只改变任务子树的整体opacity，保留固定布局和输入几何。Preparing由真实输入
+快照采用推进Ready；Intermediate可使Ready与Opening同时存在，但标准provider仍
+拦截鼠标、滚动及操作按键，Esc保留取消。匹配Open Terminal实际采用后才解锁。
+State与经后端检查的相同值None也能完成采用；不能要求一定产生新像素，或用任意None
+回执、排队成功、deadline到期替代这项证据。
+
+完成/取消立即退休输入、隐藏活provider并交付结果，不等待退场。Closing每帧组合
+最新owner正文与同cycle最后真正已采用的独立原始任务绘制值，从对应已采用reveal
+向0运动。原始片段不预乘此次运动opacity，不能重复衰减；不缓存整窗、旧输入或请求。
+中间关闭帧采用不清除原始片段，Closed Terminal实际采用才释放片段和轨迹。零值终帧
+只含最新正文。统一driver保留待采用终值包，不能因时间已到就提前清理或停止完成链。
+
+### 11.2 支持与失效边界
+
+仅标准Confirmation/File provider进入适配，普通BeginOwnerTask(region)不自动取得
+运动、独立导出或Opening输入门禁。时序按task.open/task.close分别解析，旧包缺项
+逐项instant，非空畸形集合拒绝；不按包ID猜曲线或借用panel.visibility。
+
+当前只支持固定字体、无Image、无子树或祖先backdrop依赖且无已采用native popup的
+独立片段。初始Glass的window祖先blur即触发即时路径，不能去掉材料凑支持。instant、
+合法旧空包或初始不支持时可以没有task_motion，但task_presentation仍为Terminal，
+依旧要实际采用才解锁或完成呈现。
+
+UI替换、退出、失败立即退休。theme/configure/buffer/scale/resource环境变更使旧源
+失效并立即收束：Opening归位，不重新播放入场；Closing采用安全终值或Interrupt。
+同环境且仍受支持的语义Refresh沿同cycle运动，未采用新投影可以保留最后已采用片段。
+独立导出支持性失效立即降级；已采用的不支持投影也清掉旧源。捕获失败不阻碍结果及
+输入退休。透视翻转、移动命中逆映射、GPU保留层
+和通用资源lease不在本次适配范围。
+
+本节描述源码实现，不附7b2测试或原生验证结论。正式v26会话未替换；后续验证、打包
+与视觉认可分别记录，不能沿用前述WM运动验收作为客户端任务动画的证据。

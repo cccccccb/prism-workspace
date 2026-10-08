@@ -1,6 +1,7 @@
 #include "client_application_p.hpp"
 
 #include "prism/theme/compiler.hpp"
+#include "prism/theme/motion_compiler.hpp"
 
 #include <algorithm>
 #include <array>
@@ -18,6 +19,17 @@ namespace {
 using namespace prism;
 const std::filesystem::path root{PRISM_SOURCE_ROOT};
 constexpr contracts::WindowId window{1};
+
+// This suite verifies provider/lifecycle policy at zero duration. Nonzero
+// task motion has its own fake-clock FramePacket/adoption integration suite.
+contracts::ThemeSnapshot InstantTheme(const std::filesystem::path &theme_root, std::string_view id,
+                                      std::uint64_t generation = 0,
+                                      std::string_view scheme = "dark")
+{
+    auto snapshot = theme::LoadTheme(theme_root, id, generation, scheme);
+    snapshot.motion = theme::LoadMotion(theme_root.parent_path() / "motions", "instant");
+    return snapshot;
+}
 
 runtime::PreparedComponent Panel(std::string_view name)
 {
@@ -85,7 +97,7 @@ Card(material:"window", padding:14) {
             blueprint.properties.push_back({runtime::DslProperty::Clip, true});
             blueprint.contour = std::move(clip_contour);
         }
-        const auto theme = theme::LoadTheme(root / "resources/themes", "glass", 1);
+        const auto theme = InstantTheme(root / "resources/themes", "glass", 1);
         impl.theme = theme;
         impl.scene = std::make_unique<runtime::Scene>(
             impl.ComposeOwnerPanels(std::move(blueprint)),
@@ -95,6 +107,8 @@ Card(material:"window", padding:14) {
         assert(impl.scene->PrepareDetached(impl.OwnerPanelDefaults()));
         impl.opened_once = true;
         impl.installed_ui = impl.ui_load.Begin();
+        impl.ui_configure_count = 1;
+        impl.ui_metrics = {{640, 420}, {640, 420}, 1};
         shown = Capture();
         impl.scene->ApplyInputSnapshot(shown);
         assert(app.SupportsOwnerFileTasks() && app.SupportsOwnerConfirmation());
@@ -107,8 +121,10 @@ Card(material:"window", padding:14) {
 
     std::shared_ptr<const runtime::InputSnapshot> Capture()
     {
-        Scene().Build(window);
-        return Scene().CaptureInputSnapshot();
+        app.impl_->PublishFramePacket();
+        const auto frame = app.impl_->queued_frame;
+        assert(frame && frame->input_snapshot && frame->display_list);
+        return frame->input_snapshot;
     }
 
     runtime::TaskIdentity Begin(const runtime::OwnerFilePanelView &view)
@@ -122,8 +138,20 @@ Card(material:"window", padding:14) {
     void Ready(runtime::TaskIdentity identity)
     {
         shown = Capture();
-        Scene().ApplyInputSnapshot(shown);
-        app.impl_->AdoptOwnerTaskInput(shown, app.impl_->installed_ui);
+        const auto frame = app.impl_->queued_frame;
+        runtime::SubmittedFrameEvent event;
+        event.ui = frame->ui;
+        event.frame_sequence = frame->sequence;
+        event.frame = frame;
+        event.scene_revision = frame->scene_revision;
+        event.pixels_revision = frame->pixels_revision;
+        event.theme_generation = frame->theme_generation;
+        event.metadata_prepared = true;
+        app.impl_->HandleSubmitted(event);
+        assert(!app.impl_->failed && Scene().IsInputSnapshotAdopted(*shown));
+        assert(frame->task_presentation && frame->task_presentation->sample_kind ==
+                                               runtime::TaskPresentationSampleKind::Terminal);
+        assert(app.OwnerTaskPresentation()->phase == runtime::TaskPresentationPhase::Open);
         assert(app.ActiveOwnerTask() == (runtime::TaskEntry{identity, runtime::TaskPhase::Ready}));
     }
 
@@ -242,9 +270,12 @@ void CapabilityAndConfirmationGuard()
     Fixture f;
     assert(!f.app.BeginOwnerConfirmation(Request()));
     f.app.impl_->config.width = 319;
+    f.app.impl_->ui_metrics.logical_size.width = 319;
     assert(!f.app.SupportsOwnerFileTasks());
     f.app.impl_->config.width = 640;
+    f.app.impl_->ui_metrics.logical_size.width = 640;
     f.app.impl_->config.height = 239;
+    f.app.impl_->ui_metrics.logical_size.height = 239;
     assert(!f.app.SupportsOwnerFileTasks());
     auto invalid = View();
     invalid.status.assign(1025, 'x');
@@ -270,7 +301,7 @@ void BusyControlsMatchProvider()
         Fixture f;
         f.app.impl_->config.width = static_cast<int>(size.width);
         f.app.impl_->config.height = static_cast<int>(size.height);
-        f.Scene().SetViewport(size);
+        f.Resize(static_cast<int>(size.width), static_cast<int>(size.height));
         auto view = View();
         const auto identity = f.Begin(view);
         f.Ready(identity);

@@ -1,9 +1,17 @@
 #include "prism/runtime/display_list_builder.hpp"
+#include "prism/contracts/display_list_validation.hpp"
 #include <algorithm>
+#include <cmath>
+#include <stdexcept>
 #include <variant>
 
 namespace prism::runtime {
 namespace {
+struct SubtreeOpacity {
+    contracts::NodeId root;
+    double value;
+};
+
 void EmitShadow(const RenderNode &node, const ShadowVisual &shadow, contracts::DisplayList &list)
 {
     if (node.contour) {
@@ -56,24 +64,47 @@ void EmitBorder(const RenderNode &node, const BorderVisual &border, contracts::D
     }
 }
 
-void Emit(const RenderTree &tree, contracts::NodeId id, contracts::ResourceId font,
-          contracts::DisplayList &list)
+void PushPresentation(const RenderNode &node, contracts::DisplayList &list)
 {
-    const auto &node = tree.Get(id);
-    if (!node.visible || node.bounds.width <= 0 || node.bounds.height <= 0) {
+    if (!node.presentation_scope) {
         return;
     }
-    if (node.presentation_scope) {
-        const auto &value = node.presentation;
-        const auto origin_x = node.bounds.x + node.bounds.width * value.origin_x;
-        const auto origin_y = node.bounds.y + node.bounds.height * value.origin_y;
-        list.commands.emplace_back(contracts::PushTransform{
-            {value.scale_x, 0, value.translate_x + origin_x * (1 - value.scale_x), 0, value.scale_y,
-             value.translate_y + origin_y * (1 - value.scale_y)}});
-        // Keep scopes even at their identity values. Animation samples then
-        // change values without repeatedly changing DisplayList structure.
-        list.commands.emplace_back(contracts::PushOpacity{value.opacity});
+    const auto &value = node.presentation;
+    const auto origin_x = node.bounds.x + node.bounds.width * value.origin_x;
+    const auto origin_y = node.bounds.y + node.bounds.height * value.origin_y;
+    list.commands.emplace_back(contracts::PushTransform{
+        {value.scale_x, 0, value.translate_x + origin_x * (1 - value.scale_x), 0, value.scale_y,
+         value.translate_y + origin_y * (1 - value.scale_y)}});
+    // Keep scopes even at their identity values. Animation samples then
+    // change values without repeatedly changing DisplayList structure.
+    list.commands.emplace_back(contracts::PushOpacity{value.opacity});
+}
+
+void PopContext(const RenderNode &node, contracts::DisplayList &list)
+{
+    if (node.clip) {
+        list.commands.emplace_back(contracts::PopClip{});
     }
+    if (node.presentation_scope) {
+        list.commands.emplace_back(contracts::PopOpacity{});
+        list.commands.emplace_back(contracts::PopTransform{});
+    }
+}
+
+void Emit(const RenderTree &tree, contracts::NodeId id, contracts::ResourceId font,
+          contracts::DisplayList &list, const SubtreeOpacity *opacity = nullptr)
+{
+    const auto &node = tree.Get(id);
+    const bool selected = opacity && id == opacity->root;
+    if (!node.visible || node.bounds.width <= 0 || node.bounds.height <= 0 ||
+        (selected && opacity->value == 0)) {
+        return;
+    }
+
+    if (selected && opacity->value < 1) {
+        list.commands.emplace_back(contracts::PushOpacity{opacity->value});
+    }
+    PushPresentation(node, list);
     for (const auto &visual : node.visuals) {
         if (const auto *shadow = std::get_if<ShadowVisual>(&visual); shadow && !shadow->inset) {
             EmitShadow(node, *shadow, list);
@@ -138,7 +169,7 @@ void Emit(const RenderTree &tree, contracts::NodeId id, contracts::ResourceId fo
         }
     }
     for (auto child : node.children) {
-        Emit(tree, child, font, list);
+        Emit(tree, child, font, list, opacity);
     }
     // Frame accents belong above contents; children cannot cover the edge.
     for (const auto &visual : node.visuals) {
@@ -148,13 +179,86 @@ void Emit(const RenderTree &tree, contracts::NodeId id, contracts::ResourceId fo
             EmitBorder(node, *border, list);
         }
     }
-    if (node.clip) {
-        list.commands.emplace_back(contracts::PopClip{});
-    }
-    if (node.presentation_scope) {
+    PopContext(node, list);
+    if (selected && opacity->value < 1) {
         list.commands.emplace_back(contracts::PopOpacity{});
-        list.commands.emplace_back(contracts::PopTransform{});
     }
+}
+
+const RenderNode *FindNode(const RenderTree &tree, contracts::NodeId id)
+{
+    if (!id || id.index >= tree.nodes.size() || tree.nodes[id.index].id != id) {
+        return nullptr;
+    }
+    return &tree.nodes[id.index];
+}
+
+bool Drawable(const RenderNode &node)
+{
+    return node.visible && node.bounds.width > 0 && node.bounds.height > 0;
+}
+
+bool FindPath(const RenderTree &tree, contracts::NodeId id, contracts::NodeId target,
+              std::vector<contracts::NodeId> &path, std::vector<bool> &visited)
+{
+    const auto *node = FindNode(tree, id);
+    if (!node || !Drawable(*node) || visited[id.index] || path.size() >= 256) {
+        return false;
+    }
+    visited[id.index] = true;
+    path.push_back(id);
+    if (id == target) {
+        return true;
+    }
+    for (const auto child : node->children) {
+        if (FindPath(tree, child, target, path, visited)) {
+            return true;
+        }
+    }
+    path.pop_back();
+    return false;
+}
+
+bool Exportable(const RenderTree &tree, contracts::NodeId id, std::vector<bool> &visited,
+                std::size_t depth)
+{
+    const auto *node = FindNode(tree, id);
+    if (!node || visited[id.index] || depth >= 256) {
+        return false;
+    }
+    if (!Drawable(*node)) {
+        return true;
+    }
+    visited[id.index] = true;
+    if (node->backdrop_blur > 0 ||
+        std::any_of(node->visuals.begin(), node->visuals.end(), [](const Visual &visual) {
+            return std::holds_alternative<ImageVisual>(visual);
+        })) {
+        return false;
+    }
+    for (const auto child : node->children) {
+        if (!Exportable(tree, child, visited, depth + 1)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool FindExportablePath(const RenderTree &tree, contracts::NodeId root,
+                        std::vector<contracts::NodeId> &path)
+{
+    std::vector<bool> visited(tree.nodes.size(), false);
+    if (!FindPath(tree, tree.root, root, path, visited)) {
+        return false;
+    }
+    for (const auto ancestor : path) {
+        if (tree.Get(ancestor).backdrop_blur > 0) {
+            return false;
+        }
+    }
+
+    std::fill(visited.begin(), visited.end(), false);
+    return Exportable(tree, root, visited, 0);
 }
 } // namespace
 
@@ -166,6 +270,73 @@ contracts::DisplayList DisplayListBuilder::Build(const RenderTree &tree, contrac
     list.window = window;
     list.generation = generation;
     Emit(tree, tree.root, font, list);
+    return list;
+}
+
+std::optional<contracts::DisplayList> DisplayListBuilder::BuildSubtree(const RenderTree &tree,
+                                                                       contracts::NodeId root,
+                                                                       contracts::WindowId window,
+                                                                       contracts::ResourceId font,
+                                                                       std::uint64_t generation)
+{
+    if (!window) {
+        return std::nullopt;
+    }
+    std::vector<contracts::NodeId> path;
+    if (!FindExportablePath(tree, root, path)) {
+        return std::nullopt;
+    }
+
+    contracts::DisplayList list;
+    list.window = window;
+    list.generation = generation;
+    for (std::size_t i = 0; i + 1 < path.size(); ++i) {
+        const auto &ancestor = tree.Get(path[i]);
+        PushPresentation(ancestor, list);
+        if (ancestor.clip) {
+            EmitClip(ancestor, list);
+        }
+    }
+    Emit(tree, root, font, list);
+    for (std::size_t i = path.size() - 1; i > 0; --i) {
+        PopContext(tree.Get(path[i - 1]), list);
+    }
+
+    try {
+        contracts::ValidateDisplayList(list);
+    } catch (const std::invalid_argument &) {
+        return std::nullopt;
+    }
+    return list;
+}
+
+std::optional<contracts::DisplayList>
+DisplayListBuilder::BuildWithSubtreeOpacity(const RenderTree &tree, contracts::NodeId root,
+                                            double opacity, contracts::WindowId window,
+                                            contracts::ResourceId font, std::uint64_t generation)
+{
+    if (!std::isfinite(opacity) || opacity < 0 || opacity > 1) {
+        throw std::invalid_argument("Subtree opacity must be finite and in [0,1]");
+    }
+    if (!window) {
+        return std::nullopt;
+    }
+    std::vector<contracts::NodeId> path;
+    if (!FindExportablePath(tree, root, path)) {
+        return std::nullopt;
+    }
+
+    contracts::DisplayList list;
+    list.window = window;
+    list.generation = generation;
+    const SubtreeOpacity selected{root, opacity};
+    Emit(tree, tree.root, font, list, &selected);
+
+    try {
+        contracts::ValidateDisplayList(list);
+    } catch (const std::invalid_argument &) {
+        return std::nullopt;
+    }
     return list;
 }
 } // namespace prism::runtime

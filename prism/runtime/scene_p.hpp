@@ -158,6 +158,7 @@ struct Scene::OwnerModalState {
     contracts::NodeId root;
     contracts::NodeId return_region;
     std::uint64_t token{}, seat{};
+    bool input_ready{true};
     std::vector<InputState::Focus> focus;
 };
 

@@ -22,6 +22,15 @@ bool ClientApplication::RefreshOwnerTask(runtime::TaskIdentity identity)
         return false;
     }
     app.owner_task_scope->token = *token;
+    if (!app.owner_task_presentation.Reproject(app.owner_task_scope->presentation, *token,
+                                               app.scene->OwnerModalEpoch(),
+                                               app.owner_task_scope->root)) {
+        app.owner_tasks->Fail(identity, {runtime::TaskFailureCode::PreparationFailed,
+                                         "Task presentation projection could not be refreshed"});
+        app.RevokeOwnerTaskScope();
+        app.PublishOwnerTaskChange();
+        return false;
+    }
     app.owner_tasks->Reprepare(identity);
 
     try {

@@ -2,6 +2,7 @@
 #include "prism/contracts/display_list_validation.hpp"
 #include "prism/runtime/owner_task_panel.hpp"
 #include "prism/theme/compiler.hpp"
+#include "prism/theme/motion_compiler.hpp"
 #include "scene_p.hpp"
 
 #include <array>
@@ -19,6 +20,17 @@ namespace {
 const std::filesystem::path source_root{PRISM_SOURCE_ROOT};
 constexpr contracts::InputSource pointer{0, 1, 1};
 constexpr contracts::WindowId window{1};
+
+// This suite verifies provider/lifecycle policy at zero duration. Nonzero
+// task motion has its own fake-clock FramePacket/adoption integration suite.
+contracts::ThemeSnapshot InstantTheme(const std::filesystem::path &theme_root, std::string_view id,
+                                      std::uint64_t generation = 0,
+                                      std::string_view scheme = "dark")
+{
+    auto snapshot = theme::LoadTheme(theme_root, id, generation, scheme);
+    snapshot.motion = theme::LoadMotion(theme_root.parent_path() / "motions", "instant");
+    return snapshot;
+}
 
 std::string Read(const std::filesystem::path &path)
 {
@@ -84,7 +96,7 @@ struct Fixture {
 
     Fixture()
     {
-        assert(app.ApplyTheme(theme::LoadTheme(source_root / "resources/themes", "glass", 1)));
+        assert(app.ApplyTheme(InstantTheme(source_root / "resources/themes", "glass", 1)));
         assert(app.ConfigureOwnerFeedbackPanel(runtime::PrepareComponent(
             Read(source_root / "resources/ui/owner-feedback-panel.prism"))));
         assert(app.ConfigureOwnerTaskPanel(
@@ -344,9 +356,8 @@ void CheckTextResizeAndTheme()
     assert(impl.owner_feedback && impl.owner_feedback->request_id == request_id);
     for (const auto name : {"glass", "translucent", "transparent", "square"}) {
         for (const auto scheme : {"light", "dark"}) {
-            assert(fixture.app.ApplyTheme(theme::LoadTheme(source_root / "resources/themes", name,
-                                                           fixture.app.ThemeGeneration() + 1,
-                                                           scheme)));
+            assert(fixture.app.ApplyTheme(InstantTheme(source_root / "resources/themes", name,
+                                                       fixture.app.ThemeGeneration() + 1, scheme)));
             assert(impl.owner_feedback && impl.owner_feedback->request_id == request_id);
             const auto metrics =
                 fixture.Scene().TextLayoutInRegion(runtime::kOwnerFeedbackMessageRegion);
